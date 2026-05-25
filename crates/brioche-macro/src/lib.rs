@@ -22,6 +22,7 @@ enum DeriveError {
     HashMapInField { span: Span, field_name: String },
     HashSetInField { span: Span, field_name: String },
     UiTypeInField { span: Span, field_name: String },
+    UndeterminedVecInField { span: Span, field_name: String },
 }
 
 /// Parsed `#[brioche(...)]` attributes on a struct/enum.
@@ -194,7 +195,85 @@ fn scan_type(ty: &Type, errors: &mut Vec<DeriveError>, field_name: &str) {
     }
 }
 
-/// Scan all fields of a struct/enum for banned types.
+/// Recursively check whether a type contains `Vec`.
+///
+/// Returns `true` if the type path (or any nested generic) contains a
+/// segment named exactly `Vec`. This catches `Vec<T>`,
+/// `std::vec::Vec<T>`, and nested usages like `BTreeMap<K, Vec<V>>`.
+fn type_contains_vec(ty: &Type) -> bool {
+    match ty {
+        Type::Path(type_path) => {
+            let segments: Vec<String> = type_path
+                .path
+                .segments
+                .iter()
+                .map(|s| s.ident.to_string())
+                .collect();
+            if segments.iter().any(|s| s == "Vec") {
+                return true;
+            }
+            if let Some(seg) = type_path.path.segments.last()
+                && let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                    for arg in &args.args {
+                        if let syn::GenericArgument::Type(inner) = arg
+                            && type_contains_vec(inner) {
+                                return true;
+                            }
+                    }
+                }
+            false
+        }
+        Type::Array(arr) => type_contains_vec(&arr.elem),
+        Type::Tuple(tuple) => tuple.elems.iter().any(type_contains_vec),
+        Type::Reference(rf) => type_contains_vec(&rf.elem),
+        Type::Paren(paren) => type_contains_vec(&paren.elem),
+        Type::Slice(slice) => type_contains_vec(&slice.elem),
+        Type::BareFn(bare) => {
+            bare.inputs.iter().any(|inp| type_contains_vec(&inp.ty))
+                || matches!(&bare.output, syn::ReturnType::Type(_, output) if type_contains_vec(output))
+        }
+        Type::ImplTrait(impl_trait) => impl_trait.bounds.iter().any(|bound| {
+            if let syn::TypeParamBound::Trait(trait_bound) = bound {
+                trait_bound.path.segments.iter().any(|seg| {
+                    if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                        args.args.iter().any(|arg| {
+                            matches!(arg, syn::GenericArgument::Type(inner) if type_contains_vec(inner))
+                        })
+                    } else {
+                        false
+                    }
+                })
+            } else {
+                false
+            }
+        }),
+        _ => false,
+    }
+}
+
+/// Check whether a field carries `#[brioche(deterministic_order)]`.
+fn field_has_deterministic_order(attrs: &[Attribute]) -> bool {
+    for attr in attrs {
+        if !attr.path().is_ident("brioche") {
+            continue;
+        }
+        let mut found = false;
+        // Ignore parse errors — malformed attributes are handled elsewhere.
+        let _ = attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("deterministic_order") {
+                found = true;
+            }
+            Ok(())
+        });
+        if found {
+            return true;
+        }
+    }
+    false
+}
+
+/// Scan all fields of a struct/enum for banned types and undetermined
+/// `Vec` fields.
 fn scan_fields(fields: &Fields, errors: &mut Vec<DeriveError>) {
     match fields {
         Fields::Named(named) => {
@@ -205,11 +284,24 @@ fn scan_fields(fields: &Fields, errors: &mut Vec<DeriveError>) {
                     .map(|i| i.to_string())
                     .unwrap_or_else(|| "_".to_string());
                 scan_type(&f.ty, errors, &name);
+                if type_contains_vec(&f.ty) && !field_has_deterministic_order(&f.attrs) {
+                    errors.push(DeriveError::UndeterminedVecInField {
+                        span: f.ty.span(),
+                        field_name: name,
+                    });
+                }
             }
         }
         Fields::Unnamed(unnamed) => {
             for (i, f) in unnamed.unnamed.iter().enumerate() {
-                scan_type(&f.ty, errors, &format!("_{}", i));
+                let name = format!("_{}", i);
+                scan_type(&f.ty, errors, &name);
+                if type_contains_vec(&f.ty) && !field_has_deterministic_order(&f.attrs) {
+                    errors.push(DeriveError::UndeterminedVecInField {
+                        span: f.ty.span(),
+                        field_name: name,
+                    });
+                }
             }
         }
         Fields::Unit => {}
@@ -281,6 +373,11 @@ pub fn derive_brioche_extension_type(input: TokenStream) -> TokenStream {
                     compile_error!(concat!("Field `", #field_name, "` appears to contain a UI type. UI types are prohibited in BriocheExtensionType."));
                 }
             }
+            DeriveError::UndeterminedVecInField { span, field_name } => {
+                quote_spanned! { *span =>
+                    compile_error!(concat!("Field `", #field_name, "` uses Vec without #[brioche(deterministic_order)]. Persisted Vec fields must have deterministic insertion order. Use #[brioche(deterministic_order)] to certify determinism, or replace with BTreeMap/IndexMap."));
+                }
+            }
         })
         .collect();
 
@@ -296,13 +393,64 @@ pub fn derive_brioche_extension_type(input: TokenStream) -> TokenStream {
             const EXT_ID: &'static str = #ext_id_tokens;
 
             fn estimated_weight_bytes(&self) -> usize {
-                // Pragmatic estimate: size_of_val. Will be refined with
-                // actual serialization weight in Sprint 2.
+                // Pragmatic estimate: size_of_val. The VTable function
+                // refines this via binary serialization when available.
                 ::core::mem::size_of_val(self)
             }
 
             fn snapshot_strategy() -> ::brioche_core::SnapshotStrategy {
                 #snapshot_strategy
+            }
+
+            fn build_vtable() -> ::brioche_core::ExtVTable
+            where
+                Self: Sized,
+            {
+                fn serialize(any: &dyn ::core::any::Any) -> ::std::vec::Vec<u8> {
+                    if let Some(this) = any.downcast_ref::<#name>() {
+                        match ::brioche_core::postcard::to_stdvec(this) {
+                            Ok(v) => v,
+                            Err(_) => ::std::vec::Vec::new(),
+                        }
+                    } else {
+                        ::std::vec::Vec::new()
+                    }
+                }
+                fn deserialize(bytes: &[u8]) -> ::core::result::Result<::std::boxed::Box<dyn ::core::any::Any + Send + Sync>, ::std::string::String> {
+                    ::brioche_core::postcard::from_bytes::<#name>(bytes)
+                        .map(|v| ::std::boxed::Box::new(v) as ::std::boxed::Box<dyn ::core::any::Any + Send + Sync>)
+                        .map_err(|_| ::std::string::String::from("deserialize failed"))
+                }
+                fn clone_box(any: &dyn ::core::any::Any) -> ::std::boxed::Box<dyn ::core::any::Any + Send + Sync> {
+                    if let Some(this) = any.downcast_ref::<#name>() {
+                        ::std::boxed::Box::new(this.clone())
+                    } else {
+                        ::std::boxed::Box::new(<#name as ::core::default::Default>::default())
+                    }
+                }
+                fn estimated_weight_bytes(any: &dyn ::core::any::Any) -> usize {
+                    if let Some(this) = any.downcast_ref::<#name>() {
+                        match ::brioche_core::postcard::to_stdvec(this) {
+                            Ok(v) => v.len(),
+                            Err(_) => ::core::mem::size_of_val(this),
+                        }
+                    } else {
+                        0
+                    }
+                }
+                fn default_construct() -> ::std::boxed::Box<dyn ::core::any::Any + Send + Sync> {
+                    ::std::boxed::Box::new(<#name as ::core::default::Default>::default())
+                }
+
+                ::brioche_core::ExtVTable {
+                    ext_id: <#name as ::brioche_core::BriocheExtensionType>::EXT_ID,
+                    serialize,
+                    deserialize,
+                    clone_box,
+                    estimated_weight_bytes,
+                    snapshot_strategy: <#name as ::brioche_core::BriocheExtensionType>::snapshot_strategy(),
+                    default_construct,
+                }
             }
         }
     };

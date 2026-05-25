@@ -1,0 +1,5 @@
+error: Field `history` uses Vec without #[brioche(deterministic_order)]. Persisted Vec fields must have deterministic insertion order. Use #[brioche(deterministic_order)] to certify determinism, or replace with BTreeMap/IndexMap.
+ --> tests/ui/fail_vec_undetermined.rs:6:18
+  |
+6 |     pub history: Vec<String>,
+  |                  ^^^
