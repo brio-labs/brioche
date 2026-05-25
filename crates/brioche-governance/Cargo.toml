@@ -1,0 +1,16 @@
+[package]
+name = "brioche-governance"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Governance traits and policy contracts"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "1"
+
+[lints]
+workspace = true

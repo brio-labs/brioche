@@ -1,0 +1,29 @@
+name: Benchmarks
+
+on:
+  pull_request:
+    paths:
+      - "crates/brioche-core/**"
+      - "crates/brioche-governance/**"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run benchmarks
+        run: cargo bench --workspace | tee benchmark-results.txt
+      - name: Compare with main
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: "cargo"
+          output-file-path: benchmark-results.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          alert-threshold: "150%"
+          comment-on-alert: true
+          fail-on-alert: true
