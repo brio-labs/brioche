@@ -8,4 +8,5 @@ fn ui_tests() {
     t.compile_fail("tests/ui/fail_ui_type.rs");
     t.compile_fail("tests/ui/fail_manual_impl.rs");
     t.compile_fail("tests/ui/fail_unknown_attr.rs");
+    t.compile_fail("tests/ui/fail_vec_undetermined.rs");
 }

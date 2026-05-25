@@ -1,5 +1,16 @@
-avoid-breaking-exported-api = true
+avoid-breaking-exported-api = false
 cognitive-complexity-threshold = 30
 allow-unwrap-in-tests = false
 allow-expect-in-tests = false
 allow-panic-in-tests = false
+
+disallowed-methods = [
+  "std::collections::HashMap::new",
+  "std::collections::HashSet::new",
+  "std::time::Instant::now",
+  "std::option::Option::unwrap",
+  "std::result::Result::unwrap",
+  "std::vec::Vec::swap_remove",
+]
+
+disallowed-types = ["std::collections::HashMap", "std::collections::HashSet"]
