@@ -192,12 +192,13 @@ pub enum StreamAction {
 **Extended VTable:**
 ```rust
 pub struct ExtVTable {
+    pub ext_id: &'static str,
     pub serialize: fn(&dyn Any) -> Vec<u8>,
-    pub deserialize: fn(&[u8]) -> Box<dyn Any>,
-    pub clone_box: fn(&dyn Any) -> Box<dyn Any>,
+    pub deserialize: fn(&[u8]) -> Result<Box<dyn Any + Send + Sync>, String>,
+    pub clone_box: fn(&dyn Any) -> Box<dyn Any + Send + Sync>,
     pub estimated_weight_bytes: fn(&dyn Any) -> usize,
     pub snapshot_strategy: SnapshotStrategy,
-    pub default_construct: fn() -> Box<dyn Any>,
+    pub default_construct: fn() -> Box<dyn Any + Send + Sync>,
 }
 ```
 
@@ -209,7 +210,7 @@ pub struct ExtVTable {
 1. **Presence of `EXT_ID`** — auto-generated from `module_path!()` + type name; respects `crate::type_name` format
 2. **Prohibition of `HashMap`/`HashSet`** — recursive field analysis; compilation fails if persisted fields contain these types
 3. **Absence of UI types** — detects `tauri`, `vue`, `dom` crate imports in struct fields
-4. **Determinism of `Vec`s** — warns (deny-by-default under `strict-determinism`) on undetermined `Vec` fields
+4. **Determinism of `Vec`s** — on stable Rust the macro emits `compile_error!` for any `Vec<T>` field not annotated with `#[brioche(deterministic_order)]`. (When `compile_warning!` stabilizes, this will become a warning that is deny-by-default under the `strict-determinism` feature.)
 5. **`clone_box` generation** — requires `Clone`; compilation fails if type cannot derive/impl `Clone`
 6. **`estimated_weight_bytes` generation** — estimates weight via binary serialization
 7. **`snapshot_strategy` generation** — `FullClone` by default; `#[brioche(no_snapshot)]`, `#[brioche(incremental_snapshot)]`, `#[brioche(critical_state)]` annotations modify this
@@ -231,7 +232,7 @@ Business types (e.g., `TokenTrackerState`) do not carry `critical_state` by defa
 
 ## Chapter 4: Plugin interface
 
-*To be written in Sprint 2. See `SPECS.md` §4 for canonical content.*
+*To be written in Sprint 4. See `SPECS.md` §4 for canonical content.*
 
 ## Chapter 5: Transition algorithm
 
@@ -247,14 +248,14 @@ Business types (e.g., `TokenTrackerState`) do not carry `critical_state` by defa
 
 | Invariant | Sprint | Status |
 |-----------|--------|--------|
-| I-Core-ExtensionType | 1 | 🔄 In Progress |
-| I-Core-ExtO1 | 2 | ⬜ Pending |
+| I-Core-ExtensionType | 1 | ✅ Complete |
+| I-Core-ExtO1 | 2 | ✅ Complete |
 | I-Core-Pure | 3 | ⬜ Pending |
 | I-Core-NoPanic | 3 | ⬜ Pending |
 | I-Core-StreamNoBranch | 4 | ⬜ Pending |
 | I-Core-PluginOrder | 4 | ⬜ Pending |
 | I-Core-RetVecEffect | 5 | ⬜ Pending |
-| I-Core-VTableClone | 1 | 🔄 In Progress |
+| I-Core-VTableClone | 2 | ✅ Complete |
 | I-Core-ChunkBudget | 5 | ⬜ Pending |
 | I-Core-ActiveToolCall | 5 | ⬜ Pending |
 
