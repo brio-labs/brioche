@@ -1,0 +1,18 @@
+[package]
+name = "brioche-plugin-kit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Developer tooling for Brioche plugins"
+
+[dependencies]
+brioche-core = { workspace = true }
+brioche-governance = { workspace = true }
+brioche-std = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+
+[lints]
+workspace = true

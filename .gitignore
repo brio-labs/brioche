@@ -1,0 +1,21 @@
+/target/
+Cargo.lock
+
+# Editor / IDE
+*.swp
+*.swo
+*~
+.DS_Store
+.idea/
+.vscode/
+*.iml
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
+
+# Rust backup files
+**/*.rs.bk
