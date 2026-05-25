@@ -18,3 +18,6 @@
 
 # Rust backup files
 **/*.rs.bk
+
+# trybuild temporary output
+**/wip/
