@@ -12,9 +12,9 @@ description = "Shell persistence layer"
 brioche-core = { workspace = true }
 brioche-governance = { workspace = true }
 brioche-shell-runtime = { workspace = true }
-redb = "2"
+redb = "4"
 serde = { version = "1", features = ["derive"] }
-thiserror = "1"
+thiserror = "2"
 
 [lints]
 workspace = true

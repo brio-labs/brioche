@@ -10,7 +10,7 @@ description = "Governance traits and policy contracts"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-thiserror = "1"
+thiserror = "2"
 
 [lints]
 workspace = true
