@@ -1,5 +1,12 @@
 # Contributing to Brioche
 
+> **⚠️ STOP.** Before writing code, read [`docs/PHILOSOPHY.md`](docs/PHILOSOPHY.md).
+> Brioche is not a typical Rust project. It rejects OOP inheritance, runtime polymorphism,
+> and hidden state. PRs that violate the philosophy are rejected regardless of test coverage.
+> The compiler and CI are configured to enforce this — no exceptions.
+>
+> New to Brioche? Follow [`docs/first-pr-guide.md`](docs/first-pr-guide.md) for a step-by-step walkthrough.
+
 ## Prerequisites
 
 - Rust **1.95+**
@@ -110,6 +117,20 @@ Explain **why**, not what. The code shows what happens; comments justify deviati
 // Satisfies I-Gov-Epoch-Reject.
 epoch_state.current_generation += 1;
 ```
+
+## Common First-PR Mistakes
+
+New Rust developers will instinctively reach for `HashMap`, `unwrap()`, and inheritance. Use this Rosetta stone:
+
+| "I want to..." | ❌ Don't | ✅ Do instead |
+|----------------|---------|---------------|
+| Cache lookups in a plugin | `HashMap<K, V>` | `BTreeMap<K, V>` or `IndexMap` |
+| Handle a missing value | `.unwrap()` or `.expect()` | `match`, `if let`, or `?` with explicit error |
+| Share behavior between plugins | `struct BasePlugin` + inheritance | Trait composition (`impl TraitA + TraitB`) |
+| Get current time in a plugin | `Instant::now()` | Receive `SystemSignal::Tick` from the shell |
+| Branch on a business rule in Core | `if user_is_banned` inside `transition()` | Return an effect; let a governance plugin decide |
+| Clone all extensions before a hook | `ext.clone()` (O(n) extensions) | COW via `UndoFrameState` (O(k) mutated) |
+| Skip doc comments on `pub` items | Leave it bare | Every `pub` item gets a doc block with `Refs:` |
 
 ## Testing Requirements
 
@@ -229,6 +250,7 @@ Refs: I-Gov-Rollback-BestEffort, I-Core-VTableClone
 - [ ] Commit messages follow the format above.
 - [ ] `cargo fmt`, `cargo clippy`, `cargo deny check all` pass.
 - [ ] `cargo brioche lint-invariants --check-refs --check-matrix` passes.
+  > **Note:** This tool is planned but not yet implemented. Skip for now.
 - [ ] Tests added for Core/Governance changes.
 - [ ] Replay tests pass if `transition()` or effect emission changed.
 - [ ] Benchmarks show no regression if hot path modified.
