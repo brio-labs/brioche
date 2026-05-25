@@ -1,0 +1,52 @@
+name: Conventional Commits
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, synchronize]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate PR title
+        run: |
+          TITLE="${{ github.event.pull_request.title }}"
+          REGEX='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9-]+\))?!?: .{1,100}$'
+          if ! echo "$TITLE" | grep -qE "$REGEX"; then
+            echo "::error::PR title must follow Conventional Commits:"
+            echo "  Expected: type(scope): description"
+            echo "  Got:      $TITLE"
+            echo ""
+            echo "Valid types: build, chore, ci, docs, feat, fix, perf, refactor, revert, style, test"
+            exit 1
+          fi
+          echo "✓ PR title is valid: $TITLE"
+
+      - name: Validate commit messages
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          REGEX='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9-]+\))?!?: .{1,100}$'
+          FAILED=0
+
+          while IFS= read -r msg; do
+            if ! echo "$msg" | grep -qE "$REGEX"; then
+              echo "::error::Invalid commit message: $msg"
+              FAILED=1
+            fi
+          done < <(git log "$BASE..$HEAD" --pretty=format:"%s")
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo ""
+            echo "All commit messages must follow Conventional Commits."
+            echo "Format: type(scope): description"
+            echo "Valid types: build, chore, ci, docs, feat, fix, perf, refactor, revert, style, test"
+            exit 1
+          fi
+
+          echo "✓ All commit messages are valid"
