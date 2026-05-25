@@ -1,0 +1,16 @@
+[package]
+name = "brioche-shell-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shell runtime environment"
+
+[dependencies]
+brioche-core = { workspace = true }
+brioche-governance = { workspace = true }
+
+[lints]
+workspace = true

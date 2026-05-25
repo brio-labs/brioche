@@ -1,0 +1,30 @@
+name: Feature / Mechanism Request
+description: Propose a new mechanism or policy
+title: "[FEAT] "
+labels: ["status:needs-spec"]
+body:
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Target Layer
+      options:
+        - Core
+        - Governance
+        - Shell Runtime
+        - Shell Persistence
+        - Shell Projection
+        - Ecosystem / Standard Plugins
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the proposed mechanism or policy.
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-implementation Checklist
+      options:
+        - label: Invariant analysis completed (no violations introduced)
+        - label: Trait compatibility matrix updated (if Governance layer)
+        - label: Benchmark impact assessed
+        - label: Documentation updated

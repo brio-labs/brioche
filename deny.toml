@@ -1,0 +1,100 @@
+# cargo-deny configuration for Brioche
+# https://embarkstudios.github.io/cargo-deny/index.html
+
+# --- Dependency graph target configuration ---
+[graph]
+# Analyze the graph for the host target only by default.
+targets = [
+  { triple = "x86_64-unknown-linux-gnu" },
+  { triple = "aarch64-unknown-linux-gnu" },
+  { triple = "x86_64-pc-windows-msvc" },
+  { triple = "aarch64-apple-darwin" },
+  { triple = "x86_64-apple-darwin" },
+  { triple = "wasm32-unknown-unknown" },
+]
+# Include all features when checking (matches workspace default).
+all-features = true
+
+# --- License policy ---
+[licenses]
+# Confidence threshold for license detection.
+confidence-threshold = 0.9
+
+# Allow OSI and FSF free licenses by default.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "BSD-3-Clause",
+  "ISC",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "CC0-1.0",
+  "Zlib",
+]
+
+# Explicitly deny copyleft licenses that would force Brioche's license to change.
+deny = [
+  "GPL-2.0",
+  "GPL-3.0",
+  "AGPL-3.0",
+  "LGPL-2.1",
+  "LGPL-3.0",
+  "CC-BY-SA-3.0",
+  "CC-BY-SA-4.0",
+  "EUPL-1.1",
+  "EUPL-1.2",
+  "OSL-3.0",
+]
+
+# Licenses we never want to see.
+unlicensed = "deny"
+
+# --- Crate bans ---
+[bans]
+# Warn when multiple versions of the same crate exist.
+multiple-versions = "warn"
+
+# Deny wildcard dependencies (git = "*", version = "*").
+wildcards = "deny"
+
+# Highlight crates with multiple versions.
+highlight = "all"
+
+# Allow specific duplicates if needed for transitive dependencies.
+# skip = []
+
+# Skip specific transitive dependency trees.
+# skip-tree = []
+
+# --- Security advisories ---
+[advisories]
+db-path = "~/.cargo/advisory-dbs"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+
+# Deny any crate with a known vulnerability.
+vulnerability = "deny"
+
+# Warn on unmaintained crates.
+unmaintained = "warn"
+
+# Deny yanked crates.
+yanked = "deny"
+
+# Ignore specific advisories if necessary.
+# ignore = []
+
+# --- Source policy ---
+[sources]
+# Deny crates from unknown registries.
+unknown-registry = "warn"
+
+# Deny crates from unknown git repositories.
+unknown-git = "warn"
+
+# Allow only crates.io as a registry.
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+# Allow git dependencies only from the Brioche org.
+[sources.allow-org]
+github = ["brio-labs"]

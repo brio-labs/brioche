@@ -1,0 +1,17 @@
+[package]
+name = "brioche-shell-projection"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shell projection layer"
+
+[dependencies]
+brioche-core = { workspace = true }
+brioche-governance = { workspace = true }
+brioche-shell-runtime = { workspace = true }
+
+[lints]
+workspace = true

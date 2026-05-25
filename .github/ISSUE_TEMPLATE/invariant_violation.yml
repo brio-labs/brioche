@@ -1,0 +1,34 @@
+name: Invariant Violation
+description: Report a violation of system invariants
+title: "[INVARIANT] "
+labels: ["type:invariant", "priority:critical"]
+body:
+  - type: input
+    id: invariant-id
+    attributes:
+      label: Invariant ID
+      placeholder: "e.g., core-determinism, governance-rollback"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Violation Description
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction Steps
+      description: Provide a minimal test case
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Affected Layer
+      options:
+        - Core
+        - Governance
+        - Shell Runtime
+        - Shell Persistence
+        - Shell Projection
+        - Ecosystem / Standard Plugins

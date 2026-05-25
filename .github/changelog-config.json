@@ -1,0 +1,26 @@
+{
+  "categories": [
+    {
+      "title": "## Features",
+      "labels": ["type:mechanism", "type:policy"]
+    },
+    {
+      "title": "## Bug Fixes",
+      "labels": ["type:bug"]
+    },
+    {
+      "title": "## Invariants",
+      "labels": ["type:invariant"]
+    },
+    {
+      "title": "## Performance",
+      "labels": ["type:performance"]
+    },
+    {
+      "title": "## Security",
+      "labels": ["type:security"]
+    }
+  ],
+  "sort": "ASC",
+  "template": "## What's Changed\n\n${{CHANGELOG}}\n\n**Full Changelog**: ${{RELEASE_DIFF}}"
+}
