@@ -16,9 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: EmbarkStudios/cargo-deny-action@v1
+      - uses: taiki-e/install-action@v2
         with:
-          command: check all
+          tool: cargo-deny
+      - run: cargo deny check
 
   fmt:
     runs-on: ubuntu-latest
