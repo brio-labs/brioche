@@ -1,0 +1,5 @@
+error: unknown brioche attribute `unknwon_typo`. Expected one of: critical_state, no_snapshot, incremental_snapshot, ext_id
+ --> tests/ui/fail_unknown_attr.rs:5:11
+  |
+5 | #[brioche(unknwon_typo)]
+  |           ^^^^^^^^^^^^
