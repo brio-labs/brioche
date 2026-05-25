@@ -16,7 +16,7 @@ jobs:
       - name: Validate PR title
         run: |
           TITLE="${{ github.event.pull_request.title }}"
-          REGEX='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9-]+\))?!?: .{1,100}$'
+          REGEX='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9,-]+\))?!?: .{1,100}$'
           if ! echo "$TITLE" | grep -qE "$REGEX"; then
             echo "::error::PR title must follow Conventional Commits:"
             echo "  Expected: type(scope): description"
@@ -31,7 +31,7 @@ jobs:
         run: |
           BASE="${{ github.event.pull_request.base.sha }}"
           HEAD="${{ github.event.pull_request.head.sha }}"
-          REGEX='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9-]+\))?!?: .{1,100}$'
+          REGEX='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9,-]+\))?!?: .{1,100}$'
           FAILED=0
 
           while IFS= read -r msg; do

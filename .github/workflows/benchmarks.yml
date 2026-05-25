@@ -18,7 +18,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Run benchmarks
         run: cargo bench --workspace | tee benchmark-results.txt
+      - name: Check for benchmark results
+        id: check
+        run: |
+          if grep -q "test result: ok. 0 passed" benchmark-results.txt; then
+            echo "has_benchmarks=false" >> "$GITHUB_OUTPUT"
+            echo "No benchmarks found — skipping comparison."
+          else
+            echo "has_benchmarks=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Compare with main
+        if: steps.check.outputs.has_benchmarks == 'true'
         uses: benchmark-action/github-action-benchmark@v1
         with:
           tool: "cargo"
