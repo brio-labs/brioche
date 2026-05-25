@@ -1,0 +1,5 @@
+error: Field `tags` uses HashSet. HashSet is prohibited in BriocheExtensionType persisted state. Use BTreeSet instead.
+ --> tests/ui/fail_hashset.rs:6:15
+  |
+6 |     pub tags: HashSet<String>,
+  |               ^^^^^^^

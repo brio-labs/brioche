@@ -1,0 +1,16 @@
+error[E0277]: the trait bound `BadState: Clone` is not satisfied
+ --> tests/ui/fail_missing_clone.rs:4:12
+  |
+4 | pub struct BadState {
+  |            ^^^^^^^^ the trait `Clone` is not implemented for `BadState`
+  |
+note: required by a bound in `BriocheExtensionType`
+ --> $WORKSPACE/crates/brioche-core/src/extension.rs
+  |
+  | pub trait BriocheExtensionType: __private::Sealed + Any + Send + Sync + Clone {
+  |                                                                         ^^^^^ required by this bound in `BriocheExtensionType`
+help: consider annotating `BadState` with `#[derive(Clone)]`
+  |
+4 + #[derive(Clone)]
+5 | pub struct BadState {
+  |
