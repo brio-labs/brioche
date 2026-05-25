@@ -16,6 +16,9 @@
 # Logs
 *.log
 
+# Ruff cache
+.ruff_cache/
+
 # Rust backup files
 **/*.rs.bk
 

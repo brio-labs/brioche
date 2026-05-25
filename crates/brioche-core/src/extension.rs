@@ -7,7 +7,12 @@
 //!
 //! Refs: SPECS.md §3.1, §3.2
 
-use std::any::Any;
+use std::any::{Any, TypeId};
+#[allow(
+    clippy::disallowed_types,
+    reason = "HashMap is used only for transient runtime lookups in ExtensionStorage."
+)]
+use std::collections::{BTreeMap, HashMap};
 
 /// Snapshot strategy for COW rollback.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,6 +25,54 @@ pub enum SnapshotStrategy {
     Incremental,
     /// Priority full clone — exempt from `max_cow_bytes_per_hook` threshold.
     CriticalFullClone,
+}
+
+/// Function table for per-type (de)serialization, cloning, and default construction.
+///
+/// Each `BriocheExtensionType` registers an `ExtVTable` at initialization.
+/// The kernel uses this table to operate on type-erased extension instances
+/// without dynamic dispatch overhead beyond a single function pointer call.
+///
+/// Refs: I-Core-VTableClone
+#[derive(Clone)]
+#[allow(clippy::type_complexity)]
+pub struct ExtVTable {
+    /// Unique extension identifier, matching `BriocheExtensionType::EXT_ID`.
+    pub ext_id: &'static str,
+    /// Serialize a type-erased instance to a binary blob.
+    ///
+    /// Refs: I-Core-VTableClone
+    pub serialize: fn(&dyn Any) -> Vec<u8>,
+    /// Deserialize a binary blob into a type-erased instance.
+    ///
+    /// Returns `Err` if the blob is corrupted or version-incompatible.
+    /// The caller should fall back to `default_construct`.
+    ///
+    /// Refs: I-Core-VTableClone
+    pub deserialize: fn(&[u8]) -> Result<Box<dyn Any + Send + Sync>, String>,
+    /// Clone a type-erased instance.
+    ///
+    /// Used by `CycleRollbackPolicy` for granular COW snapshots.
+    ///
+    /// Refs: I-Core-VTableClone
+    pub clone_box: fn(&dyn Any) -> Box<dyn Any + Send + Sync>,
+    /// Estimate the instance weight in bytes.
+    ///
+    /// Used by `UndoFrameGuard` and `TieredUndoFrameGuard` to decide
+    /// whether a type fits within the `max_cow_bytes_per_hook` budget.
+    ///
+    /// Complexity: O(serialization cost).
+    pub estimated_weight_bytes: fn(&dyn Any) -> usize,
+    /// Recommended snapshot strategy for this type.
+    ///
+    /// `CriticalFullClone` types are always cloned by rollback guards,
+    /// regardless of memory pressure.
+    pub snapshot_strategy: SnapshotStrategy,
+    /// Construct a default instance.
+    ///
+    /// Used by `get_or_insert_default` and `hydrate_plugin` as a fallback
+    /// when deserialization fails.
+    pub default_construct: fn() -> Box<dyn Any + Send + Sync>,
 }
 
 /// Private implementation detail for the sealed trait pattern.
@@ -46,7 +99,16 @@ pub mod __private {
 /// implemented outside `brioche-core` and `brioche-macro`. Any manual
 /// `impl BriocheExtensionType for MyType` will fail to compile because
 /// the compiler cannot find an `impl __private::Sealed for MyType`.
-pub trait BriocheExtensionType: __private::Sealed + Any + Send + Sync + Clone {
+pub trait BriocheExtensionType:
+    __private::Sealed
+    + Any
+    + Send
+    + Sync
+    + Clone
+    + Default
+    + serde::Serialize
+    + serde::de::DeserializeOwned
+{
     /// Unique extension identifier, respecting `crate::type_name` format.
     const EXT_ID: &'static str;
 
@@ -55,4 +117,240 @@ pub trait BriocheExtensionType: __private::Sealed + Any + Send + Sync + Clone {
 
     /// Recommended snapshot strategy for this type.
     fn snapshot_strategy() -> SnapshotStrategy;
+
+    /// Build the function table for this type.
+    ///
+    /// This is used by `ExtensionStorage` to perform type-erased
+    /// operations (serialization, deserialization, cloning, default
+    /// construction) without knowing the concrete type at compile time.
+    fn build_vtable() -> ExtVTable
+    where
+        Self: Sized;
+}
+
+/// Type-safe runtime storage for plugin extension state.
+///
+/// `ExtensionStorage` provides O(1) typed access to extension instances
+/// by `TypeId`, with automatic binary persistence via `ExtVTable`.
+///
+/// # Architecture
+///
+/// - `hot_map`: in-memory `HashMap` for O(1) typed access. Not persisted.
+/// - `cold_snapshot`: binary blobs indexed by `EXT_ID`, persisted on `insert`.
+/// - `registry`: `ExtVTable` instances populated at initialization.
+///
+/// # Invariants
+///
+/// - Typed extension access is O(1) by `TypeId` and infallible after
+///   `get_or_insert_default`.
+/// - `HashMap` is permitted only in transient runtime state (`hot_map`,
+///   `registry`), not in persisted `cold_snapshot` (which uses `BTreeMap`).
+///
+/// Refs: I-Core-ExtO1, I-Core-VTableClone
+#[allow(
+    clippy::disallowed_types,
+    clippy::disallowed_methods,
+    reason = "HashMap is used only for transient O(1) TypeId lookups. \
+              Persisted state uses BTreeMap (cold_snapshot). See I-Core-ExtO1."
+)]
+pub struct ExtensionStorage {
+    hot_map: HashMap<TypeId, Box<dyn Any + Send + Sync>>,
+    cold_snapshot: BTreeMap<String, Vec<u8>>,
+    registry: HashMap<TypeId, ExtVTable>,
+    ext_id_to_type_id: BTreeMap<String, TypeId>,
+}
+
+impl Default for ExtensionStorage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[allow(
+    clippy::disallowed_types,
+    clippy::disallowed_methods,
+    reason = "HashMap is allowed here for transient runtime state only. \
+              Persisted data uses BTreeMap."
+)]
+impl ExtensionStorage {
+    /// Create an empty `ExtensionStorage`.
+    ///
+    /// Complexity: O(1). Allocates empty maps.
+    pub fn new() -> Self {
+        Self {
+            hot_map: HashMap::new(),
+            cold_snapshot: BTreeMap::new(),
+            registry: HashMap::new(),
+            ext_id_to_type_id: BTreeMap::new(),
+        }
+    }
+
+    /// Register a type's `ExtVTable`.
+    ///
+    /// This must be called (either explicitly or via `insert` /
+    /// `get_or_insert_default`) before the type can be used.
+    ///
+    /// Complexity: O(1). One `BTreeMap` and one `HashMap` insertion.
+    pub fn register<T>(&mut self)
+    where
+        T: BriocheExtensionType + 'static,
+    {
+        let vtable = T::build_vtable();
+        let type_id = TypeId::of::<T>();
+        self.ext_id_to_type_id
+            .insert(vtable.ext_id.to_string(), type_id);
+        self.registry.insert(type_id, vtable);
+    }
+
+    /// Insert a typed value into storage.
+    ///
+    /// The value is serialized to a binary blob (via `ExtVTable::serialize`)
+    /// and stored in `cold_snapshot`, then placed in `hot_map` for fast
+    /// access.
+    ///
+    /// Complexity: O(serialization cost). One `HashMap` and one `BTreeMap` insertion.
+    pub fn insert<T>(&mut self, value: T)
+    where
+        T: BriocheExtensionType + 'static,
+    {
+        let type_id = TypeId::of::<T>();
+        if !self.registry.contains_key(&type_id) {
+            self.register::<T>();
+        }
+        if let Some(vtable) = self.registry.get(&type_id) {
+            let blob = (vtable.serialize)(&value);
+            self.cold_snapshot.insert(vtable.ext_id.to_string(), blob);
+            self.hot_map.insert(type_id, Box::new(value));
+        }
+        // Defensive: if vtable is missing, value is silently dropped.
+        // This should never happen because register was called above.
+    }
+
+    /// Get a mutable reference to a typed extension, if present.
+    ///
+    /// Complexity: O(1). One `HashMap` lookup plus `downcast_mut`.
+    ///
+    /// Refs: I-Core-ExtO1
+    pub fn get_mut<T>(&mut self) -> Option<&mut T>
+    where
+        T: BriocheExtensionType + 'static,
+    {
+        let type_id = TypeId::of::<T>();
+        self.hot_map
+            .get_mut(&type_id)
+            .and_then(|any| any.downcast_mut::<T>())
+    }
+
+    /// Get a mutable reference to a typed extension, inserting the default
+    /// if absent.
+    ///
+    /// If the type is not in `hot_map`, attempts to restore from
+    /// `cold_snapshot` via `ExtVTable::deserialize`. On deserialization
+    /// failure, falls back to `ExtVTable::default_construct`.
+    ///
+    /// This method is infallible: it always returns a valid `&mut T`.
+    ///
+    /// Complexity: O(1) amortized. One `HashMap` lookup plus optional
+    /// deserialization.
+    ///
+    /// Refs: I-Core-ExtO1
+    pub fn get_or_insert_default<T>(&mut self) -> &mut T
+    where
+        T: BriocheExtensionType + 'static,
+    {
+        let type_id = TypeId::of::<T>();
+        if !self.registry.contains_key(&type_id) {
+            self.register::<T>();
+        }
+        if !self.hot_map.contains_key(&type_id) {
+            let value: Box<dyn Any + Send + Sync> =
+                if let Some(vtable) = self.registry.get(&type_id) {
+                    self.cold_snapshot
+                        .get(vtable.ext_id)
+                        .and_then(|blob| (vtable.deserialize)(blob).ok())
+                        .unwrap_or_else(|| (vtable.default_construct)())
+                } else {
+                    // Defensive: vtable should have been registered just above.
+                    Box::new(T::default())
+                };
+            self.hot_map.insert(type_id, value);
+        }
+        // Remove the value from the map to verify / fix its type locally,
+        // then re-insert. This avoids borrow checker issues with
+        // downcast_mut on trait objects held across map mutations.
+        let mut value = match self.hot_map.remove(&type_id) {
+            Some(v) => v,
+            None => Box::new(T::default()),
+        };
+        if value.downcast_mut::<T>().is_none() {
+            value = Box::new(T::default());
+        }
+        self.hot_map.insert(type_id, value);
+        // Now the map is guaranteed to contain Box<T>. Retrieve it.
+        // No further map mutations after this point to avoid borrow
+        // checker extending the get_mut borrow across insertions.
+        if let Some(any) = self.hot_map.get_mut(&type_id)
+            && let Some(typed) = any.downcast_mut::<T>()
+        {
+            return typed;
+        }
+        // SAFETY: This path is unreachable. The TypeId key is unique per
+        // type, and we inserted Box<T> with that exact key above. A
+        // downcast failure would imply a fundamental rustc/std bug.
+        // We use Box::leak instead of unreachable!() to uphold
+        // I-Core-NoPanic (no panics in Core), accepting the theoretical
+        // one-time memory leak over a kernel crash.
+        debug_assert!(false, "unreachable: TypeId guarantees type safety");
+        Box::leak(Box::new(T::default()))
+    }
+
+    /// Hydrate a plugin from an external raw blob.
+    ///
+    /// Looks up the `ext_id` in the registry, deserializes the blob,
+    /// and inserts the result into `hot_map`. On deserialization failure,
+    /// falls back to the default value. Returns `true` if the `ext_id`
+    /// was known.
+    ///
+    /// This is used by the shell when loading persisted plugin state
+    /// from disk.
+    ///
+    /// Complexity: O(deserialization cost). One `HashMap` and one `BTreeMap` insertion.
+    pub fn hydrate_plugin(&mut self, ext_id: &str, blob: &[u8]) -> bool {
+        let Some(&type_id) = self.ext_id_to_type_id.get(ext_id) else {
+            return false;
+        };
+        let Some(vtable) = self.registry.get(&type_id) else {
+            return false;
+        };
+        let value: Box<dyn Any + Send + Sync> = match (vtable.deserialize)(blob) {
+            Ok(val) => val,
+            Err(_) => (vtable.default_construct)(),
+        };
+        self.hot_map.insert(type_id, value);
+        self.cold_snapshot.insert(ext_id.to_string(), blob.to_vec());
+        true
+    }
+
+    /// Return a reference to the cold snapshot map.
+    ///
+    /// Used by persistence layers to extract binary blobs for disk write.
+    ///
+    /// Complexity: O(1). Returns a reference; no allocation.
+    pub fn cold_snapshot(&self) -> &BTreeMap<String, Vec<u8>> {
+        &self.cold_snapshot
+    }
+
+    /// Remove a type from `hot_map` without touching `cold_snapshot`.
+    ///
+    /// This can be used to evict cold entries while keeping the
+    /// persisted blob intact.
+    ///
+    /// Complexity: O(1). One `HashMap` removal.
+    pub fn evict_from_hot<T>(&mut self) -> bool
+    where
+        T: BriocheExtensionType + 'static,
+    {
+        let type_id = TypeId::of::<T>();
+        self.hot_map.remove(&type_id).is_some()
+    }
 }
