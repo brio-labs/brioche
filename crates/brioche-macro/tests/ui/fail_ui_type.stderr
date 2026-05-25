@@ -1,0 +1,20 @@
+error: Field `window` appears to contain a UI type. UI types are prohibited in BriocheExtensionType.
+ --> tests/ui/fail_ui_type.rs:7:17
+  |
+7 |     pub window: TauriWindow,
+  |                 ^^^^^^^^^^^
+
+error[E0277]: the trait bound `TauriWindow: Clone` is not satisfied
+ --> tests/ui/fail_ui_type.rs:7:5
+  |
+5 | #[derive(Clone, BriocheExtensionType)]
+  |          ----- in this derive macro expansion
+6 | pub struct BadState {
+7 |     pub window: TauriWindow,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^ the trait `Clone` is not implemented for `TauriWindow`
+  |
+help: consider annotating `TauriWindow` with `#[derive(Clone)]`
+  |
+3 + #[derive(Clone)]
+4 | pub struct TauriWindow;
+  |

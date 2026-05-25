@@ -1,0 +1,5 @@
+error: Field `data` uses HashMap. HashMap is prohibited in BriocheExtensionType persisted state. Use BTreeMap or IndexMap instead.
+ --> tests/ui/fail_hashmap.rs:6:15
+  |
+6 |     pub data: HashMap<String, u64>,
+  |               ^^^^^^^
