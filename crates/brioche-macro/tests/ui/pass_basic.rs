@@ -1,19 +1,20 @@
 use brioche_core::BriocheExtensionType;
+use brioche_core::serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-#[derive(Clone, BriocheExtensionType)]
+#[derive(Clone, Default, Serialize, Deserialize, BriocheExtensionType)]
 pub struct TokenTrackerState {
     pub total_input_tokens: u64,
     pub counts: BTreeMap<String, u64>,
 }
 
-#[derive(Clone, BriocheExtensionType)]
+#[derive(Clone, Default, Serialize, Deserialize, BriocheExtensionType)]
 #[brioche(critical_state)]
 pub struct EpochState {
     pub current_generation: u64,
 }
 
-#[derive(Clone, BriocheExtensionType)]
+#[derive(Clone, Default, Serialize, Deserialize, BriocheExtensionType)]
 #[brioche(no_snapshot)]
 pub struct VolatileCache {
     pub temp_data: String,

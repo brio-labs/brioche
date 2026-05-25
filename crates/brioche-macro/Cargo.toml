@@ -19,6 +19,7 @@ syn = { version = "2", features = ["full"] }
 [dev-dependencies]
 trybuild = { version = "1", features = ["diff"] }
 brioche-core = { workspace = true }
+serde = { version = "1", features = ["derive"] }
 
 [lints]
 workspace = true
