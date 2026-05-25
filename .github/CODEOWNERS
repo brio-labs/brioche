@@ -1,0 +1,46 @@
+# CODEOWNERS
+#
+# This file defines who must review changes to each part of the codebase.
+# GitHub requires that CODEOWNERS references real users or teams.
+#
+# TODO: Replace placeholder team handles with real GitHub teams once created:
+#   - @brio-labs/core-maintainers
+#   - @brio-labs/governance-maintainers
+#   - @brio-labs/shell-maintainers
+#   - @brio-labs/ecosystem-maintainers
+#   - @brio-labs/docs-maintainers
+#   - @brio-labs/devops-maintainers
+#
+# Until then, the fallback owner below handles all reviews.
+
+# Default fallback — everything not matched below
+*                               @carabistouflette
+
+# Core mechanism — highest scrutiny
+/crates/brioche-core/           @carabistouflette
+/crates/brioche-macro/          @carabistouflette
+/tests/property/                @carabistouflette
+/tests/replay/                  @carabistouflette
+
+# Governance — requires invariant review
+/crates/brioche-governance/     @carabistouflette
+/crates/brioche-governance-default/ @carabistouflette
+
+# Shell layers
+/crates/brioche-shell-runtime/  @carabistouflette
+/crates/brioche-shell-persistence/ @carabistouflette
+/crates/brioche-shell-projection/ @carabistouflette
+
+# Ecosystem
+/crates/brioche-std/            @carabistouflette
+/crates/brioche-plugin-kit/     @carabistouflette
+/crates/brioche-docgen/         @carabistouflette
+/crates/brioche-playground/     @carabistouflette
+
+# Documentation and specs
+/docs/                          @carabistouflette
+*.md                            @carabistouflette
+
+# CI/CD and tooling
+/.github/                       @carabistouflette
+/scripts/                       @carabistouflette

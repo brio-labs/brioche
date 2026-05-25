@@ -1,0 +1,19 @@
+[package]
+name = "brioche-std"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Standard plugins and ecosystem"
+
+[dependencies]
+brioche-core = { workspace = true }
+brioche-governance = { workspace = true }
+brioche-shell-runtime = { workspace = true }
+brioche-shell-persistence = { workspace = true }
+brioche-shell-projection = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,26 @@
+name: Bug Report
+description: Report a bug
+title: "[BUG] "
+labels: ["priority:medium"]
+body:
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Affected Layer
+      options:
+        - Core
+        - Governance
+        - Shell Runtime
+        - Shell Persistence
+        - Shell Projection
+        - Ecosystem / Standard Plugins
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction Steps
