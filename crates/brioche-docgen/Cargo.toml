@@ -14,7 +14,7 @@ brioche-governance = { workspace = true }
 syn = { version = "2", features = ["full", "visit"] }
 quote = "1"
 proc-macro2 = "1"
-thiserror = "1"
+thiserror = "2"
 
 [lints]
 workspace = true
