@@ -12,15 +12,15 @@ description = "Synchronous kernel and pure mechanisms"
 brioche-governance = { workspace = true }
 brioche-macro = { workspace = true }
 serde = { version = "1", features = ["derive"] }
-postcard = { version = "1", features = ["use-std"] }
-thiserror = "1"
+postcard = { version = "1", default-features = false, features = ["use-std"] }
+thiserror = "2"
 parking_lot = "0.12"
 
 [dev-dependencies]
 proptest = "1"
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 serde = { version = "1", features = ["derive"] }
-postcard = { version = "1", features = ["use-std"] }
+postcard = { version = "1", default-features = false, features = ["use-std"] }
 
 [[bench]]
 name = "extension_lookup"
