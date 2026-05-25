@@ -1,3 +1,5 @@
+#![deny(clippy::unwrap_used, clippy::expect_used)]
+
 //! Book I — The Core Book: Synchronous kernel and pure mechanisms.
 //!
 //! This crate upholds:
@@ -12,7 +14,13 @@
 pub mod extension;
 pub mod types;
 
-pub use extension::{BriocheExtensionType, SnapshotStrategy};
+pub use extension::{BriocheExtensionType, ExtVTable, ExtensionStorage, SnapshotStrategy};
+
+// Re-export dependencies so that proc-macro generated code and users
+// can reference them through brioche_core without adding them to
+// their own Cargo.toml.
+pub use postcard;
+pub use serde;
 
 // Re-export the derive macro so users can `use brioche_core::BriocheExtensionType;`
 // and apply `#[derive(BriocheExtensionType)]` with a single import.
