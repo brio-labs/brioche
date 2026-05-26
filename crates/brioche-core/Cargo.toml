@@ -18,6 +18,7 @@ parking_lot = "0.12"
 bytes = { version = "1", features = ["serde"] }
 
 [dev-dependencies]
+brioche-governance-default = { workspace = true }
 proptest = "1"
 criterion = { version = "0.8", features = ["html_reports"] }
 serde = { version = "1", features = ["derive"] }
