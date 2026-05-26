@@ -343,7 +343,7 @@ The kernel exposes `SessionSnapshot` in `ExtensionStorage` before each transitio
 | Input | Action |
 |-------|--------|
 | `UserMessage` | Push to history → `push_state(Predicting)` → `before_prediction` hook → `DecisionAggregator` → `CallLlmNetwork` + `SaveSession` |
-| `LlmStream` | If not `Predicting`, return `[]`. Route `on_stream_event` to plugins. `Pass`/`Hold`/`OffloadTask` → effects. |
+| `LlmStream` | If not `Predicting`, return `[]`. Route `on_stream_event` to plugins (`Pass`/`Hold`/`OffloadTask`). Accumulate tool calls via `StreamToolAccumulator`: `ToolCallStart` inserts a descriptor, `ToolArgumentChunk` appends JSON, `ToolCallDone` drains pending descriptors through `on_tool_calls` hook, seals into `ActiveToolCall`s, pushes state to `ExecutingTools`, emits `ExecuteTools(active)` + `SaveSession`. |
 | `ToolCallsResult` | `pop_state()` → clear `active_tools` → `on_tool_result` hook → push results to history → `push_state(Predicting)` → `CallLlmNetwork` + `SaveSession` |
 | `RestoreSubRoutine` | Register child in `SessionRegistry` → `SubRoutineRestored` + `SaveSession` |
 
@@ -433,7 +433,46 @@ impl BriocheEngineBuilder {
 
 ## Chapter 6: Limits of the Core layer
 
-*To be written in Sprint 5. See `SPECS.md` §6 for canonical content.*
+### 6.1 What this layer does not do
+
+The Core layer is intentionally minimal. It does not:
+
+- **Manage epochs** — `EpochInterceptor` is a governance trait; without injection, no epoch checking occurs.
+- **Create sub-routines** — `AgentState::SubRoutine` exists mechanically, but its resolution and lifecycle are delegated to `SubRoutineHandler` and `SubRoutineLifecycleGuard`.
+- **Drain separate channels** — `SystemSignal`, `AsyncTaskResult`, and `GovernanceNotification` transit through channels outside `EngineInput`. The shell (via `SignalDrainOrder`) drains them between transition cycles.
+- **Execute persistence** — `SaveSession` and `SavePluginBlob` are effects returned to the shell; the kernel never touches disk.
+- **Enforce cycle budgets** — `CycleBudgetPolicy` is an optional governance trait. Without injection, no hook duration instrumentation occurs.
+- **Perform COW rollback** — `CycleRollbackPolicy` is optional. Without injection, no `ExtensionStorage` snapshot or restoration happens on budget overrun.
+- **Constrain hook effects** — `HookEffectConstraint` is optional. Without injection, all `RequestEffect`s are allowed on all hooks.
+- **Materialize tool call timeouts** — The kernel provides `default_tool_timeout_ms` as a mechanical safeguard, but the actual timeout value is policy (set by plugins via `on_tool_calls`).
+
+### 6.2 Interface contract with the Governance layer
+
+To move from Core to production mode, the system requires injection of:
+
+1. `EpochInterceptor` — temporal barrier
+2. `SubRoutineHandler` — sub-routine lifecycle
+3. `ConsistencyVerifier` — post-transition validation
+4. `DecisionAggregator` — **mandatory**; merges `before_prediction` decisions
+5. `SubRoutineLifecycleGuard` — **mandatory**; cleanup on outgoing `SubRoutine`
+
+Optional traits:
+6. `SignalDrainOrder` — canonical channel drainage order
+7. `CycleBudgetPolicy` — per-plugin synchronous budget
+8. `HookEffectConstraint` — O(1) effect validation
+9. `CycleRollbackPolicy` — granular COW rollback
+10. `GovernanceFailoverHandler` — cascading failure safety net
+11. `CowBudgetPolicy` — per-hook COW budget
+
+### 6.3 Interface contract with the Shell
+
+The shell must:
+- Implement `SignalDrainOrder` and consume emitted `Effect`s
+- Never mutate `Session` directly; all mutation passes through `EngineInput`
+- Host an `EngineWatchdog` that monitors engine thread reactivity
+- Provide a `SubRoutineLifecycleGuard` implementation (via `SubRoutineCleanupGuard`)
+- Optionally provide `CycleRollbackPolicy` (via `UndoFrameGuard` or `TieredUndoFrameGuard`)
+- Segment SSE payloads to `MAX_INLINE_CHUNK` (4096 bytes) before injection
 
 ---
 
@@ -448,10 +487,8 @@ impl BriocheEngineBuilder {
 | I-Core-StreamNoBranch | 4 | ✅ Complete |
 | I-Core-PluginOrder | 4 | ✅ Complete |
 | I-Core-RetVecEffect | 4 | ✅ Complete |
-| I-Core-ChunkBudget | 5 | ⬜ Pending |
-| I-Core-ActiveToolCall | 5 | ⬜ Pending |
+| I-Core-ChunkBudget | 5 | ✅ Complete |
+| I-Core-ActiveToolCall | 5 | ✅ Complete |
 | I-Core-VTableClone | 2 | ✅ Complete |
-| I-Core-ChunkBudget | 5 | ⬜ Pending |
-| I-Core-ActiveToolCall | 5 | ⬜ Pending |
 
 ---

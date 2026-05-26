@@ -10,9 +10,9 @@
 use brioche_core::{
     AgentState, BriocheEngineBuilder, BriochePlugin, ChatMessage, ConsistencyVerifier,
     DecisionAggregator, Effect, EngineInput, EpochAction, EpochInterceptor, ErrorCode,
-    ExtensionStorage, HistoryEdit, PluginCapabilities, PluginResult, PolicyDecision, Session,
-    SessionRegistry, StreamEvent, SubRoutineHandle, SubRoutineLifecycleGuard, ToolResultDTO,
-    UnifiedRoutingTable,
+    ExecutionPath, ExtensionStorage, HistoryEdit, PluginCapabilities, PluginResult, PolicyDecision,
+    Session, SessionRegistry, StreamEvent, SubRoutineHandle, SubRoutineLifecycleGuard,
+    ToolCallDescriptor, ToolResultDTO, UnifiedRoutingTable,
 };
 
 // ---------------------------------------------------------------------------
@@ -763,4 +763,172 @@ fn transition_history_edit_insert_and_truncate() {
         &session.history[1],
         ChatMessage::User { content } if content == "hello"
     ));
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 5: seal() integration, ActiveToolCall materialization, EngineInput
+// dispatch refinement
+// ---------------------------------------------------------------------------
+
+#[test]
+fn transition_llm_stream_tool_call_materialization() {
+    let mut engine = match BriocheEngineBuilder::new()
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .with_default_tool_timeout_ms(5000)
+        .build()
+    {
+        Ok(e) => e,
+        Err(err) => {
+            assert_eq!(1, 0, "build failed: {}", err);
+            return;
+        }
+    };
+
+    let mut session = Session::new("test");
+    let push_result = session.push_state(AgentState::Predicting { generation_id: 7 });
+    assert!(push_result.is_ok());
+
+    // Send ToolCallStart
+    let start = StreamEvent::ToolCallStart {
+        path: ExecutionPath::default(),
+        id: "tc1".into(),
+        name: "calc".into(),
+    };
+    let effects = engine.transition(&mut session, &EngineInput::LlmStream(start));
+    assert!(effects.is_empty());
+    assert!(matches!(session.state, AgentState::Predicting { .. }));
+
+    // Send argument chunk
+    let arg = StreamEvent::ToolArgumentChunk {
+        path: ExecutionPath::default(),
+        id: "tc1".into(),
+        chunk: bytes::Bytes::from_static(b"{\"x\":1}"),
+    };
+    let effects = engine.transition(&mut session, &EngineInput::LlmStream(arg));
+    assert!(effects.is_empty());
+
+    // Send ToolCallDone -> materialization
+    let done = StreamEvent::ToolCallDone {
+        path: ExecutionPath::default(),
+    };
+    let effects = engine.transition(&mut session, &EngineInput::LlmStream(done));
+
+    // State should transition to ExecutingTools.
+    assert!(matches!(
+        session.state,
+        AgentState::ExecutingTools { generation_id: 7 }
+    ));
+
+    // active_tools should contain the sealed call.
+    assert_eq!(session.active_tools.len(), 1);
+    assert_eq!(session.active_tools[0].tool_id, "tc1");
+    assert_eq!(session.active_tools[0].tool_name, "calc");
+    assert_eq!(session.active_tools[0].arguments, "{\"x\":1}");
+    assert_eq!(session.active_tools[0].timeout_ms, 5000);
+
+    // Effects should include ExecuteTools and SaveSession.
+    assert!(effects.iter().any(|e| matches!(e, Effect::ExecuteTools(_))));
+    assert!(effects.iter().any(|e| matches!(e, Effect::SaveSession)));
+}
+
+#[test]
+fn transition_llm_stream_missing_timeout_applies_default() {
+    let mut engine = match BriocheEngineBuilder::new()
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .with_default_tool_timeout_ms(3000)
+        .build()
+    {
+        Ok(e) => e,
+        Err(err) => {
+            assert_eq!(1, 0, "build failed: {}", err);
+            return;
+        }
+    };
+
+    let mut session = Session::new("test");
+    let push_result = session.push_state(AgentState::Predicting { generation_id: 1 });
+    assert!(push_result.is_ok());
+
+    let start = StreamEvent::ToolCallStart {
+        path: ExecutionPath::default(),
+        id: "t1".into(),
+        name: "grep".into(),
+    };
+    engine.transition(&mut session, &EngineInput::LlmStream(start));
+
+    let done = StreamEvent::ToolCallDone {
+        path: ExecutionPath::default(),
+    };
+    let effects = engine.transition(&mut session, &EngineInput::LlmStream(done));
+
+    // Default timeout applied.
+    assert_eq!(session.active_tools[0].timeout_ms, 3000);
+
+    // Error effect emitted because timeout was missing.
+    assert!(effects.iter().any(|e| matches!(
+        e, Effect::Error { code, message } if *code == ErrorCode::StateInconsistency && message.contains("Missing timeout")
+    )));
+}
+
+#[test]
+fn transition_llm_stream_on_tool_calls_mutates_timeout() {
+    struct TimeoutMutatorPlugin;
+    impl BriochePlugin for TimeoutMutatorPlugin {
+        fn name(&self) -> &'static str {
+            "timeout_mutator"
+        }
+        fn capabilities(&self) -> PluginCapabilities {
+            PluginCapabilities::ON_TOOL_CALLS
+        }
+        fn on_tool_calls(
+            &self,
+            calls: &mut Vec<ToolCallDescriptor>,
+            _ext: &mut ExtensionStorage,
+        ) -> PluginResult<()> {
+            for call in calls {
+                call.timeout_ms = Some(9999);
+            }
+            Ok(())
+        }
+    }
+
+    let mut engine = match BriocheEngineBuilder::new()
+        .with_plugin(Box::new(TimeoutMutatorPlugin))
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .with_default_tool_timeout_ms(1000)
+        .build()
+    {
+        Ok(e) => e,
+        Err(err) => {
+            assert_eq!(1, 0, "build failed: {}", err);
+            return;
+        }
+    };
+
+    let mut session = Session::new("test");
+    let push_result = session.push_state(AgentState::Predicting { generation_id: 2 });
+    assert!(push_result.is_ok());
+
+    let start = StreamEvent::ToolCallStart {
+        path: ExecutionPath::default(),
+        id: "t2".into(),
+        name: "calc".into(),
+    };
+    engine.transition(&mut session, &EngineInput::LlmStream(start));
+
+    let done = StreamEvent::ToolCallDone {
+        path: ExecutionPath::default(),
+    };
+    let effects = engine.transition(&mut session, &EngineInput::LlmStream(done));
+
+    // Plugin should have mutated timeout to 9999.
+    assert_eq!(session.active_tools[0].timeout_ms, 9999);
+
+    // No error effect because timeout was provided by plugin.
+    assert!(!effects.iter().any(|e| matches!(
+        e, Effect::Error { message, .. } if message.contains("Missing timeout")
+    )));
 }
