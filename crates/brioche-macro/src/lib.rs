@@ -17,12 +17,11 @@ use syn::{Attribute, Data, DataStruct, DeriveInput, Fields, Type, parse_macro_in
 
 /// Errors raised by the derive macro.
 #[derive(Debug)]
-#[allow(clippy::enum_variant_names)]
 enum DeriveError {
-    HashMapInField { span: Span, field_name: String },
-    HashSetInField { span: Span, field_name: String },
-    UiTypeInField { span: Span, field_name: String },
-    UndeterminedVecInField { span: Span, field_name: String },
+    HashMap { span: Span, field_name: String },
+    HashSet { span: Span, field_name: String },
+    UiType { span: Span, field_name: String },
+    UndeterminedVec { span: Span, field_name: String },
 }
 
 /// Parsed `#[brioche(...)]` attributes on a struct/enum.
@@ -99,13 +98,13 @@ fn scan_type(ty: &Type, errors: &mut Vec<DeriveError>, field_name: &str) {
             // Check for banned collections.
             for seg in &segments {
                 if seg == "HashMap" {
-                    errors.push(DeriveError::HashMapInField {
+                    errors.push(DeriveError::HashMap {
                         span: type_path.span(),
                         field_name: field_name.to_string(),
                     });
                 }
                 if seg == "HashSet" {
-                    errors.push(DeriveError::HashSetInField {
+                    errors.push(DeriveError::HashSet {
                         span: type_path.span(),
                         field_name: field_name.to_string(),
                     });
@@ -115,13 +114,13 @@ fn scan_type(ty: &Type, errors: &mut Vec<DeriveError>, field_name: &str) {
             // Check last segment for banned collections (catches imported aliases).
             if let Some(last) = segments.last() {
                 if last == "HashMap" {
-                    errors.push(DeriveError::HashMapInField {
+                    errors.push(DeriveError::HashMap {
                         span: type_path.span(),
                         field_name: field_name.to_string(),
                     });
                 }
                 if last == "HashSet" {
-                    errors.push(DeriveError::HashSetInField {
+                    errors.push(DeriveError::HashSet {
                         span: type_path.span(),
                         field_name: field_name.to_string(),
                     });
@@ -130,7 +129,7 @@ fn scan_type(ty: &Type, errors: &mut Vec<DeriveError>, field_name: &str) {
                 // UI type detection.
                 let ui_keywords = ["tauri", "vue", "dom", "web_sys", "js_sys"];
                 if ui_keywords.iter().any(|k| last.to_lowercase().contains(k)) {
-                    errors.push(DeriveError::UiTypeInField {
+                    errors.push(DeriveError::UiType {
                         span: type_path.span(),
                         field_name: field_name.to_string(),
                     });
@@ -285,7 +284,7 @@ fn scan_fields(fields: &Fields, errors: &mut Vec<DeriveError>) {
                     .unwrap_or_else(|| "_".to_string());
                 scan_type(&f.ty, errors, &name);
                 if type_contains_vec(&f.ty) && !field_has_deterministic_order(&f.attrs) {
-                    errors.push(DeriveError::UndeterminedVecInField {
+                    errors.push(DeriveError::UndeterminedVec {
                         span: f.ty.span(),
                         field_name: name,
                     });
@@ -297,7 +296,7 @@ fn scan_fields(fields: &Fields, errors: &mut Vec<DeriveError>) {
                 let name = format!("_{}", i);
                 scan_type(&f.ty, errors, &name);
                 if type_contains_vec(&f.ty) && !field_has_deterministic_order(&f.attrs) {
-                    errors.push(DeriveError::UndeterminedVecInField {
+                    errors.push(DeriveError::UndeterminedVec {
                         span: f.ty.span(),
                         field_name: name,
                     });
@@ -358,22 +357,22 @@ pub fn derive_brioche_extension_type(input: TokenStream) -> TokenStream {
     let error_tokens: Vec<proc_macro2::TokenStream> = errors
         .iter()
         .map(|e| match e {
-            DeriveError::HashMapInField { span, field_name } => {
+            DeriveError::HashMap { span, field_name } => {
                 quote_spanned! { *span =>
                     compile_error!(concat!("Field `", #field_name, "` uses HashMap. HashMap is prohibited in BriocheExtensionType persisted state. Use BTreeMap or IndexMap instead."));
                 }
             }
-            DeriveError::HashSetInField { span, field_name } => {
+            DeriveError::HashSet { span, field_name } => {
                 quote_spanned! { *span =>
                     compile_error!(concat!("Field `", #field_name, "` uses HashSet. HashSet is prohibited in BriocheExtensionType persisted state. Use BTreeSet instead."));
                 }
             }
-            DeriveError::UiTypeInField { span, field_name } => {
+            DeriveError::UiType { span, field_name } => {
                 quote_spanned! { *span =>
                     compile_error!(concat!("Field `", #field_name, "` appears to contain a UI type. UI types are prohibited in BriocheExtensionType."));
                 }
             }
-            DeriveError::UndeterminedVecInField { span, field_name } => {
+            DeriveError::UndeterminedVec { span, field_name } => {
                 quote_spanned! { *span =>
                     compile_error!(concat!("Field `", #field_name, "` uses Vec without #[brioche(deterministic_order)]. Persisted Vec fields must have deterministic insertion order. Use #[brioche(deterministic_order)] to certify determinism, or replace with BTreeMap/IndexMap."));
                 }

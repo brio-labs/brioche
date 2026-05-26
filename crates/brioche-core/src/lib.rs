@@ -4,7 +4,7 @@
 //!
 //! This crate upholds:
 //! - I-Core-ExtensionType: Compile-time verified extension types via `BriocheExtensionType`.
-//! - I-Core-ExtO1: O(1) extension access by `TypeId`.
+//! - I-Core-ExtO1: O(log n) extension access by `TypeId` (n = registered types, typically < 20).
 //! - I-Core-VTableClone: VTable provides `clone_box` for COW rollback.
 //! - I-Core-Pure: Kernel never produces side effects.
 //! - I-Core-NoPanic: `transition()` returns `Vec<Effect>`, never panics.
@@ -21,11 +21,14 @@ pub mod plugin;
 pub mod types;
 
 pub use engine::{BriocheEngine, BriocheEngineBuilder, UnifiedRoutingTable};
-pub use extension::{BriocheExtensionType, ExtVTable, ExtensionStorage, SnapshotStrategy};
+pub use extension::{
+    BriocheExtensionType, CloneBoxFn, DefaultConstructFn, DeserializeFn, ExtVTable,
+    ExtensionStorage, SerializeFn, SnapshotStrategy, WeightFn,
+};
 pub use plugin::{
-    BriochePlugin, ConsistencyVerifier, CowBudgetPolicy, CycleBudgetPolicy, CycleRollbackPolicy,
-    DecisionAggregator, EpochInterceptor, GovernanceFailoverHandler, HookEffectConstraint,
-    PluginCapabilities, SignalDrainOrder, SubRoutineHandler, SubRoutineLifecycleGuard,
+    BriochePlugin, ConsistencyVerifier, CowBudgetPolicy, CycleRollbackPolicy, DecisionAggregator,
+    EpochInterceptor, GovernanceFailoverHandler, HookEffectConstraint, PluginCapabilities,
+    SignalDrainOrder, SubRoutineHandler, SubRoutineLifecycleGuard,
 };
 pub use types::{
     ActiveToolCall, AgentState, AgentStateTag, BriocheError, ChatMessage, Effect, EffectBit,
