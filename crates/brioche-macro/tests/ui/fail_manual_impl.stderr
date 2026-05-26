@@ -122,20 +122,12 @@ help: the trait `brioche_core::extension::__private::Sealed` is not implemented 
   |
 3 | pub struct EvilState;
   | ^^^^^^^^^^^^^^^^^^^^
-help: the following other types implement trait `brioche_core::extension::__private::Sealed`
- --> $WORKSPACE/crates/brioche-core/src/types.rs
-  |
-  | #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
-  |                                                                        ^^^^^^^^^^^^^^^^^^^^ `SessionSnapshot`
-...
-  | #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
-  |                                                                        ^^^^^^^^^^^^^^^^^^^^ `TransitionTraceLog`
-...
-  | #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
-  |                                                                        ^^^^^^^^^^^^^^^^^^^^ `SupersededTransitionTraceLog`
-...
-  | #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
-  |                                                                        ^^^^^^^^^^^^^^^^^^^^ `EpochState`
+  = help: the following other types implement trait `brioche_core::extension::__private::Sealed`:
+            EpochState
+            SessionSnapshot
+            StreamToolAccumulator
+            SupersededTransitionTraceLog
+            TransitionTraceLog
 note: required by a bound in `BriocheExtensionType`
  --> $WORKSPACE/crates/brioche-core/src/extension.rs
   |
@@ -143,4 +135,3 @@ note: required by a bound in `BriocheExtensionType`
   |           -------------------- required by a bound in this trait
   |     __private::Sealed
   |     ^^^^^^^^^^^^^^^^^ required by this bound in `BriocheExtensionType`
-  = note: this error originates in the derive macro `BriocheExtensionType` (in Nightly builds, run with -Z macro-backtrace for more info)
