@@ -11,10 +11,20 @@
 //!
 //! Refs: SPECS.md §Book I
 
+// Allow proc-macro generated code to reference `::brioche_core` from
+// inside the crate itself.
+extern crate self as brioche_core;
+
 pub mod extension;
 pub mod types;
 
 pub use extension::{BriocheExtensionType, ExtVTable, ExtensionStorage, SnapshotStrategy};
+pub use types::{
+    ActiveToolCall, AgentState, AgentStateTag, BriocheError, ChatMessage, Effect, EngineInput,
+    ErrorCode, ExecutionPath, HistoryEdit, PluginError, PluginResult, PolicyDecision, Session,
+    SessionRegistry, SessionSnapshot, StreamAction, StreamEvent, SubRoutineHandle,
+    ToolCallDescriptor, ToolOutcome, ToolResultDTO, seal,
+};
 
 // Re-export dependencies so that proc-macro generated code and users
 // can reference them through brioche_core without adding them to
