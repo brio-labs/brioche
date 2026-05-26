@@ -76,10 +76,15 @@ pub struct Session {
     pub extensions: ExtensionStorage,
     pub active_tools: Vec<ActiveToolCall>,
 }
-
-impl !Send for Session {}
-impl !Sync for Session {}
 ```
+
+`Session` is strictly `!Send` and `!Sync` (enforced via `PhantomData<*mut ()>` on stable Rust). A single thread owns it.
+
+**Methods:**
+- `Session::new(id)` — creates a session in `AgentState::Idle`
+- `push_state(new_state)` — pushes current state and transitions; rejects `Failure`
+- `pop_state()` — pops and restores; returns `BriocheError::InvalidStateTransition` if empty
+- `snapshot()` — produces a `SessionSnapshot` for plugin consumption
 
 **Sub-routine registry (`SessionRegistry`):**
 ```rust
@@ -87,9 +92,9 @@ pub struct SessionRegistry {
     sessions: BTreeMap<SubRoutineHandle, Session>,
     exit_counts: BTreeMap<SubRoutineHandle, u64>,
 }
-impl !Send for SessionRegistry {}
-impl !Sync for SessionRegistry {}
 ```
+
+Also `!Send + !Sync`. Methods: `insert`, `get_mut`, `remove`, `contains`, `increment_exit_count`, `get_exit_count`, `handles`.
 
 **Lifecycle states:** `Idle` → `Predicting` → `ExecutingTools` → `SubRoutine` → `Idle` / `Failure`
 
@@ -98,12 +103,12 @@ impl !Sync for SessionRegistry {}
 | Type | Role |
 |------|------|
 | `ChatMessage` | History entries (System, User, Assistant, ToolRequest, ToolResult) |
-| `ToolCallDescriptor` | Plugin interface for tool calls |
-| `ActiveToolCall` | Kernel-internal, materialized after `seal()` |
-| `ToolOutcome` | Business data: Success, BusinessError, SystemError, TimeoutWithPartialData |
+| `ToolCallDescriptor` | Plugin interface for tool calls (`tool_id`, `tool_name`, `arguments`, `timeout_ms: Option<u64>`) |
+| `ActiveToolCall` | Kernel-internal, materialized after `seal()` (`timeout_ms: u64`, never `None`) |
+| `ToolOutcome` | Business data: `Success`, `BusinessError`, `SystemError`, `TimeoutWithPartialData` |
 | `ToolResultDTO` | Structured result from shell to kernel |
 
-**`seal()` function:** Canonical conversion `Vec<ToolCallDescriptor>` → `Vec<ActiveToolCall>`. Exhaustive match enforced by compiler.
+**`seal()` function:** Canonical conversion `Vec<ToolCallDescriptor>` → `Vec<ActiveToolCall>`. Exhaustive match enforced by compiler. Any `None` timeout defaults to `0`.
 
 ### 2.3 Engine inputs
 
@@ -116,7 +121,7 @@ pub enum EngineInput {
 }
 ```
 
-System signals, async results, and governance notifications transit through separate channels (see §1.4).
+System signals, async results, and governance notifications transit through separate channels (see §1.4). They are **never** variants of `EngineInput`.
 
 ### 2.4 Declarative effects
 
@@ -128,6 +133,12 @@ pub enum PolicyDecision {
     MutateHistory(Vec<HistoryEdit>),
     RequestEffect(Effect),
     OverrideTransition(Vec<Effect>),
+}
+
+pub enum HistoryEdit {
+    Insert { index: usize, message: ChatMessage },
+    Replace { index: usize, message: ChatMessage },
+    Truncate { keep_last: usize },
 }
 ```
 
@@ -148,13 +159,27 @@ pub enum Effect {
     RebuildRoutes,
     SubRoutineRestored { handle: SubRoutineHandle },
 }
+
+pub enum ErrorCode {
+    NetworkUnavailable,
+    OperationCancelled,
+    StateInconsistency,
+    EpochMismatch,
+    PluginFaulted,
+}
 ```
+
+`Effect` contains **only** pure mechanical effects. No telemetry, UI fallback, or specific notification variants.
 
 ### 2.5 Streaming
 
 `bytes::Bytes` for zero-copy fragments. `MAX_INLINE_CHUNK = 4096` enforced by SSE segmentation in shell.
 
 ```rust
+pub struct ExecutionPath {
+    pub nodes: Vec<String>,
+}
+
 pub enum StreamEvent {
     TextChunk { path: ExecutionPath, chunk: bytes::Bytes },
     ToolCallStart { path: ExecutionPath, id: String, name: String },
@@ -250,8 +275,8 @@ Business types (e.g., `TokenTrackerState`) do not carry `critical_state` by defa
 |-----------|--------|--------|
 | I-Core-ExtensionType | 1 | ✅ Complete |
 | I-Core-ExtO1 | 2 | ✅ Complete |
-| I-Core-Pure | 3 | ⬜ Pending |
-| I-Core-NoPanic | 3 | ⬜ Pending |
+| I-Core-Pure | 3 | ✅ Complete |
+| I-Core-NoPanic | 3 | ✅ Complete |
 | I-Core-StreamNoBranch | 4 | ⬜ Pending |
 | I-Core-PluginOrder | 4 | ⬜ Pending |
 | I-Core-RetVecEffect | 5 | ⬜ Pending |

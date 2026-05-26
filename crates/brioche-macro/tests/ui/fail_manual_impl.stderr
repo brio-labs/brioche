@@ -122,6 +122,11 @@ help: the trait `brioche_core::extension::__private::Sealed` is not implemented 
   |
 3 | pub struct EvilState;
   | ^^^^^^^^^^^^^^^^^^^^
+help: the trait `brioche_core::extension::__private::Sealed` is implemented for `SessionSnapshot`
+ --> $WORKSPACE/crates/brioche-core/src/types.rs
+  |
+  | #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
+  |                                                                        ^^^^^^^^^^^^^^^^^^^^
 note: required by a bound in `BriocheExtensionType`
  --> $WORKSPACE/crates/brioche-core/src/extension.rs
   |
@@ -129,3 +134,4 @@ note: required by a bound in `BriocheExtensionType`
   |           -------------------- required by a bound in this trait
   |     __private::Sealed
   |     ^^^^^^^^^^^^^^^^^ required by this bound in `BriocheExtensionType`
+  = note: this error originates in the derive macro `BriocheExtensionType` (in Nightly builds, run with -Z macro-backtrace for more info)
