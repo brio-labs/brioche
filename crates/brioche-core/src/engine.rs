@@ -9,13 +9,14 @@
 //! Refs: SPECS.md §4, §5
 
 use crate::{
-    AgentState, BriocheError, BriochePlugin, ChatMessage, ConsistencyVerifier, CowBudgetPolicy,
-    CycleBudgetPolicy, CycleRollbackPolicy, DecisionAggregator, Effect, EngineInput, EpochAction,
-    EpochInterceptor, EpochState, ErrorCode, GovernanceFailoverHandler, HistoryEdit,
-    HookEffectConstraint, PluginCapabilities, PluginError, PolicyDecision, Session,
-    SessionRegistry, StreamAction, StreamEvent, SubRoutineHandle, SubRoutineHandler,
-    SubRoutineLifecycleGuard, SupersededTransitionTrace, SupersededTransitionTraceLog,
-    ToolResultDTO, TransitionTrace, TransitionTraceLog, effect_to_bitmask,
+    ActiveToolCall, AgentState, BriocheError, BriochePlugin, ChatMessage, ConsistencyVerifier,
+    CowBudgetPolicy, CycleBudgetPolicy, CycleRollbackPolicy, DecisionAggregator, Effect,
+    EngineInput, EpochAction, EpochInterceptor, EpochState, ErrorCode, GovernanceFailoverHandler,
+    HistoryEdit, HookEffectConstraint, PluginCapabilities, PluginError, PolicyDecision, Session,
+    SessionRegistry, StreamAction, StreamEvent, StreamToolAccumulator, SubRoutineHandle,
+    SubRoutineHandler, SubRoutineLifecycleGuard, SupersededTransitionTrace,
+    SupersededTransitionTraceLog, ToolCallDescriptor, ToolResultDTO, TransitionTrace,
+    TransitionTraceLog, effect_to_bitmask,
 };
 
 // ---------------------------------------------------------------------------
@@ -130,6 +131,10 @@ pub struct BriocheEngine {
 
     // Monotonically increasing generation counter for predictions.
     next_generation_id: u64,
+
+    // Safeguard applied when a ToolCallDescriptor lacks timeout_ms.
+    // The kernel emits Effect::Error(StateInconsistency) when falling back.
+    default_tool_timeout_ms: u64,
 
     _not_send_sync: std::marker::PhantomData<*mut ()>,
 }
@@ -273,6 +278,17 @@ impl BriocheEngine {
     /// Mutable access to the internal `SessionRegistry`.
     pub fn session_registry_mut(&mut self) -> &mut SessionRegistry {
         &mut self.session_registry
+    }
+
+    /// The default tool timeout applied when a descriptor omits `timeout_ms`.
+    ///
+    /// This safeguard is mechanism, not policy. The kernel applies it
+    /// when `seal()` encounters a descriptor with `timeout_ms: None`.
+    /// Policy plugins should set `timeout_ms` via the `on_tool_calls` hook.
+    ///
+    /// Refs: I-Core-ActiveToolCall
+    pub fn default_tool_timeout_ms(&self) -> u64 {
+        self.default_tool_timeout_ms
     }
 
     // -----------------------------------------------------------------------
@@ -419,6 +435,23 @@ impl BriocheEngine {
     }
 
     /// Dispatch `LlmStream` input.
+    ///
+    /// Accumulates tool calls from `ToolCallStart` / `ToolArgumentChunk`
+    /// events. When `ToolCallDone` is received, pending descriptors are
+    /// passed through the `on_tool_calls` hook, sealed into `ActiveToolCall`s,
+    /// stored in `session.active_tools`, and an `ExecuteTools` effect is
+    /// emitted after pushing state to `ExecutingTools`.
+    ///
+    /// Pre-routed dispatch guarantees no runtime bitmask checks. Arguments
+    /// are accumulated incrementally to avoid allocation spikes on single
+    /// large chunks. Descriptors are sealed before storage.
+    ///
+    /// # Complexity
+    /// O(p + t) where p = plugins on `route_on_stream_event`, t = pending
+    /// tool descriptors. One `BTreeMap` insertion per `ToolCallStart`.
+    /// No heap allocation on `Pass` or `Hold`.
+    ///
+    /// Refs: I-Core-StreamNoBranch, I-Core-ChunkBudget, I-Core-ActiveToolCall
     fn dispatch_llm_stream(
         &mut self,
         session: &mut Session,
@@ -447,7 +480,127 @@ impl BriocheEngine {
             }
         }
 
+        // Mechanical accumulation of tool calls discovered in the stream.
+        let accumulator = session
+            .extensions
+            .get_or_insert_default::<StreamToolAccumulator>();
+        match event {
+            StreamEvent::ToolCallStart { id, name, .. } => {
+                accumulator.pending.insert(
+                    id.clone(),
+                    ToolCallDescriptor {
+                        tool_id: id.clone(),
+                        tool_name: name.clone(),
+                        arguments: String::new(),
+                        timeout_ms: None,
+                    },
+                );
+            }
+            StreamEvent::ToolArgumentChunk { id, chunk, .. } => {
+                if let Some(descriptor) = accumulator.pending.get_mut(id) {
+                    descriptor
+                        .arguments
+                        .push_str(&String::from_utf8_lossy(chunk));
+                }
+            }
+            StreamEvent::ToolCallDone { .. } => {
+                // Drain all pending descriptors and materialize them.
+                let pending: Vec<ToolCallDescriptor> = std::mem::take(&mut accumulator.pending)
+                    .into_values()
+                    .collect();
+                if !pending.is_empty() {
+                    let mut descriptors = pending;
+                    self.handle_tool_calls(session, &mut descriptors, &mut effects)?;
+                    let (active, err_effect) = self.materialize_tool_calls(descriptors);
+                    if let Some(err) = err_effect {
+                        effects.push(err);
+                    }
+                    session.active_tools = active.clone();
+                    let generation_id = match session.state {
+                        AgentState::Predicting { generation_id } => generation_id,
+                        _ => 0,
+                    };
+                    session.push_state(AgentState::ExecutingTools { generation_id })?;
+                    effects.push(Effect::ExecuteTools(active));
+                    effects.push(Effect::SaveSession);
+                }
+            }
+            _ => {}
+        }
+
         Ok(effects)
+    }
+
+    /// Invoke the `on_tool_calls` hook on all pre-routed plugins.
+    ///
+    /// Plugins mutate `timeout_ms` and other fields in place.
+    ///
+    /// Evaluated in ascending `(priority, name)` order. Descriptors are the
+    /// sole mutable interface; `ActiveToolCall` is never exposed to plugins.
+    ///
+    /// # Complexity
+    /// O(p) where p = plugins on `route_on_tool_calls`. One mutable
+    /// reference pass over descriptors per plugin.
+    ///
+    /// Refs: I-Core-PluginOrder, I-Core-ActiveToolCall
+    fn handle_tool_calls(
+        &mut self,
+        session: &mut Session,
+        descriptors: &mut Vec<ToolCallDescriptor>,
+        effects: &mut Vec<Effect>,
+    ) -> Result<(), BriocheError> {
+        for &idx in &self.routing_table.route_on_tool_calls {
+            let plugin = &self.plugins[idx];
+            session.extensions.insert(session.snapshot());
+            if let Err(err) = plugin.on_tool_calls(descriptors, &mut session.extensions) {
+                effects.push(self.plugin_fault(plugin.name(), err));
+            }
+        }
+        Ok(())
+    }
+
+    /// Canonical conversion from `ToolCallDescriptor` to `ActiveToolCall`.
+    ///
+    /// Any descriptor missing `timeout_ms` receives `default_tool_timeout_ms`
+    /// and an `Effect::Error(StateInconsistency)` is returned alongside the
+    /// sealed calls.
+    ///
+    /// Uses exhaustive field mapping so the compiler forces updates when
+    /// fields are added. Never panics; missing fields produce `Effect::Error`.
+    ///
+    /// # Complexity
+    /// O(n) where n = number of descriptors. Allocates one `Vec<ActiveToolCall>`.
+    ///
+    /// Refs: I-Core-ActiveToolCall, I-Core-NoPanic
+    fn materialize_tool_calls(
+        &self,
+        descriptors: Vec<ToolCallDescriptor>,
+    ) -> (Vec<ActiveToolCall>, Option<Effect>) {
+        let mut missing = false;
+        let active = descriptors
+            .into_iter()
+            .map(|d| {
+                let timeout_ms = d.timeout_ms.unwrap_or_else(|| {
+                    missing = true;
+                    self.default_tool_timeout_ms
+                });
+                ActiveToolCall {
+                    tool_id: d.tool_id,
+                    tool_name: d.tool_name,
+                    arguments: d.arguments,
+                    timeout_ms,
+                }
+            })
+            .collect();
+        let effect = if missing {
+            Some(Effect::Error {
+                code: ErrorCode::StateInconsistency,
+                message: "Missing timeout, applied default".into(),
+            })
+        } else {
+            None
+        };
+        (active, effect)
     }
 
     /// Dispatch `ToolCallsResult` input.
@@ -743,6 +896,7 @@ pub struct BriocheEngineBuilder {
     subroutine_lifecycle_guard: Option<Box<dyn SubRoutineLifecycleGuard>>,
     governance_failover_handler: Option<Box<dyn GovernanceFailoverHandler>>,
     cow_budget_policy: Option<Box<dyn CowBudgetPolicy>>,
+    default_tool_timeout_ms: u64,
 }
 
 impl Default for BriocheEngineBuilder {
@@ -766,6 +920,7 @@ impl BriocheEngineBuilder {
             subroutine_lifecycle_guard: None,
             governance_failover_handler: None,
             cow_budget_policy: None,
+            default_tool_timeout_ms: 0,
         }
     }
 
@@ -844,6 +999,18 @@ impl BriocheEngineBuilder {
         self
     }
 
+    /// Set the default tool timeout applied when a descriptor omits
+    /// `timeout_ms`.
+    ///
+    /// This is a mechanical safeguard, not a policy decision. The kernel
+    /// applies this value during `seal()` when no plugin has set a timeout.
+    ///
+    /// Refs: I-Core-ActiveToolCall
+    pub fn with_default_tool_timeout_ms(mut self, timeout_ms: u64) -> Self {
+        self.default_tool_timeout_ms = timeout_ms;
+        self
+    }
+
     /// Build the `BriocheEngine`.
     ///
     /// Returns `Err` if a mandatory trait is missing.
@@ -878,6 +1045,7 @@ impl BriocheEngineBuilder {
             cow_budget_policy: self.cow_budget_policy,
             session_registry: SessionRegistry::new(),
             next_generation_id: 1,
+            default_tool_timeout_ms: self.default_tool_timeout_ms,
             _not_send_sync: std::marker::PhantomData,
         })
     }
