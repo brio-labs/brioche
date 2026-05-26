@@ -37,7 +37,7 @@ Key invariants enforced by Book I:
 | Invariant | Code | Enforcement |
 |-----------|------|-------------|
 | Extension types are compile-time verified | I-Core-ExtensionType | `brioche-macro` `trybuild` tests |
-| O(1) extension access by `TypeId` | I-Core-ExtO1 | `ExtensionStorage` hot_map |
+| O(log n) extension access by `TypeId` (n = registered types, typically < 20) | I-Core-ExtO1 | `ExtensionStorage` hot_map |
 | Kernel never panics | I-Core-NoPanic | `transition()` returns `Vec<Effect>` |
 | Streaming hot path has no branching | I-Core-StreamNoBranch | Pre-routed `UnifiedRoutingTable` |
 | Plugin evaluation order is total | I-Core-PluginOrder | `priority` + `name` deterministic sort |
@@ -201,12 +201,12 @@ pub enum StreamAction {
 
 ### 3.1 Architecture
 
-`ExtensionStorage` guarantees O(1) access by `TypeId` with binary persistence.
+`ExtensionStorage` guarantees O(log n) access by `TypeId` (n = registered types, typically < 20) with binary persistence.
 
 **Internal architecture:**
-- `hot_map`: `HashMap<TypeId, Box<dyn Any + Send + Sync>>` — typed runtime access
+- `hot_map`: `BTreeMap<TypeId, Box<dyn Any + Send + Sync>>` — typed runtime access
 - `cold_snapshot`: `BTreeMap<String, Vec<u8>>` — binary persistence by `EXT_ID`
-- `registry`: `HashMap<TypeId, ExtVTable>` — (de)serialization, cloning, default construction
+- `registry`: `BTreeMap<TypeId, ExtVTable>` — (de)serialization, cloning, default construction
 
 **Procedures:**
 - `insert<T>`: serialize to blob, store in cold_snapshot, place typed instance in hot_map
@@ -247,7 +247,6 @@ Governance-critical types carry `#[brioche(critical_state)]`:
 - `EpochState`
 - `TransitionTraceLog`
 - `SupersededTransitionTraceLog`
-- `CycleBudgetState`
 - `SubRoutineTimerState`
 - `HookEffectConstraintState`
 
@@ -385,7 +384,7 @@ Plugins are sorted by ascending `priority`, then by `name` lexicographically for
 
 ### 5.3 Governance traits (anchor points)
 
-The kernel defines 11 governance trait slots:
+The kernel defines 10 governance trait slots:
 
 | # | Trait | Mandatory | Role |
 |---|-------|-----------|------|
@@ -394,12 +393,11 @@ The kernel defines 11 governance trait slots:
 | 3 | `ConsistencyVerifier` | No | Post-transition mechanical validation |
 | 4 | `DecisionAggregator` | **Yes** | Merges `before_prediction` decisions |
 | 5 | `SignalDrainOrder` | No* | Defines invariant channel drainage order |
-| 6 | `CycleBudgetPolicy` | No | Per-plugin synchronous cycle budget |
-| 7 | `HookEffectConstraint` | No | O(1) effect permission validation |
-| 8 | `CycleRollbackPolicy` | No | Granular COW rollback on budget overrun |
-| 9 | `SubRoutineLifecycleGuard` | **Yes** | Cleanup on outgoing `SubRoutine` transition |
-| 10 | `GovernanceFailoverHandler` | No | Safety net for cascading governance failures |
-| 11 | `CowBudgetPolicy` | No | Per-hook COW budget for rollback |
+| 6 | `HookEffectConstraint` | No | O(1) effect permission validation |
+| 7 | `CycleRollbackPolicy` | No | Granular COW rollback on budget overrun |
+| 8 | `SubRoutineLifecycleGuard` | **Yes** | Cleanup on outgoing `SubRoutine` transition |
+| 9 | `GovernanceFailoverHandler` | No | Safety net for cascading governance failures |
+| 10 | `CowBudgetPolicy` | No | Per-hook COW budget for rollback |
 
 \* Mandatory for the shell; the kernel delegates to it but does not start without a shell.
 
@@ -415,7 +413,6 @@ impl BriocheEngineBuilder {
     pub fn with_subroutine_handler(self, handler: Box<dyn SubRoutineHandler>) -> Self;
     pub fn with_consistency_verifier(self, verifier: Box<dyn ConsistencyVerifier>) -> Self;
     pub fn with_decision_aggregator(self, aggregator: Box<dyn DecisionAggregator>) -> Self;
-    pub fn with_cycle_budget_policy(self, policy: Box<dyn CycleBudgetPolicy>) -> Self;
     pub fn with_hook_effect_constraint(self, constraint: Box<dyn HookEffectConstraint>) -> Self;
     pub fn with_cycle_rollback_policy(self, policy: Box<dyn CycleRollbackPolicy>) -> Self;
     pub fn with_subroutine_lifecycle_guard(self, guard: Box<dyn SubRoutineLifecycleGuard>) -> Self;
@@ -441,7 +438,6 @@ The Core layer is intentionally minimal. It does not:
 - **Create sub-routines** — `AgentState::SubRoutine` exists mechanically, but its resolution and lifecycle are delegated to `SubRoutineHandler` and `SubRoutineLifecycleGuard`.
 - **Drain separate channels** — `SystemSignal`, `AsyncTaskResult`, and `GovernanceNotification` transit through channels outside `EngineInput`. The shell (via `SignalDrainOrder`) drains them between transition cycles.
 - **Execute persistence** — `SaveSession` and `SavePluginBlob` are effects returned to the shell; the kernel never touches disk.
-- **Enforce cycle budgets** — `CycleBudgetPolicy` is an optional governance trait. Without injection, no hook duration instrumentation occurs.
 - **Perform COW rollback** — `CycleRollbackPolicy` is optional. Without injection, no `ExtensionStorage` snapshot or restoration happens on budget overrun.
 - **Constrain hook effects** — `HookEffectConstraint` is optional. Without injection, all `RequestEffect`s are allowed on all hooks.
 - **Materialize tool call timeouts** — The kernel provides `default_tool_timeout_ms` as a mechanical safeguard, but the actual timeout value is policy (set by plugins via `on_tool_calls`).
@@ -458,11 +454,10 @@ To move from Core to production mode, the system requires injection of:
 
 Optional traits:
 6. `SignalDrainOrder` — canonical channel drainage order
-7. `CycleBudgetPolicy` — per-plugin synchronous budget
-8. `HookEffectConstraint` — O(1) effect validation
-9. `CycleRollbackPolicy` — granular COW rollback
-10. `GovernanceFailoverHandler` — cascading failure safety net
-11. `CowBudgetPolicy` — per-hook COW budget
+7. `HookEffectConstraint` — O(1) effect validation
+8. `CycleRollbackPolicy` — granular COW rollback
+9. `GovernanceFailoverHandler` — cascading failure safety net
+10. `CowBudgetPolicy` — per-hook COW budget
 
 ### 6.3 Interface contract with the Shell
 
@@ -471,7 +466,7 @@ The shell must:
 - Never mutate `Session` directly; all mutation passes through `EngineInput`
 - Host an `EngineWatchdog` that monitors engine thread reactivity
 - Provide a `SubRoutineLifecycleGuard` implementation (via `SubRoutineCleanupGuard`)
-- Optionally provide `CycleRollbackPolicy` (via `UndoFrameGuard` or `TieredUndoFrameGuard`)
+- Provide `CycleRollbackPolicy` (via `UndoFrameGuard` or `TieredUndoFrameGuard`) if COW rollback is desired
 - Segment SSE payloads to `MAX_INLINE_CHUNK` (4096 bytes) before injection
 
 ---
