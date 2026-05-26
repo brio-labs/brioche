@@ -257,11 +257,179 @@ Business types (e.g., `TokenTrackerState`) do not carry `critical_state` by defa
 
 ## Chapter 4: Plugin interface
 
-*To be written in Sprint 4. See `SPECS.md` §4 for canonical content.*
+### 4.1 `BriochePlugin` trait and `PluginCapabilities`
+
+Plugins declare their hook subscriptions via a bitmask. At engine initialization, the `UnifiedRoutingTable` pre-computes routes for each capability, eliminating runtime mask checks in the hot path.
+
+```rust
+pub struct PluginCapabilities(pub u16);
+
+impl PluginCapabilities {
+    pub const NONE: Self = Self(0);
+    pub const ON_INPUT: Self = Self(1 << 0);
+    pub const BEFORE_PREDICTION: Self = Self(1 << 1);
+    pub const ON_STREAM_EVENT: Self = Self(1 << 2);
+    pub const AFTER_PREDICTION: Self = Self(1 << 3);
+    pub const ON_TOOL_CALLS: Self = Self(1 << 4);
+    pub const ON_TOOL_RESULT: Self = Self(1 << 5);
+    pub const ON_ERROR: Self = Self(1 << 6);
+}
+```
+
+```rust
+pub trait BriochePlugin: Send + Sync {
+    fn name(&self) -> &'static str;
+    fn capabilities(&self) -> PluginCapabilities;
+    fn priority(&self) -> i16 { 0 }
+    fn on_input(&self, input: &EngineInput, ext: &mut ExtensionStorage)
+        -> PluginResult<PolicyDecision>;
+    fn before_prediction(&self, history: &[ChatMessage], ext: &mut ExtensionStorage)
+        -> PluginResult<PolicyDecision>;
+    fn on_stream_event(&self, event: &StreamEvent, ext: &mut ExtensionStorage)
+        -> PluginResult<StreamAction>;
+    fn after_prediction(&self, ext: &mut ExtensionStorage) -> PluginResult<()>;
+    fn on_tool_calls(&self, calls: &mut Vec<ToolCallDescriptor>, ext: &mut ExtensionStorage)
+        -> PluginResult<()>;
+    fn on_tool_result(&self, results: &mut Vec<ToolResultDTO>, ext: &mut ExtensionStorage)
+        -> PluginResult<()>;
+    fn on_error(&self, error: &PluginError, ext: &mut ExtensionStorage)
+        -> PluginResult<PolicyDecision>;
+}
+```
+
+All hooks have default implementations returning "allow/pass/ok", so a plugin only overrides the hooks it cares about.
+
+### 4.2 Policy decisions
+
+`PolicyDecision` is the plugin → core contract:
+- `Allow` — proceed
+- `Block { reason }` — stop, return error + idle
+- `MutateHistory(Vec<HistoryEdit>)` — modify session history
+- `RequestEffect(Effect)` — ask kernel to emit an effect (validated by `HookEffectConstraint`)
+- `OverrideTransition(Vec<Effect>)` — force state transition and emit effects immediately
+
+### 4.3 Plugin error handling
+
+- `Soft` — logged, next plugin evaluated, session continues
+- `Fatal` — kernel emits `Effect::PluginFault`; governance plugin (e.g., `QuarantineManager`) decides follow-up
+
+---
 
 ## Chapter 5: Transition algorithm
 
-*To be written in Sprint 4. See `SPECS.md` §5 for canonical content.*
+### 5.1 `BriocheEngine::transition(session, input) -> Vec<Effect>`
+
+The kernel exposes `SessionSnapshot` in `ExtensionStorage` before each transition cycle. The algorithm (pure mechanism):
+
+**1. Inject `SessionSnapshot`** before each hook.
+
+**2. `EpochInterceptor`** (optional, evaluated first):
+- `Block { reason }` → return `Error(EpochMismatch)` + `SystemIdle`
+- `Proceed` → continue
+
+**3. `SubRoutineHandler`** (optional):
+- If `session.state` is `SubRoutine(handle)`, resolve child via `SessionRegistry`
+- If `Some(effects)` → return immediately (short-circuit standard dispatch)
+- If `None` → continue
+
+**4. `on_input` hook** (pre-routed):
+- Evaluate plugins in `(priority, name)` order
+- `OverrideTransition` — first wins, logged in `TransitionTraceLog`, subsequent ones logged as superseded
+- `Block` → return `Error(StateInconsistency)` + `SystemIdle`
+- `MutateHistory` / `RequestEffect` — accumulate
+
+**5. Main dispatch on `EngineInput`:**
+
+| Input | Action |
+|-------|--------|
+| `UserMessage` | Push to history → `push_state(Predicting)` → `before_prediction` hook → `DecisionAggregator` → `CallLlmNetwork` + `SaveSession` |
+| `LlmStream` | If not `Predicting`, return `[]`. Route `on_stream_event` to plugins. `Pass`/`Hold`/`OffloadTask` → effects. |
+| `ToolCallsResult` | `pop_state()` → clear `active_tools` → `on_tool_result` hook → push results to history → `push_state(Predicting)` → `CallLlmNetwork` + `SaveSession` |
+| `RestoreSubRoutine` | Register child in `SessionRegistry` → `SubRoutineRestored` + `SaveSession` |
+
+**6. `SubRoutineLifecycleGuard`** (mandatory):
+- If previous state was `SubRoutine` and current is not, call `on_exit(handle, parent, registry)`
+
+**7. `HookEffectConstraint`** (optional):
+- For each `RequestEffect`, validate via `is_allowed_fast(hook_index, effect_mask)` — O(1)
+- If disallowed, replace with `Error(StateInconsistency)`
+
+**8. `RebuildRoutes` position guarantee:**
+- `RebuildRoutes` must occupy the last position in the effects vector; anything after it is truncated
+
+**9. `ConsistencyVerifier`** (optional):
+- If `Some(effects)` and no `RebuildRoutes` present → append verifier effects
+
+**10. `GovernanceFailoverHandler`** (optional):
+- If `PluginFault` on governance plugin and no `RebuildRoutes` → call handler
+
+### 5.2 `UnifiedRoutingTable`
+
+Pre-computed at engine initialization:
+
+```rust
+pub struct UnifiedRoutingTable {
+    pub route_on_input: Vec<usize>,
+    pub route_before_prediction: Vec<usize>,
+    pub route_on_stream_event: Vec<usize>,
+    pub route_after_prediction: Vec<usize>,
+    pub route_on_tool_calls: Vec<usize>,
+    pub route_on_tool_result: Vec<usize>,
+    pub route_on_error: Vec<usize>,
+}
+```
+
+Plugins are sorted by ascending `priority`, then by `name` lexicographically for total deterministic order. Routes contain indices into the plugin vector. The streaming loop iterates directly — no branching on bitmasks.
+
+**Complexity:** O(p log p) at init (once), O(1) per plugin in the hot path.
+
+### 5.3 Governance traits (anchor points)
+
+The kernel defines 11 governance trait slots:
+
+| # | Trait | Mandatory | Role |
+|---|-------|-----------|------|
+| 1 | `EpochInterceptor` | No | Temporal barrier — rejects stale epochs |
+| 2 | `SubRoutineHandler` | No | Delegates sub-routine input resolution |
+| 3 | `ConsistencyVerifier` | No | Post-transition mechanical validation |
+| 4 | `DecisionAggregator` | **Yes** | Merges `before_prediction` decisions |
+| 5 | `SignalDrainOrder` | No* | Defines invariant channel drainage order |
+| 6 | `CycleBudgetPolicy` | No | Per-plugin synchronous cycle budget |
+| 7 | `HookEffectConstraint` | No | O(1) effect permission validation |
+| 8 | `CycleRollbackPolicy` | No | Granular COW rollback on budget overrun |
+| 9 | `SubRoutineLifecycleGuard` | **Yes** | Cleanup on outgoing `SubRoutine` transition |
+| 10 | `GovernanceFailoverHandler` | No | Safety net for cascading governance failures |
+| 11 | `CowBudgetPolicy` | No | Per-hook COW budget for rollback |
+
+\* Mandatory for the shell; the kernel delegates to it but does not start without a shell.
+
+### 5.4 `BriocheEngineBuilder`
+
+```rust
+pub struct BriocheEngineBuilder { ... }
+
+impl BriocheEngineBuilder {
+    pub fn new() -> Self;
+    pub fn with_plugin(self, plugin: Box<dyn BriochePlugin>) -> Self;
+    pub fn with_epoch_interceptor(self, interceptor: Box<dyn EpochInterceptor>) -> Self;
+    pub fn with_subroutine_handler(self, handler: Box<dyn SubRoutineHandler>) -> Self;
+    pub fn with_consistency_verifier(self, verifier: Box<dyn ConsistencyVerifier>) -> Self;
+    pub fn with_decision_aggregator(self, aggregator: Box<dyn DecisionAggregator>) -> Self;
+    pub fn with_cycle_budget_policy(self, policy: Box<dyn CycleBudgetPolicy>) -> Self;
+    pub fn with_hook_effect_constraint(self, constraint: Box<dyn HookEffectConstraint>) -> Self;
+    pub fn with_cycle_rollback_policy(self, policy: Box<dyn CycleRollbackPolicy>) -> Self;
+    pub fn with_subroutine_lifecycle_guard(self, guard: Box<dyn SubRoutineLifecycleGuard>) -> Self;
+    pub fn with_governance_failover_handler(self, handler: Box<dyn GovernanceFailoverHandler>) -> Self;
+    pub fn with_cow_budget_policy(self, policy: Box<dyn CowBudgetPolicy>) -> Self;
+    pub fn build(self) -> Result<BriocheEngine, BriocheError>;
+}
+```
+
+`build()` enforces mandatory traits:
+- `DecisionAggregator` is required
+- `SubRoutineLifecycleGuard` is required
+
+---
 
 ## Chapter 6: Limits of the Core layer
 
@@ -277,9 +445,11 @@ Business types (e.g., `TokenTrackerState`) do not carry `critical_state` by defa
 | I-Core-ExtO1 | 2 | ✅ Complete |
 | I-Core-Pure | 3 | ✅ Complete |
 | I-Core-NoPanic | 3 | ✅ Complete |
-| I-Core-StreamNoBranch | 4 | ⬜ Pending |
-| I-Core-PluginOrder | 4 | ⬜ Pending |
-| I-Core-RetVecEffect | 5 | ⬜ Pending |
+| I-Core-StreamNoBranch | 4 | ✅ Complete |
+| I-Core-PluginOrder | 4 | ✅ Complete |
+| I-Core-RetVecEffect | 4 | ✅ Complete |
+| I-Core-ChunkBudget | 5 | ⬜ Pending |
+| I-Core-ActiveToolCall | 5 | ⬜ Pending |
 | I-Core-VTableClone | 2 | ✅ Complete |
 | I-Core-ChunkBudget | 5 | ⬜ Pending |
 | I-Core-ActiveToolCall | 5 | ⬜ Pending |
