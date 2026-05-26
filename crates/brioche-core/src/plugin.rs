@@ -56,6 +56,19 @@ impl PluginCapabilities {
     }
 }
 
+/// Combine two capability sets.
+///
+/// Used by plugins to declare multiple hook subscriptions.
+///
+/// Refs: I-Core-StreamNoBranch
+impl std::ops::BitOr for PluginCapabilities {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // BriochePlugin
 // ---------------------------------------------------------------------------
@@ -97,12 +110,6 @@ pub trait BriochePlugin: Send + Sync {
     /// `default_state_blob`.
     fn deserialize_state(&self, _raw: &[u8]) -> Result<Box<dyn Any + Send + Sync>, String> {
         Err("Not implemented".into())
-    }
-
-    /// Maximum synchronous cycle budget for this plugin, in microseconds.
-    /// 0 = not monitored (default).
-    fn max_cycle_budget_us(&self) -> u64 {
-        0
     }
 
     /// Input interceptor hook. Allows a governance plugin to entirely
@@ -235,19 +242,6 @@ pub trait SignalDrainOrder: Send + Sync {
     fn drain(&self) -> Vec<EngineInput>;
 }
 
-/// Optional. Per-plugin synchronous cycle budget monitoring.
-///
-/// Without injection, the kernel does not instrument hook durations.
-///
-/// Refs: SPECS.md §1.3
-pub trait CycleBudgetPolicy: Send + Sync {
-    /// Returns the budget in microseconds for a given plugin. 0 = not monitored.
-    fn get_budget(&self, plugin_name: &str) -> u64;
-
-    /// Called by the kernel when a plugin exceeds its budget.
-    fn on_budget_exceeded(&self, plugin_name: &str, elapsed_us: u64, ext: &mut ExtensionStorage);
-}
-
 /// Optional. O(1) validation of effects requested by plugins on specific hooks.
 ///
 /// Without injection, all `RequestEffect`s are allowed on all hooks.
@@ -271,17 +265,17 @@ pub trait HookEffectConstraint: Send + Sync {
 /// Refs: I-Gov-Rollback-BestEffort
 pub trait CycleRollbackPolicy: Send + Sync {
     /// Called by the kernel before each monitored hook.
-    fn begin_hook(&self);
+    fn begin_hook(&mut self);
 
     /// Called by the kernel when an extension is mutated for the first time
     /// in this hook. The VTable `clone_box` provides the clone.
-    fn on_mutation(&self, type_id: TypeId, vtable: &ExtVTable, current: &dyn Any);
+    fn on_mutation(&mut self, type_id: TypeId, vtable: &ExtVTable, current: &dyn Any);
 
     /// Called if the budget is respected — mutations are kept.
-    fn commit_hook(&self);
+    fn commit_hook(&mut self);
 
     /// Called if the budget is exceeded — restoration from snapshots.
-    fn rollback_hook(&self, ext: &mut ExtensionStorage);
+    fn rollback_hook(&mut self, ext: &mut ExtensionStorage);
 }
 
 /// Mandatory. Cleanup of `SessionRegistry` on outgoing transition from `SubRoutine`.

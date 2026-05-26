@@ -8,7 +8,7 @@
 //!
 //! ## Public interface
 //! - `BriochePlugin`: Core plugin trait.
-//! - `EpochInterceptor`, `CycleBudgetPolicy`, `SubRoutineHandler`: Governance traits.
+//! - `EpochInterceptor`, `SubRoutineHandler`: Governance traits.
 //! - `PluginResult<T>`, `PolicyDecision`, `PluginError`: Plugin effect types.
 //!
 //! ## Invariants upheld
