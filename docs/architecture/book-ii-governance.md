@@ -89,22 +89,8 @@ pub trait SignalDrainOrder: Send + Sync {
 
 **Obligatoire.** Définit l'ordre invariant de drainage des canaux séparés : `SystemSignal` → `GovernanceNotification` → `AsyncTaskResult`. Implémenté par le shell (`SignalMultiplexer`), pas par le kernel.
 
-### 2.6 CycleBudgetPolicy
 
-```rust
-pub trait CycleBudgetPolicy: Send + Sync {
-    fn get_budget(&self, plugin_name: &str) -> u64;
-    fn on_budget_exceeded(&self, plugin_name: &str, elapsed_us: u64, ext: &mut ExtensionStorage);
-}
-```
-
-**Optionnel.** Définit un budget synchrone par plugin (microsecondes). `0` = non surveillé.
-
-> **Note Sprint 6** : le kernel ne peut pas utiliser `Instant::now()` dans Core (PHILOSOPHY.md §2.2). L'instrumentation temporelle est donc déléguée au shell (`EngineWatchdog`, Book III-A). Le trait `CycleBudgetPolicy` est exposé pour que le shell puisse consulter les budgets et notifier les dépassements via `GovernanceNotification`.
-
-**Implémentation de référence** : `CycleBudgetGuard` (`brioche-governance-default`).
-
-### 2.7 HookEffectConstraint
+### 2.6 HookEffectConstraint
 
 ```rust
 pub trait HookEffectConstraint: Send + Sync {
@@ -117,7 +103,7 @@ pub trait HookEffectConstraint: Send + Sync {
 
 **Implémentation de référence** : `FastHookEffectConstraint` (`brioche-governance-default`).
 
-### 2.8 CycleRollbackPolicy
+### 2.7 CycleRollbackPolicy
 
 ```rust
 pub trait CycleRollbackPolicy: Send + Sync {
@@ -134,7 +120,7 @@ pub trait CycleRollbackPolicy: Send + Sync {
 
 **Implémentation de référence** : `NoopCycleRollbackPolicy` (`brioche-governance-default`).
 
-### 2.9 SubRoutineLifecycleGuard
+### 2.8 SubRoutineLifecycleGuard
 
 ```rust
 pub trait SubRoutineLifecycleGuard: Send + Sync {
@@ -147,7 +133,7 @@ pub trait SubRoutineLifecycleGuard: Send + Sync {
 
 **Implémentation de référence** : `SubRoutineCleanupGuard` (`brioche-governance-default`).
 
-### 2.10 GovernanceFailoverHandler
+### 2.9 GovernanceFailoverHandler
 
 ```rust
 pub trait GovernanceFailoverHandler: Send + Sync {
@@ -160,7 +146,7 @@ pub trait GovernanceFailoverHandler: Send + Sync {
 
 **Implémentation de référence** : `SystemFailoverGuard` (`brioche-governance-default`).
 
-### 2.11 CowBudgetPolicy
+### 2.10 CowBudgetPolicy
 
 ```rust
 pub trait CowBudgetPolicy: Send + Sync {
@@ -213,7 +199,6 @@ Le crate `brioche-governance-default` fournit les implémentations de référenc
 | `CycleRollbackPolicy` | `NoopCycleRollbackPolicy` | `noop_rollback_policy.rs` |
 | `GovernanceFailoverHandler` | `SystemFailoverGuard` | `system_failover_guard.rs` |
 | `SubRoutineHandler` | `SubRoutineOrchestrator` | `subroutine_orchestrator.rs` |
-| `CycleBudgetPolicy` | `CycleBudgetGuard` | `cycle_budget_guard.rs` |
 
 ---
 

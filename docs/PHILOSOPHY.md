@@ -80,7 +80,7 @@ format_code_in_doc_comments = true
 | Context | Convention | Example | Rationale |
 |---------|-----------|---------|-----------|
 | **Mechanism types** | Noun, precise, mechanical | `Session`, `AgentState`, `ExtensionStorage` | These are the atoms of the system. |
-| **Policy traits** | `*Policy`, `*Guard`, `*Handler` | `CycleBudgetPolicy`, `EpochGuard`, `SubRoutineHandler` | Signals "this is injectable policy." |
+| **Policy traits** | `*Policy`, `*Guard`, `*Handler` | `EpochGuard`, `SubRoutineHandler` | Signals "this is injectable policy." |
 | **Plugin structs** | Descriptive noun | `QuarantineManager`, `ToolCallDetector` | Not `PluginX`. The trait already says it's a plugin. |
 | **Effect variants** | Imperative verb | `CallLlmNetwork`, `ExecuteTools`, `SaveSession` | Effects are commands. |
 | **State extensions** | `*State` | `EpochState`, `QuarantineState` | Always ends in State. Stored in `ExtensionStorage`. |
@@ -233,11 +233,11 @@ Every crate root and module must have a `//!` block explaining:
 //! ## Invariants upheld
 //! - I-Core-Pure: No side effects.
 //! - I-Core-NoPanic: Anomalies produce `Failure` state or `OverrideTransition`.
-//! - I-Core-ExtO1: Extension access is O(1) by `TypeId`.
+//! - I-Core-ExtO1: Extension access is O(log n) by `TypeId` (n = registered types, typically < 20).
 //!
 //! ## Entry points
 //! - `BriocheEngine::transition()`: Main state transition function.
-//! - `ExtensionStorage`: Type-safe, O(1) plugin state container.
+//! - `ExtensionStorage`: Type-safe, O(log n) plugin state container.
 ```
 
 ### 4.4 Architecture Decision Records in Code

@@ -13,7 +13,7 @@
 //! - `NoopCycleRollbackPolicy`: Null `CycleRollbackPolicy`.
 //! - `SystemFailoverGuard`: Default `GovernanceFailoverHandler`.
 //! - `SubRoutineOrchestrator`: Default `SubRoutineHandler`.
-//! - `CycleBudgetGuard`: Default `CycleBudgetPolicy`.
+//! - `ToolExecutionTracker`: Telemetry observer for tool calls.
 //!
 //! ## Invariants upheld
 //! - I-Gov-TraitAtomic: Each plugin implements exactly one trait.
@@ -23,7 +23,6 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
-pub mod cycle_budget_guard;
 pub mod epoch_guard;
 pub mod hook_effect_constraint;
 pub mod noop_rollback_policy;
@@ -32,8 +31,9 @@ pub mod state_consistency_guard;
 pub mod subroutine_cleanup_guard;
 pub mod subroutine_orchestrator;
 pub mod system_failover_guard;
+pub mod tool_execution_tracker;
+pub mod undo_frame_guard;
 
-pub use cycle_budget_guard::{CycleBudgetGuard, CycleBudgetGuardState, CycleBudgetViolation};
 pub use epoch_guard::EpochGuard;
 pub use hook_effect_constraint::FastHookEffectConstraint;
 pub use noop_rollback_policy::NoopCycleRollbackPolicy;
@@ -42,3 +42,5 @@ pub use state_consistency_guard::StateConsistencyGuard;
 pub use subroutine_cleanup_guard::SubRoutineCleanupGuard;
 pub use subroutine_orchestrator::SubRoutineOrchestrator;
 pub use system_failover_guard::SystemFailoverGuard;
+pub use tool_execution_tracker::{ToolExecutionTelemetry, ToolExecutionTracker};
+pub use undo_frame_guard::UndoFrameGuard;
