@@ -19,6 +19,20 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/// Maximum size of an inline streaming chunk in bytes.
+///
+/// SSE payloads exceeding this size are segmented into independent
+/// 4 KB fragments before injection into the kernel, guaranteeing the
+/// absence of heap allocation in the synchronous hot path for plugins
+/// in `Pass` or `Hold` mode.
+///
+/// Refs: I-Core-ChunkBudget
+pub const MAX_INLINE_CHUNK: usize = 4096;
+
+// ---------------------------------------------------------------------------
 // Sub-routine handle
 // ---------------------------------------------------------------------------
 
@@ -691,3 +705,127 @@ pub enum BriocheError {
 ///
 /// Refs: I-Gov-NoCoreMutation
 pub type PluginResult<T> = Result<T, PluginError>;
+
+// ---------------------------------------------------------------------------
+// EpochAction
+// ---------------------------------------------------------------------------
+
+/// Result of epoch interception by the `EpochInterceptor` governance trait.
+///
+/// Refs: I-Gov-Epoch-Reject
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EpochAction {
+    /// Input is valid for the current epoch; proceed with standard dispatch.
+    Proceed,
+    /// Input belongs to a past epoch; reject silently.
+    Block { reason: String },
+}
+
+// ---------------------------------------------------------------------------
+// EffectBit
+// ---------------------------------------------------------------------------
+
+/// Bitmask constants for each `Effect` variant, used by `HookEffectConstraint`
+/// for O(1) permission validation.
+///
+/// Refs: I-Core-HookEffect-O1
+pub struct EffectBit;
+
+impl EffectBit {
+    pub const CALL_LLM_NETWORK: u64 = 1 << 0;
+    pub const EXECUTE_TOOLS: u64 = 1 << 1;
+    pub const FORWARD_TO_UI: u64 = 1 << 2;
+    pub const ERROR: u64 = 1 << 3;
+    pub const SAVE_SESSION: u64 = 1 << 4;
+    pub const SAVE_PLUGIN_BLOB: u64 = 1 << 5;
+    pub const TRIGGER_SUMMARIZATION: u64 = 1 << 6;
+    pub const EXECUTE_CPU_TASK: u64 = 1 << 7;
+    pub const TRIGGER_GC: u64 = 1 << 8;
+    pub const SYSTEM_IDLE: u64 = 1 << 9;
+    pub const PLUGIN_FAULT: u64 = 1 << 10;
+    pub const REBUILD_ROUTES: u64 = 1 << 11;
+    pub const SUB_ROUTINE_RESTORED: u64 = 1 << 12;
+    // Bits 13-63 reserved for future extensions.
+}
+
+/// Map an `Effect` to its bitmask constant.
+///
+/// Complexity: O(1). Match on enum variant.
+///
+/// Refs: I-Core-HookEffect-O1
+pub fn effect_to_bitmask(effect: &Effect) -> u64 {
+    match effect {
+        Effect::CallLlmNetwork => EffectBit::CALL_LLM_NETWORK,
+        Effect::ExecuteTools(_) => EffectBit::EXECUTE_TOOLS,
+        Effect::ForwardToUi { .. } => EffectBit::FORWARD_TO_UI,
+        Effect::Error { .. } => EffectBit::ERROR,
+        Effect::SaveSession => EffectBit::SAVE_SESSION,
+        Effect::SavePluginBlob { .. } => EffectBit::SAVE_PLUGIN_BLOB,
+        Effect::TriggerSummarization => EffectBit::TRIGGER_SUMMARIZATION,
+        Effect::ExecuteCpuTask { .. } => EffectBit::EXECUTE_CPU_TASK,
+        Effect::TriggerGc => EffectBit::TRIGGER_GC,
+        Effect::SystemIdle => EffectBit::SYSTEM_IDLE,
+        Effect::PluginFault { .. } => EffectBit::PLUGIN_FAULT,
+        Effect::RebuildRoutes => EffectBit::REBUILD_ROUTES,
+        Effect::SubRoutineRestored { .. } => EffectBit::SUB_ROUTINE_RESTORED,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Trace types (for OverrideTransition traceability)
+// ---------------------------------------------------------------------------
+
+/// Single entry in the `TransitionTraceLog` ring buffer.
+///
+/// Refs: I-Gov-OverrideTrace
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TransitionTrace {
+    pub source_plugin: String,
+    pub decision: PolicyDecision,
+    pub epoch: u64,
+}
+
+/// Ring buffer for traceability of applied `OverrideTransition`s (max 128 entries, FIFO).
+///
+/// Refs: I-Gov-OverrideTrace, I-Core-NoPanic
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
+#[brioche(critical_state)]
+pub struct TransitionTraceLog {
+    #[brioche(deterministic_order)]
+    pub entries: Vec<TransitionTrace>,
+}
+
+/// Single entry in the `SupersededTransitionTraceLog` ring buffer.
+///
+/// Refs: I-Gov-OverrideTrace
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SupersededTransitionTrace {
+    pub source_plugin: String,
+    pub attempted_decision: PolicyDecision,
+    pub preempted_by: String,
+    pub epoch: u64,
+}
+
+/// Ring buffer of preempted `OverrideTransition`s (max 128 entries, FIFO).
+///
+/// Refs: I-Gov-OverrideTrace
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
+#[brioche(critical_state)]
+pub struct SupersededTransitionTraceLog {
+    #[brioche(deterministic_order)]
+    pub entries: Vec<SupersededTransitionTrace>,
+}
+
+// ---------------------------------------------------------------------------
+// EpochState
+// ---------------------------------------------------------------------------
+
+/// Epoch state managed by `EpochGuard` (governance) and read by the kernel
+/// for trace logging.
+///
+/// Refs: I-Gov-Epoch-Reject
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
+#[brioche(critical_state)]
+pub struct EpochState {
+    pub current_generation: u64,
+}
