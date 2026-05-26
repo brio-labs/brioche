@@ -15,15 +15,25 @@
 // inside the crate itself.
 extern crate self as brioche_core;
 
+pub mod engine;
 pub mod extension;
+pub mod plugin;
 pub mod types;
 
+pub use engine::{BriocheEngine, BriocheEngineBuilder, UnifiedRoutingTable};
 pub use extension::{BriocheExtensionType, ExtVTable, ExtensionStorage, SnapshotStrategy};
+pub use plugin::{
+    BriochePlugin, ConsistencyVerifier, CowBudgetPolicy, CycleBudgetPolicy, CycleRollbackPolicy,
+    DecisionAggregator, EpochInterceptor, GovernanceFailoverHandler, HookEffectConstraint,
+    PluginCapabilities, SignalDrainOrder, SubRoutineHandler, SubRoutineLifecycleGuard,
+};
 pub use types::{
-    ActiveToolCall, AgentState, AgentStateTag, BriocheError, ChatMessage, Effect, EngineInput,
-    ErrorCode, ExecutionPath, HistoryEdit, PluginError, PluginResult, PolicyDecision, Session,
-    SessionRegistry, SessionSnapshot, StreamAction, StreamEvent, SubRoutineHandle,
-    ToolCallDescriptor, ToolOutcome, ToolResultDTO, seal,
+    ActiveToolCall, AgentState, AgentStateTag, BriocheError, ChatMessage, Effect, EffectBit,
+    EngineInput, EpochAction, EpochState, ErrorCode, ExecutionPath, HistoryEdit, PluginError,
+    PluginResult, PolicyDecision, Session, SessionRegistry, SessionSnapshot, StreamAction,
+    StreamEvent, SubRoutineHandle, SupersededTransitionTrace, SupersededTransitionTraceLog,
+    ToolCallDescriptor, ToolOutcome, ToolResultDTO, TransitionTrace, TransitionTraceLog,
+    effect_to_bitmask, seal,
 };
 
 // Re-export dependencies so that proc-macro generated code and users
