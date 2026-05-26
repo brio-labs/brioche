@@ -932,3 +932,265 @@ fn transition_llm_stream_on_tool_calls_mutates_timeout() {
         e, Effect::Error { message, .. } if message.contains("Missing timeout")
     )));
 }
+
+// ---------------------------------------------------------------------------
+// Sprint 6: Fundamental governance traits — default implementations
+// ---------------------------------------------------------------------------
+
+#[test]
+fn transition_with_epoch_guard_blocks_stale_generation() {
+    use brioche_governance_default::EpochGuard;
+
+    let mut engine = match BriocheEngineBuilder::new()
+        .with_epoch_interceptor(Box::new(EpochGuard))
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .build()
+    {
+        Ok(e) => e,
+        Err(err) => {
+            assert_eq!(1, 0, "build failed: {}", err);
+            return;
+        }
+    };
+
+    let mut session = Session::new("test");
+    // Simuler une époque avancée
+    session.extensions.insert(brioche_core::EpochState {
+        current_generation: 5,
+    });
+
+    let effects = engine.transition(
+        &mut session,
+        &EngineInput::ToolCallsResult {
+            generation_id: 3, // obsolète
+            results: vec![],
+        },
+    );
+
+    assert!(effects.iter().any(|e| matches!(
+        e, Effect::Error { code, .. } if *code == ErrorCode::EpochMismatch
+    )));
+    assert!(effects.iter().any(|e| matches!(e, Effect::SystemIdle)));
+}
+
+#[test]
+fn transition_with_epoch_guard_allows_current_generation() {
+    use brioche_governance_default::EpochGuard;
+
+    let mut engine = match BriocheEngineBuilder::new()
+        .with_epoch_interceptor(Box::new(EpochGuard))
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .build()
+    {
+        Ok(e) => e,
+        Err(err) => {
+            assert_eq!(1, 0, "build failed: {}", err);
+            return;
+        }
+    };
+
+    let mut session = Session::new("test");
+    session.extensions.insert(brioche_core::EpochState {
+        current_generation: 7,
+    });
+
+    let r1 = session.push_state(AgentState::Predicting { generation_id: 7 });
+    assert!(r1.is_ok());
+    let r2 = session.push_state(AgentState::ExecutingTools { generation_id: 7 });
+    assert!(r2.is_ok());
+
+    let effects = engine.transition(
+        &mut session,
+        &EngineInput::ToolCallsResult {
+            generation_id: 7,
+            results: vec![],
+        },
+    );
+
+    // Pas d'erreur d'époque — le traitement normal continue.
+    assert!(!effects.iter().any(|e| matches!(
+        e, Effect::Error { code, .. } if *code == ErrorCode::EpochMismatch
+    )));
+}
+
+#[test]
+fn transition_with_policy_aggregator_allows() {
+    use brioche_governance_default::LexicographicDecisionAggregator;
+
+    let mut engine = match BriocheEngineBuilder::new()
+        .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .build()
+    {
+        Ok(e) => e,
+        Err(err) => {
+            assert_eq!(1, 0, "build failed: {}", err);
+            return;
+        }
+    };
+
+    let mut session = Session::new("test");
+    let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
+
+    assert!(effects.iter().any(|e| matches!(e, Effect::CallLlmNetwork)));
+    assert!(matches!(session.state, AgentState::Predicting { .. }));
+}
+
+#[test]
+fn transition_with_subroutine_cleanup_guard_removes_child() {
+    use brioche_governance_default::SubRoutineCleanupGuard;
+
+    let mut engine = match BriocheEngineBuilder::new()
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(SubRoutineCleanupGuard::new()))
+        .build()
+    {
+        Ok(e) => e,
+        Err(err) => {
+            assert_eq!(1, 0, "build failed: {}", err);
+            return;
+        }
+    };
+
+    let mut session = Session::new("test");
+    let r = session.push_state(AgentState::Idle);
+    assert!(r.is_ok());
+    session.state = AgentState::SubRoutine(SubRoutineHandle::new("sub-1"));
+
+    // Enregistrer la sous-routine dans le registry
+    engine
+        .session_registry_mut()
+        .insert(SubRoutineHandle::new("sub-1"), Session::new("sub-1"));
+
+    let effects = engine.transition(
+        &mut session,
+        &EngineInput::ToolCallsResult {
+            generation_id: 1,
+            results: vec![],
+        },
+    );
+
+    // La sous-routine doit avoir été retirée du registry.
+    assert!(
+        !engine
+            .session_registry()
+            .contains(&SubRoutineHandle::new("sub-1"))
+    );
+    assert!(effects.iter().any(|e| matches!(e, Effect::SaveSession)));
+}
+
+#[test]
+fn transition_with_state_consistency_guard_fixes_inconsistent_state() {
+    use brioche_governance_default::StateConsistencyGuard;
+
+    let mut engine = match BriocheEngineBuilder::new()
+        .with_consistency_verifier(Box::new(StateConsistencyGuard::new()))
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .build()
+    {
+        Ok(e) => e,
+        Err(err) => {
+            assert_eq!(1, 0, "build failed: {}", err);
+            return;
+        }
+    };
+
+    let mut session = Session::new("test");
+    // Forcer un état incohérent : Predicting sans pile.
+    session.state = AgentState::Predicting { generation_id: 1 };
+
+    // LlmStream ne modifie pas la pile quand on est déjà en Predicting.
+    let event = StreamEvent::TextChunk {
+        path: ExecutionPath::default(),
+        chunk: bytes::Bytes::from_static(b"x"),
+    };
+    let effects = engine.transition(&mut session, &EngineInput::LlmStream(event));
+
+    // Le garde doit avoir forcé un retour à Idle.
+    assert!(matches!(session.state, AgentState::Idle));
+    assert!(session.state_stack.is_empty());
+    assert!(effects.iter().any(|e| matches!(e, Effect::SystemIdle)));
+}
+
+#[test]
+fn transition_with_fast_hook_effect_constraint_blocks_disallowed_effect() {
+    use brioche_core::EffectBit;
+    use brioche_governance_default::FastHookEffectConstraint;
+
+    // Interdit tout sur le hook transition (index 0) sauf Error et SystemIdle.
+    let mut masks = [0u64; 8];
+    masks[0] = EffectBit::ERROR | EffectBit::SYSTEM_IDLE;
+    let constraint = FastHookEffectConstraint::new(masks);
+
+    let mut engine = match BriocheEngineBuilder::new()
+        .with_hook_effect_constraint(Box::new(constraint))
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .build()
+    {
+        Ok(e) => e,
+        Err(err) => {
+            assert_eq!(1, 0, "build failed: {}", err);
+            return;
+        }
+    };
+
+    let mut session = Session::new("test");
+    let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
+
+    // CallLlmNetwork devrait être remplacé par une erreur car interdit.
+    assert!(!effects.iter().any(|e| matches!(e, Effect::CallLlmNetwork)));
+    assert!(effects.iter().any(|e| matches!(
+        e, Effect::Error { code, .. } if *code == ErrorCode::StateInconsistency
+    )));
+}
+
+#[test]
+fn transition_with_system_failover_guard_replaces_fault() {
+    use brioche_governance_default::SystemFailoverGuard;
+
+    struct FaultyPlugin;
+    impl BriochePlugin for FaultyPlugin {
+        fn name(&self) -> &'static str {
+            "faulty"
+        }
+        fn capabilities(&self) -> PluginCapabilities {
+            PluginCapabilities::ON_INPUT
+        }
+        fn on_input(
+            &self,
+            _input: &EngineInput,
+            _ext: &mut ExtensionStorage,
+        ) -> PluginResult<PolicyDecision> {
+            Err(brioche_core::PluginError::Fatal {
+                plugin_name: "faulty".into(),
+                message: "boom".into(),
+            })
+        }
+    }
+
+    let mut engine = match BriocheEngineBuilder::new()
+        .with_plugin(Box::new(FaultyPlugin))
+        .with_governance_failover_handler(Box::new(SystemFailoverGuard::new()))
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .build()
+    {
+        Ok(e) => e,
+        Err(err) => {
+            assert_eq!(1, 0, "build failed: {}", err);
+            return;
+        }
+    };
+
+    let mut session = Session::new("test");
+    let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
+
+    // Le failover doit avoir remplacé le fault par ForwardToUi + SystemIdle.
+    assert!(effects.iter().any(|e| matches!(
+        e, Effect::ForwardToUi { widget_type, .. } if widget_type == "critical_error"
+    )));
+}
