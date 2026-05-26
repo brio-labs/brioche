@@ -31,9 +31,9 @@ pub use types::{
     ActiveToolCall, AgentState, AgentStateTag, BriocheError, ChatMessage, Effect, EffectBit,
     EngineInput, EpochAction, EpochState, ErrorCode, ExecutionPath, HistoryEdit, PluginError,
     PluginResult, PolicyDecision, Session, SessionRegistry, SessionSnapshot, StreamAction,
-    StreamEvent, SubRoutineHandle, SupersededTransitionTrace, SupersededTransitionTraceLog,
-    ToolCallDescriptor, ToolOutcome, ToolResultDTO, TransitionTrace, TransitionTraceLog,
-    effect_to_bitmask, seal,
+    StreamEvent, StreamToolAccumulator, SubRoutineHandle, SupersededTransitionTrace,
+    SupersededTransitionTraceLog, ToolCallDescriptor, ToolOutcome, ToolResultDTO, TransitionTrace,
+    TransitionTraceLog, effect_to_bitmask, seal,
 };
 
 // Re-export dependencies so that proc-macro generated code and users
