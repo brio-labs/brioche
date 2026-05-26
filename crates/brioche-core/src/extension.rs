@@ -3,16 +3,13 @@
 //! This module upholds:
 //! - I-Core-ExtensionType: Compile-time verified extension types via `BriocheExtensionType`.
 //! - I-Core-VTableClone: VTable provides `clone_box`, `serialize`, `deserialize` for COW rollback.
-//! - I-Core-ExtO1: O(1) typed access by `TypeId`.
+//! - I-Core-ExtO1: O(log n) typed access by `TypeId` (n = registered types, typically < 20).
 //!
 //! Refs: SPECS.md §3.1, §3.2
 
+use crate::CycleRollbackPolicy;
 use std::any::{Any, TypeId};
-#[allow(
-    clippy::disallowed_types,
-    reason = "HashMap is used only for transient runtime lookups in ExtensionStorage."
-)]
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Snapshot strategy for COW rollback.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,6 +24,21 @@ pub enum SnapshotStrategy {
     CriticalFullClone,
 }
 
+/// Serialize a type-erased instance to a binary blob.
+pub type SerializeFn = fn(&dyn Any) -> Vec<u8>;
+
+/// Deserialize a binary blob into a type-erased instance.
+pub type DeserializeFn = fn(&[u8]) -> Result<Box<dyn Any + Send + Sync>, String>;
+
+/// Clone a type-erased instance.
+pub type CloneBoxFn = fn(&dyn Any) -> Box<dyn Any + Send + Sync>;
+
+/// Estimate the instance weight in bytes.
+pub type WeightFn = fn(&dyn Any) -> usize;
+
+/// Construct a default type-erased instance.
+pub type DefaultConstructFn = fn() -> Box<dyn Any + Send + Sync>;
+
 /// Function table for per-type (de)serialization, cloning, and default construction.
 ///
 /// Each `BriocheExtensionType` registers an `ExtVTable` at initialization.
@@ -35,34 +47,33 @@ pub enum SnapshotStrategy {
 ///
 /// Refs: I-Core-VTableClone
 #[derive(Clone)]
-#[allow(clippy::type_complexity)]
 pub struct ExtVTable {
     /// Unique extension identifier, matching `BriocheExtensionType::EXT_ID`.
     pub ext_id: &'static str,
     /// Serialize a type-erased instance to a binary blob.
     ///
     /// Refs: I-Core-VTableClone
-    pub serialize: fn(&dyn Any) -> Vec<u8>,
+    pub serialize: SerializeFn,
     /// Deserialize a binary blob into a type-erased instance.
     ///
     /// Returns `Err` if the blob is corrupted or version-incompatible.
     /// The caller should fall back to `default_construct`.
     ///
     /// Refs: I-Core-VTableClone
-    pub deserialize: fn(&[u8]) -> Result<Box<dyn Any + Send + Sync>, String>,
+    pub deserialize: DeserializeFn,
     /// Clone a type-erased instance.
     ///
     /// Used by `CycleRollbackPolicy` for granular COW snapshots.
     ///
     /// Refs: I-Core-VTableClone
-    pub clone_box: fn(&dyn Any) -> Box<dyn Any + Send + Sync>,
+    pub clone_box: CloneBoxFn,
     /// Estimate the instance weight in bytes.
     ///
     /// Used by `UndoFrameGuard` and `TieredUndoFrameGuard` to decide
     /// whether a type fits within the `max_cow_bytes_per_hook` budget.
     ///
     /// Complexity: O(serialization cost).
-    pub estimated_weight_bytes: fn(&dyn Any) -> usize,
+    pub estimated_weight_bytes: WeightFn,
     /// Recommended snapshot strategy for this type.
     ///
     /// `CriticalFullClone` types are always cloned by rollback guards,
@@ -72,7 +83,7 @@ pub struct ExtVTable {
     ///
     /// Used by `get_or_insert_default` and `hydrate_plugin` as a fallback
     /// when deserialization fails.
-    pub default_construct: fn() -> Box<dyn Any + Send + Sync>,
+    pub default_construct: DefaultConstructFn,
 }
 
 /// Private implementation detail for the sealed trait pattern.
@@ -130,34 +141,36 @@ pub trait BriocheExtensionType:
 
 /// Type-safe runtime storage for plugin extension state.
 ///
-/// `ExtensionStorage` provides O(1) typed access to extension instances
-/// by `TypeId`, with automatic binary persistence via `ExtVTable`.
+/// `ExtensionStorage` provides O(log n) typed access to extension instances
+/// by `TypeId` (n = number of registered types, typically < 20), with
+/// automatic binary persistence via `ExtVTable`.
 ///
 /// # Architecture
 ///
-/// - `hot_map`: in-memory `HashMap` for O(1) typed access. Not persisted.
+/// - `hot_map`: in-memory `BTreeMap` for typed access. Not persisted.
 /// - `cold_snapshot`: binary blobs indexed by `EXT_ID`, persisted on `insert`.
 /// - `registry`: `ExtVTable` instances populated at initialization.
 ///
 /// # Invariants
 ///
-/// - Typed extension access is O(1) by `TypeId` and infallible after
+/// - All maps use `BTreeMap` for determinism; no `HashMap` in Core.
+/// - Typed extension access is O(log n) by `TypeId` and infallible after
 ///   `get_or_insert_default`.
-/// - `HashMap` is permitted only in transient runtime state (`hot_map`,
-///   `registry`), not in persisted `cold_snapshot` (which uses `BTreeMap`).
 ///
 /// Refs: I-Core-ExtO1, I-Core-VTableClone
-#[allow(
-    clippy::disallowed_types,
-    clippy::disallowed_methods,
-    reason = "HashMap is used only for transient O(1) TypeId lookups. \
-              Persisted state uses BTreeMap (cold_snapshot). See I-Core-ExtO1."
-)]
 pub struct ExtensionStorage {
-    hot_map: HashMap<TypeId, Box<dyn Any + Send + Sync>>,
+    hot_map: BTreeMap<TypeId, Box<dyn Any + Send + Sync>>,
     cold_snapshot: BTreeMap<String, Vec<u8>>,
-    registry: HashMap<TypeId, ExtVTable>,
+    registry: BTreeMap<TypeId, ExtVTable>,
     ext_id_to_type_id: BTreeMap<String, TypeId>,
+    /// Raw pointer to the active `CycleRollbackPolicy` for the current hook.
+    /// This is a transient field set/cleared by the engine around each plugin
+    /// hook invocation. The pointer is valid because the engine is single-threaded
+    /// and `!Send`/`!Sync`.
+    cow_observer: Option<*mut dyn CycleRollbackPolicy>,
+    /// Types already snapshotted in the current hook. Prevents duplicate COW
+    /// clones when a plugin calls `get_mut` multiple times for the same type.
+    snapshotted_this_hook: BTreeSet<TypeId>,
 }
 
 impl Default for ExtensionStorage {
@@ -166,22 +179,18 @@ impl Default for ExtensionStorage {
     }
 }
 
-#[allow(
-    clippy::disallowed_types,
-    clippy::disallowed_methods,
-    reason = "HashMap is allowed here for transient runtime state only. \
-              Persisted data uses BTreeMap."
-)]
 impl ExtensionStorage {
     /// Create an empty `ExtensionStorage`.
     ///
     /// Complexity: O(1). Allocates empty maps.
     pub fn new() -> Self {
         Self {
-            hot_map: HashMap::new(),
+            hot_map: BTreeMap::new(),
             cold_snapshot: BTreeMap::new(),
-            registry: HashMap::new(),
+            registry: BTreeMap::new(),
             ext_id_to_type_id: BTreeMap::new(),
+            cow_observer: None,
+            snapshotted_this_hook: BTreeSet::new(),
         }
     }
 
@@ -190,7 +199,7 @@ impl ExtensionStorage {
     /// This must be called (either explicitly or via `insert` /
     /// `get_or_insert_default`) before the type can be used.
     ///
-    /// Complexity: O(1). One `BTreeMap` and one `HashMap` insertion.
+    /// Complexity: O(log n). Two `BTreeMap` insertions.
     pub fn register<T>(&mut self)
     where
         T: BriocheExtensionType + 'static,
@@ -208,7 +217,7 @@ impl ExtensionStorage {
     /// and stored in `cold_snapshot`, then placed in `hot_map` for fast
     /// access.
     ///
-    /// Complexity: O(serialization cost). One `HashMap` and one `BTreeMap` insertion.
+    /// Complexity: O(serialization cost). Two `BTreeMap` insertions.
     pub fn insert<T>(&mut self, value: T)
     where
         T: BriocheExtensionType + 'static,
@@ -228,7 +237,7 @@ impl ExtensionStorage {
 
     /// Get a mutable reference to a typed extension, if present.
     ///
-    /// Complexity: O(1). One `HashMap` lookup plus `downcast_mut`.
+    /// Complexity: O(log n). One `BTreeMap` lookup plus `downcast_mut`.
     ///
     /// Refs: I-Core-ExtO1
     pub fn get_mut<T>(&mut self) -> Option<&mut T>
@@ -236,6 +245,7 @@ impl ExtensionStorage {
         T: BriocheExtensionType + 'static,
     {
         let type_id = TypeId::of::<T>();
+        self.notify_cow_on_first_mutation(type_id);
         self.hot_map
             .get_mut(&type_id)
             .and_then(|any| any.downcast_mut::<T>())
@@ -250,7 +260,7 @@ impl ExtensionStorage {
     ///
     /// This method is infallible: it always returns a valid `&mut T`.
     ///
-    /// Complexity: O(1) amortized. One `HashMap` lookup plus optional
+    /// Complexity: O(log n) amortized. One `BTreeMap` lookup plus optional
     /// deserialization.
     ///
     /// Refs: I-Core-ExtO1
@@ -275,6 +285,8 @@ impl ExtensionStorage {
                 };
             self.hot_map.insert(type_id, value);
         }
+        // Notify COW observer now that the value is guaranteed to exist.
+        self.notify_cow_on_first_mutation(type_id);
         // Remove the value from the map to verify / fix its type locally,
         // then re-insert. This avoids borrow checker issues with
         // downcast_mut on trait objects held across map mutations.
@@ -314,7 +326,7 @@ impl ExtensionStorage {
     /// This is used by the shell when loading persisted plugin state
     /// from disk.
     ///
-    /// Complexity: O(deserialization cost). One `HashMap` and one `BTreeMap` insertion.
+    /// Complexity: O(deserialization cost). Two `BTreeMap` insertions.
     pub fn hydrate_plugin(&mut self, ext_id: &str, blob: &[u8]) -> bool {
         let Some(&type_id) = self.ext_id_to_type_id.get(ext_id) else {
             return false;
@@ -340,12 +352,78 @@ impl ExtensionStorage {
         &self.cold_snapshot
     }
 
+    /// Set the COW rollback observer for the duration of a monitored hook.
+    ///
+    /// # Safety
+    ///
+    /// The observer pointer must remain valid until `clear_cow_observer` is
+    /// called. This is guaranteed by the synchronous engine which sets/clears
+    /// the observer around each plugin invocation.
+    ///
+    /// Complexity: O(1). No heap allocation.
+    ///
+    /// Refs: I-Gov-Rollback-BestEffort
+    pub unsafe fn set_cow_observer(&mut self, observer: Option<*mut dyn CycleRollbackPolicy>) {
+        self.cow_observer = observer;
+        self.snapshotted_this_hook.clear();
+    }
+
+    /// Clear the COW rollback observer.
+    ///
+    /// # Safety
+    ///
+    /// Must be called after `set_cow_observer` and after the hook
+    /// execution is complete, before any subsequent hook begins.
+    ///
+    /// Complexity: O(1). No heap allocation.
+    ///
+    /// Refs: I-Gov-Rollback-BestEffort
+    pub unsafe fn clear_cow_observer(&mut self) {
+        self.cow_observer = None;
+        self.snapshotted_this_hook.clear();
+    }
+
+    /// Restore a type-erased value into `hot_map` from a COW snapshot.
+    ///
+    /// Used by `CycleRollbackPolicy` implementations during `rollback_hook`.
+    /// Does **not** update `cold_snapshot` — rollback only affects hot state.
+    ///
+    /// Complexity: O(log n). One `BTreeMap` insertion; no serialization.
+    ///
+    /// Refs: I-Gov-Rollback-BestEffort
+    pub fn restore_boxed(&mut self, type_id: TypeId, value: Box<dyn Any + Send + Sync>) {
+        self.hot_map.insert(type_id, value);
+    }
+
+    /// Notify the COW observer on first mutation access for a type in this hook.
+    fn notify_cow_on_first_mutation(&mut self, type_id: TypeId) {
+        let Some(observer_ptr) = self.cow_observer else {
+            return;
+        };
+        if self.snapshotted_this_hook.contains(&type_id) {
+            return;
+        }
+        let Some(vtable) = self.registry.get(&type_id) else {
+            return;
+        };
+        let Some(current) = self.hot_map.get(&type_id) else {
+            return;
+        };
+        // SAFETY: The observer pointer is valid because the synchronous engine
+        // guarantees the policy outlives the hook invocation. The engine is
+        // single-threaded and `!Send`/`!Sync`.
+        unsafe {
+            (*observer_ptr).on_mutation(type_id, vtable, current.as_ref());
+        }
+        self.snapshotted_this_hook.insert(type_id);
+    }
+
     /// Remove a type from `hot_map` without touching `cold_snapshot`.
     ///
     /// This can be used to evict cold entries while keeping the
     /// persisted blob intact.
     ///
-    /// Complexity: O(1). One `HashMap` removal.
+    /// Complexity: O(log n). One `BTreeMap` removal.
     pub fn evict_from_hot<T>(&mut self) -> bool
     where
         T: BriocheExtensionType + 'static,

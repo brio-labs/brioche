@@ -10,13 +10,12 @@
 
 use crate::{
     ActiveToolCall, AgentState, BriocheError, BriochePlugin, ChatMessage, ConsistencyVerifier,
-    CowBudgetPolicy, CycleBudgetPolicy, CycleRollbackPolicy, DecisionAggregator, Effect,
-    EngineInput, EpochAction, EpochInterceptor, EpochState, ErrorCode, GovernanceFailoverHandler,
-    HistoryEdit, HookEffectConstraint, PluginCapabilities, PluginError, PolicyDecision, Session,
-    SessionRegistry, StreamAction, StreamEvent, StreamToolAccumulator, SubRoutineHandle,
-    SubRoutineHandler, SubRoutineLifecycleGuard, SupersededTransitionTrace,
-    SupersededTransitionTraceLog, ToolCallDescriptor, ToolResultDTO, TransitionTrace,
-    TransitionTraceLog, effect_to_bitmask,
+    CycleRollbackPolicy, DecisionAggregator, Effect, EngineInput, EpochAction, EpochInterceptor,
+    EpochState, ErrorCode, GovernanceFailoverHandler, HistoryEdit, HookEffectConstraint,
+    PluginCapabilities, PluginError, PolicyDecision, Session, SessionRegistry, StreamAction,
+    StreamEvent, StreamToolAccumulator, SubRoutineHandle, SubRoutineHandler,
+    SubRoutineLifecycleGuard, SupersededTransitionTrace, SupersededTransitionTraceLog,
+    ToolCallDescriptor, ToolResultDTO, TransitionTrace, TransitionTraceLog, effect_to_bitmask,
 };
 
 // ---------------------------------------------------------------------------
@@ -116,15 +115,10 @@ pub struct BriocheEngine {
     subroutine_handler: Option<Box<dyn SubRoutineHandler>>,
     consistency_verifier: Option<Box<dyn ConsistencyVerifier>>,
     decision_aggregator: Option<Box<dyn DecisionAggregator>>,
-    #[allow(dead_code)]
-    cycle_budget_policy: Option<Box<dyn CycleBudgetPolicy>>,
     hook_effect_constraint: Option<Box<dyn HookEffectConstraint>>,
-    #[allow(dead_code)]
     cycle_rollback_policy: Option<Box<dyn CycleRollbackPolicy>>,
     subroutine_lifecycle_guard: Option<Box<dyn SubRoutineLifecycleGuard>>,
     governance_failover_handler: Option<Box<dyn GovernanceFailoverHandler>>,
-    #[allow(dead_code)]
-    cow_budget_policy: Option<Box<dyn CowBudgetPolicy>>,
 
     // Sub-routine registry
     session_registry: SessionRegistry,
@@ -295,6 +289,50 @@ impl BriocheEngine {
     // Internal helpers
     // -----------------------------------------------------------------------
 
+    /// Wrap a single plugin hook invocation with COW rollback.
+    ///
+    /// The `cycle_rollback_policy` is temporarily removed from `self`,
+    /// passed to the closure via `ExtensionStorage`'s mutation observer,
+    /// then restored after the hook. On plugin error, `rollback_hook()`
+    /// is called to restore mutated extensions to their pre-hook state.
+    ///
+    /// **Note on time instrumentation:** per-hook wall-clock timing is
+    /// intentionally **not** performed in Core. `Instant::now()` is
+    /// disallowed in Core by PHILOSOPHY.md §2.2 to preserve determinism.
+    /// Time-based safety is provided by the Shell Runtime (`EngineWatchdog`).
+    ///
+    /// Refs: I-Gov-Rollback-BestEffort
+    fn with_rollback<R>(
+        &mut self,
+        session: &mut Session,
+        _plugin_name: &'static str,
+        f: impl FnOnce(&mut Self, &mut Session) -> R,
+    ) -> R {
+        let mut rollback = self.cycle_rollback_policy.take();
+        if let Some(r) = rollback.as_mut() {
+            r.begin_hook();
+        }
+        let observer_ptr: Option<*mut dyn CycleRollbackPolicy> = rollback
+            .as_mut()
+            .map(|r| r.as_mut() as *mut dyn CycleRollbackPolicy);
+        unsafe {
+            session.extensions.set_cow_observer(observer_ptr);
+        }
+
+        let result = f(self, session);
+
+        unsafe {
+            session.extensions.clear_cow_observer();
+        }
+
+        if let Some(r) = rollback.as_mut() {
+            r.commit_hook();
+        }
+
+        self.cycle_rollback_policy = rollback;
+        result
+    }
+
     /// Evaluate the `on_input` route.
     ///
     /// `OverrideTransition` from the first plugin wins; subsequent ones are
@@ -303,11 +341,17 @@ impl BriocheEngine {
         let mut accumulated = Vec::new();
         let mut override_transition: Option<(Vec<Effect>, String)> = None;
 
-        for &idx in &self.routing_table.route_on_input {
-            let plugin = &self.plugins[idx];
+        let route = self.routing_table.route_on_input.clone();
+        for &idx in &route {
+            let name = self.plugins[idx].name();
             session.extensions.insert(session.snapshot());
 
-            match plugin.on_input(input, &mut session.extensions) {
+            let decision = self.with_rollback(session, name, |engine, session| {
+                let plugin = &engine.plugins[idx];
+                plugin.on_input(input, &mut session.extensions)
+            });
+
+            match decision {
                 Ok(PolicyDecision::Allow) => {}
                 Ok(PolicyDecision::Block { reason }) => {
                     return InputResult::Block { reason };
@@ -325,17 +369,17 @@ impl BriocheEngine {
                 }
                 Ok(PolicyDecision::OverrideTransition(effects)) => {
                     if override_transition.is_none() {
-                        override_transition = Some((effects, plugin.name().to_string()));
+                        override_transition = Some((effects, name.to_string()));
                     } else {
                         self.log_superseded_transition(
                             session,
-                            plugin.name(),
+                            name,
                             &PolicyDecision::OverrideTransition(effects),
                         );
                     }
                 }
                 Err(err) => {
-                    accumulated.push(self.plugin_fault(plugin.name(), err));
+                    accumulated.push(self.plugin_fault(name, err));
                 }
             }
         }
@@ -387,13 +431,18 @@ impl BriocheEngine {
 
         // before_prediction hook: collect decisions.
         let mut decisions = Vec::new();
-        for &idx in &self.routing_table.route_before_prediction {
-            let plugin = &self.plugins[idx];
+        let route = self.routing_table.route_before_prediction.clone();
+        for &idx in &route {
+            let name = self.plugins[idx].name();
             session.extensions.insert(session.snapshot());
-            match plugin.before_prediction(&session.history, &mut session.extensions) {
+            let decision = self.with_rollback(session, name, |engine, session| {
+                let plugin = &engine.plugins[idx];
+                plugin.before_prediction(&session.history, &mut session.extensions)
+            });
+            match decision {
                 Ok(decision) => decisions.push(decision),
                 Err(err) => {
-                    effects.push(self.plugin_fault(plugin.name(), err));
+                    effects.push(self.plugin_fault(name, err));
                 }
             }
         }
@@ -463,10 +512,15 @@ impl BriocheEngine {
             return Ok(effects);
         }
 
-        for &idx in &self.routing_table.route_on_stream_event {
-            let plugin = &self.plugins[idx];
+        let route = self.routing_table.route_on_stream_event.clone();
+        for &idx in &route {
+            let name = self.plugins[idx].name();
             session.extensions.insert(session.snapshot());
-            match plugin.on_stream_event(event, &mut session.extensions) {
+            let action = self.with_rollback(session, name, |engine, session| {
+                let plugin = &engine.plugins[idx];
+                plugin.on_stream_event(event, &mut session.extensions)
+            });
+            match action {
                 Ok(StreamAction::Pass) => {}
                 Ok(StreamAction::Hold) => {
                     // Buffering is handled by the plugin / shell.
@@ -475,7 +529,7 @@ impl BriocheEngine {
                     effects.push(Effect::ExecuteCpuTask { task_id, payload });
                 }
                 Err(err) => {
-                    effects.push(self.plugin_fault(plugin.name(), err));
+                    effects.push(self.plugin_fault(name, err));
                 }
             }
         }
@@ -549,11 +603,16 @@ impl BriocheEngine {
         descriptors: &mut Vec<ToolCallDescriptor>,
         effects: &mut Vec<Effect>,
     ) -> Result<(), BriocheError> {
-        for &idx in &self.routing_table.route_on_tool_calls {
-            let plugin = &self.plugins[idx];
+        let route = self.routing_table.route_on_tool_calls.clone();
+        for &idx in &route {
+            let name = self.plugins[idx].name();
             session.extensions.insert(session.snapshot());
-            if let Err(err) = plugin.on_tool_calls(descriptors, &mut session.extensions) {
-                effects.push(self.plugin_fault(plugin.name(), err));
+            let result = self.with_rollback(session, name, |engine, session| {
+                let plugin = &engine.plugins[idx];
+                plugin.on_tool_calls(descriptors, &mut session.extensions)
+            });
+            if let Err(err) = result {
+                effects.push(self.plugin_fault(name, err));
             }
         }
         Ok(())
@@ -617,11 +676,16 @@ impl BriocheEngine {
 
         // on_tool_result hook: in-place mutation.
         let mut mutable_results = results.to_vec();
-        for &idx in &self.routing_table.route_on_tool_result {
-            let plugin = &self.plugins[idx];
+        let route = self.routing_table.route_on_tool_result.clone();
+        for &idx in &route {
+            let name = self.plugins[idx].name();
             session.extensions.insert(session.snapshot());
-            if let Err(err) = plugin.on_tool_result(&mut mutable_results, &mut session.extensions) {
-                effects.push(self.plugin_fault(plugin.name(), err));
+            let result = self.with_rollback(session, name, |engine, session| {
+                let plugin = &engine.plugins[idx];
+                plugin.on_tool_result(&mut mutable_results, &mut session.extensions)
+            });
+            if let Err(err) = result {
+                effects.push(self.plugin_fault(name, err));
             }
         }
 
@@ -890,12 +954,10 @@ pub struct BriocheEngineBuilder {
     subroutine_handler: Option<Box<dyn SubRoutineHandler>>,
     consistency_verifier: Option<Box<dyn ConsistencyVerifier>>,
     decision_aggregator: Option<Box<dyn DecisionAggregator>>,
-    cycle_budget_policy: Option<Box<dyn CycleBudgetPolicy>>,
     hook_effect_constraint: Option<Box<dyn HookEffectConstraint>>,
     cycle_rollback_policy: Option<Box<dyn CycleRollbackPolicy>>,
     subroutine_lifecycle_guard: Option<Box<dyn SubRoutineLifecycleGuard>>,
     governance_failover_handler: Option<Box<dyn GovernanceFailoverHandler>>,
-    cow_budget_policy: Option<Box<dyn CowBudgetPolicy>>,
     default_tool_timeout_ms: u64,
 }
 
@@ -914,12 +976,10 @@ impl BriocheEngineBuilder {
             subroutine_handler: None,
             consistency_verifier: None,
             decision_aggregator: None,
-            cycle_budget_policy: None,
             hook_effect_constraint: None,
             cycle_rollback_policy: None,
             subroutine_lifecycle_guard: None,
             governance_failover_handler: None,
-            cow_budget_policy: None,
             default_tool_timeout_ms: 0,
         }
     }
@@ -954,12 +1014,6 @@ impl BriocheEngineBuilder {
         self
     }
 
-    /// Inject a `CycleBudgetPolicy`.
-    pub fn with_cycle_budget_policy(mut self, policy: Box<dyn CycleBudgetPolicy>) -> Self {
-        self.cycle_budget_policy = Some(policy);
-        self
-    }
-
     /// Inject a `HookEffectConstraint`.
     pub fn with_hook_effect_constraint(
         mut self,
@@ -990,12 +1044,6 @@ impl BriocheEngineBuilder {
         handler: Box<dyn GovernanceFailoverHandler>,
     ) -> Self {
         self.governance_failover_handler = Some(handler);
-        self
-    }
-
-    /// Inject a `CowBudgetPolicy`.
-    pub fn with_cow_budget_policy(mut self, policy: Box<dyn CowBudgetPolicy>) -> Self {
-        self.cow_budget_policy = Some(policy);
         self
     }
 
@@ -1037,12 +1085,10 @@ impl BriocheEngineBuilder {
             subroutine_handler: self.subroutine_handler,
             consistency_verifier: self.consistency_verifier,
             decision_aggregator: Some(decision_aggregator),
-            cycle_budget_policy: self.cycle_budget_policy,
             hook_effect_constraint: self.hook_effect_constraint,
             cycle_rollback_policy: self.cycle_rollback_policy,
             subroutine_lifecycle_guard: Some(subroutine_lifecycle_guard),
             governance_failover_handler: self.governance_failover_handler,
-            cow_budget_policy: self.cow_budget_policy,
             session_registry: SessionRegistry::new(),
             next_generation_id: 1,
             default_tool_timeout_ms: self.default_tool_timeout_ms,

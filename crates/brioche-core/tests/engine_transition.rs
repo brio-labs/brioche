@@ -8,11 +8,11 @@
 //! - I-Core-RetVecEffect: all side effects are returned as `Effect`.
 
 use brioche_core::{
-    AgentState, BriocheEngineBuilder, BriochePlugin, ChatMessage, ConsistencyVerifier,
-    DecisionAggregator, Effect, EngineInput, EpochAction, EpochInterceptor, ErrorCode,
-    ExecutionPath, ExtensionStorage, HistoryEdit, PluginCapabilities, PluginResult, PolicyDecision,
-    Session, SessionRegistry, StreamEvent, SubRoutineHandle, SubRoutineLifecycleGuard,
-    ToolCallDescriptor, ToolResultDTO, UnifiedRoutingTable,
+    AgentState, BriocheEngineBuilder, BriocheExtensionType, BriochePlugin, ChatMessage,
+    ConsistencyVerifier, CycleRollbackPolicy, DecisionAggregator, Effect, EngineInput, EpochAction,
+    EpochInterceptor, ErrorCode, ExecutionPath, ExtensionStorage, HistoryEdit, PluginCapabilities,
+    PluginResult, PolicyDecision, Session, SessionRegistry, StreamEvent, SubRoutineHandle,
+    SubRoutineLifecycleGuard, ToolCallDescriptor, ToolResultDTO, UnifiedRoutingTable,
 };
 
 // ---------------------------------------------------------------------------
@@ -1193,4 +1193,181 @@ fn transition_with_system_failover_guard_replaces_fault() {
     assert!(effects.iter().any(|e| matches!(
         e, Effect::ForwardToUi { widget_type, .. } if widget_type == "critical_error"
     )));
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 7: Optional traits + COW integration
+// ---------------------------------------------------------------------------
+
+/// Type de test non-critique pour valider le seuil COW.
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    brioche_core::BriocheExtensionType,
+)]
+pub struct TestCowState {
+    pub value: u64,
+}
+
+#[test]
+fn undo_frame_guard_restores_mutated_extension() {
+    use brioche_governance_default::UndoFrameGuard;
+
+    let mut guard = UndoFrameGuard::new();
+    let mut ext = ExtensionStorage::new();
+    ext.insert(brioche_core::EpochState {
+        current_generation: 42,
+    });
+
+    guard.begin_hook();
+
+    // Snapshot the current value via on_mutation.
+    let type_id = std::any::TypeId::of::<brioche_core::EpochState>();
+    let vtable = brioche_core::EpochState::build_vtable();
+    let current = ext.get_or_insert_default::<brioche_core::EpochState>();
+    guard.on_mutation(type_id, &vtable, current);
+
+    // Mutate the extension.
+    current.current_generation = 99;
+
+    // Rollback should restore the original value.
+    guard.rollback_hook(&mut ext);
+
+    let restored = ext.get_or_insert_default::<brioche_core::EpochState>();
+    assert_eq!(restored.current_generation, 42);
+}
+
+#[test]
+fn undo_frame_guard_abandons_past_threshold() {
+    use brioche_governance_default::UndoFrameGuard;
+
+    let mut guard = UndoFrameGuard::with_max_cow_bytes(0); // 0 byte threshold
+    let mut ext = ExtensionStorage::new();
+    ext.insert(TestCowState { value: 7 });
+
+    guard.begin_hook();
+
+    let type_id = std::any::TypeId::of::<TestCowState>();
+    let vtable = TestCowState::build_vtable();
+    let current = ext.get_or_insert_default::<TestCowState>();
+    guard.on_mutation(type_id, &vtable, current);
+
+    // Mutation abandoned due to threshold — state won't be restored.
+    current.value = 123;
+
+    guard.rollback_hook(&mut ext);
+
+    let not_restored = ext.get_or_insert_default::<TestCowState>();
+    assert_eq!(not_restored.value, 123);
+}
+
+#[test]
+fn tool_execution_tracker_counts_outcomes() {
+    use brioche_governance_default::{ToolExecutionTelemetry, ToolExecutionTracker};
+
+    let tracker = ToolExecutionTracker::new();
+    let mut ext = ExtensionStorage::new();
+
+    // Simulate two tool calls.
+    let mut calls = vec![
+        ToolCallDescriptor {
+            tool_id: "t1".into(),
+            tool_name: "calc".into(),
+            arguments: "{}".into(),
+            timeout_ms: Some(1000),
+        },
+        ToolCallDescriptor {
+            tool_id: "t2".into(),
+            tool_name: "grep".into(),
+            arguments: "{}".into(),
+            timeout_ms: Some(2000),
+        },
+    ];
+    assert!(tracker.on_tool_calls(&mut calls, &mut ext).is_ok());
+
+    let state = ext.get_or_insert_default::<ToolExecutionTelemetry>();
+    assert_eq!(state.start_timestamps.len(), 2);
+    assert!(state.start_timestamps.contains_key("t1"));
+    assert!(state.start_timestamps.contains_key("t2"));
+
+    // Simulate results: one success, one failure.
+    let mut results = vec![
+        ToolResultDTO {
+            tool_id: "t1".into(),
+            tool_name: "calc".into(),
+            outcome: brioche_core::ToolOutcome::Success("42".into()),
+        },
+        ToolResultDTO {
+            tool_id: "t2".into(),
+            tool_name: "grep".into(),
+            outcome: brioche_core::ToolOutcome::SystemError("not found".into()),
+        },
+    ];
+    assert!(tracker.on_tool_result(&mut results, &mut ext).is_ok());
+
+    let state = ext.get_or_insert_default::<ToolExecutionTelemetry>();
+    assert_eq!(state.completed_count, 1);
+    assert_eq!(state.failed_count, 1);
+    assert!(state.start_timestamps.is_empty());
+}
+
+#[test]
+fn engine_with_undo_frame_guard_instruments_hooks() {
+    use brioche_governance_default::UndoFrameGuard;
+
+    struct MutatingPlugin;
+    impl BriochePlugin for MutatingPlugin {
+        fn name(&self) -> &'static str {
+            "mutating"
+        }
+        fn capabilities(&self) -> PluginCapabilities {
+            PluginCapabilities::ON_INPUT
+        }
+        fn on_input(
+            &self,
+            _input: &EngineInput,
+            ext: &mut ExtensionStorage,
+        ) -> PluginResult<PolicyDecision> {
+            let state = ext.get_or_insert_default::<brioche_core::EpochState>();
+            state.current_generation = 999;
+            Ok(PolicyDecision::Allow)
+        }
+    }
+
+    let mut engine = match BriocheEngineBuilder::new()
+        .with_plugin(Box::new(MutatingPlugin))
+        .with_cycle_rollback_policy(Box::new(UndoFrameGuard::new()))
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .build()
+    {
+        Ok(e) => e,
+        Err(err) => {
+            assert_eq!(1, 0, "build failed: {}", err);
+            return;
+        }
+    };
+
+    let mut session = Session::new("test");
+    session.extensions.insert(brioche_core::EpochState {
+        current_generation: 1,
+    });
+
+    // The hook mutates EpochState; COW instrumentation should not interfere
+    // with normal operation (commit_hook is called when budget is respected).
+    let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
+
+    assert!(matches!(session.state, AgentState::Predicting { .. }));
+    assert!(effects.iter().any(|e| matches!(e, Effect::CallLlmNetwork)));
+
+    // The mutation should have been committed (not rolled back).
+    let state = session
+        .extensions
+        .get_or_insert_default::<brioche_core::EpochState>();
+    assert_eq!(state.current_generation, 999);
 }

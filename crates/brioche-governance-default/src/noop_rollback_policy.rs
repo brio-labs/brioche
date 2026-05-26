@@ -16,12 +16,17 @@ use std::any::{Any, TypeId};
 pub struct NoopCycleRollbackPolicy;
 
 impl CycleRollbackPolicy for NoopCycleRollbackPolicy {
-    fn begin_hook(&self) {}
+    fn begin_hook(&mut self) {}
 
-    fn on_mutation(&self, _type_id: TypeId, _vtable: &brioche_core::ExtVTable, _current: &dyn Any) {
+    fn on_mutation(
+        &mut self,
+        _type_id: TypeId,
+        _vtable: &brioche_core::ExtVTable,
+        _current: &dyn Any,
+    ) {
     }
 
-    fn commit_hook(&self) {}
+    fn commit_hook(&mut self) {}
 
-    fn rollback_hook(&self, _ext: &mut ExtensionStorage) {}
+    fn rollback_hook(&mut self, _ext: &mut ExtensionStorage) {}
 }
