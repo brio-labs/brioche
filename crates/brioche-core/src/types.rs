@@ -829,3 +829,25 @@ pub struct SupersededTransitionTraceLog {
 pub struct EpochState {
     pub current_generation: u64,
 }
+
+// ---------------------------------------------------------------------------
+// Stream tool accumulator
+// ---------------------------------------------------------------------------
+
+/// Transient accumulator for tool calls discovered during LLM streaming.
+///
+/// The kernel populates this as `ToolCallStart` / `ToolArgumentChunk`
+/// events arrive. When `ToolCallDone` is received, the pending descriptors
+/// are drained, passed through the `on_tool_calls` hook, sealed into
+/// `ActiveToolCall`s, and stored in `session.active_tools`.
+///
+/// This type is transient (#[brioche(no_snapshot)]) — it does not need
+/// COW rollback because it is reconstructed on every stream event.
+///
+/// Refs: I-Core-ActiveToolCall, I-Core-ChunkBudget
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
+#[brioche(no_snapshot)]
+pub struct StreamToolAccumulator {
+    /// Map tool_id -> partially-built descriptor.
+    pub pending: BTreeMap<String, ToolCallDescriptor>,
+}
