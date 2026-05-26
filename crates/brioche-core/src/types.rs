@@ -25,7 +25,9 @@ use std::collections::BTreeMap;
 /// Opaque handle identifying a sub-routine session in the `SessionRegistry`.
 ///
 /// `SubRoutineHandle` is `Ord` so it can be used as a `BTreeMap` key,
-/// guaranteeing deterministic ordering (I-Core-PluginOrder).
+/// guaranteeing deterministic ordering.
+///
+/// Refs: I-Core-PluginOrder
 ///
 /// Refs: I-Core-AgentState
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
