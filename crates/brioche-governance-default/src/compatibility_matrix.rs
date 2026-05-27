@@ -7,20 +7,20 @@
 //!
 //! Refs: I-Comp-Override-Rebuild, I-Comp-Epoch-First
 
-/// Niveau de compatibilité entre deux implémentations de traits.
+/// Compatibility level between two trait implementations.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CompatibilityLevel {
-    /// Combinationsion recommandée et testée.
+    /// Recommended and tested combination.
     Recommended,
-    /// Compatible mais non testé exhaustivement.
+    /// Compatible but not exhaustively tested.
     Compatible,
-    /// Fonctionnel mais avec limitations documentées.
+    /// Functional but with documented limitations.
     Caution,
     /// Incompatible — ne pas combiner.
     Incompatible,
 }
 
-/// Entrée de la matrice de compatibilité.
+/// Compatibility matrix entry.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompatibilityEntry {
     pub trait_a: &'static str,
@@ -31,14 +31,14 @@ pub struct CompatibilityEntry {
     pub note: Option<&'static str>,
 }
 
-/// Matrice de compatibilité des traits de gouvernance.
+/// Governance trait compatibility matrix.
 ///
-/// Cette structure est purement documentaire/constante. Elle ne modifie
-/// pas le comportement runtime du kernel.
+/// This structure is purely documentary/constant. It does not modify
+/// the kernel's runtime behavior.
 pub struct GovernanceCompatibilityMatrix;
 
 impl GovernanceCompatibilityMatrix {
-    /// Retourne la matrice complète des compatibilités connues.
+    /// Returns the full matrix of known compatibilities.
     pub fn entries() -> Vec<CompatibilityEntry> {
         vec![
             // EpochGuard combinations
@@ -120,7 +120,7 @@ impl GovernanceCompatibilityMatrix {
         ]
     }
 
-    /// Retourne le niveau de compatibilité pour une paire donnée.
+    /// Returns the compatibility level for a given pair.
     pub fn lookup(
         trait_a: &str,
         impl_a: &str,

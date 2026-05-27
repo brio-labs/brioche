@@ -1,20 +1,20 @@
 # Book II — The Governance Book
 
-> Spécification du layer Governance (Sprints 6–8).
-> Ce document est incrémental : chaque sprint complète les chapitres correspondants.
+> Governance layer specification (Sprints 6–8).
+> This document is incremental: each sprint completes the corresponding chapters.
 
 ---
 
 ## Chapter 1: Governance Principles
 
-Le layer Governance implémente la **politique** (business rules) sans modifier le **mécanisme** (Core).
+The Governance layer implements **policy** (business rules) without modifying the **mechanism** (Core).
 
-Principes fondamentaux :
+Fundamental principles:
 
-* **Traits atomiques** : chaque capability est un trait standalone (`EpochInterceptor`, `SubRoutineHandler`, etc.). Pas d'héritage, pas de `BasePlugin`.
-* **Injection par builder** : `BriocheEngineBuilder` force l'injection des traits obligatoires au moment du `build()`. Un trait manquant = erreur de compilation ou `Err` au runtime.
-* **Pas de mutation directe de `Session`** : les plugins ne modifient jamais `session.state`, `session.history` ou `session.active_tools` directement. Ils retournent des `PolicyDecision` ou mutent leur propre état dans `ExtensionStorage`.
-* **Ordre total des traits** : l'ordre d'appel dans `transition()` est invariant et matérialisé par le code, non par une configuration dynamique.
+* **Atomic traits**: each capability is a standalone trait (`EpochInterceptor`, `SubRoutineHandler`, etc.). No inheritance, no `BasePlugin`.
+* **Builder injection**: `BriocheEngineBuilder` forces injection of mandatory traits at `build()` time. A missing trait = compilation error or `Err` at runtime.
+* **No direct mutation of `Session`**: plugins never directly modify `session.state`, `session.history` or `session.active_tools`. They return `PolicyDecision`s or mutate their own state in `ExtensionStorage`.
+* **Total trait order**: the call order in `transition()` is invariant and materialized by code, not by dynamic configuration.
 
 ---
 
@@ -29,9 +29,9 @@ pub trait EpochInterceptor: Send + Sync {
 }
 ```
 
-Évalué **en premier** dans chaque cycle. Si `Block`, le kernel retourne immédiatement `Effect::Error(EpochMismatch)` + `SystemIdle`. Aucun trait subséquent ne peut outrepasser une barrière d'époque.
+Evaluated **first** in each cycle. If `Block`, the kernel immediately returns `Effect::Error(EpochMismatch)` + `SystemIdle`. No subsequent trait can override an epoch barrier.
 
-**Implémentation de référence** : `EpochGuard` (`brioche-governance-default`).
+**Reference implementation**: `EpochGuard` (`brioche-governance-default`).
 
 ### 2.2 SubRoutineHandler
 
@@ -42,9 +42,9 @@ pub trait SubRoutineHandler: Send + Sync {
 }
 ```
 
-Évalué si `session.state == SubRoutine`. Si `Some(effects)`, le dispatch standard est court-circuité. Évalué **après** `EpochInterceptor` (I-Comp-Epoch-Subroutine).
+Evaluated if `session.state == SubRoutine`. If `Some(effects)`, standard dispatch is short-circuited. Evaluated **after** `EpochInterceptor` (I-Comp-Epoch-Subroutine).
 
-**Implémentation de référence** : `SubRoutineOrchestrator` (`brioche-governance-default`).
+**Reference implementation** : `SubRoutineOrchestrator` (`brioche-governance-default`).
 
 ### 2.3 ConsistencyVerifier
 
@@ -55,9 +55,9 @@ pub trait ConsistencyVerifier: Send + Sync {
 }
 ```
 
-Évalué **en dernier** dans `finalize_transition`. Si `Some(effects)`, le kernel applique un forçage mécanique (typiquement `OverrideTransition` vers `Idle`). Ignoré si `RebuildRoutes` est présent dans les effets.
+Evaluated **last** in `finalize_transition`. If `Some(effects)`, the kernel applies mechanical forcing (typically `OverrideTransition` to `Idle`). Ignored if `RebuildRoutes` is present in the effects.
 
-**Implémentation de référence** : `StateConsistencyGuard` (`brioche-governance-default`).
+**Reference implementation** : `StateConsistencyGuard` (`brioche-governance-default`).
 
 ### 2.4 DecisionAggregator
 
@@ -68,16 +68,16 @@ pub trait DecisionAggregator: Send + Sync {
 }
 ```
 
-**Obligatoire.** Agrège les décisions collectées sur `before_prediction`. Sans implémentation injectée, `BriocheEngineBuilder::build()` retourne `Err`.
+**Mandatory.** Aggregates decisions collected on `before_prediction`. Without an injected implementation, `BriocheEngineBuilder::build()` returns `Err`.
 
-**Implémentation de référence** : `LexicographicDecisionAggregator` (`brioche-governance-default`).
+**Reference implementation** : `LexicographicDecisionAggregator` (`brioche-governance-default`).
 
-Règle de fusion :
-1. `Block` → court-circuite immédiatement.
-2. `OverrideTransition` → premier rencontré l'emporte.
-3. `MutateHistory` → accumulation dans l'ordre d'évaluation.
-4. `RequestEffect` → premier retourné.
-5. `Allow` → ignoré.
+Merge rule:
+1. `Block` → short-circuits immediately.
+2. `OverrideTransition` → first encountered wins.
+3. `MutateHistory` → accumulation in evaluation order.
+4. `RequestEffect` → first returned.
+5. `Allow` → ignored.
 
 ### 2.5 SignalDrainOrder
 
@@ -87,7 +87,7 @@ pub trait SignalDrainOrder: Send + Sync {
 }
 ```
 
-**Obligatoire.** Définit l'ordre invariant de drainage des canaux séparés : `SystemSignal` → `GovernanceNotification` → `AsyncTaskResult`. Implémenté par le shell (`SignalMultiplexer`), pas par le kernel.
+**Mandatory.** Defines the invariant drain order of separate channels: `SystemSignal` → `GovernanceNotification` → `AsyncTaskResult`. Implemented by the shell (`SignalMultiplexer`), not by the kernel.
 
 
 ### 2.6 HookEffectConstraint
@@ -99,9 +99,9 @@ pub trait HookEffectConstraint: Send + Sync {
 }
 ```
 
-**Optionnel.** Validation O(1) par masque binaire. Sans injection, tous les `RequestEffect` sont autorisés sur tous les hooks.
+**Optional.** O(1) validation by binary mask. Without injection, all `RequestEffect`s are allowed on all hooks.
 
-**Implémentation de référence** : `FastHookEffectConstraint` (`brioche-governance-default`).
+**Reference implementation** : `FastHookEffectConstraint` (`brioche-governance-default`).
 
 ### 2.7 CycleRollbackPolicy
 
@@ -114,11 +114,11 @@ pub trait CycleRollbackPolicy: Send + Sync {
 }
 ```
 
-**Optionnel.** Fournit un mécanisme COW (Copy-On-Write) granular pour restaurer l'état d'`ExtensionStorage` en cas de dépassement de budget. Sans injection, le kernel émet `PluginFault` sans restauration.
+**Optional.** Provides a granular COW (Copy-On-Write) mechanism to restore the state of `ExtensionStorage` in case of budget overrun. Without injection, the kernel emits `PluginFault` without restoration.
 
-> **Note Sprint 6** : l'intégration mécanique dans `ExtensionStorage` (appel automatique de `on_mutation` au premier `get_mut`) est planifiée pour le Sprint 7. Le trait et son implémentation nulle `NoopCycleRollbackPolicy` sont livrés.
+> **Sprint 6 Note**: the mechanical integration into `ExtensionStorage` (automatic `on_mutation` call on first `get_mut`) is planned for Sprint 7. The trait and its null implementation `NoopCycleRollbackPolicy` are delivered.
 
-**Implémentation de référence** : `NoopCycleRollbackPolicy` (`brioche-governance-default`).
+**Reference implementation** : `NoopCycleRollbackPolicy` (`brioche-governance-default`).
 
 ### 2.8 SubRoutineLifecycleGuard
 
@@ -129,9 +129,9 @@ pub trait SubRoutineLifecycleGuard: Send + Sync {
 }
 ```
 
-**Obligatoire.** Appelé par le kernel à chaque transition sortante de `SubRoutine`. Sans implémentation, `BriocheEngineBuilder::build()` retourne `Err`.
+**Mandatory.** Called by the kernel on every outgoing transition from `SubRoutine`. Without an implementation, `BriocheEngineBuilder::build()` returns `Err`.
 
-**Implémentation de référence** : `SubRoutineCleanupGuard` (`brioche-governance-default`).
+**Reference implementation** : `SubRoutineCleanupGuard` (`brioche-governance-default`).
 
 ### 2.9 GovernanceFailoverHandler
 
@@ -142,9 +142,9 @@ pub trait GovernanceFailoverHandler: Send + Sync {
 }
 ```
 
-**Optionnel.** Filet de sécurité en cas de défaillance en cascade d'un plugin de gouvernance.
+**Optional.** Safety net in case of cascading failure of a governance plugin.
 
-**Implémentation de référence** : `SystemFailoverGuard` (`brioche-governance-default`).
+**Reference implementation** : `SystemFailoverGuard` (`brioche-governance-default`).
 
 ### 2.10 CowBudgetPolicy
 
@@ -154,32 +154,32 @@ pub trait CowBudgetPolicy: Send + Sync {
 }
 ```
 
-**Optionnel.** Budget mémoire par hook pour le snapshot COW. Sans injection, la valeur par défaut est 64 KB.
+**Optional.** Memory budget per hook for COW snapshot. Without injection, the default value is 64 KB.
 
 ---
 
 ## Chapter 3: Integration into the Engine
 
-### 3.1 Ordre d'évaluation dans `transition()`
+### 3.1 Evaluation order in `transition()`
 
-L'ordre est invariant et codé en dur dans `BriocheEngine::transition()` :
+The order is invariant and hard-coded in `BriocheEngine::transition()`:
 
 1. **Inject `SessionSnapshot`** dans `ExtensionStorage`.
-2. **`EpochInterceptor`** — si `Block`, retour immédiat.
+2. **`EpochInterceptor`** — if `Block`, immediate return.
 3. **`SubRoutineHandler`** — si `SubRoutine` et `Some(effects)`, short-circuit.
-4. **`on_input` hook** — route pré-calculée.
+4. **`on_input` hook** — pre-computed route.
 5. **Dispatch principal** (`UserMessage`, `LlmStream`, `ToolCallsResult`, `RestoreSubRoutine`).
 6. **`SubRoutineLifecycleGuard`** — si sortie de `SubRoutine`.
-7. **`HookEffectConstraint`** — validation des effets émis.
+7. **`HookEffectConstraint`** — validation of emitted effects.
 8. **`RebuildRoutes` position guarantee** — tronque tout ce qui suit.
-9. **`ConsistencyVerifier`** — sauf si `RebuildRoutes` présent.
-10. **`GovernanceFailoverHandler`** — remplace les `PluginFault` si injecté.
+9. **`ConsistencyVerifier`** — except if `RebuildRoutes` present.
+10. **`GovernanceFailoverHandler`** — replaces `PluginFault` if injected.
 
 ### 3.2 Builder mandatory traits
 
-`BriocheEngineBuilder::build()` retourne `Err` si :
-- `DecisionAggregator` manquant
-- `SubRoutineLifecycleGuard` manquant
+`BriocheEngineBuilder::build()` returns `Err` if:
+- `DecisionAggregator` missing
+- `SubRoutineLifecycleGuard` missing
 
 Tous les autres traits sont optionnels.
 
@@ -187,9 +187,9 @@ Tous les autres traits sont optionnels.
 
 ## Chapter 4: Default Implementations
 
-Le crate `brioche-governance-default` fournit les implémentations de référence :
+The `brioche-governance-default` crate provides the reference implementations:
 
-| Trait | Implémentation | Fichier |
+| Trait | Implementation | Fichier |
 |-------|----------------|---------|
 | `EpochInterceptor` | `EpochGuard` | `epoch_guard.rs` |
 | `DecisionAggregator` | `LexicographicDecisionAggregator` | `policy_aggregator.rs` |

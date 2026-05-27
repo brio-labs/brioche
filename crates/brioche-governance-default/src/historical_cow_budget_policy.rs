@@ -8,7 +8,7 @@
 use brioche_core::CowBudgetPolicy;
 use std::collections::VecDeque;
 
-/// Historique des décisions de rollback par frame.
+/// History of rollback decisions per frame.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RollbackFrameRecord {
     pub hook_name: String,
@@ -16,10 +16,10 @@ pub struct RollbackFrameRecord {
     pub weight: usize,
 }
 
-/// Politique de budget COW à auto-tuning historique.
+/// Historical auto-tuning COW budget policy.
 ///
-/// Surveille les N dernières frames et ajuste le budget pour éviter
-/// les abandons tout en limitant la pression mémoire.
+/// Monitors the last N frames and adjusts the budget to avoid
+/// abandonments while limiting memory pressure.
 pub struct HistoricalCowBudgetPolicy {
     base_budget: usize,
     min_budget: usize,
@@ -29,7 +29,7 @@ pub struct HistoricalCowBudgetPolicy {
 }
 
 impl HistoricalCowBudgetPolicy {
-    /// Crée une politique avec les paramètres par défaut.
+    /// Creates a policy with the default parameters.
     pub fn new() -> Self {
         Self {
             base_budget: 65536,
@@ -40,7 +40,7 @@ impl HistoricalCowBudgetPolicy {
         }
     }
 
-    /// Crée une politique avec des paramètres personnalisés.
+    /// Creates a policy with custom parameters.
     pub fn with_params(
         base_budget: usize,
         min_budget: usize,
@@ -56,7 +56,7 @@ impl HistoricalCowBudgetPolicy {
         }
     }
 
-    /// Enregistre le résultat d'une frame pour l'auto-tuning.
+    /// Records the result of a frame for auto-tuning.
     pub fn record_frame(&mut self, hook_name: &str, succeeded: bool, weight: usize) {
         if self.history.len() >= self.window_size {
             self.history.pop_front();
@@ -68,7 +68,7 @@ impl HistoricalCowBudgetPolicy {
         });
     }
 
-    /// Calcule le taux de succès sur la fenêtre glissante.
+    /// Computes the success rate over the sliding window.
     pub fn success_rate(&self) -> f64 {
         if self.history.is_empty() {
             return 1.0;

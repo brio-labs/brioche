@@ -1,13 +1,12 @@
-//! SubRoutineOrchestrator — implémentation `SubRoutineHandler` (Book II §5.4).
+//! SubRoutineOrchestrator — `SubRoutineHandler` implementation (Book II §5.4).
 //!
-//! Gère la délégation et la résolution des sous-routines via `SessionRegistry`.
+//! Manages delegation and resolution of sub-routines via `SessionRegistry`.
 //!
-//! # Limitation connue
-//! Le trait `SubRoutineHandler` reçoit le `child` mutable mais pas le moteur.
-//! La délégation complète de `transition(child, input)` nécessite une
-//! évolution de l'interface kernel/shell (Sprint 7+). Pour le sprint 6,
-//! cette implémentation gère les cas simples (pass-through) et la
-//! détection de terminaison `Idle`/`Failure`.
+//! # Known limitation
+//! The `SubRoutineHandler` trait receives the mutable `child` but not the engine.
+//! Full delegation of `transition(child, input)` requires an evolution of the
+//! kernel/shell interface (Sprint 7+). For Sprint 6, this implementation handles
+//! simple cases (pass-through) and `Idle`/`Failure` termination detection.
 //!
 //! Refs: I-Comp-Epoch-Subroutine
 
@@ -16,14 +15,14 @@ use brioche_core::{
     SubRoutineHandler,
 };
 
-/// Orchestrateur de sous-routines.
+/// Sub-routine orchestrator.
 ///
-/// Délègue les inputs au `Session` enfant et gère la remontée quand
-/// l'enfant atteint `Idle` ou `Failure`.
+/// Delegates inputs to the child `Session` and handles bubbling up when
+/// the child reaches `Idle` or `Failure`.
 pub struct SubRoutineOrchestrator;
 
 impl SubRoutineOrchestrator {
-    /// Crée une nouvelle instance.
+    /// Creates a new instance.
     pub fn new() -> Self {
         Self
     }
@@ -48,7 +47,7 @@ impl SubRoutineHandler for SubRoutineOrchestrator {
                     content: content.clone(),
                 });
 
-                // Transition mécanique Idle -> Predicting sur l'enfant.
+                // Mechanical transition Idle -> Predicting on the child.
                 let generation = child
                     .extensions
                     .get_or_insert_default::<brioche_core::EpochState>()
@@ -61,7 +60,7 @@ impl SubRoutineHandler for SubRoutineOrchestrator {
             }
 
             EngineInput::LlmStream(event) => {
-                // Hot-path : délégation directe du stream vers l'enfant.
+                // Hot-path: direct stream delegation to the child.
                 // Le kernel n'applique pas `transition()` sur l'enfant ici ;
                 // l'orchestrateur simule l'accumulation d'outils si besoin.
                 if matches!(child.state, AgentState::Predicting { .. }) {
@@ -148,7 +147,7 @@ impl SubRoutineHandler for SubRoutineOrchestrator {
                     });
                 }
 
-                // Détection de terminaison de sous-routine.
+                // Sub-routine termination detection.
                 match &child.state {
                     AgentState::Idle => {
                         // Extrait le dernier message de l'enfant et l'injecte dans le parent.
@@ -170,7 +169,7 @@ impl SubRoutineHandler for SubRoutineOrchestrator {
             }
 
             EngineInput::RestoreSubRoutine { .. } => {
-                // Ne devrait pas arriver sur une sous-routine déjà active.
+                // Should not happen on an already active sub-routine.
                 Ok(None)
             }
         }

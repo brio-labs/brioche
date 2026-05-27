@@ -955,7 +955,7 @@ fn transition_with_epoch_guard_blocks_stale_generation() {
     };
 
     let mut session = Session::new("test");
-    // Simuler une époque avancée
+    // Simulate an advanced epoch
     session.extensions.insert(brioche_core::EpochState {
         current_generation: 5,
     });
@@ -963,7 +963,7 @@ fn transition_with_epoch_guard_blocks_stale_generation() {
     let effects = engine.transition(
         &mut session,
         &EngineInput::ToolCallsResult {
-            generation_id: 3, // obsolète
+            generation_id: 3, // obsolete
             results: vec![],
         },
     );
@@ -1009,7 +1009,7 @@ fn transition_with_epoch_guard_allows_current_generation() {
         },
     );
 
-    // Pas d'erreur d'époque — le traitement normal continue.
+    // No epoch error — normal processing continues.
     assert!(!effects.iter().any(|e| matches!(
         e, Effect::Error { code, .. } if *code == ErrorCode::EpochMismatch
     )));
@@ -1072,7 +1072,7 @@ fn transition_with_subroutine_cleanup_guard_removes_child() {
         },
     );
 
-    // La sous-routine doit avoir été retirée du registry.
+    // The sub-routine should have been removed from the registry.
     assert!(
         !engine
             .session_registry()
@@ -1099,17 +1099,17 @@ fn transition_with_state_consistency_guard_fixes_inconsistent_state() {
     };
 
     let mut session = Session::new("test");
-    // Forcer un état incohérent : Predicting sans pile.
+    // Force an inconsistent state: Predicting without stack.
     session.state = AgentState::Predicting { generation_id: 1 };
 
-    // LlmStream ne modifie pas la pile quand on est déjà en Predicting.
+    // LlmStream does not modify the stack when already in Predicting.
     let event = StreamEvent::TextChunk {
         path: ExecutionPath::default(),
         chunk: bytes::Bytes::from_static(b"x"),
     };
     let effects = engine.transition(&mut session, &EngineInput::LlmStream(event));
 
-    // Le garde doit avoir forcé un retour à Idle.
+    // The guard should have forced a return to Idle.
     assert!(matches!(session.state, AgentState::Idle));
     assert!(session.state_stack.is_empty());
     assert!(effects.iter().any(|e| matches!(e, Effect::SystemIdle)));
@@ -1141,7 +1141,7 @@ fn transition_with_fast_hook_effect_constraint_blocks_disallowed_effect() {
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
 
-    // CallLlmNetwork devrait être remplacé par une erreur car interdit.
+    // CallLlmNetwork should be replaced by an error because it is disallowed.
     assert!(!effects.iter().any(|e| matches!(e, Effect::CallLlmNetwork)));
     assert!(effects.iter().any(|e| matches!(
         e, Effect::Error { code, .. } if *code == ErrorCode::StateInconsistency
@@ -1189,7 +1189,7 @@ fn transition_with_system_failover_guard_replaces_fault() {
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
 
-    // Le failover doit avoir remplacé le fault par ForwardToUi + SystemIdle.
+    // The failover should have replaced the fault with ForwardToUi + SystemIdle.
     assert!(effects.iter().any(|e| matches!(
         e, Effect::ForwardToUi { widget_type, .. } if widget_type == "critical_error"
     )));
@@ -1199,7 +1199,7 @@ fn transition_with_system_failover_guard_replaces_fault() {
 // Sprint 7: Optional traits + COW integration
 // ---------------------------------------------------------------------------
 
-/// Type de test non-critique pour valider le seuil COW.
+/// Non-critical test type to validate the COW threshold.
 #[derive(
     Clone,
     Debug,
