@@ -19,12 +19,13 @@
 //!
 //! Refs: I-Shell-Session-NoSend, I-Shell-Runtime-OnlyIO
 
-use crate::EffectExecutor;
+use crate::{EffectExecutor, EngineWatchdog, EngineWatchdogHandle, TelemetryChannel, TickEmitter};
 use brioche_core::{
-    AgentState, AgentStateTag, BriocheEngine, Effect, EngineInput, GovernanceNotification, Session,
-    SystemSignal,
+    AgentState, AgentStateTag, BriocheEngine, Effect, EngineInput, EpochState,
+    GovernanceNotification, Session, SignalBuffer, SignalDrainOrder, SystemSignal,
 };
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::mpsc;
 
 /// Lightweight snapshot of session mechanical state sent from the
@@ -141,6 +142,8 @@ pub struct BriocheShell {
     system_signal_tx: mpsc::Sender<SystemSignal>,
     /// Sender for governance notifications.
     governance_tx: mpsc::Sender<GovernanceNotification>,
+    /// Sender for async task results.
+    async_task_result_tx: mpsc::Sender<brioche_core::AsyncTaskResult>,
     /// Shared configuration.
     #[allow(dead_code)]
     config: Arc<ShellConfig>,
@@ -166,6 +169,17 @@ impl BriocheShell {
             mpsc::channel::<SystemSignal>(config.engine_channel_capacity);
         let (governance_tx, governance_rx) =
             mpsc::channel::<GovernanceNotification>(config.engine_channel_capacity);
+        let (async_task_result_tx, async_task_result_rx) =
+            mpsc::channel::<brioche_core::AsyncTaskResult>(config.engine_channel_capacity);
+
+        // Create the signal drain order (canonical multiplexer).
+        let signal_drain =
+            crate::SignalMultiplexer::new(system_signal_rx, governance_rx, async_task_result_rx);
+
+        // Create watchdog channels.
+        let pending_inputs = Arc::new(AtomicU64::new(0));
+        let (watchdog_handle, ping_tx, pong_rx) =
+            EngineWatchdogHandle::new(Arc::clone(&pending_inputs));
 
         // Spawn the synchronous engine thread.
         std::thread::spawn(move || {
@@ -175,8 +189,9 @@ impl BriocheShell {
                 session,
                 input_rx,
                 output_tx,
-                system_signal_rx,
-                governance_rx,
+                signal_drain,
+                watchdog_handle,
+                pending_inputs,
             );
         });
 
@@ -185,6 +200,7 @@ impl BriocheShell {
             input_tx: input_tx.clone(),
             system_signal_tx: system_signal_tx.clone(),
             governance_tx: governance_tx.clone(),
+            async_task_result_tx: async_task_result_tx.clone(),
             config: Arc::clone(&config_arc),
         };
 
@@ -193,6 +209,18 @@ impl BriocheShell {
         tokio::spawn(async move {
             effect_consumption_loop(output_rx, shell_clone, executor, config_arc).await;
         });
+
+        // Launch the periodic tick emitter.
+        let tick_emitter = TickEmitter::new(system_signal_tx, config.tick_interval_ms);
+        tokio::spawn(tick_emitter.run());
+
+        // Launch the engine watchdog.
+        let watchdog = EngineWatchdog::default();
+        tokio::spawn(watchdog.run(ping_tx, pong_rx));
+
+        // Install default telemetry subscriber.
+        let telemetry = TelemetryChannel::new(256);
+        crate::telemetry::install_default_subscriber(telemetry);
 
         shell
     }
@@ -213,7 +241,7 @@ impl BriocheShell {
     /// Send a `SystemSignal` to the kernel.
     ///
     /// Signals are drained by the shell between transition cycles and
-    /// injected into the engine via `EngineInput` adapters.
+    /// injected into the engine via `SignalBuffer`.
     ///
     /// Refs: I-Shell-Network-Signal
     pub async fn send_system_signal(&self, signal: SystemSignal) -> Result<(), ShellError> {
@@ -224,6 +252,8 @@ impl BriocheShell {
     }
 
     /// Send a `GovernanceNotification` to the kernel.
+    ///
+    /// Refs: I-Shell-Drain-Atomic
     pub async fn send_governance_notification(
         &self,
         notification: GovernanceNotification,
@@ -234,9 +264,27 @@ impl BriocheShell {
             .map_err(|_| ShellError::ChannelSend)
     }
 
+    /// Send an `AsyncTaskResult` to the kernel.
+    ///
+    /// Results are drained by the shell between transition cycles and
+    /// injected into the engine via `SignalBuffer`.
+    ///
+    /// Refs: I-Shell-Drain-Atomic
+    pub async fn send_async_task_result(
+        &self,
+        result: brioche_core::AsyncTaskResult,
+    ) -> Result<(), ShellError> {
+        self.async_task_result_tx
+            .send(result)
+            .await
+            .map_err(|_| ShellError::ChannelSend)
+    }
+
     /// Block until the engine channel has capacity.
     ///
     /// Useful for backpressure-aware producers.
+    ///
+    /// Refs: I-Shell-Backpressure-NoOverflow
     pub async fn ready(&self) -> Result<(), ShellError> {
         if self.input_tx.is_closed() {
             return Err(ShellError::EngineDisconnected);
@@ -248,6 +296,8 @@ impl BriocheShell {
     ///
     /// Drops the input sender, causing the engine thread to exit
     /// after processing pending inputs.
+    ///
+    /// Refs: I-Shell-Session-NoSend
     pub fn shutdown(&self) {
         // Dropping all senders causes receivers to return `None`.
         // The engine thread and effect loop will terminate naturally.
@@ -266,23 +316,29 @@ fn engine_thread_loop(
     mut session: Session,
     mut input_rx: mpsc::Receiver<EngineInput>,
     output_tx: mpsc::Sender<(Vec<Effect>, StateSnapshot)>,
-    mut system_signal_rx: mpsc::Receiver<SystemSignal>,
-    mut governance_rx: mpsc::Receiver<GovernanceNotification>,
+    signal_drain: impl SignalDrainOrder,
+    mut watchdog_handle: EngineWatchdogHandle,
+    pending_inputs_counter: Arc<AtomicU64>,
 ) {
-    // Create local adapters that drain the async channels into
-    // local collections between transition cycles.
-    let mut system_signals: Vec<SystemSignal> = Vec::new();
-    let mut governance_notifications: Vec<GovernanceNotification> = Vec::new();
-
     while let Some(input) = input_rx.blocking_recv() {
-        // Drain pending system signals (best-effort, non-blocking).
-        while let Ok(signal) = system_signal_rx.try_recv() {
-            system_signals.push(signal);
-        }
-        // Drain pending governance notifications.
-        while let Ok(notification) = governance_rx.try_recv() {
-            governance_notifications.push(notification);
-        }
+        // Update pending inputs counter for watchdog telemetry.
+        pending_inputs_counter.store(input_rx.len() as u64, Ordering::Relaxed);
+
+        // Drain separate channels in canonical order and inject into
+        // ExtensionStorage as SignalBuffer.
+        let batch = signal_drain.drain();
+        session.extensions.insert(SignalBuffer {
+            system_signals: batch.system_signals,
+            governance_notifications: batch.governance_notifications,
+            async_task_results: batch.async_task_results,
+        });
+
+        // Respond to watchdog ping if one is pending.
+        let last_epoch = session
+            .extensions
+            .get_or_insert_default::<EpochState>()
+            .current_generation;
+        watchdog_handle.respond_if_pinged(last_epoch);
 
         // Execute the synchronous transition.
         let effects = engine.transition(&mut session, &input);

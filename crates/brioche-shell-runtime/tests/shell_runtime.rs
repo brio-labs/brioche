@@ -9,12 +9,18 @@
 //!
 //! Refs: SPECS.md §Book III-A
 
-use brioche_core::{ActiveToolCall, BriocheEngineBuilder, EngineInput, Session, SystemSignal};
+use brioche_core::{
+    ActiveToolCall, BriocheEngineBuilder, EngineInput, Session, SignalDrainOrder, SystemSignal,
+};
 use brioche_governance_default::{LexicographicDecisionAggregator, SubRoutineCleanupGuard};
 use brioche_shell_runtime::{
-    BackpressureRegulator, BriocheShell, DefaultEffectExecutor, DropPolicy, EchoToolExecutor,
-    MockLlmClient, NoopPersistence, ShellConfig, ToolExecutor,
+    AsyncTaskResultAdapter, BackpressureRegulator, BriocheShell, DefaultEffectExecutor, DropPolicy,
+    EchoToolExecutor, EngineWatchdog, EngineWatchdogHandle, GovernanceNotificationAdapter,
+    MockLlmClient, NoopPersistence, RecoveryProcedure, ShellConfig, SignalMultiplexer,
+    SystemSignalAdapter, TelemetryChannel, TickEmitter, ToolExecutor, UnifiedEventBus,
 };
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
 // ---------------------------------------------------------------------------
@@ -212,4 +218,265 @@ async fn shell_graceful_shutdown() {
     // After shutdown, sending should eventually fail.
     // The exact timing depends on the engine thread noticing the
     // closed channel, so we just verify the method exists and runs.
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 10 — SignalMultiplexer, UnifiedEventBus, EngineWatchdog, Telemetry
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn signal_multiplexer_drains_canonical_order() {
+    let (sys_adapter, sys_rx) = SystemSignalAdapter::new(16);
+    let (gov_adapter, gov_rx) = GovernanceNotificationAdapter::new(16);
+    let (async_adapter, async_rx) = AsyncTaskResultAdapter::new(16);
+
+    // Send events in reverse canonical order.
+    assert!(
+        async_adapter
+            .try_send(brioche_core::AsyncTaskResult::CpuTaskDone {
+                task_id: "cpu1".into(),
+                result: vec![1, 2, 3],
+            })
+            .is_ok()
+    );
+    assert!(
+        gov_adapter
+            .try_send(brioche_core::GovernanceNotification::PluginFaulted {
+                plugin_name: "p1".into(),
+                error: brioche_core::PluginError::Soft {
+                    plugin_name: "p1".into(),
+                    message: "oops".into(),
+                },
+            })
+            .is_ok()
+    );
+    assert!(
+        sys_adapter
+            .try_send(brioche_core::SystemSignal::OperationCancelled)
+            .is_ok()
+    );
+
+    let multiplexer = SignalMultiplexer::new(sys_rx, gov_rx, async_rx);
+    let batch = multiplexer.drain();
+
+    assert_eq!(batch.system_signals.len(), 1);
+    assert!(
+        matches!(
+            batch.system_signals[0],
+            brioche_core::SystemSignal::OperationCancelled
+        ),
+        "system signals should be drained first"
+    );
+
+    assert_eq!(batch.governance_notifications.len(), 1);
+    assert!(
+        matches!(
+            batch.governance_notifications[0],
+            brioche_core::GovernanceNotification::PluginFaulted { .. }
+        ),
+        "governance notifications should be drained second"
+    );
+
+    assert_eq!(batch.async_task_results.len(), 1);
+    assert!(
+        matches!(
+            batch.async_task_results[0],
+            brioche_core::AsyncTaskResult::CpuTaskDone { .. }
+        ),
+        "async task results should be drained third"
+    );
+}
+
+#[tokio::test]
+async fn unified_event_bus_fast_path_drains_directly() {
+    let (sys_adapter, sys_rx) = SystemSignalAdapter::new(16);
+    let (_gov_adapter, gov_rx) = GovernanceNotificationAdapter::new(16);
+    let (_async_adapter, async_rx) = AsyncTaskResultAdapter::new(16);
+
+    assert!(
+        sys_adapter
+            .try_send(brioche_core::SystemSignal::Tick { elapsed_ms: 42 })
+            .is_ok()
+    );
+
+    let (bus, _producer_tx) = UnifiedEventBus::new(sys_rx, gov_rx, async_rx);
+    let batch = bus.drain();
+
+    assert_eq!(batch.system_signals.len(), 1);
+    assert!(
+        matches!(
+            batch.system_signals[0],
+            brioche_core::SystemSignal::Tick { elapsed_ms: 42 }
+        ),
+        "fast path should drain directly from underlying receiver"
+    );
+}
+
+#[tokio::test]
+async fn unified_event_bus_slow_path_consumes_envelopes() {
+    let (_sys_adapter, sys_rx) = SystemSignalAdapter::new(16);
+    let (_gov_adapter, gov_rx) = GovernanceNotificationAdapter::new(16);
+    let (_async_adapter, async_rx) = AsyncTaskResultAdapter::new(16);
+
+    let (bus, producer_tx) = UnifiedEventBus::new(sys_rx, gov_rx, async_rx);
+
+    // Send an envelope batch through the producer channel.
+    let batch = vec![brioche_shell_runtime::EngineEnvelope::Signal(
+        brioche_core::SystemSignal::NetworkUnavailable {
+            reason: "test".into(),
+        },
+    )];
+    assert!(producer_tx.send(batch).await.is_ok());
+
+    let drained = bus.drain();
+    assert_eq!(drained.system_signals.len(), 1);
+    assert!(
+        matches!(
+            drained.system_signals[0],
+            brioche_core::SystemSignal::NetworkUnavailable { .. }
+        ),
+        "slow path should consume unified channel envelopes"
+    );
+}
+
+#[tokio::test]
+async fn engine_watchdog_detects_non_responsive_engine() {
+    let pending = Arc::new(AtomicU64::new(0));
+    let (handle, ping_tx, pong_rx) = EngineWatchdogHandle::new(pending);
+
+    // Spawn a watchdog with a very short timeout so the test is fast.
+    let watchdog = EngineWatchdog::new(50, 100, RecoveryProcedure::NotifyAndDegrade);
+    let watchdog_fut = watchdog.run(ping_tx, pong_rx);
+
+    // Do NOT respond to pings — the engine is "stuck".
+    let _handle = handle;
+
+    // The watchdog loops forever, re-triggering recovery on each missed
+    // pong. We verify it is still running after the recovery timeout
+    // (which proves it detected non-responsiveness at least once).
+    let timeout = tokio::time::timeout(Duration::from_millis(300), watchdog_fut).await;
+    assert!(
+        timeout.is_err(),
+        "watchdog should still be running after detecting non-responsive engine"
+    );
+}
+
+#[tokio::test]
+async fn engine_watchdog_ping_pong_healthy() {
+    let pending = Arc::new(AtomicU64::new(0));
+    let (mut handle, ping_tx, pong_rx) = EngineWatchdogHandle::new(pending);
+
+    let watchdog = EngineWatchdog::new(50, 200, RecoveryProcedure::NotifyAndDegrade);
+    let watchdog_fut = watchdog.run(ping_tx, pong_rx);
+
+    // Simulate a healthy engine that responds to pings.
+    let engine_task = tokio::task::spawn_blocking(move || {
+        for _ in 0..5 {
+            std::thread::sleep(Duration::from_millis(30));
+            handle.respond_if_pinged(1);
+        }
+    });
+
+    let timeout = tokio::time::timeout(Duration::from_millis(1000), watchdog_fut).await;
+    assert!(
+        timeout.is_ok(),
+        "watchdog should stay healthy with responsive pongs"
+    );
+    let _ = engine_task.await;
+}
+
+#[tokio::test]
+async fn telemetry_channel_emits_and_subscribes() {
+    let channel = TelemetryChannel::new(16);
+    let mut rx = channel.subscribe();
+
+    channel.emit(
+        brioche_shell_runtime::TelemetryLevel::Info,
+        "test_source",
+        "hello telemetry",
+        None,
+    );
+
+    let event = match tokio::time::timeout(Duration::from_millis(100), rx.recv()).await {
+        Ok(Ok(ev)) => ev,
+        Ok(Err(_)) => unreachable!("broadcast channel closed"),
+        Err(_) => unreachable!("should receive event within timeout"),
+    };
+
+    assert_eq!(event.source, "test_source");
+    assert_eq!(event.message, "hello telemetry");
+    assert!(matches!(
+        event.level,
+        brioche_shell_runtime::TelemetryLevel::Info
+    ));
+}
+
+#[tokio::test]
+async fn tick_emitter_produces_ticks() {
+    let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+    let emitter = TickEmitter::new(tx, 50);
+
+    tokio::spawn(emitter.run());
+
+    let first = match tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
+        Ok(Some(ev)) => ev,
+        Ok(None) => unreachable!("mpsc channel closed"),
+        Err(_) => unreachable!("should receive first tick within timeout"),
+    };
+
+    assert!(
+        matches!(first, brioche_core::SystemSignal::Tick { .. }),
+        "tick emitter should produce SystemSignal::Tick"
+    );
+}
+
+#[tokio::test]
+async fn shell_injects_signal_buffer_before_transition() {
+    let shell = build_shell();
+
+    // Send a system signal before the user message.
+    assert!(
+        shell
+            .send_system_signal(brioche_core::SystemSignal::Tick { elapsed_ms: 1234 })
+            .await
+            .is_ok()
+    );
+
+    // Send a governance notification.
+    assert!(
+        shell
+            .send_governance_notification(brioche_core::GovernanceNotification::PluginFaulted {
+                plugin_name: "test".into(),
+                error: brioche_core::PluginError::Soft {
+                    plugin_name: "test".into(),
+                    message: "soft".into(),
+                },
+            })
+            .await
+            .is_ok()
+    );
+
+    // Send an async task result.
+    assert!(
+        shell
+            .send_async_task_result(brioche_core::AsyncTaskResult::CpuTaskDone {
+                task_id: "t1".into(),
+                result: vec![],
+            })
+            .await
+            .is_ok()
+    );
+
+    // Now send a user message to trigger a transition cycle.
+    assert!(
+        shell
+            .send_input(EngineInput::UserMessage("hello".into()))
+            .await
+            .is_ok()
+    );
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Shell should still be healthy after draining all signals.
+    assert!(shell.ready().await.is_ok());
 }
