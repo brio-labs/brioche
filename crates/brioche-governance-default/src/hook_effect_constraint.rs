@@ -1,16 +1,16 @@
-//! FastHookEffectConstraint — implémentation `HookEffectConstraint` (Book II §2.7).
+//! FastHookEffectConstraint — `HookEffectConstraint` implementation (Book II §2.7).
 //!
-//! Validation O(1) des effets autorisés par hook via masque binaire.
+//! O(1) validation of effects allowed per hook via binary mask.
 //!
 //! Refs: I-Core-HookEffect-O1
 
 use brioche_core::{EffectBit, HookEffectConstraint};
 
-/// Contrainte d'effet par masque binaire pré-calculé.
+/// Effect constraint by pre-computed binary mask.
 ///
-/// Chaque index de hook (0–7) possède un masque `u64` où chaque bit
-/// représente un variant `Effect` autorisé. La validation est une simple
-/// opération bitwise : `(mask & effect_mask) != 0`.
+/// Each hook index (0–7) has a `u64` mask where each bit
+/// represents an allowed `Effect` variant. Validation is a simple
+/// bitwise operation: `(mask & effect_mask) != 0`.
 ///
 /// # Hook indices
 /// | Index | Hook |
@@ -37,12 +37,12 @@ pub struct FastHookEffectConstraint {
 }
 
 impl FastHookEffectConstraint {
-    /// Crée une contrainte avec les masques fournis.
+    /// Creates a constraint with the provided masks.
     pub fn new(masks: [u64; 8]) -> Self {
         Self { masks }
     }
 
-    /// Profil permissif : tous les effets autorisés sur tous les hooks.
+    /// Permissive profile: all effects allowed on all hooks.
     pub fn permissive() -> Self {
         Self {
             masks: [u64::MAX; 8],
@@ -103,7 +103,7 @@ impl HookEffectConstraint for FastHookEffectConstraint {
     }
 
     fn is_allowed_fallback(&self, _hook_name: &str, _effect_variant: &str) -> bool {
-        // Par défaut strict : aucun effet non standard autorisé.
+        // Strict by default: no non-standard effect allowed.
         false
     }
 }

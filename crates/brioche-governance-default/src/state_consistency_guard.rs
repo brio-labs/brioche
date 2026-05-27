@@ -1,8 +1,8 @@
-//! StateConsistencyGuard — implémentation `ConsistencyVerifier` (Book II §5.2).
+//! StateConsistencyGuard — `ConsistencyVerifier` implementation (Book II §5.2).
 //!
-//! Vérifie la cohérence mécanique après une transition. Si l'état est
-//! `Predicting` ou `ExecutingTools` sans justification (pile vide),
-//! force un retour à `Idle` avec nettoyage.
+//! Verifies mechanical consistency after a transition. If the state is
+//! `Predicting` or `ExecutingTools` without justification (empty stack),
+//! forces a return to `Idle` with cleanup.
 //!
 //! Refs: I-Core-NoPanic, I-Gov-Decision-Required
 
@@ -10,15 +10,15 @@ use brioche_core::{
     AgentState, AgentStateTag, ConsistencyVerifier, Effect, ErrorCode, PluginResult, Session,
 };
 
-/// Vérificateur de cohérence mécanique d'état.
+/// Mechanical state consistency verifier.
 ///
-/// Ce garde est optionnel mais recommandé en production. Sans injection,
-/// le kernel ne vérifie pas la cohérence — ce qui peut laisser l'automate
-/// dans un état incohérent après un `OverrideTransition` mal formé.
+/// This guard is optional but recommended in production. Without injection,
+/// the kernel does not verify consistency — which may leave the automaton
+/// in an inconsistent state after a malformed `OverrideTransition`.
 pub struct StateConsistencyGuard;
 
 impl StateConsistencyGuard {
-    /// Crée une nouvelle instance.
+    /// Creates a new instance.
     pub fn new() -> Self {
         Self
     }
@@ -36,8 +36,8 @@ impl ConsistencyVerifier for StateConsistencyGuard {
 
         match tag {
             AgentStateTag::Predicting | AgentStateTag::ExecutingTools => {
-                // Un état actif sans pile de contexte est incohérent :
-                // il n'y a pas d'état précédent à restaurer.
+                // An active state without a context stack is inconsistent:
+                // there is no previous state to restore.
                 if session.state_stack.is_empty() {
                     let effects = vec![
                         Effect::Error {
@@ -48,7 +48,7 @@ impl ConsistencyVerifier for StateConsistencyGuard {
                         Effect::SystemIdle,
                     ];
 
-                    // Forçage mécanique vers Idle avec nettoyage.
+                    // Mechanical forcing to Idle with cleanup.
                     session.state = AgentState::Idle;
                     session.state_stack.clear();
                     session.active_tools.clear();
@@ -56,8 +56,8 @@ impl ConsistencyVerifier for StateConsistencyGuard {
                     return Ok(Some(effects));
                 }
 
-                // ExecutingTools sans outils actifs est également suspect,
-                // mais le kernel gère déjà ce cas via `active_tools`.
+                // ExecutingTools without active tools is also suspicious,
+                // but the kernel already handles this case via `active_tools`.
                 Ok(None)
             }
             _ => Ok(None),

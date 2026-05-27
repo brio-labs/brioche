@@ -12,7 +12,7 @@ use brioche_core::{
 };
 use std::collections::BTreeMap;
 
-/// État des timers de sous-routines.
+/// Sub-routine timer state.
 #[derive(
     Clone,
     Debug,
@@ -29,17 +29,17 @@ pub struct SubRoutineTimerState {
     pub timers: BTreeMap<brioche_core::SubRoutineHandle, (u64, u64)>,
 }
 
-/// Politique de timeout pour les sous-routines.
+/// Sub-routine timeout policy.
 ///
-/// Sur `on_input`, vérifie si une sous-routine a dépassé son timeout.
-/// Si oui, émet un `OverrideTransition` vers `Idle`.
+/// On `on_input`, verifies if a sub-routine has exceeded its timeout.
+/// If so, emits an `OverrideTransition` to `Idle`.
 pub struct SubRoutineTimeoutPolicy {
     #[allow(dead_code)]
     default_timeout_ms: u64,
 }
 
 impl SubRoutineTimeoutPolicy {
-    /// Crée une politique avec un timeout par défaut.
+    /// Creates a policy with a default timeout.
     pub fn with_default_timeout(default_timeout_ms: u64) -> Self {
         Self { default_timeout_ms }
     }
@@ -64,10 +64,10 @@ impl BriochePlugin for SubRoutineTimeoutPolicy {
         -30 // After epoch, recovery, depth
     }
 
-    /// Prépare l'état des timers (drainage shell en Sprint 9+).
+    /// Prepares the timer state (shell drainage in Sprint 9+).
     ///
     /// # Complexity
-    /// O(log n). Une lecture `ExtensionStorage`.
+    /// O(log n). One `ExtensionStorage` read.
     fn on_input(
         &self,
         _input: &EngineInput,

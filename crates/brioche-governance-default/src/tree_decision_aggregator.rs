@@ -9,12 +9,12 @@
 
 use brioche_core::{DecisionAggregator, ExtensionStorage, PluginResult, PolicyDecision};
 
-/// Nœud d'un arbre de décision.
+/// Node of a decision tree.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DecisionNode {
-    /// Feuille — retourne cette décision.
+    /// Leaf — returns this decision.
     Leaf(PolicyDecision),
-    /// Branche conditionnelle — évalue la condition, puis choisit le nœud.
+    /// Conditional branch — evaluates the condition, then chooses the node.
     Branch {
         condition: DecisionCondition,
         if_true: Box<DecisionNode>,
@@ -22,20 +22,20 @@ pub enum DecisionNode {
     },
 }
 
-/// Condition évaluée dans l'arbre de décision.
+/// Condition evaluated in the decision tree.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DecisionCondition {
-    /// Vrai si au moins une décision est `Block`.
+    /// True if at least one decision is `Block`.
     AnyBlock,
-    /// Vrai si au moins une décision est `OverrideTransition`.
+    /// True if at least one decision is `OverrideTransition`.
     AnyOverride,
-    /// Vrai si toutes les décisions sont `Allow`.
+    /// True if all decisions are `Allow`.
     AllAllow,
-    /// Vrai si le nombre de décisions dépasse le seuil.
+    /// True if the number of decisions exceeds the threshold.
     CountExceeds(usize),
 }
 
-/// État de l'arbre de décision stocké dans ExtensionStorage.
+/// Decision tree state stored in ExtensionStorage.
 #[derive(
     Clone,
     Debug,
@@ -48,19 +48,19 @@ pub enum DecisionCondition {
 )]
 #[brioche(critical_state)]
 pub struct DecisionTreeState {
-    /// Arbre de décision par défaut.
+    /// Default decision tree.
     pub root: Option<DecisionNode>,
-    /// Compteurs d'évaluation.
+    /// Evaluation counters.
     pub evaluation_count: u64,
 }
 
-/// Agrégateur d'arbre de décision conditionnel.
+/// Conditional decision tree aggregator.
 ///
-/// Évalue les décisions contre un arbre stocké dans `ExtensionStorage`.
+/// Evaluates decisions against a tree stored in `ExtensionStorage`.
 pub struct TreeDecisionAggregator;
 
 impl TreeDecisionAggregator {
-    /// Crée une nouvelle instance.
+    /// Creates a new instance.
     pub fn new() -> Self {
         Self
     }

@@ -44,12 +44,12 @@ pub struct PluginFaultKey {
 
 /// Manager de quarantaine des plugins.
 ///
-/// Sur `on_error`, si l'erreur est `Fatal`, le plugin est ajouté à
-/// `QuarantineState` et un `RebuildRoutes` est demandé.
+/// On `on_error`, if the error is `Fatal`, the plugin is added to
+/// `QuarantineState` and a `RebuildRoutes` is requested.
 pub struct QuarantineManager;
 
 impl QuarantineManager {
-    /// Crée une nouvelle instance.
+    /// Creates a new instance.
     pub fn new() -> Self {
         Self
     }

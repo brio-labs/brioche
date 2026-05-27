@@ -1,9 +1,9 @@
-//! UndoFrameGuard — implémentation `CycleRollbackPolicy` (Book II §5.15).
+//! UndoFrameGuard — `CycleRollbackPolicy` implementation (Book II §5.15).
 //!
-//! Fournit un mécanisme de snapshot COW granulaire : seules les extensions
-//! réellement mutées sont clonées via `clone_box` du VTable, au moment de la
-//! première écriture dans le hook. Le rollback restaure uniquement si le poids
-//! cumulé reste sous le seuil `max_cow_bytes_per_hook`.
+//! Provides a granular COW snapshot mechanism: only extensions that are
+//! actually mutated are cloned via the VTable's `clone_box`, at the time of
+//! the first write in the hook. Rollback restores only if the cumulative
+//! weight stays under the `max_cow_bytes_per_hook` threshold.
 //!
 //! Refs: I-Gov-Rollback-BestEffort
 
@@ -11,17 +11,17 @@ use brioche_core::{CycleRollbackPolicy, ExtVTable, ExtensionStorage, SnapshotStr
 use std::any::{Any, TypeId};
 use std::collections::BTreeSet;
 
-/// Garde de frame COW avec snapshot granulaire.
+/// COW frame guard with granular snapshot.
 ///
-/// Chaque hook monitoré démarre une nouvelle frame vide. Lors de la première
-/// mutation d'une extension via `get_mut`, le VTable `clone_box` est invoqué
-/// pour créer une copie de sauvegarde. En fin de hook, `commit_hook` discard
-/// les snapshots, ou `rollback_hook` les restaure dans `ExtensionStorage`.
+/// Each monitored hook starts a new empty frame. Upon the first mutation of
+/// an extension via `get_mut`, the VTable `clone_box` is invoked to create a
+/// backup copy. At the end of the hook, `commit_hook` discards the snapshots,
+/// or `rollback_hook` restores them into `ExtensionStorage`.
 ///
 /// # Configuration
 ///
-/// Le seuil par défaut est 64 KB, couvrant >99 % des extensions du hot path
-/// dans les profils de référence.
+/// The default threshold is 64 KB, covering >99% of extensions on the hot path
+/// in reference profiles.
 pub struct UndoFrameGuard {
     max_cow_bytes_per_hook: usize,
     active_frame: Option<Vec<(TypeId, Box<dyn Any + Send + Sync>)>>,
@@ -30,7 +30,7 @@ pub struct UndoFrameGuard {
 }
 
 impl UndoFrameGuard {
-    /// Crée un garde avec le seuil par défaut de 64 KB.
+    /// Creates a guard with the default threshold of 64 KB.
     pub fn new() -> Self {
         Self {
             max_cow_bytes_per_hook: 65536,
@@ -40,7 +40,7 @@ impl UndoFrameGuard {
         }
     }
 
-    /// Crée un garde avec un seuil personnalisé (en octets).
+    /// Creates a guard with a custom threshold (in bytes).
     pub fn with_max_cow_bytes(max_cow_bytes_per_hook: usize) -> Self {
         Self {
             max_cow_bytes_per_hook,
