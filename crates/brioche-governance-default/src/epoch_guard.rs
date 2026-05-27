@@ -1,8 +1,8 @@
-//! EpochGuard — référence `EpochInterceptor` (Book II §5.1).
+//! EpochGuard — `EpochInterceptor` reference (Book II §5.1).
 //!
-//! Intercepte les inputs portant un `generation_id` obsolète.
-//! L'incrémentation d'époch sur `SystemSignal` est gérée par le shell
-//! via l'adaptateur dédié (Sprint 8+).
+//! Intercepts inputs carrying an obsolete `generation_id`.
+//! Epoch increment on `SystemSignal` is handled by the shell
+//! via the dedicated adapter (Sprint 8+).
 //!
 //! Refs: I-Gov-Epoch-Reject, I-Comp-Epoch-First
 
@@ -10,15 +10,15 @@ use brioche_core::{
     EngineInput, EpochAction, EpochInterceptor, EpochState, ExtensionStorage, PluginResult,
 };
 
-/// Gestionnaire de barrière temporelle par époques.
+/// Temporal barrier manager by epochs.
 ///
-/// `intercept_epoch` compare le `generation_id` porté par un
-/// `EngineInput::ToolCallsResult` avec `EpochState.current_generation`.
-/// En cas de divergence, l'input est silencieusement rejeté.
+/// `intercept_epoch` compares the `generation_id` carried by an
+/// `EngineInput::ToolCallsResult` with `EpochState.current_generation`.
+/// In case of divergence, the input is silently rejected.
 ///
 /// # Invariants
-/// - Refs: I-Gov-Epoch-Reject — rejette les réponses asynchrones d'époques passées.
-/// - Refs: I-Comp-Epoch-First — toujours évalué en premier dans le cycle.
+/// - Refs: I-Gov-Epoch-Reject — rejects asynchronous responses from past epochs.
+/// - Refs: I-Comp-Epoch-First — always evaluated first in the cycle.
 pub struct EpochGuard;
 
 impl EpochInterceptor for EpochGuard {
@@ -30,9 +30,9 @@ impl EpochInterceptor for EpochGuard {
         let epoch_state = ext.get_or_insert_default::<EpochState>();
 
         match input {
-            // Seuls les ToolCallsResult portent un generation_id vérifiable
-            // à ce stade. Les autres inputs (UserMessage, LlmStream) sont
-            // toujours traités comme appartenant à l'époque courante.
+            // Only ToolCallsResults carry a verifiable generation_id
+            // at this stage. Other inputs (UserMessage, LlmStream) are
+            // always treated as belonging to the current epoch.
             EngineInput::ToolCallsResult { generation_id, .. } => {
                 if *generation_id != epoch_state.current_generation {
                     return Ok(EpochAction::Block {

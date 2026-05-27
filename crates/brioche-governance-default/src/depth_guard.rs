@@ -1,6 +1,6 @@
 //! DepthGuard — Book II §5.12.
 //!
-//! Limite la profondeur d'imbrication des sous-routines via `DepthState`.
+//! Limits sub-routine nesting depth via `DepthState`.
 //!
 //! Refs: I-Gov-Depth-Limit
 
@@ -9,7 +9,7 @@ use brioche_core::{
     PluginCapabilities, PluginResult, PolicyDecision, SessionSnapshot,
 };
 
-/// État de suivi de la profondeur d'imbrication.
+/// Nesting depth tracking state.
 #[derive(
     Clone,
     Debug,
@@ -22,23 +22,23 @@ use brioche_core::{
 )]
 #[brioche(critical_state)]
 pub struct DepthState {
-    /// Profondeur maximale autorisée.
+    /// Maximum allowed depth.
     pub max_depth: u64,
-    /// Profondeur actuelle (dérivée de `state_stack_depth` à la volée).
+    /// Current depth (derived from `state_stack_depth` on the fly).
     pub current_depth: u64,
 }
 
 /// Garde de profondeur de sous-routines.
 ///
-/// Sur `on_input`, vérifie que la profondeur de pile n'excède pas
-/// `max_depth`. Si c'est le cas, émet un `OverrideTransition` vers
-/// `Idle` avec une notification UI.
+/// On `on_input`, verifies that the stack depth does not exceed
+/// `max_depth`. If so, emits an `OverrideTransition` to
+/// `Idle` with a UI notification.
 pub struct DepthGuard {
     max_depth: u64,
 }
 
 impl DepthGuard {
-    /// Crée un garde avec une profondeur maximale.
+    /// Creates a guard with a maximum depth.
     pub fn with_max_depth(max_depth: u64) -> Self {
         Self { max_depth }
     }
@@ -63,10 +63,10 @@ impl BriochePlugin for DepthGuard {
         -40 // After epoch, recovery, but before business logic
     }
 
-    /// Vérifie la profondeur avant chaque `UserMessage`.
+    /// Verifies depth before each `UserMessage`.
     ///
     /// # Complexity
-    /// O(log n). Deux lectures `ExtensionStorage` (`SessionSnapshot`, `DepthState`).
+    /// O(log n). Two `ExtensionStorage` reads (`SessionSnapshot`, `DepthState`).
     fn on_input(
         &self,
         input: &EngineInput,

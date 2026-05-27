@@ -13,7 +13,7 @@ use brioche_core::{
     BriochePlugin, ExtensionStorage, PluginCapabilities, PluginResult, ToolResultDTO,
 };
 
-/// Configuration de formatage des résultats d'outils.
+/// Tool result formatting configuration.
 #[derive(
     Clone,
     Debug,
@@ -24,9 +24,9 @@ use brioche_core::{
     brioche_core::BriocheExtensionType,
 )]
 pub struct ToolResultFormatterState {
-    /// Taille maximale d'un résultat JSON en octets (0 = pas de limite).
+    /// Maximum size of a JSON result in bytes (0 = no limit).
     pub max_result_bytes: usize,
-    /// Nombre total de résultats formatés.
+    /// Total number of formatted results.
     pub formatted_count: u64,
 }
 
@@ -39,22 +39,22 @@ impl Default for ToolResultFormatterState {
     }
 }
 
-/// Formateur des résultats d'outils.
+/// Tool result formatter.
 ///
-/// Sur `on_tool_result`, formate et tronque les résultats si nécessaire.
+/// On `on_tool_result`, formats and truncates results if necessary.
 pub struct ToolResultFormatter {
     max_result_bytes: usize,
 }
 
 impl ToolResultFormatter {
-    /// Crée une nouvelle instance avec les valeurs par défaut.
+    /// Creates a new instance with default values.
     pub fn new() -> Self {
         Self {
             max_result_bytes: 65536,
         }
     }
 
-    /// Crée une instance avec une limite de taille personnalisée.
+    /// Creates an instance with a custom size limit.
     pub fn with_max_result_bytes(max_result_bytes: usize) -> Self {
         Self { max_result_bytes }
     }
