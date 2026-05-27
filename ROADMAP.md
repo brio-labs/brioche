@@ -353,18 +353,25 @@
 
 ## Phase 5: Shell Projection — Book III-C (Sprints 14–15)
 
-### Sprint 14: UiRegistry, ContentRenderer, UiComposer ⏳
+### Sprint 14: UiRegistry, ContentRenderer, UiComposer ✅
 
 | Deliverable | Status | Notes |
 |-------------|--------|-------|
-| `brioche-shell-projection` crate scaffold | ⏳ | Vue 3 + Tauri IPC |
-| `UiRegistry` with anchor slots | ⏳ | `top-bar`, `sidebar`, `status-bar`, `input-actions`, `input-overlay`, `content-renderer`, `message-footer`, `settings-panel` |
-| `ContentRenderer` streaming engine | ⏳ | `StreamBuffer` with `shallowRef` + `requestAnimationFrame` |
-| `UiComposer` per-frame budget | ⏳ | 2 ms default; priority tiers: TextChunk > Navigation > Semantic > Cosmetic |
-| Special governance widgets | ⏳ | `system_degraded`, `network_error`, `status`, `error`, `subroutine_timeout` |
-| `UiPerformancePolicy` plugin | ⏳ | Configures `UiComposer` frame budget via `ExtensionStorage` |
+| `brioche-shell-projection` crate scaffold | ✅ | Vue 3 + Tauri IPC |
+| `UiRegistry` with anchor slots | ✅ | `top-bar`, `sidebar`, `status-bar`, `input-actions`, `input-overlay`, `content-renderer`, `message-footer`, `settings-panel` |
+| `ContentRenderer` streaming engine | ✅ | `StreamBuffer` with `shallowRef` + `requestAnimationFrame` |
+| `UiComposer` per-frame budget | ✅ | 2 ms default; priority tiers: TextChunk > Navigation > Semantic > Cosmetic |
+| Special governance widgets | ✅ | `system_degraded`, `network_error`, `status`, `error`, `subroutine_timeout` |
+| `UiPerformancePolicy` plugin | ✅ | Configures `UiComposer` frame budget via `ExtensionStorage` |
 
 **Key Invariants Targeted:** I-UI-NoUIType, I-UI-NoDirectDOM, I-UI-StreamBuffer, I-UI-Composer-FrameSync
+
+**Verification:**
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings` ✅
+- `cargo test --workspace --all-targets` ✅ (37 projection tests)
+- `cargo deny check all` ✅
+- `cargo fmt --check` ✅
+- `docs/architecture/book-iii-c-projection.md` added ✅
 
 ---
 
@@ -474,8 +481,8 @@
 | 10 | Phase 3 | III-A | SignalMultiplexer, UnifiedEventBus, Watchdog | ✅ |
 | 11 | Phase 3 | III-A | TransitionJournal, PersistenceMode, integration | ✅ |
 | 12 | Phase 4 | III-B | Redb schema, SubRoutineCache, save protocol | ✅ |
-| 13 | Phase 4 | III-B | Loading, rehydration, GC | ⏳ |
-| 14 | Phase 5 | III-C | UiRegistry, ContentRenderer, UiComposer | ⏳ |
+| 13 | Phase 4 | III-B | Loading, rehydration, GC | ✅ |
+| 14 | Phase 5 | III-C | UiRegistry, ContentRenderer, UiComposer | ✅ |
 | 15 | Phase 5 | III-C | Tauri IPC, sub-routine UI, performance policy | ⏳ |
 | 16 | Phase 6 | IV | Standard plugins (`brioche-std`) | ⏳ |
 | 17 | Phase 6 | IV | Plugin kit, Playground, docgen, lint | ⏳ |
@@ -499,4 +506,4 @@
 
 ---
 
-*Last updated: 2026-05-27 — Sprint 13 complete; PHILOSOPHY compliance review passed*
+*Last updated: 2026-05-27 — Sprint 14 complete; PHILOSOPHY compliance review passed*
