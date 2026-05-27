@@ -9,14 +9,15 @@
 //!
 //! Refs: SPECS.md §Book III-C
 
-use brioche_core::{Effect, ExtensionStorage};
+use brioche_core::{Effect, ExtensionStorage, SubRoutineHandle};
 use brioche_shell_projection::widget::{
     WIDGET_ERROR, WIDGET_NETWORK_ERROR, WIDGET_STATUS, WIDGET_SUBROUTINE_TIMEOUT,
     WIDGET_SYSTEM_DEGRADED, WIDGET_TEXT_CHUNK,
 };
 use brioche_shell_projection::{
-    AnchorSlot, ContentRenderer, StreamBuffer, UiComposer, UiPerformancePolicy, UiPerformanceState,
-    UiRegistry,
+    AnchorSlot, ContentRenderer, IpcRateLimiter, StreamBatch, StreamBatchEmitter, StreamBuffer,
+    SubRoutineAccordionState, SubRoutineManager, UiComposer, UiPerformancePolicy,
+    UiPerformanceState, UiRegistry,
 };
 
 // ---------------------------------------------------------------------------
@@ -494,4 +495,124 @@ fn special_widget_maps_to_semantic_priority() {
         }
         _ => unreachable!("expected ForwardToUi"),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 15: IPC Rate Limiter
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ipc_rate_limiter_clone_shares_state() {
+    let limiter = IpcRateLimiter::new(10_000);
+    let clone = limiter.clone();
+
+    // First emit on original succeeds.
+    assert!(limiter.try_emit());
+    // Clone sees the same timestamp and blocks.
+    assert!(!clone.try_emit());
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 15: Stream Batch
+// ---------------------------------------------------------------------------
+
+#[test]
+fn stream_batch_messagepack_roundtrip() {
+    let mut batch = StreamBatch::new();
+    batch.append("trace-1", "Hello");
+    batch.append("trace-2", "world");
+
+    let bytes = batch
+        .to_messagepack()
+        .unwrap_or_else(|e| unreachable!("serialize failed: {}", e));
+    let decoded: StreamBatch =
+        rmp_serde::from_slice(&bytes).unwrap_or_else(|e| unreachable!("deserialize failed: {}", e));
+    assert_eq!(decoded, batch);
+}
+
+#[test]
+fn stream_batch_emitter_integration() {
+    let limiter = IpcRateLimiter::new(0); // always allows after sentinel
+    let mut emitter = StreamBatchEmitter::new(limiter);
+
+    emitter.accumulate("main", "The ");
+    emitter.accumulate("main", "quick ");
+    emitter.accumulate("side", "fox");
+
+    let bytes = emitter
+        .try_emit()
+        .unwrap_or_else(|| unreachable!("should emit"));
+    let decoded: StreamBatch =
+        rmp_serde::from_slice(&bytes).unwrap_or_else(|e| unreachable!("deserialize failed: {}", e));
+    assert_eq!(decoded.traces.get("main"), Some(&"The quick ".to_string()));
+    assert_eq!(decoded.traces.get("side"), Some(&"fox".to_string()));
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 15: SubRoutineManager
+// ---------------------------------------------------------------------------
+
+#[test]
+fn subroutine_manager_end_to_end_lifecycle() {
+    let mut mgr = SubRoutineManager::new();
+    let handle = SubRoutineHandle::new("sub-1");
+
+    // Initial: not tracked → begin_load creates Loading.
+    let state = mgr.begin_load(handle.clone());
+    assert_eq!(state.accordion, SubRoutineAccordionState::Loading);
+
+    // Kernel confirms restoration.
+    let state = mgr.mark_loaded(handle.clone());
+    assert_eq!(state.accordion, SubRoutineAccordionState::Loaded);
+
+    // Error transition.
+    let state = mgr
+        .mark_error(&handle)
+        .unwrap_or_else(|| unreachable!("handle must exist"));
+    assert_eq!(state.accordion, SubRoutineAccordionState::Error);
+
+    // Timeout transition.
+    let state = mgr
+        .mark_timeout(&handle)
+        .unwrap_or_else(|| unreachable!("handle must exist"));
+    assert_eq!(state.accordion, SubRoutineAccordionState::Timeout);
+
+    // Cleanup.
+    assert!(mgr.remove(&handle).is_some());
+    assert!(mgr.is_empty());
+}
+
+#[test]
+fn subroutine_manager_renderer_isolation_integration() {
+    let mut mgr = SubRoutineManager::new();
+    let h1 = SubRoutineHandle::new("sub-a");
+    let h2 = SubRoutineHandle::new("sub-b");
+
+    mgr.begin_load(h1.clone());
+    mgr.begin_load(h2.clone());
+
+    // Simulate streaming into sub-a.
+    let effect = make_text_chunk_effect("trace", "alpha");
+    let renderer = &mut mgr
+        .get_mut(&h1)
+        .unwrap_or_else(|| unreachable!("h1 must exist"))
+        .renderer;
+    assert!(renderer.process_effect(&effect));
+
+    // sub-b remains untouched.
+    assert!(
+        mgr.get(&h2)
+            .unwrap_or_else(|| unreachable!("h2 must exist"))
+            .renderer
+            .buffer()
+            .is_empty()
+    );
+    assert_eq!(
+        mgr.get(&h1)
+            .unwrap_or_else(|| unreachable!("h1 must exist"))
+            .renderer
+            .buffer()
+            .get("trace"),
+        Some("alpha")
+    );
 }
