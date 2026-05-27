@@ -14,7 +14,7 @@ use brioche_core::{
 };
 use std::collections::BTreeMap;
 
-/// État d'accumulation des arguments JSON.
+/// JSON argument accumulation state.
 #[derive(
     Clone,
     Debug,
@@ -29,18 +29,18 @@ use std::collections::BTreeMap;
 pub struct JsonArgumentAccumulatorState {
     /// Map tool_id -> accumulated argument bytes (for validation only).
     pub accumulated: BTreeMap<String, String>,
-    /// Nombre total de fragments reçus.
+    /// Total number of fragments received.
     pub total_fragments: u64,
 }
 
 /// Accumulateur et validateur d'arguments JSON.
 ///
 /// Sur `on_stream_event`, accumule les fragments d'arguments pour
-/// validation. Ne modifie pas le flux mécanique (Pass toujours).
+/// validation. Does not modify the mechanical flow (always Pass).
 pub struct JsonArgumentAccumulator;
 
 impl JsonArgumentAccumulator {
-    /// Crée une nouvelle instance.
+    /// Creates a new instance.
     pub fn new() -> Self {
         Self
     }

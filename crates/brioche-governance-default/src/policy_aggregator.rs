@@ -1,15 +1,15 @@
-//! LexicographicDecisionAggregator — implémentation `DecisionAggregator` (Book II §5.17).
+//! LexicographicDecisionAggregator — `DecisionAggregator` implementation (Book II §5.17).
 //!
-//! Agrège les décisions intermédiaires collectées par le kernel sur la
-//! route `before_prediction` selon une règle de fusion lexicographique
-//! déterministe.
+//! Aggregates intermediate decisions collected by the kernel on the
+//! `before_prediction` route according to a deterministic lexicographic
+//! merge rule.
 //!
-//! Règle de priorité (dans l'ordre d'évaluation) :
-//! 1. `Block`   → retourne immédiatement `Block` avec la raison agrégée.
-//! 2. `OverrideTransition` → retourne le premier rencontré.
-//! 3. `MutateHistory` → accumule toutes les éditions.
+//! Priority rule (in evaluation order):
+//! 1. `Block`   → returns immediately `Block` with the aggregated reason.
+//! 2. `OverrideTransition` → first encountered wins.
+//! 3. `MutateHistory` → accumulates all edits.
 //! 4. `RequestEffect` → accumule tous les effets.
-//! 5. `Allow`   → ignoré sauf si aucune autre décision.
+//! 5. `Allow`   → ignored unless no other decision.
 //!
 //! Refs: I-Gov-Decision-Required, I-Gov-Decision-Isolation
 
@@ -17,10 +17,10 @@ use brioche_core::{
     DecisionAggregator, Effect, ExtensionStorage, HistoryEdit, PluginResult, PolicyDecision,
 };
 
-/// Agrégateur déterministe par ordre lexicographique.
+/// Deterministic lexicographic aggregator.
 ///
-/// Ce composant est **obligatoire** : le kernel refuse de démarrer sans
-/// un `DecisionAggregator` injecté via `BriocheEngineBuilder`.
+/// This component is **mandatory**: the kernel refuses to start without
+/// a `DecisionAggregator` injected via `BriocheEngineBuilder`.
 ///
 /// # Exemple
 /// ```
@@ -47,7 +47,7 @@ impl DecisionAggregator for LexicographicDecisionAggregator {
             match decision {
                 PolicyDecision::Allow => {}
                 PolicyDecision::Block { reason } => {
-                    // Block court-circuite immédiatement (fusion lexicographique).
+                    // Block short-circuits immediately (lexicographic merge).
                     return Ok(PolicyDecision::Block { reason });
                 }
                 PolicyDecision::MutateHistory(mut e) => {
@@ -57,7 +57,7 @@ impl DecisionAggregator for LexicographicDecisionAggregator {
                     effects.push(eff);
                 }
                 PolicyDecision::OverrideTransition(ov) => {
-                    // Le premier OverrideTransition l'emporte.
+                    // The first OverrideTransition wins.
                     return Ok(PolicyDecision::OverrideTransition(ov));
                 }
             }
@@ -66,9 +66,9 @@ impl DecisionAggregator for LexicographicDecisionAggregator {
         if !edits.is_empty() {
             Ok(PolicyDecision::MutateHistory(edits))
         } else if !effects.is_empty() {
-            // Concaténation des RequestEffects dans un seul MutateHistory n'est
-            // pas possible (types différents). On retourne le premier effet
-            // comme décision agrégée ; les effets restants sont émis par le
+            // Concatenating RequestEffects into a single MutateHistory is
+            // not possible (different types). We return the first effect
+            // as the aggregated decision; the remaining effects are emitted by the
             // kernel dans le `Vec<Effect>` global.
             Ok(PolicyDecision::RequestEffect(effects.remove(0)))
         } else {

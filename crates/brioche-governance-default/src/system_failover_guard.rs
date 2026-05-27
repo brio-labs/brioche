@@ -1,20 +1,20 @@
-//! SystemFailoverGuard — implémentation `GovernanceFailoverHandler` (Book II §5.19).
+//! SystemFailoverGuard — `GovernanceFailoverHandler` implementation (Book II §5.19).
 //!
-//! Filet de sécurité en cas de défaillance en cascade d'un plugin de
-//! gouvernance. Force un état terminal sûr (`Idle` + notification UI).
+//! Safety net in case of cascading failure of a governance plugin.
+//! Forces a safe terminal state (`Idle` + UI notification).
 //!
 //! Refs: SPECS.md §2.10
 
 use brioche_core::{Effect, GovernanceFailoverHandler, PluginResult, Session};
 
-/// Garde de failover système.
+/// System failover guard.
 ///
-/// Intercepte les `Effect::PluginFault` émanant de plugins fondamentaux
-/// et remplace la séquence d'effets par un état sûr terminal.
+/// Intercepts `Effect::PluginFault` emanating from fundamental plugins
+/// and replaces the effect sequence with a safe terminal state.
 pub struct SystemFailoverGuard;
 
 impl SystemFailoverGuard {
-    /// Crée une nouvelle instance.
+    /// Creates a new instance.
     pub fn new() -> Self {
         Self
     }

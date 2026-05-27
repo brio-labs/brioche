@@ -11,7 +11,7 @@ use brioche_core::{
     BriochePlugin, ExtensionStorage, PluginCapabilities, PluginResult, StreamAction, StreamEvent,
 };
 
-/// Compteur d'appels d'outils détectés.
+/// Detected tool call counter.
 #[derive(
     Clone,
     Debug,
@@ -27,14 +27,14 @@ pub struct ToolCallDetectorState {
     pub total_completed: u64,
 }
 
-/// Détecteur d'appels d'outils dans le stream.
+/// Tool call detector in the stream.
 ///
-/// Sur `on_stream_event`, incrémente les compteurs lors des événements
-/// `ToolCallStart` et `ToolCallDone`.
+/// On `on_stream_event`, increments counters during
+/// `ToolCallStart` and `ToolCallDone` events.
 pub struct ToolCallDetector;
 
 impl ToolCallDetector {
-    /// Crée une nouvelle instance.
+    /// Creates a new instance.
     pub fn new() -> Self {
         Self
     }
@@ -59,10 +59,10 @@ impl BriochePlugin for ToolCallDetector {
         10 // Early stream observer
     }
 
-    /// Compte les événements `ToolCallStart` et `ToolCallDone`.
+    /// Counts `ToolCallStart` and `ToolCallDone` events.
     ///
     /// # Complexity
-    /// O(1). Une lecture `ExtensionStorage` + incrément entier.
+    /// O(1). One `ExtensionStorage` read + integer increment.
     fn on_stream_event(
         &self,
         event: &StreamEvent,

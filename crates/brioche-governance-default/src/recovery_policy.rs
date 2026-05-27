@@ -13,7 +13,7 @@ use brioche_core::{
     BriochePlugin, EngineInput, ExtensionStorage, PluginCapabilities, PluginResult, PolicyDecision,
 };
 
-/// État de la politique de récupération.
+/// Recovery policy state.
 #[derive(
     Clone,
     Debug,
@@ -26,21 +26,21 @@ use brioche_core::{
 )]
 #[brioche(critical_state)]
 pub struct RecoveryState {
-    /// Nombre de tentatives de récupération consécutives.
+    /// Number of consecutive recovery attempts.
     pub consecutive_recoveries: u64,
-    /// Dernière erreur réseau observée (si applicable).
+    /// Last observed network error (if applicable).
     pub last_network_error: Option<String>,
 }
 
-/// Politique de récupération face aux signaux système.
+/// Recovery policy for system signals.
 ///
-/// Sur `on_input`, inspecte les `Effect::Error` portant les codes
-/// `NetworkUnavailable` ou `OperationCancelled` et émet des effets
-/// de récupération appropriés.
+/// On `on_input`, inspects `Effect::Error` carrying the
+/// `NetworkUnavailable` or `OperationCancelled` codes and emits
+/// appropriate recovery effects.
 pub struct RecoveryPolicy;
 
 impl RecoveryPolicy {
-    /// Crée une nouvelle instance.
+    /// Creates a new instance.
     pub fn new() -> Self {
         Self
     }
@@ -65,10 +65,10 @@ impl BriochePlugin for RecoveryPolicy {
         -50 // Early interceptor, after epoch but before business logic
     }
 
-    /// Prépare l'état de récupération (shell adapter en Sprint 9+).
+    /// Prepares the recovery state (shell adapter in Sprint 9+).
     ///
     /// # Complexity
-    /// O(log n). Une lecture `ExtensionStorage`.
+    /// O(log n). One `ExtensionStorage` read.
     fn on_input(
         &self,
         _input: &EngineInput,
