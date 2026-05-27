@@ -65,6 +65,10 @@ impl BriochePlugin for ToolExecutionTracker {
         PluginCapabilities::ON_TOOL_CALLS | PluginCapabilities::ON_TOOL_RESULT
     }
 
+    /// Enregistre les timestamps de début pour chaque appel.
+    ///
+    /// # Complexity
+    /// O(c · log n). `c` appels ; une insertion `BTreeMap` par appel.
     fn on_tool_calls(
         &self,
         calls: &mut Vec<ToolCallDescriptor>,
