@@ -132,6 +132,40 @@ fn multiple_extension_types_coexist() {
     }
 }
 
+#[test]
+fn hydrate_plugin_corrupted_blob_fallback() {
+    #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, BriocheExtensionType)]
+    pub struct RecoverableState {
+        pub counter: u64,
+        pub tags: BTreeMap<String, u64>,
+    }
+
+    let mut storage = ExtensionStorage::new();
+    storage.register::<RecoverableState>();
+
+    // Pass garbage bytes that are not a valid serialization.
+    let corrupted_blob = vec![0xFF, 0xFF, 0xFF, 0xFF];
+    let success = storage.hydrate_plugin(RecoverableState::EXT_ID, &corrupted_blob);
+    assert!(
+        success,
+        "hydrate_plugin should return true for known ext_id"
+    );
+
+    // After deserialization failure, it should fall back to default.
+    if let Some(state) = storage.get_mut::<RecoverableState>() {
+        assert_eq!(state.counter, 0);
+        assert!(state.tags.is_empty());
+    } else {
+        assert_eq!(1, 0, "state should exist after hydrate");
+    }
+
+    // The corrupted blob should still be stored in cold_snapshot.
+    assert_eq!(
+        storage.cold_snapshot().get(RecoverableState::EXT_ID),
+        Some(&corrupted_blob)
+    );
+}
+
 proptest! {
     #[test]
     fn prop_insert_get_mut_roundtrip(counter: u64, key: String, val: u64) {

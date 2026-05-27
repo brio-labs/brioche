@@ -78,6 +78,16 @@ impl RedbStorage {
         })
     }
 
+    /// Access the underlying Redb `Arc<Database>`.
+    ///
+    /// Used by crate-internal modules (`gc`, `load`) that need direct
+    /// table access.
+    ///
+    /// Complexity: O(1). Clones an `Arc`.
+    pub(crate) fn db(&self) -> Arc<Database> {
+        Arc::clone(&self.db)
+    }
+
     /// Update the in-memory store with a new session entry.
     ///
     /// Call this from the engine thread (or an async bridge) after each
@@ -237,6 +247,51 @@ impl RedbStorage {
             // Deterministic ordering: sort by index.
             results.sort_by_key(|(idx, _)| *idx);
             Ok::<_, PersistenceError>(results)
+        })
+        .await
+        .map_err(|e| PersistenceError::Compression(e.to_string()))?
+    }
+
+    /// Delete all messages for a session with index strictly less than
+    /// `compaction_index`.
+    ///
+    /// Returns the number of removed message entries.
+    ///
+    /// Complexity: O(m) where m = messages scanned. One write transaction.
+    ///
+    /// Refs: I-Persist-GC-Interrupt
+    pub async fn delete_messages_below(
+        &self,
+        session_id: &str,
+        compaction_index: u32,
+    ) -> Result<u64, PersistenceError> {
+        let sid = session_id.to_string();
+        let db = Arc::clone(&self.db);
+
+        tokio::task::spawn_blocking(move || {
+            let write_txn = db.begin_write()?;
+            let count = {
+                let mut table = write_txn.open_table(MESSAGES_TABLE)?;
+                let range = table.iter()?;
+                let mut to_remove = Vec::new();
+
+                for item in range {
+                    let (k, _v) = item?;
+                    let (key_sid, idx) = k.value();
+                    if key_sid == sid.as_str() && idx < compaction_index {
+                        to_remove.push((key_sid.to_string(), idx));
+                    }
+                }
+
+                let count = to_remove.len() as u64;
+                for (key_sid, idx) in to_remove {
+                    table.remove(&(key_sid.as_str(), idx))?;
+                }
+                count
+            };
+
+            write_txn.commit()?;
+            Ok::<_, PersistenceError>(count)
         })
         .await
         .map_err(|e| PersistenceError::Compression(e.to_string()))?

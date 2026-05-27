@@ -27,6 +27,10 @@ pub enum PersistenceError {
     /// Zstd compression or decompression failure.
     #[error("compression error: {0}")]
     Compression(String),
+
+    /// GC task was interrupted (e.g. by cancellation token).
+    #[error("gc interrupted: {0}")]
+    GcInterrupted(String),
 }
 
 impl From<redb::TransactionError> for PersistenceError {
