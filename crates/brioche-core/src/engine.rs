@@ -274,6 +274,72 @@ impl BriocheEngine {
         &mut self.session_registry
     }
 
+    /// Rebuild routing tables excluding quarantined or inactive plugins.
+    ///
+    /// `active_mask` is a boolean slice parallel to the plugin vector.
+    /// `true` means the plugin remains active; `false` means it is excluded.
+    /// The kernel performs an O(N) recalculation of all routes without
+    /// restarting or invalidating the session.
+    ///
+    /// This is a transactional barrier: no new `EngineInput` should be
+    /// processed until this call completes.
+    ///
+    /// # Complexity
+    /// O(p log p) where p = number of active plugins. Called once per
+    /// quarantine event, not on the hot path.
+    ///
+    /// Refs: I-Gov-Rebuild-Barrier
+    pub fn rebuild_routes(&mut self, active_mask: &[bool]) {
+        // Rebuild routing table from the same plugins but with a filter.
+        // We don't remove plugins from `self.plugins`; we just rebuild
+        // the routing table considering only active indices.
+        let active_indices: Vec<usize> = (0..self.plugins.len())
+            .filter(|i| active_mask.get(*i).copied().unwrap_or(true))
+            .collect();
+
+        let mut indexed: Vec<(usize, i16, &'static str)> = active_indices
+            .iter()
+            .map(|&i| (i, self.plugins[i].priority(), self.plugins[i].name()))
+            .collect();
+        indexed.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.2.cmp(b.2)));
+
+        self.routing_table = UnifiedRoutingTable {
+            route_on_input: Self::collect_route_filtered(&indexed, &self.plugins, |c| {
+                c.contains(PluginCapabilities::ON_INPUT)
+            }),
+            route_before_prediction: Self::collect_route_filtered(&indexed, &self.plugins, |c| {
+                c.contains(PluginCapabilities::BEFORE_PREDICTION)
+            }),
+            route_on_stream_event: Self::collect_route_filtered(&indexed, &self.plugins, |c| {
+                c.contains(PluginCapabilities::ON_STREAM_EVENT)
+            }),
+            route_after_prediction: Self::collect_route_filtered(&indexed, &self.plugins, |c| {
+                c.contains(PluginCapabilities::AFTER_PREDICTION)
+            }),
+            route_on_tool_calls: Self::collect_route_filtered(&indexed, &self.plugins, |c| {
+                c.contains(PluginCapabilities::ON_TOOL_CALLS)
+            }),
+            route_on_tool_result: Self::collect_route_filtered(&indexed, &self.plugins, |c| {
+                c.contains(PluginCapabilities::ON_TOOL_RESULT)
+            }),
+            route_on_error: Self::collect_route_filtered(&indexed, &self.plugins, |c| {
+                c.contains(PluginCapabilities::ON_ERROR)
+            }),
+        };
+    }
+
+    fn collect_route_filtered(
+        sorted: &[(usize, i16, &'static str)],
+        plugins: &[Box<dyn BriochePlugin>],
+        has_cap: impl Fn(PluginCapabilities) -> bool,
+    ) -> Vec<usize> {
+        sorted
+            .iter()
+            .filter(|(i, _, _)| has_cap(plugins[*i].capabilities()))
+            .map(|(i, _, _)| *i)
+            .collect()
+    }
+
     /// The default tool timeout applied when a descriptor omits `timeout_ms`.
     ///
     /// This safeguard is mechanism, not policy. The kernel applies it

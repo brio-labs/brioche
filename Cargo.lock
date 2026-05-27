@@ -226,6 +226,7 @@ dependencies = [
  "brioche-core",
  "brioche-governance-default",
  "bytes",
+ "postcard",
  "serde_json",
  "thiserror 1.0.69",
  "tokio",
