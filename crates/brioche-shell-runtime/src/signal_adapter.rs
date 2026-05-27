@@ -1,9 +1,8 @@
 //! Channel adapters for separate event channels.
 //!
-//! Adapters accumulate `SystemSignal`, `AsyncTaskResult`, and
-//! `GovernanceNotification` events in local queues. Between each
-//! `transition()` cycle, the shell drains these queues and injects
-/// them into the engine flow.
+//! Adapters bridge async channels into the synchronous engine thread.
+//! Between each `transition()` cycle, the shell drains the receivers
+//! and injects pending events into `ExtensionStorage` as `SignalBuffer`.
 ///
 /// Refs: SPECS.md §1.4, I-Shell-Drain-Atomic
 use brioche_core::{AsyncTaskResult, GovernanceNotification, SystemSignal};
@@ -40,6 +39,19 @@ impl SystemSignalAdapter {
     ) -> Result<(), mpsc::error::TrySendError<SystemSignal>> {
         self.tx.try_send(signal)
     }
+
+    /// Drain all pending signals from the receiver.
+    ///
+    /// Called by the engine thread loop between transition cycles.
+    ///
+    /// Refs: I-Shell-Drain-Atomic
+    pub fn drain(receiver: &mut mpsc::Receiver<SystemSignal>) -> Vec<SystemSignal> {
+        let mut drained = Vec::new();
+        while let Ok(signal) = receiver.try_recv() {
+            drained.push(signal);
+        }
+        drained
+    }
 }
 
 /// Adapter for `AsyncTaskResult` events.
@@ -73,6 +85,19 @@ impl AsyncTaskResultAdapter {
     ) -> Result<(), mpsc::error::TrySendError<AsyncTaskResult>> {
         self.tx.try_send(result)
     }
+
+    /// Drain all pending results from the receiver.
+    ///
+    /// Called by the engine thread loop between transition cycles.
+    ///
+    /// Refs: I-Shell-Drain-Atomic
+    pub fn drain(receiver: &mut mpsc::Receiver<AsyncTaskResult>) -> Vec<AsyncTaskResult> {
+        let mut drained = Vec::new();
+        while let Ok(result) = receiver.try_recv() {
+            drained.push(result);
+        }
+        drained
+    }
 }
 
 /// Adapter for `GovernanceNotification` events.
@@ -105,5 +130,20 @@ impl GovernanceNotificationAdapter {
         notification: GovernanceNotification,
     ) -> Result<(), mpsc::error::TrySendError<GovernanceNotification>> {
         self.tx.try_send(notification)
+    }
+
+    /// Drain all pending notifications from the receiver.
+    ///
+    /// Called by the engine thread loop between transition cycles.
+    ///
+    /// Refs: I-Shell-Drain-Atomic
+    pub fn drain(
+        receiver: &mut mpsc::Receiver<GovernanceNotification>,
+    ) -> Vec<GovernanceNotification> {
+        let mut drained = Vec::new();
+        while let Ok(notification) = receiver.try_recv() {
+            drained.push(notification);
+        }
+        drained
     }
 }
