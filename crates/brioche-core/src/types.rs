@@ -912,3 +912,48 @@ pub enum GovernanceNotification {
         error: PluginError,
     },
 }
+
+// ---------------------------------------------------------------------------
+// Signal drainage — Book III-A
+// ---------------------------------------------------------------------------
+
+/// Batch of drained signals from the separate event channels.
+///
+/// Produced by `SignalDrainOrder::drain()` and consumed by the shell
+/// to inject pending signals into `ExtensionStorage` before each
+/// `transition()` cycle.
+///
+/// Canonical order is enforced by the `SignalDrainOrder` implementation:
+/// `SystemSignal` → `GovernanceNotification` → `AsyncTaskResult`.
+///
+/// Refs: SPECS.md §1.4, I-Shell-Drain-Atomic
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SignalDrainBatch {
+    /// Drained system signals (produced first in canonical order).
+    pub system_signals: Vec<SystemSignal>,
+    /// Drained governance notifications (produced second).
+    pub governance_notifications: Vec<GovernanceNotification>,
+    /// Drained async task results (produced third).
+    pub async_task_results: Vec<AsyncTaskResult>,
+}
+
+/// Transient buffer holding drained signals for plugin consumption.
+///
+/// The shell inserts this into `ExtensionStorage` before each
+/// `transition()` cycle. Plugins read from it in their hooks.
+/// It is cleared and repopulated each cycle.
+///
+/// Marked `#[brioche(no_snapshot)]` because it is fully reconstructed
+/// each cycle; rollback of this buffer is meaningless.
+///
+/// Refs: I-Shell-Drain-Atomic
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
+#[brioche(no_snapshot)]
+pub struct SignalBuffer {
+    #[brioche(deterministic_order)]
+    pub system_signals: Vec<SystemSignal>,
+    #[brioche(deterministic_order)]
+    pub governance_notifications: Vec<GovernanceNotification>,
+    #[brioche(deterministic_order)]
+    pub async_task_results: Vec<AsyncTaskResult>,
+}
