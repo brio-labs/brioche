@@ -1,0 +1,312 @@
+//! Redb-backed storage engine implementing the `Persistence` trait.
+//!
+//! `RedbStorage` bridges the synchronous engine thread and the async
+//! runtime via a shared `SessionStore`. The engine thread populates the
+//! store with `SessionStoreEntry` (head DTO + full message history); the
+//! async `save_session` effect reads from this store and flushes to Redb.
+//!
+//! Refs: SPECS.md §Book III-B Ch 1–3, I-Persist-SaveSession, I-Persist-PluginBlob
+
+use async_trait::async_trait;
+use brioche_core::ChatMessage;
+use brioche_shell_runtime::{Persistence, ShellError};
+use redb::{Database, ReadableDatabase, ReadableTable};
+use std::collections::BTreeMap;
+use std::path::Path;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+use crate::dto::SessionHeadDTO;
+use crate::error::PersistenceError;
+use crate::save::{
+    deserialize_head, deserialize_message, maybe_compress, maybe_decompress, serialize_head,
+    serialize_message,
+};
+use crate::schema::{BLOBS_TABLE, MESSAGES_TABLE, SESSIONS_TABLE};
+
+/// Shared in-memory store bridging the engine thread and async persistence.
+///
+/// The engine thread (which owns the `!Send` `Session`) inserts entries
+/// after each transition. The async `RedbStorage` reads from this map
+/// when processing `SaveSession` effects.
+///
+/// Refs: I-Shell-Session-NoSend
+pub type SessionStore = Arc<RwLock<BTreeMap<String, SessionStoreEntry>>>;
+
+/// Create a new empty `SessionStore`.
+pub fn new_session_store() -> SessionStore {
+    Arc::new(RwLock::new(BTreeMap::new()))
+}
+
+/// A single entry in the `SessionStore`, holding both the head DTO and
+/// the full message history needed for delta persistence.
+#[derive(Clone, Debug)]
+pub struct SessionStoreEntry {
+    /// Flattened session head.
+    pub head: SessionHeadDTO,
+    /// Complete message history (including already-persisted messages).
+    pub messages: Vec<ChatMessage>,
+}
+
+/// Redb-backed persistent storage.
+///
+/// Implements the `Persistence` trait from `brioche-shell-runtime` so it
+/// can be plugged into `DefaultEffectExecutor`.
+///
+/// Clone is cheap (all fields are `Arc`-wrapped or `Copy`).
+#[derive(Clone)]
+pub struct RedbStorage {
+    db: Arc<Database>,
+    session_store: SessionStore,
+}
+
+impl RedbStorage {
+    /// Open or create a Redb database at the given path.
+    ///
+    /// `session_store` must be shared with the code that populates it
+    /// from the engine thread (typically via `update_session`).
+    ///
+    /// Complexity: O(1). File creation is deferred to first write.
+    pub fn new(
+        path: impl AsRef<Path>,
+        session_store: SessionStore,
+    ) -> Result<Self, PersistenceError> {
+        let db = Database::create(path.as_ref())?;
+        Ok(Self {
+            db: Arc::new(db),
+            session_store,
+        })
+    }
+
+    /// Update the in-memory store with a new session entry.
+    ///
+    /// Call this from the engine thread (or an async bridge) after each
+    /// `transition()` so that `save_session` has fresh data to flush.
+    ///
+    /// Complexity: O(log n) where n = number of tracked sessions.
+    pub async fn update_session(&self, entry: SessionStoreEntry) {
+        let mut store = self.session_store.write().await;
+        store.insert(entry.head.id.clone(), entry);
+    }
+
+    /// Persist a session head DTO directly (bypassing the store).
+    ///
+    /// Used by tests and by `save_session` after reading from the store.
+    ///
+    /// Complexity: O(serialization + I/O). Executed on `spawn_blocking`.
+    pub async fn save_session_dto(&self, dto: &SessionHeadDTO) -> Result<(), PersistenceError> {
+        let blob = serialize_head(dto)?;
+        let compressed = maybe_compress(blob)?;
+        let id = dto.id.clone();
+        let db = Arc::clone(&self.db);
+
+        tokio::task::spawn_blocking(move || {
+            let write_txn = db.begin_write()?;
+            {
+                let mut table = write_txn.open_table(SESSIONS_TABLE)?;
+                table.insert(id.as_str(), compressed.as_slice())?;
+            }
+            write_txn.commit()?;
+            Ok::<_, PersistenceError>(())
+        })
+        .await
+        .map_err(|e| PersistenceError::Compression(e.to_string()))??;
+
+        Ok(())
+    }
+
+    /// Load a session head DTO from Redb.
+    ///
+    /// Returns `Ok(None)` if the session ID is not found.
+    ///
+    /// Complexity: O(I/O). Executed on `spawn_blocking`.
+    pub async fn load_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionHeadDTO>, PersistenceError> {
+        let id = session_id.to_string();
+        let db = Arc::clone(&self.db);
+
+        tokio::task::spawn_blocking(move || {
+            let read_txn = db.begin_read()?;
+            let table = read_txn.open_table(SESSIONS_TABLE)?;
+            let Some(guard) = table.get(id.as_str())? else {
+                return Ok(None);
+            };
+            let bytes = guard.value();
+            let decompressed = maybe_decompress(bytes)?;
+            let dto = deserialize_head(&decompressed)?;
+            Ok(Some(dto))
+        })
+        .await
+        .map_err(|e| PersistenceError::Compression(e.to_string()))?
+    }
+
+    /// Persist a slice of messages starting at `start_index`.
+    ///
+    /// Each message is serialized to MessagePack and written to
+    /// `MESSAGES_TABLE` with the composite key `(session_id, index)`.
+    ///
+    /// Complexity: O(m * (serialization + I/O)) where m = messages.len().
+    pub async fn save_messages(
+        &self,
+        session_id: &str,
+        messages: &[ChatMessage],
+        start_index: usize,
+    ) -> Result<(), PersistenceError> {
+        let mut batch: Vec<((String, u32), Vec<u8>)> = Vec::with_capacity(messages.len());
+        for (offset, msg) in messages.iter().enumerate() {
+            let index = (start_index + offset) as u32;
+            let blob = serialize_message(msg)?;
+            let compressed = maybe_compress(blob)?;
+            batch.push(((session_id.to_string(), index), compressed));
+        }
+
+        let db = Arc::clone(&self.db);
+        tokio::task::spawn_blocking(move || {
+            let write_txn = db.begin_write()?;
+            {
+                let mut table = write_txn.open_table(MESSAGES_TABLE)?;
+                for ((sid, idx), compressed) in batch {
+                    table.insert((sid.as_str(), idx), compressed.as_slice())?;
+                }
+            }
+            write_txn.commit()?;
+            Ok::<_, PersistenceError>(())
+        })
+        .await
+        .map_err(|e| PersistenceError::Compression(e.to_string()))??;
+
+        Ok(())
+    }
+
+    /// Load a single message by session ID and index.
+    ///
+    /// Returns `Ok(None)` if the key is not found.
+    pub async fn load_message(
+        &self,
+        session_id: &str,
+        index: u32,
+    ) -> Result<Option<ChatMessage>, PersistenceError> {
+        let sid = session_id.to_string();
+        let db = Arc::clone(&self.db);
+
+        tokio::task::spawn_blocking(move || {
+            let read_txn = db.begin_read()?;
+            let table = read_txn.open_table(MESSAGES_TABLE)?;
+            let Some(guard) = table.get((sid.as_str(), index))? else {
+                return Ok(None);
+            };
+            let bytes = guard.value();
+            let decompressed = maybe_decompress(bytes)?;
+            let msg = deserialize_message(&decompressed)?;
+            Ok(Some(msg))
+        })
+        .await
+        .map_err(|e| PersistenceError::Compression(e.to_string()))?
+    }
+
+    /// Load all messages for a session in index order.
+    ///
+    /// Iterates the `MESSAGES_TABLE` range for the given session ID.
+    /// Returns messages sorted by index.
+    ///
+    /// Refs: I-Shell-Load-Batch (preparation for Sprint 13).
+    pub async fn load_messages_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<(u32, ChatMessage)>, PersistenceError> {
+        let sid = session_id.to_string();
+        let db = Arc::clone(&self.db);
+
+        tokio::task::spawn_blocking(move || {
+            let read_txn = db.begin_read()?;
+            let table = read_txn.open_table(MESSAGES_TABLE)?;
+            let range = table.iter()?;
+            let mut results = Vec::new();
+            for item in range {
+                let (k, v) = item?;
+                let (key_sid, idx) = k.value();
+                if key_sid != sid.as_str() {
+                    continue;
+                }
+                let decompressed = maybe_decompress(v.value())?;
+                let msg = deserialize_message(&decompressed)?;
+                results.push((idx, msg));
+            }
+            // Deterministic ordering: sort by index.
+            results.sort_by_key(|(idx, _)| *idx);
+            Ok::<_, PersistenceError>(results)
+        })
+        .await
+        .map_err(|e| PersistenceError::Compression(e.to_string()))?
+    }
+}
+
+#[async_trait]
+impl Persistence for RedbStorage {
+    /// Flush the session head and message delta to Redb.
+    ///
+    /// Reads the current entry from the shared `SessionStore`, serializes
+    /// the head DTO to MessagePack, extracts the message delta, and writes
+    /// both to Redb in separate table transactions.
+    ///
+    /// After a successful flush, `persisted_msg_count` in the store is
+    /// updated so the next save only writes new messages.
+    ///
+    /// Refs: I-Persist-SaveSession, I-Persist-AppendOnly
+    async fn save_session(&self, session_id: &str) -> Result<(), ShellError> {
+        let entry = {
+            let store = self.session_store.read().await;
+            store.get(session_id).cloned().ok_or_else(|| {
+                ShellError::EffectExecution(format!("session {} not found in store", session_id))
+            })?
+        };
+
+        // 1. Persist the head DTO.
+        self.save_session_dto(&entry.head)
+            .await
+            .map_err(|e| ShellError::EffectExecution(e.to_string()))?;
+
+        // 2. Persist delta messages.
+        let delta = &entry.messages[entry.head.persisted_msg_count..];
+        if !delta.is_empty() {
+            self.save_messages(session_id, delta, entry.head.persisted_msg_count)
+                .await
+                .map_err(|e| ShellError::EffectExecution(e.to_string()))?;
+        }
+
+        // 3. Advance the watermark in the store.
+        let mut store = self.session_store.write().await;
+        if let Some(entry) = store.get_mut(session_id) {
+            entry.head.persisted_msg_count = entry.messages.len();
+        }
+
+        Ok(())
+    }
+
+    /// Persist a cold plugin blob asynchronously.
+    ///
+    /// Writes the raw blob to `BLOBS_TABLE` keyed by `plugin_id`.
+    /// The operation is executed on `spawn_blocking` so the engine thread
+    /// is never blocked.
+    ///
+    /// Refs: I-Persist-PluginBlob
+    async fn save_plugin_blob(&self, plugin_id: &str, data: Vec<u8>) -> Result<(), ShellError> {
+        let pid = plugin_id.to_string();
+        let db = Arc::clone(&self.db);
+
+        tokio::task::spawn_blocking(move || {
+            let write_txn = db.begin_write()?;
+            {
+                let mut table = write_txn.open_table(BLOBS_TABLE)?;
+                table.insert(pid.as_str(), data.as_slice())?;
+            }
+            write_txn.commit()?;
+            Ok::<_, PersistenceError>(())
+        })
+        .await
+        .map_err(|e| ShellError::EffectExecution(e.to_string()))?
+        .map_err(|e| ShellError::EffectExecution(e.to_string()))
+    }
+}
