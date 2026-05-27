@@ -13,11 +13,11 @@ use brioche_core::{
 /// Logger de conflits de transition.
 ///
 /// Sur `after_prediction`, inspecte le `SupersededTransitionTraceLog`
-/// pour détecter les `OverrideTransition` ayant été préemptés.
+/// to detect `OverrideTransition`s that have been preempted.
 pub struct TransitionConflictLogger;
 
 impl TransitionConflictLogger {
-    /// Crée une nouvelle instance.
+    /// Creates a new instance.
     pub fn new() -> Self {
         Self
     }

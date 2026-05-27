@@ -9,7 +9,7 @@ use brioche_core::{
     BriochePlugin, ExtensionStorage, PluginCapabilities, PluginResult, ToolCallDescriptor,
 };
 
-/// État de la politique de timeout.
+/// Timeout policy state.
 #[derive(
     Clone,
     Debug,
@@ -22,23 +22,23 @@ use brioche_core::{
 )]
 #[brioche(critical_state)]
 pub struct ToolTimeoutState {
-    /// Timeout par défaut en ms.
+    /// Default timeout in ms.
     pub default_timeout_ms: u64,
-    /// Timeout maximum autorisé (0 = pas de limite).
+    /// Maximum allowed timeout (0 = no limit).
     pub max_timeout_ms: u64,
 }
 
-/// Politique de timeout pour les appels d'outils.
+/// Timeout policy for tool calls.
 ///
-/// Sur `on_tool_calls`, applique `default_timeout_ms` si absent et
-/// borne à `max_timeout_ms` si défini.
+/// On `on_tool_calls`, applies `default_timeout_ms` if absent and
+/// caps to `max_timeout_ms` if defined.
 pub struct ToolTimeoutPolicy {
     default_timeout_ms: u64,
     max_timeout_ms: u64,
 }
 
 impl ToolTimeoutPolicy {
-    /// Crée une politique avec un timeout par défaut.
+    /// Creates a policy with a default timeout.
     pub fn with_default_timeout(default_timeout_ms: u64) -> Self {
         Self {
             default_timeout_ms,
@@ -46,7 +46,7 @@ impl ToolTimeoutPolicy {
         }
     }
 
-    /// Crée une politique avec un timeout par défaut et une borne max.
+    /// Creates a policy with a default timeout and a max cap.
     pub fn with_bounds(default_timeout_ms: u64, max_timeout_ms: u64) -> Self {
         Self {
             default_timeout_ms,
@@ -74,10 +74,10 @@ impl BriochePlugin for ToolTimeoutPolicy {
         -10 // Early mutator — apply before other plugins inspect timeouts
     }
 
-    /// Applique le timeout par défaut et borne à `max_timeout_ms`.
+    /// Applies the default timeout and caps to `max_timeout_ms`.
     ///
     /// # Complexity
-    /// O(c). `c` appels ; une lecture `ExtensionStorage` + boucle linéaire.
+    /// O(c). `c` calls; one `ExtensionStorage` read + linear loop.
     fn on_tool_calls(
         &self,
         calls: &mut Vec<ToolCallDescriptor>,

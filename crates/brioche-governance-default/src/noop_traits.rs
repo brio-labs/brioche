@@ -39,7 +39,7 @@ impl GovernanceFailoverHandler for NoopGovernanceFailoverHandler {
 pub struct NoopHookEffectConstraint;
 
 impl HookEffectConstraint for NoopHookEffectConstraint {
-    /// O(1). Retourne toujours `true`.
+    /// O(1). Always returns `true`.
     fn is_allowed_fast(&self, _hook_index: u8, _effect_mask: u64) -> bool {
         true
     }
@@ -106,7 +106,7 @@ impl Default for PermissiveHookEffectConstraint {
 }
 
 impl HookEffectConstraint for PermissiveHookEffectConstraint {
-    /// O(1). Masque binaire pré-calculé.
+    /// O(1). Pre-computed binary mask.
     fn is_allowed_fast(&self, hook_index: u8, effect_mask: u64) -> bool {
         if hook_index >= 8 {
             return true;

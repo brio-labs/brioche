@@ -1,7 +1,7 @@
-//! ToolExecutionTracker — plugin de télémétrie d'exécution d'outils (Book II §5.9).
+//! ToolExecutionTracker — tool execution telemetry plugin (Book II §5.9).
 //!
-//! Comptabilise les appels d'outils, les succès/échecs et la durée cumulée
-//! sans jamais muter l'état mécanique du noyau (`session.active_tools`).
+//! Counts tool calls, successes/failures and cumulative duration
+//! without ever mutating the mechanical state of the kernel (`session.active_tools`).
 //!
 //! Refs: I-Eco-ExtensionOverMod
 
@@ -11,10 +11,10 @@ use brioche_core::{
 };
 use std::collections::BTreeMap;
 
-/// État persistant du tracker d'exécution.
+/// Persistent execution tracker state.
 ///
-/// Stocké dans `ExtensionStorage`. Utilise `BTreeMap` pour garantir
-/// l'itération déterministe.
+/// Stored in `ExtensionStorage`. Uses `BTreeMap` to guarantee
+/// deterministic iteration.
 #[derive(
     Clone,
     Debug,
@@ -26,25 +26,25 @@ use std::collections::BTreeMap;
     brioche_core::BriocheExtensionType,
 )]
 pub struct ToolExecutionTelemetry {
-    /// Nombre d'outils ayant terminé avec succès.
+    /// Number of tools that completed successfully.
     pub completed_count: u64,
-    /// Nombre d'outils ayant échoué (erreur métier ou système).
+    /// Number of tools that failed (business or system error).
     pub failed_count: u64,
-    /// Durée cumulée d'exécution en millisecondes.
+    /// Cumulative execution duration in milliseconds.
     pub total_duration_ms: u64,
-    /// Timestamp de début par tool_id (pour calcul de durée).
+    /// Start timestamp per tool_id (for duration calculation).
     pub start_timestamps: BTreeMap<String, u64>,
 }
 
-/// Tracker d'exécution d'outils.
+/// Tool execution tracker.
 ///
-/// Enregistre des métriques de haut niveau sur les appels d'outils.
-/// Les données sont purement télémetriques ; aucune décision de transition
-/// n'est prise par ce plugin.
+/// Records high-level metrics on tool calls.
+/// The data is purely telemetry; no transition decision
+/// is made by this plugin.
 pub struct ToolExecutionTracker;
 
 impl ToolExecutionTracker {
-    /// Crée une nouvelle instance.
+    /// Creates a new instance.
     pub fn new() -> Self {
         Self
     }
@@ -65,17 +65,17 @@ impl BriochePlugin for ToolExecutionTracker {
         PluginCapabilities::ON_TOOL_CALLS | PluginCapabilities::ON_TOOL_RESULT
     }
 
-    /// Enregistre les timestamps de début pour chaque appel.
+    /// Records start timestamps for each call.
     ///
     /// # Complexity
-    /// O(c · log n). `c` appels ; une insertion `BTreeMap` par appel.
+    /// O(c · log n). `c` calls; one `BTreeMap` insertion per call.
     fn on_tool_calls(
         &self,
         calls: &mut Vec<ToolCallDescriptor>,
         ext: &mut ExtensionStorage,
     ) -> PluginResult<()> {
         let state = ext.get_or_insert_default::<ToolExecutionTelemetry>();
-        let now = 0u64; // Déterministe : le shell fournira les vrais timestamps via ExtensionStorage si besoin.
+        let now = 0u64; // Deterministic: the shell will provide real timestamps via ExtensionStorage if needed.
         for call in calls {
             state.start_timestamps.insert(call.tool_id.clone(), now);
         }
@@ -103,8 +103,8 @@ impl BriochePlugin for ToolExecutionTracker {
                     state.failed_count += 1;
                 }
             }
-            // Retirer le timestamp de début ; la durée est 0 dans ce
-            // modèle déterministe (le shell peut enrichir via effet).
+            // Remove the start timestamp; duration is 0 in this
+            // deterministic model (the shell may enrich via effect).
             state.start_timestamps.remove(&result.tool_id);
         }
         Ok(())

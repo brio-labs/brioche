@@ -11,11 +11,11 @@ use brioche_core::{CycleRollbackPolicy, ExtVTable, ExtensionStorage, SnapshotStr
 use std::any::{Any, TypeId};
 use std::collections::BTreeSet;
 
-/// Garde de frame COW à trois niveaux de criticité.
+/// COW frame guard with three criticality tiers.
 ///
-/// Les types `#[brioche(critical_state)]` (stratégie `CriticalFullClone`)
-/// sont toujours restaurés. Les types standard et best-effort sont
-/// soumis à des seuils différenciés.
+/// Types `#[brioche(critical_state)]` (strategy `CriticalFullClone`)
+/// are always restored. Standard and best-effort types are
+/// subject to differentiated thresholds.
 pub struct TieredUndoFrameGuard {
     max_standard_bytes: usize,
     max_best_effort_bytes: usize,
@@ -26,7 +26,7 @@ pub struct TieredUndoFrameGuard {
 }
 
 impl TieredUndoFrameGuard {
-    /// Crée un garde avec les seuils par défaut :
+    /// Creates a guard with the default thresholds:
     /// - Standard : 64 KB
     /// - BestEffort : 16 KB (25%)
     pub fn new() -> Self {
@@ -40,7 +40,7 @@ impl TieredUndoFrameGuard {
         }
     }
 
-    /// Crée un garde avec des seuils personnalisés.
+    /// Creates a guard with custom thresholds.
     pub fn with_thresholds(max_standard_bytes: usize, max_best_effort_bytes: usize) -> Self {
         Self {
             max_standard_bytes,

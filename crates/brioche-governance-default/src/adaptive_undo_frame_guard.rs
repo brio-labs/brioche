@@ -14,8 +14,8 @@ use std::collections::BTreeSet;
 
 /// Garde de frame COW adaptative.
 ///
-/// Comme `UndoFrameGuard`, mais le seuil est déterminé dynamiquement
-/// par consultation d'une `CowBudgetPolicy` si disponible.
+/// Like `UndoFrameGuard`, but the threshold is determined dynamically
+/// by consulting a `CowBudgetPolicy` if available.
 pub struct AdaptiveUndoFrameGuard {
     fallback_max_cow_bytes: usize,
     active_frame: Option<Vec<(TypeId, Box<dyn Any + Send + Sync>)>>,
@@ -26,7 +26,7 @@ pub struct AdaptiveUndoFrameGuard {
 }
 
 impl AdaptiveUndoFrameGuard {
-    /// Crée un garde avec le seuil de repli par défaut de 64 KB.
+    /// Creates a guard with the default fallback threshold of 64 KB.
     pub fn new() -> Self {
         Self {
             fallback_max_cow_bytes: 65536,
@@ -37,7 +37,7 @@ impl AdaptiveUndoFrameGuard {
         }
     }
 
-    /// Crée un garde avec un seuil de repli personnalisé.
+    /// Creates a guard with a custom fallback threshold.
     pub fn with_fallback_max(fallback_max_cow_bytes: usize) -> Self {
         Self {
             fallback_max_cow_bytes,
