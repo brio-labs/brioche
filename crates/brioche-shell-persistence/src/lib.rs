@@ -21,6 +21,8 @@
 pub mod cache;
 pub mod dto;
 pub mod error;
+pub mod gc;
+pub mod load;
 pub mod save;
 pub mod schema;
 pub mod storage;
@@ -28,6 +30,8 @@ pub mod storage;
 pub use cache::SubRoutineCache;
 pub use dto::{FlattenedAgentState, SessionHeadDTO, SessionSchemaVersion};
 pub use error::PersistenceError;
+pub use gc::GcRunner;
+pub use load::{LazySessionLoader, load_session_full, load_subroutine};
 pub use save::{
     COMPRESSION_THRESHOLD, deserialize_head, deserialize_message, extract_delta, maybe_compress,
     maybe_decompress, serialize_head, serialize_message,
