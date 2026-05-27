@@ -235,11 +235,16 @@ pub trait DecisionAggregator: Send + Sync {
 
 /// Defines the invariant drainage order of separate channels.
 ///
+/// The shell implements this trait and the engine thread loop calls
+/// `drain()` before each `transition()` cycle. The returned batch is
+/// injected into `ExtensionStorage` as `SignalBuffer` so that plugins
+/// can consume pending signals in their hooks.
+///
 /// Canonical order: `SystemSignal` → `GovernanceNotification` → `AsyncTaskResult`.
 ///
-/// Refs: SPECS.md §1.4
+/// Refs: SPECS.md §1.4, I-Shell-Drain-Atomic
 pub trait SignalDrainOrder: Send + Sync {
-    fn drain(&self) -> Vec<EngineInput>;
+    fn drain(&self) -> crate::SignalDrainBatch;
 }
 
 /// Optional. O(1) validation of effects requested by plugins on specific hooks.

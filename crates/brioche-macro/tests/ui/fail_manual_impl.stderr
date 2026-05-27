@@ -125,6 +125,7 @@ help: the trait `brioche_core::extension::__private::Sealed` is not implemented 
   = help: the following other types implement trait `brioche_core::extension::__private::Sealed`:
             EpochState
             SessionSnapshot
+            SignalBuffer
             StreamToolAccumulator
             SupersededTransitionTraceLog
             TransitionTraceLog

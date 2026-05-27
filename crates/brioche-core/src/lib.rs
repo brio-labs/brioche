@@ -34,8 +34,8 @@ pub use types::{
     ActiveToolCall, AgentState, AgentStateTag, AsyncTaskResult, BriocheError, ChatMessage, Effect,
     EffectBit, EngineInput, EpochAction, EpochState, ErrorCode, ExecutionPath,
     GovernanceNotification, HistoryEdit, MAX_INLINE_CHUNK, PluginError, PluginResult,
-    PolicyDecision, Session, SessionRegistry, SessionSnapshot, StreamAction, StreamEvent,
-    StreamToolAccumulator, SubRoutineHandle, SupersededTransitionTrace,
+    PolicyDecision, Session, SessionRegistry, SessionSnapshot, SignalBuffer, SignalDrainBatch,
+    StreamAction, StreamEvent, StreamToolAccumulator, SubRoutineHandle, SupersededTransitionTrace,
     SupersededTransitionTraceLog, SystemSignal, ToolCallDescriptor, ToolOutcome, ToolResultDTO,
     ToolStatus, TransitionTrace, TransitionTraceLog, effect_to_bitmask, seal,
 };
