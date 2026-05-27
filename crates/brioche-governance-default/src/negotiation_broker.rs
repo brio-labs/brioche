@@ -9,7 +9,7 @@
 
 use brioche_core::{DecisionAggregator, Effect, ExtensionStorage, PluginResult, PolicyDecision};
 
-/// État de la négociation en cours.
+/// Ongoing negotiation state.
 #[derive(
     Clone,
     Debug,
@@ -24,28 +24,28 @@ use brioche_core::{DecisionAggregator, Effect, ExtensionStorage, PluginResult, P
 pub struct NegotiationState {
     /// Phase courante (0–2).
     pub current_phase: u8,
-    /// Décisions accumulées par phase.
+    /// Decisions accumulated per phase.
     #[brioche(deterministic_order)]
     pub phase_decisions: Vec<PolicyDecision>,
-    /// Négociation terminée ?
+    /// Negotiation settled?
     pub settled: bool,
 }
 
-/// Courtier de négociation multi-phases.
+/// Multi-phase negotiation broker.
 ///
-/// Sur `aggregate_decisions`, effectue jusqu'à 3 phases de négociation
-/// avant de retourner une décision finale.
+/// On `aggregate_decisions`, performs up to 3 negotiation phases
+/// before returning a final decision.
 pub struct NegotiationBroker {
     max_phases: u8,
 }
 
 impl NegotiationBroker {
-    /// Crée un courtier avec 3 phases max.
+    /// Creates a broker with 3 max phases.
     pub fn new() -> Self {
         Self { max_phases: 3 }
     }
 
-    /// Crée un courtier avec un nombre de phases personnalisé.
+    /// Creates a broker with a custom number of phases.
     pub fn with_max_phases(max_phases: u8) -> Self {
         Self { max_phases }
     }

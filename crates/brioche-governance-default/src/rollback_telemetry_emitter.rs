@@ -2,16 +2,16 @@
 //!
 //! Passive observer of abandoned COW rollbacks.
 //!
-//! Sur `after_prediction`, inspecte l'état des rollbacks et émet
-//! des métriques de télémesure (dans une implémentation complète
-//! avec shell, ces métriques seraient archivées via un canal dédié).
+//! On `after_prediction`, inspects the rollback state and emits
+//! telemetry metrics (in a full implementation
+//! with shell, these metrics would be archived via a dedicated channel).
 //!
 //! Refs: I-Gov-Rollback-BestEffort
 
 use brioche_core::{BriochePlugin, ExtensionStorage, PluginCapabilities, PluginResult};
 use std::collections::BTreeMap;
 
-/// Métriques de rollback observées.
+/// Observed rollback metrics.
 #[derive(
     Clone,
     Debug,
@@ -23,23 +23,23 @@ use std::collections::BTreeMap;
     brioche_core::BriocheExtensionType,
 )]
 pub struct RollbackTelemetryState {
-    /// Nombre total de rollbacks abandonnés.
+    /// Total number of abandoned rollbacks.
     pub abandoned_count: u64,
-    /// Nombre total de rollbacks réussis.
+    /// Total number of successful rollbacks.
     pub restored_count: u64,
-    /// Poids cumulé des abandons (octets).
+    /// Cumulative weight of abandonments (bytes).
     pub abandoned_weight_total: u64,
-    /// Map hook_name -> (abandons, restaurations).
+    /// Map hook_name -> (abandonments, restorations).
     pub per_hook_stats: BTreeMap<String, (u64, u64)>,
 }
 
-/// Émetteur de télémesure de rollback.
+/// Rollback telemetry emitter.
 ///
-/// Plugin passif qui comptabilise les événements de rollback COW.
+/// Passive plugin that counts COW rollback events.
 pub struct RollbackTelemetryEmitter;
 
 impl RollbackTelemetryEmitter {
-    /// Crée une nouvelle instance.
+    /// Creates a new instance.
     pub fn new() -> Self {
         Self
     }
