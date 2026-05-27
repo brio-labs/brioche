@@ -375,20 +375,20 @@
 
 ---
 
-### Sprint 15: Tauri IPC, Sub-routine Management UI ⏳
+### Sprint 15: Tauri IPC, Sub-routine Management UI ✅
 
 | Deliverable | Status | Notes |
 |-------------|--------|-------|
-| Tauri `send_message` IPC command | ⏳ | Injects `EngineInput::UserMessage` |
-| Tauri `cancel_action` IPC command | ⏳ | Emits `SystemSignal::OperationCancelled` |
-| Tauri `load_subroutine` IPC command | ⏳ | Lazy load + `RestoreSubRoutine` |
-| `stream_batch` event channel (MessagePack) | ⏳ | `Map<traceId, accumulatedText>` |
-| Sub-routine accordion states (`idle` → `loading` → `loaded` → `error` → `timeout`) | ⏳ | Deferred DOM open until `SubRoutineRestored` |
-| Isolated `ContentRenderer` per sub-routine | ⏳ | Independent streaming instance |
-| IPC rate limiting (< 1 event/frame) | ⏳ | Adaptive batching regulator |
-| Integration tests: Tauri end-to-end | ⏳ | Mock WebView + IPC command assertions |
+| Tauri `send_message` IPC command | ✅ | `IpcCommandService::send_message` injects `EngineInput::UserMessage` |
+| Tauri `cancel_action` IPC command | ✅ | `IpcCommandService::cancel_action` emits `SystemSignal::OperationCancelled` |
+| Tauri `load_subroutine` IPC command | ✅ | `IpcCommandService::load_subroutine` checks `SubRoutineCache` (L1→L2→Redb) then sends `RestoreSubRoutine` |
+| `stream_batch` event channel (MessagePack) | ✅ | `StreamBatch` + `StreamBatchEmitter` with `rmp_serde` serialization |
+| Sub-routine accordion states (`idle` → `loading` → `loaded` → `error` → `timeout`) | ✅ | `SubRoutineAccordionState` enum + `SubRoutineManager` lifecycle |
+| Isolated `ContentRenderer` per sub-routine | ✅ | `SubRoutineUiState` holds its own `ContentRenderer`; `BTreeMap` indexed by `SubRoutineHandle` |
+| IPC rate limiting (< 1 event/frame) | ✅ | `IpcRateLimiter` with frame budget + lock-free CAS timestamp |
+| Integration tests: Tauri end-to-end | ✅ | 20 lib tests + 42 integration tests (5 new Sprint 15 tests) |
 
-**Key Invariants Targeted:** I-UI-IPC-Rate, I-Shell-NoUIType
+**Key Invariants Targeted:** I-UI-IPC-Rate, I-Shell-NoUIType, I-UI-StreamBuffer, I-Eco-OrderedCollections
 
 ---
 
@@ -483,7 +483,7 @@
 | 12 | Phase 4 | III-B | Redb schema, SubRoutineCache, save protocol | ✅ |
 | 13 | Phase 4 | III-B | Loading, rehydration, GC | ✅ |
 | 14 | Phase 5 | III-C | UiRegistry, ContentRenderer, UiComposer | ✅ |
-| 15 | Phase 5 | III-C | Tauri IPC, sub-routine UI, performance policy | ⏳ |
+| 15 | Phase 5 | III-C | Tauri IPC, sub-routine UI, performance policy | ✅ |
 | 16 | Phase 6 | IV | Standard plugins (`brioche-std`) | ⏳ |
 | 17 | Phase 6 | IV | Plugin kit, Playground, docgen, lint | ⏳ |
 | 18 | Phase 7 | V | Verification, benchmarks, release | ⏳ |
