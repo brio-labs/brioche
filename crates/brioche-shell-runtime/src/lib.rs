@@ -20,21 +20,31 @@
 
 pub mod backpressure;
 pub mod effect_executor;
+pub mod engine_watchdog;
 pub mod llm_client;
 pub mod shell;
 pub mod signal_adapter;
+pub mod signal_multiplexer;
+pub mod telemetry;
 pub mod tick_emitter;
 pub mod tool_executor;
+pub mod unified_event_bus;
 
 pub use backpressure::{BackpressureRegulator, DropPolicy};
 pub use effect_executor::{DefaultEffectExecutor, EffectExecutor, NoopPersistence, Persistence};
+pub use engine_watchdog::{
+    EngineWatchdog, EngineWatchdogHandle, RecoveryProcedure, WatchdogPing, WatchdogPong,
+};
 pub use llm_client::{LlmClient, MockLlmClient};
 pub use shell::{BriocheShell, ShellConfig, ShellError, StateSnapshot};
 pub use signal_adapter::{
     AsyncTaskResultAdapter, GovernanceNotificationAdapter, SystemSignalAdapter,
 };
+pub use signal_multiplexer::SignalMultiplexer;
+pub use telemetry::{TelemetryChannel, TelemetryEvent, TelemetryLevel, install_default_subscriber};
 pub use tick_emitter::TickEmitter;
 pub use tool_executor::{EchoToolExecutor, ToolExecutor};
+pub use unified_event_bus::{EngineEnvelope, UnifiedEventBus};
 
 // Re-export channel types from core so consumers need only one import.
 pub use brioche_core::{
