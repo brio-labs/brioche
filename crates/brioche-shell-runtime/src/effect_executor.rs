@@ -8,8 +8,10 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO, I-Shell-ToolResult-PassThrough
 
-use crate::{BriocheShell, ShellError};
-use brioche_core::{ActiveToolCall, ChatMessage, ErrorCode, SubRoutineHandle, ToolResultDTO};
+use crate::{BriocheShell, NetworkRecovery, PersistenceMode, ShellError};
+use brioche_core::{
+    ActiveToolCall, ChatMessage, ErrorCode, SubRoutineHandle, SystemSignal, ToolResultDTO,
+};
 use std::sync::Arc;
 
 /// Pluggable persistence boundary.
@@ -118,6 +120,14 @@ pub struct DefaultEffectExecutor<T, L, P> {
     tool_executor: Arc<T>,
     llm_client: Arc<L>,
     persistence: Arc<P>,
+    /// Controls `SaveSession` flush behavior.
+    ///
+    /// Refs: I-Shell-Persistence-Mode
+    persistence_mode: PersistenceMode,
+    /// Retry/backoff policy for network calls.
+    ///
+    /// Refs: I-Shell-Network-Signal
+    network_recovery: Option<Arc<dyn NetworkRecovery>>,
 }
 
 impl<T, L, P> Clone for DefaultEffectExecutor<T, L, P> {
@@ -126,6 +136,8 @@ impl<T, L, P> Clone for DefaultEffectExecutor<T, L, P> {
             tool_executor: Arc::clone(&self.tool_executor),
             llm_client: Arc::clone(&self.llm_client),
             persistence: Arc::clone(&self.persistence),
+            persistence_mode: self.persistence_mode,
+            network_recovery: self.network_recovery.as_ref().map(Arc::clone),
         }
     }
 }
@@ -137,7 +149,25 @@ impl<T, L, P> DefaultEffectExecutor<T, L, P> {
             tool_executor: Arc::new(tool_executor),
             llm_client: Arc::new(llm_client),
             persistence: Arc::new(persistence),
+            persistence_mode: PersistenceMode::Async,
+            network_recovery: None,
         }
+    }
+
+    /// Set the persistence mode.
+    ///
+    /// Refs: I-Shell-Persistence-Mode
+    pub fn with_persistence_mode(mut self, mode: PersistenceMode) -> Self {
+        self.persistence_mode = mode;
+        self
+    }
+
+    /// Set the network recovery policy.
+    ///
+    /// Refs: I-Shell-Network-Signal
+    pub fn with_network_recovery<R: NetworkRecovery + 'static>(mut self, recovery: R) -> Self {
+        self.network_recovery = Some(Arc::new(recovery));
+        self
     }
 }
 
@@ -149,9 +179,55 @@ where
     P: Persistence + 'static,
 {
     async fn call_llm(&self, shell: &BriocheShell) -> Result<(), ShellError> {
-        // The LLM client streams chunks back via shell.send_input().
-        // This method initiates the call; streaming is handled by the client.
-        self.llm_client.call_llm(shell).await
+        // Apply retry/backoff policy at the transport level.
+        // The kernel receives only complete LlmStream events or
+        // SystemSignal::NetworkUnavailable as a last resort.
+        //
+        // Refs: I-Shell-Network-Signal
+        let mut attempt: u32 = 0;
+        loop {
+            match self.llm_client.call_llm(shell).await {
+                Ok(()) => return Ok(()),
+                Err(err) => {
+                    let error_str = err.to_string();
+                    if let Some(ref recovery) = self.network_recovery {
+                        match recovery.next_retry(attempt, &error_str) {
+                            Some(delay) => {
+                                tracing::warn!(
+                                    attempt,
+                                    delay_ms = delay.as_millis(),
+                                    error = %error_str,
+                                    "llm call failed, retrying"
+                                );
+                                tokio::time::sleep(delay).await;
+                                attempt += 1;
+                            }
+                            None => {
+                                tracing::error!(
+                                    attempts = attempt,
+                                    error = %error_str,
+                                    "llm call exhausted retries, emitting NetworkUnavailable"
+                                );
+                                shell
+                                    .send_system_signal(SystemSignal::NetworkUnavailable {
+                                        reason: error_str,
+                                    })
+                                    .await?;
+                                return Ok(());
+                            }
+                        }
+                    } else {
+                        // No recovery policy: immediately emit NetworkUnavailable.
+                        shell
+                            .send_system_signal(SystemSignal::NetworkUnavailable {
+                                reason: error_str.clone(),
+                            })
+                            .await?;
+                        return Ok(());
+                    }
+                }
+            }
+        }
     }
 
     async fn execute_tools(
@@ -227,7 +303,23 @@ where
     }
 
     async fn save_session(&self, session_id: &str) -> Result<(), ShellError> {
-        self.persistence.save_session(session_id).await
+        let persistence = Arc::clone(&self.persistence);
+        let id = session_id.to_string();
+        match self.persistence_mode {
+            PersistenceMode::Async => {
+                // Non-blocking: spawn the save on a background task.
+                tokio::spawn(async move {
+                    if let Err(err) = persistence.save_session(&id).await {
+                        tracing::error!(error = %err, "async save_session failed");
+                    }
+                });
+                Ok(())
+            }
+            PersistenceMode::Sync => {
+                // Blocking: await the commit before returning.
+                self.persistence.save_session(session_id).await
+            }
+        }
     }
 
     async fn save_plugin_blob(&self, plugin_id: &str, data: Vec<u8>) -> Result<(), ShellError> {
@@ -294,10 +386,11 @@ where
     }
 
     async fn rebuild_routes(&self) -> Result<(), ShellError> {
-        // RebuildRoutes is a transactional barrier. In the full shell
-        // this would call engine.rebuild_routes() on the engine thread.
-        // Sprint 9 placeholder.
-        tracing::info!("RebuildRoutes executed (placeholder)");
+        // RebuildRoutes is handled by the shell's transactional barrier
+        // in `execute_effect`.  The effect executor itself performs no
+        // additional work.
+        //
+        // Refs: I-Gov-Rebuild-Barrier
         Ok(())
     }
 
