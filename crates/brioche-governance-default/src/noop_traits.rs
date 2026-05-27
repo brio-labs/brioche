@@ -1,0 +1,120 @@
+//! Noop* reference implementations — Book II §5.
+//!
+//! Null implementations of optional governance traits. These are used
+//! by the `Permissive` profile and as placeholders when a trait is not
+//! required.
+//!
+//! Refs: I-Gov-Profile-Agnostic
+
+use brioche_core::{
+    CowBudgetPolicy, CycleRollbackPolicy, Effect, ExtensionStorage, GovernanceFailoverHandler,
+    HookEffectConstraint, PluginResult, Session,
+};
+use std::any::{Any, TypeId};
+
+// ---------------------------------------------------------------------------
+// NoopEpochInterceptor — not needed because EpochGuard is always injected.
+// NoopSubRoutineHandler — not needed because SubRoutineOrchestrator is always injected.
+// NoopConsistencyVerifier — not needed because StateConsistencyGuard is always injected.
+// ---------------------------------------------------------------------------
+
+/// Null `GovernanceFailoverHandler`.
+///
+/// Passes through plugin faults without intervention.
+pub struct NoopGovernanceFailoverHandler;
+
+impl GovernanceFailoverHandler for NoopGovernanceFailoverHandler {
+    fn handle_failure(
+        &self,
+        _session: &mut Session,
+        _fault: &Effect,
+    ) -> PluginResult<Option<Vec<Effect>>> {
+        Ok(None)
+    }
+}
+
+/// Null `HookEffectConstraint`.
+///
+/// Allows all effects on all hooks (same as not injecting the trait).
+pub struct NoopHookEffectConstraint;
+
+impl HookEffectConstraint for NoopHookEffectConstraint {
+    /// O(1). Retourne toujours `true`.
+    fn is_allowed_fast(&self, _hook_index: u8, _effect_mask: u64) -> bool {
+        true
+    }
+
+    fn is_allowed_fallback(&self, _hook_name: &str, _effect_variant: &str) -> bool {
+        true
+    }
+}
+
+/// Null `CowBudgetPolicy`.
+///
+/// Returns the default 64 KB threshold for all hooks.
+pub struct NoopCowBudgetPolicy;
+
+impl CowBudgetPolicy for NoopCowBudgetPolicy {
+    fn max_cow_bytes(&self, _hook_name: &str) -> usize {
+        65536
+    }
+}
+
+/// Null `CycleRollbackPolicy`.
+///
+/// All methods are no-ops. This is the behavior of the kernel when
+/// no `CycleRollbackPolicy` is injected.
+pub struct NoopCycleRollbackPolicy;
+
+impl CycleRollbackPolicy for NoopCycleRollbackPolicy {
+    fn begin_hook(&mut self) {}
+
+    fn on_mutation(
+        &mut self,
+        _type_id: TypeId,
+        _vtable: &brioche_core::ExtVTable,
+        _current: &dyn Any,
+    ) {
+    }
+
+    fn commit_hook(&mut self) {}
+
+    fn rollback_hook(&mut self, _ext: &mut ExtensionStorage) {}
+}
+
+/// Permissive `HookEffectConstraint`.
+///
+/// Allows all standard and future effects on all hooks. Used by the
+/// `Permissive` profile for prototyping and migration.
+pub struct PermissiveHookEffectConstraint {
+    masks: [u64; 8],
+}
+
+impl PermissiveHookEffectConstraint {
+    /// Creates a fully permissive constraint (all effects allowed).
+    pub fn new() -> Self {
+        Self {
+            masks: [u64::MAX; 8],
+        }
+    }
+}
+
+impl Default for PermissiveHookEffectConstraint {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl HookEffectConstraint for PermissiveHookEffectConstraint {
+    /// O(1). Masque binaire pré-calculé.
+    fn is_allowed_fast(&self, hook_index: u8, effect_mask: u64) -> bool {
+        if hook_index >= 8 {
+            return true;
+        }
+        (self.masks[hook_index as usize] & effect_mask) != 0
+    }
+
+    fn is_allowed_fallback(&self, _hook_name: &str, _effect_variant: &str) -> bool {
+        true
+    }
+}
