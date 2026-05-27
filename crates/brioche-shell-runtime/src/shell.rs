@@ -19,14 +19,17 @@
 //!
 //! Refs: I-Shell-Session-NoSend, I-Shell-Runtime-OnlyIO
 
-use crate::{EffectExecutor, EngineWatchdog, EngineWatchdogHandle, TelemetryChannel, TickEmitter};
+use crate::{
+    EffectExecutor, EngineWatchdog, EngineWatchdogHandle, PersistenceMode, TelemetryChannel,
+    TickEmitter, TransitionJournal,
+};
 use brioche_core::{
     AgentState, AgentStateTag, BriocheEngine, Effect, EngineInput, EpochState,
     GovernanceNotification, Session, SignalBuffer, SignalDrainOrder, SystemSignal,
 };
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use tokio::sync::mpsc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use tokio::sync::{mpsc, oneshot};
 
 /// Lightweight snapshot of session mechanical state sent from the
 /// engine thread after each transition.
@@ -75,6 +78,8 @@ pub enum ShellError {
     ChannelSend,
     #[error("effect execution failed: {0}")]
     EffectExecution(String),
+    #[error("rebuild routes in progress")]
+    RebuildInProgress,
 }
 
 /// Configuration for `BriocheShell`.
@@ -88,6 +93,10 @@ pub struct ShellConfig {
     pub tick_interval_ms: u64,
     /// Maximum number of effects processed concurrently.
     pub max_concurrent_effects: usize,
+    /// Persistence mode for `SaveSession` effects.
+    pub persistence_mode: PersistenceMode,
+    /// Whether to enable the `TransitionJournal`.
+    pub transition_journal_enabled: bool,
 }
 
 impl Default for ShellConfig {
@@ -96,8 +105,20 @@ impl Default for ShellConfig {
             engine_channel_capacity: 256,
             tick_interval_ms: 1000,
             max_concurrent_effects: 32,
+            persistence_mode: PersistenceMode::Async,
+            transition_journal_enabled: true,
         }
     }
+}
+
+/// Command sent to the engine thread to rebuild routing tables.
+///
+/// Refs: I-Gov-Rebuild-Barrier
+struct RebuildCommand {
+    /// `true` for each plugin index that remains active.
+    active_mask: Vec<bool>,
+    /// Channel to signal completion back to the async effect loop.
+    done: oneshot::Sender<()>,
 }
 
 /// Main async runtime coordinator.
@@ -144,6 +165,16 @@ pub struct BriocheShell {
     governance_tx: mpsc::Sender<GovernanceNotification>,
     /// Sender for async task results.
     async_task_result_tx: mpsc::Sender<brioche_core::AsyncTaskResult>,
+    /// Sender for rebuild commands to the engine thread.
+    rebuild_tx: mpsc::Sender<RebuildCommand>,
+    /// Shared flag: `true` while a rebuild is in progress.
+    ///
+    /// When set, `send_input` returns `Err(ShellError::RebuildInProgress)`
+    /// so that no new `EngineInput` enters the engine until the barrier
+    /// lifts.
+    ///
+    /// Refs: I-Gov-Rebuild-Barrier
+    rebuild_in_progress: Arc<AtomicBool>,
     /// Shared configuration.
     #[allow(dead_code)]
     config: Arc<ShellConfig>,
@@ -156,12 +187,27 @@ impl BriocheShell {
     /// `engine_factory` is called on the dedicated engine thread.
     /// This respects the `!Send` invariant of `BriocheEngine` and `Session`.
     ///
-    /// Refs: I-Shell-Session-NoSend
+    /// ## Startup procedure (9 steps)
+    ///
+    /// 1. Initialize `BriocheEngine` with plugins, governance traits,
+    ///    `SignalDrainOrder`, and `SubRoutineLifecycleGuard`.
+    /// 2. Open or create the Redb database (deferred to Sprint 12).
+    /// 3. Load the active session (deferred to Sprint 12).
+    /// 4. Install non-blocking telemetry subscriber.
+    /// 5. Initialize `TransitionJournal` (1 MB lock-free buffer).
+    /// 6. Launch separate channel adapters (or `UnifiedEventBus`).
+    /// 7. Launch `EngineWatchdog` with `TransitionJournal`.
+    /// 8. Launch periodic `SystemSignal::Tick` emitter.
+    /// 9. Launch effect consumption loop, IPC batching regulator,
+    ///    backpressure worker.
+    ///
+    /// Refs: SPECS.md §Book III-A Ch 1.1, I-Shell-Session-NoSend
     pub fn new<F, E>(engine_factory: F, config: ShellConfig, executor: E) -> Self
     where
         F: FnOnce() -> (BriocheEngine, Session) + Send + 'static,
         E: EffectExecutor + 'static,
     {
+        // Step 6 (partial): create channels.
         let (input_tx, input_rx) = mpsc::channel::<EngineInput>(config.engine_channel_capacity);
         let (output_tx, output_rx) =
             mpsc::channel::<(Vec<Effect>, StateSnapshot)>(config.engine_channel_capacity);
@@ -171,15 +217,21 @@ impl BriocheShell {
             mpsc::channel::<GovernanceNotification>(config.engine_channel_capacity);
         let (async_task_result_tx, async_task_result_rx) =
             mpsc::channel::<brioche_core::AsyncTaskResult>(config.engine_channel_capacity);
+        let (rebuild_tx, rebuild_rx) = mpsc::channel::<RebuildCommand>(4);
 
-        // Create the signal drain order (canonical multiplexer).
+        // Step 6 (partial): create the signal drain order (canonical multiplexer).
         let signal_drain =
             crate::SignalMultiplexer::new(system_signal_rx, governance_rx, async_task_result_rx);
 
-        // Create watchdog channels.
+        // Step 7: create watchdog channels.
         let pending_inputs = Arc::new(AtomicU64::new(0));
         let (watchdog_handle, ping_tx, pong_rx) =
             EngineWatchdogHandle::new(Arc::clone(&pending_inputs));
+
+        // Step 5: initialize TransitionJournal.
+        let transition_journal = Arc::new(TransitionJournal::new());
+        let journal_for_engine = Arc::clone(&transition_journal);
+        let journal_for_watchdog = Arc::clone(&transition_journal);
 
         // Spawn the synchronous engine thread.
         std::thread::spawn(move || {
@@ -192,33 +244,46 @@ impl BriocheShell {
                 signal_drain,
                 watchdog_handle,
                 pending_inputs,
+                rebuild_rx,
+                journal_for_engine,
+                config.transition_journal_enabled,
             );
         });
 
         let config_arc = Arc::new(config.clone());
+        let rebuild_in_progress = Arc::new(AtomicBool::new(false));
         let shell = Self {
             input_tx: input_tx.clone(),
             system_signal_tx: system_signal_tx.clone(),
             governance_tx: governance_tx.clone(),
             async_task_result_tx: async_task_result_tx.clone(),
+            rebuild_tx,
+            rebuild_in_progress: Arc::clone(&rebuild_in_progress),
             config: Arc::clone(&config_arc),
         };
 
         // Spawn the async effect consumption loop.
         let shell_clone = shell.clone();
         tokio::spawn(async move {
-            effect_consumption_loop(output_rx, shell_clone, executor, config_arc).await;
+            effect_consumption_loop(
+                output_rx,
+                shell_clone,
+                executor,
+                config_arc,
+                rebuild_in_progress,
+            )
+            .await;
         });
 
-        // Launch the periodic tick emitter.
+        // Step 8: launch the periodic tick emitter.
         let tick_emitter = TickEmitter::new(system_signal_tx, config.tick_interval_ms);
         tokio::spawn(tick_emitter.run());
 
-        // Launch the engine watchdog.
-        let watchdog = EngineWatchdog::default();
+        // Step 7 (continued): launch the engine watchdog.
+        let watchdog = EngineWatchdog::default().with_transition_journal(journal_for_watchdog);
         tokio::spawn(watchdog.run(ping_tx, pong_rx));
 
-        // Install default telemetry subscriber.
+        // Step 4: install default telemetry subscriber.
         let telemetry = TelemetryChannel::new(256);
         crate::telemetry::install_default_subscriber(telemetry);
 
@@ -227,11 +292,14 @@ impl BriocheShell {
 
     /// Send an `EngineInput` to the kernel.
     ///
-    /// Returns `Err(ShellError::ChannelSend)` if the engine thread
-    /// has shut down.
+    /// Returns `Err(ShellError::RebuildInProgress)` if a route
+    /// recalculation is ongoing (transactional barrier).
     ///
-    /// Refs: I-Shell-Backpressure-NoOverflow
+    /// Refs: I-Shell-Backpressure-NoOverflow, I-Gov-Rebuild-Barrier
     pub async fn send_input(&self, input: EngineInput) -> Result<(), ShellError> {
+        if self.rebuild_in_progress.load(Ordering::Acquire) {
+            return Err(ShellError::RebuildInProgress);
+        }
         self.input_tx
             .send(input)
             .await
@@ -280,6 +348,29 @@ impl BriocheShell {
             .map_err(|_| ShellError::ChannelSend)
     }
 
+    /// Send a rebuild-routes command to the engine thread and wait
+    /// for completion.
+    ///
+    /// This is the transactional barrier implementation: the async
+    /// effect loop calls this when `Effect::RebuildRoutes` is received.
+    ///
+    /// Refs: I-Gov-Rebuild-Barrier
+    pub(crate) async fn send_rebuild_command(
+        &self,
+        active_mask: Vec<bool>,
+    ) -> Result<(), ShellError> {
+        let (done_tx, done_rx) = oneshot::channel();
+        let command = RebuildCommand {
+            active_mask,
+            done: done_tx,
+        };
+        self.rebuild_tx
+            .send(command)
+            .await
+            .map_err(|_| ShellError::ChannelSend)?;
+        done_rx.await.map_err(|_| ShellError::EngineDisconnected)
+    }
+
     /// Block until the engine channel has capacity.
     ///
     /// Useful for backpressure-aware producers.
@@ -311,6 +402,12 @@ impl BriocheShell {
 /// Synchronous loop running `BriocheEngine` on a dedicated thread.
 ///
 /// This function owns `engine` and `session`; they never leave this thread.
+///
+/// # Note on arguments
+/// The large parameter list is intentional: every value is moved into
+/// the thread and never escapes. Grouping them into a struct would
+/// add boilerplate without improving clarity.
+#[allow(clippy::too_many_arguments)]
 fn engine_thread_loop(
     mut engine: BriocheEngine,
     mut session: Session,
@@ -319,8 +416,31 @@ fn engine_thread_loop(
     signal_drain: impl SignalDrainOrder,
     mut watchdog_handle: EngineWatchdogHandle,
     pending_inputs_counter: Arc<AtomicU64>,
+    mut rebuild_rx: mpsc::Receiver<RebuildCommand>,
+    journal: Arc<TransitionJournal>,
+    journal_enabled: bool,
 ) {
-    while let Some(input) = input_rx.blocking_recv() {
+    loop {
+        // Check for rebuild commands before processing the next input.
+        // This ensures route recalculation happens atomically with
+        // respect to transitions.
+        //
+        // Refs: I-Gov-Rebuild-Barrier
+        while let Ok(command) = rebuild_rx.try_recv() {
+            engine.rebuild_routes(&command.active_mask);
+            let _ = command.done.send(());
+        }
+
+        let Some(input) = input_rx.blocking_recv() else {
+            break;
+        };
+
+        // Persist the input to the TransitionJournal before executing
+        // the transition.  This satisfies I-Shell-TransitionJournal.
+        if journal_enabled {
+            journal.append(&input);
+        }
+
         // Update pending inputs counter for watchdog telemetry.
         pending_inputs_counter.store(input_rx.len() as u64, Ordering::Relaxed);
 
@@ -366,6 +486,7 @@ async fn effect_consumption_loop<E>(
     shell: BriocheShell,
     executor: E,
     config: Arc<ShellConfig>,
+    rebuild_in_progress: Arc<AtomicBool>,
 ) where
     E: EffectExecutor,
 {
@@ -374,6 +495,13 @@ async fn effect_consumption_loop<E>(
 
     while let Some((effects, snapshot)) = output_rx.recv().await {
         for effect in effects {
+            // RebuildRoutes is a transactional barrier: set the flag
+            // before sending the command and clear it after completion.
+            let is_rebuild = matches!(effect, Effect::RebuildRoutes);
+            if is_rebuild {
+                rebuild_in_progress.store(true, Ordering::Release);
+            }
+
             let permit = match semaphore.clone().acquire_owned().await {
                 Ok(p) => p,
                 Err(_) => break,
@@ -381,11 +509,19 @@ async fn effect_consumption_loop<E>(
             let shell = shell.clone();
             let executor = executor.clone();
             let snapshot = snapshot.clone();
+            let rebuild_flag = Arc::clone(&rebuild_in_progress);
 
             tokio::spawn(async move {
                 let _permit = permit; // held until future completes
-                if let Err(e) = execute_effect(effect, &shell, &executor, &snapshot).await {
+                let result = execute_effect(effect, &shell, &executor, &snapshot).await;
+                if let Err(e) = result {
                     tracing::error!(error = %e, "effect execution failed");
+                }
+                // Clear the rebuild barrier after the effect completes.
+                // For RebuildRoutes this happens after the engine thread
+                // has finished recalculating routes.
+                if is_rebuild {
+                    rebuild_flag.store(false, Ordering::Release);
                 }
             });
         }
@@ -443,14 +579,29 @@ where
             executor.on_system_idle(shell).await?;
         }
         Effect::PluginFault { plugin_name, error } => {
+            // End-to-end fault propagation:
+            // 1. The kernel emitted PluginFault.
+            // 2. The shell forwards it as a GovernanceNotification.
+            // 3. QuarantineManager (governance plugin) consumes it via
+            //    the GovernanceNotificationAdapter and returns
+            //    OverrideTransition([RebuildRoutes, ...]).
+            //
+            // Refs: SPECS.md §Book III-A Ch 1.3
             let notification = GovernanceNotification::PluginFaulted { plugin_name, error };
             shell.send_governance_notification(notification).await?;
         }
         Effect::RebuildRoutes => {
-            // RebuildRoutes is a transactional barrier handled by the
-            // engine thread. The shell ensures no new inputs are sent
-            // until recalculation completes.
-            executor.rebuild_routes().await?;
+            // Transactional barrier: send rebuild command to engine thread
+            // and await completion.  No new EngineInput is accepted while
+            // `rebuild_in_progress` is true.
+            //
+            // For Sprint 11 we rebuild with all plugins active (no
+            // quarantine mask).  Quarantine logic will refine the mask
+            // in Sprint 16.
+            //
+            // Refs: I-Gov-Rebuild-Barrier
+            tracing::info!("RebuildRoutes: triggering transactional barrier");
+            shell.send_rebuild_command(vec![]).await?;
         }
         Effect::SubRoutineRestored { handle } => {
             executor.sub_routine_restored(handle).await?;
