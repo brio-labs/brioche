@@ -8,15 +8,20 @@
 //!
 //! Refs: SPECS.md §Book III-A Ch 4, I-Shell-Watchdog-NoKill
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant};
 
 /// Ping message sent by the watchdog to the engine thread.
+///
+/// Refs: I-Shell-Watchdog-NoKill
 #[derive(Clone, Copy, Debug)]
 pub struct WatchdogPing;
 
 /// Pong message sent by the engine thread back to the watchdog.
+///
+/// Refs: I-Shell-Watchdog-NoKill
 #[derive(Clone, Copy, Debug)]
 pub struct WatchdogPong {
     /// Last processed epoch at the time of the pong.
@@ -59,6 +64,10 @@ pub struct EngineWatchdog {
     heartbeat_interval_ms: u64,
     max_response_delay_ms: u64,
     recovery_procedure: RecoveryProcedure,
+    /// Optional transition journal for recovery replay after restart.
+    ///
+    /// Refs: I-Shell-TransitionJournal
+    transition_journal: Option<Arc<crate::TransitionJournal>>,
 }
 
 impl Default for EngineWatchdog {
@@ -67,7 +76,21 @@ impl Default for EngineWatchdog {
             heartbeat_interval_ms: 1000,
             max_response_delay_ms: 5000,
             recovery_procedure: RecoveryProcedure::NotifyAndDegrade,
+            transition_journal: None,
         }
+    }
+}
+
+impl EngineWatchdog {
+    /// Attach a `TransitionJournal` for recovery replay.
+    ///
+    /// If the engine restarts, the watchdog will read unacknowledged
+    /// entries from the journal and replay them.
+    ///
+    /// Refs: I-Shell-TransitionJournal
+    pub fn with_transition_journal(mut self, journal: Arc<crate::TransitionJournal>) -> Self {
+        self.transition_journal = Some(journal);
+        self
     }
 }
 
@@ -82,6 +105,7 @@ impl EngineWatchdog {
             heartbeat_interval_ms,
             max_response_delay_ms,
             recovery_procedure,
+            transition_journal: None,
         }
     }
 

@@ -22,12 +22,15 @@ pub mod backpressure;
 pub mod effect_executor;
 pub mod engine_watchdog;
 pub mod llm_client;
+pub mod network_recovery;
+pub mod persistence_mode;
 pub mod shell;
 pub mod signal_adapter;
 pub mod signal_multiplexer;
 pub mod telemetry;
 pub mod tick_emitter;
 pub mod tool_executor;
+pub mod transition_journal;
 pub mod unified_event_bus;
 
 pub use backpressure::{BackpressureRegulator, DropPolicy};
@@ -36,6 +39,8 @@ pub use engine_watchdog::{
     EngineWatchdog, EngineWatchdogHandle, RecoveryProcedure, WatchdogPing, WatchdogPong,
 };
 pub use llm_client::{LlmClient, MockLlmClient};
+pub use network_recovery::{ExponentialBackoff, NetworkRecovery, NoRetry};
+pub use persistence_mode::PersistenceMode;
 pub use shell::{BriocheShell, ShellConfig, ShellError, StateSnapshot};
 pub use signal_adapter::{
     AsyncTaskResultAdapter, GovernanceNotificationAdapter, SystemSignalAdapter,
@@ -44,6 +49,7 @@ pub use signal_multiplexer::SignalMultiplexer;
 pub use telemetry::{TelemetryChannel, TelemetryEvent, TelemetryLevel, install_default_subscriber};
 pub use tick_emitter::TickEmitter;
 pub use tool_executor::{EchoToolExecutor, ToolExecutor};
+pub use transition_journal::{JournalEntry, TransitionJournal};
 pub use unified_event_bus::{EngineEnvelope, UnifiedEventBus};
 
 // Re-export channel types from core so consumers need only one import.
