@@ -851,3 +851,64 @@ pub struct StreamToolAccumulator {
     /// Map tool_id -> partially-built descriptor.
     pub pending: BTreeMap<String, ToolCallDescriptor>,
 }
+
+// ---------------------------------------------------------------------------
+// Separate channels — Book III-A
+// ---------------------------------------------------------------------------
+
+/// System signals emitted by the shell and consumed by governance plugins
+/// via adapters. These events do **not** transit through `EngineInput`.
+///
+/// Refs: SPECS.md §1.4, I-Shell-Network-Signal
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SystemSignal {
+    /// Network failure detected at transport level.
+    NetworkUnavailable { reason: String },
+    /// User requested cancellation of the current operation.
+    OperationCancelled,
+    /// Periodic tick emitted by the shell for sub-routine timeout monitoring.
+    Tick { elapsed_ms: u64 },
+}
+
+/// Result of an asynchronous task executed by the shell.
+///
+/// Consumed by governance plugins via `AsyncTaskResultAdapter`.
+///
+/// Refs: SPECS.md §1.4
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AsyncTaskResult {
+    /// Background summarization completed.
+    SummarizationDone {
+        summary: ChatMessage,
+        watermark: u32,
+    },
+    /// CPU-intensive task completed.
+    CpuTaskDone { task_id: String, result: Vec<u8> },
+    /// Status check for a long-running (pending) tool task.
+    ToolStatusCheck { task_id: String, status: ToolStatus },
+}
+
+/// Status of a pending tool task.
+///
+/// Refs: SPECS.md §1.4
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ToolStatus {
+    Running,
+    Completed(ToolOutcome),
+}
+
+/// Governance notifications emitted by the shell.
+///
+/// Consumed by governance plugins (e.g. `QuarantineManager`) via
+/// `GovernanceNotificationAdapter`.
+///
+/// Refs: SPECS.md §1.4
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GovernanceNotification {
+    /// A plugin emitted a fatal error. The shell notifies governance
+    /// so that `QuarantineManager` can decide on follow-up.
+    PluginFaulted {
+        plugin_name: String,
+        error: PluginError,
+    },
+}
