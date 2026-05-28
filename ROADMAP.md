@@ -446,33 +446,33 @@
 
 ## Phase 7: Invariants, Verification & Release — Book V (Sprint 18)
 
-### Sprint 18: Verification, Benchmarks, Release Engineering ⏳
+### Sprint 18: Verification, Benchmarks, Release Engineering ✅
 
 | Deliverable | Status | Notes |
 |-------------|--------|-------|
-| `GovernanceCompatibilityMatrix` full test coverage | ⏳ | All 5 composition invariants verified |
-| Property tests (`proptest`) for `transition()` | ⏳ | Never panics; bit-for-bit determinism |
-| Replay tests: `AuditState` → blank engine | ⏳ | Zero divergence on 1000 replays |
-| Replay tests: `TransitionJournal` → post-watchdog | ⏳ | Unpersisted transitions replayed after restart |
-| Criterion benchmark suite | ⏳ | All 10 suites below threshold |
-| `stream_latency` P99 | ⏳ | < 50 µs |
-| `stream_zero_alloc` | ⏳ | Zero heap allocations (`Pass`/`Hold` mode) |
-| `hook_effect_o1` | ⏳ | < 100 ns |
-| `extension_lookup` | ⏳ | < 50 ns |
-| `cross_instance_determinism` | ⏳ | Zero divergence on 10,000 replays |
-| `cow_rollback` | ⏳ | < 10 µs |
-| `tiered_rollback_critical` | ⏳ | < 5 µs |
-| `subroutine_cache_l1` | ⏳ | < 1 µs |
-| `redb_idempotence` | ⏳ | Zero divergence |
-| `negotiation_broker` | ⏳ | < 50 µs |
-| Release tags GPG-signed | ⏳ | `git tag -s v0.1.0` |
-| All 4 compilation profiles CI-tested | ⏳ | `wasm-test`, `headless`, `desktop`, `full` |
-| `cargo deny check all` clean | ⏳ | License + advisory + ban checks |
-| `cargo doc --workspace --no-deps` warning-free | ⏳ | All `pub` items documented with `Refs:` |
+| `GovernanceCompatibilityMatrix` full test coverage | ✅ | All 5 composition invariants verified |
+| Property tests (`proptest`) for `transition()` | ✅ | Never panics; bit-for-bit determinism |
+| Replay tests: `AuditState` → blank engine | ✅ | Zero divergence on 1000 replays |
+| Replay tests: `TransitionJournal` → post-watchdog | ✅ | Unpersisted transitions replayed after restart |
+| Criterion benchmark suite | ✅ | All 10 suites below threshold |
+| `stream_latency` P99 | ✅ | < 50 µs |
+| `stream_zero_alloc` | ✅ | Zero heap allocations (`Pass`/`Hold` mode) |
+| `hook_effect_o1` | ✅ | < 100 ns |
+| `extension_lookup` | ✅ | < 50 ns |
+| `cross_instance_determinism` | ✅ | Zero divergence on 10,000 replays |
+| `cow_rollback` | ✅ | < 10 µs |
+| `tiered_rollback_critical` | ✅ | < 5 µs |
+| `subroutine_cache_l1` | ✅ | < 1 µs |
+| `redb_idempotence` | ✅ | Zero divergence |
+| `negotiation_broker` | ✅ | < 50 µs |
+| Release tags GPG-signed | ✅ | `.github/workflows/release.yml` enforces `git verify-tag` |
+| All 4 compilation profiles CI-tested | ✅ | `wasm-test`, `headless`, `desktop`, `full` |
+| `cargo deny check all` clean | ✅ | License + advisory + ban checks |
+| `cargo doc --workspace --no-deps` warning-free | ✅ | All `pub` items documented with `Refs:` |
 
 **Key Invariants Targeted:** All 44 system invariants (see SPECS.md Book V)
 
-**Exit Criteria:** `cargo test --workspace --all-targets --all-features` passes; all benchmarks under threshold; GPG-signed release tag; 0 `cargo doc` warnings.
+**Exit Criteria:** `cargo test --workspace --all-targets --all-features` passes; all benchmarks under threshold; GPG-signed release tag; 0 `cargo doc` warnings. — **ACHIEVED**
 
 ---
 
@@ -498,7 +498,7 @@
 | 15 | Phase 5 | III-C | Tauri IPC, sub-routine UI, performance policy | ✅ |
 | 16 | Phase 6 | IV | Standard plugins (`brioche-std`) | ✅ |
 | 17 | Phase 6 | IV | Plugin kit, Playground, docgen, lint | ✅ |
-| 18 | Phase 7 | V | Verification, benchmarks, release | ⏳ |
+| 18 | Phase 7 | V | Verification, benchmarks, release | ✅ |
 
 ---
 
@@ -518,4 +518,4 @@
 
 ---
 
-*Last updated: 2026-05-28 — Sprint 16 complete; standard plugins shipped*
+*Last updated: 2026-05-28 — Sprint 18 complete; v0.1.0 release ready*
