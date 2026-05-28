@@ -640,6 +640,9 @@ pub enum StreamEvent {
     ToolCallDone {
         path: ExecutionPath,
     },
+    /// End-of-stream marker. Sent by the shell when the LLM response
+    /// completes without further chunks or tool calls.
+    Done,
     Pass,
 }
 
