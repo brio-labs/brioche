@@ -148,8 +148,11 @@ version = "0.1.0"
 dependencies = [
  "brioche-core",
  "brioche-governance",
+ "clap",
  "proc-macro2",
  "quote",
+ "serde",
+ "serde_json",
  "syn",
  "thiserror 2.0.18",
 ]
@@ -179,6 +182,8 @@ name = "brioche-macro"
 version = "0.1.0"
 dependencies = [
  "brioche-core",
+ "brioche-governance",
+ "brioche-plugin-kit",
  "proc-macro2",
  "quote",
  "serde",
@@ -190,6 +195,9 @@ dependencies = [
 name = "brioche-playground"
 version = "0.1.0"
 dependencies = [
+ "brioche-core",
+ "brioche-governance-default",
+ "brioche-plugin-kit",
  "tokio",
 ]
 
@@ -199,6 +207,8 @@ version = "0.1.0"
 dependencies = [
  "brioche-core",
  "brioche-governance",
+ "brioche-governance-default",
+ "brioche-macro",
  "brioche-std",
  "clap",
 ]
@@ -285,6 +295,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "cargo-brioche-lint"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "syn",
+ "walkdir",
+]
+
+[[package]]
+name = "cargo-brioche-lint-invariants"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "regex",
+ "serde",
+ "serde_json",
+ "walkdir",
 ]
 
 [[package]]

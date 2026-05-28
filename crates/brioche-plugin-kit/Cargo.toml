@@ -6,12 +6,14 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Developer tooling for Brioche plugins"
+description = "Developer tooling and SDK for Brioche plugin authors"
 
 [dependencies]
 brioche-core = { workspace = true }
 brioche-governance = { workspace = true }
+brioche-governance-default = { workspace = true }
 brioche-std = { workspace = true }
+brioche-macro = { workspace = true }
 clap = { version = "4", features = ["derive"] }
 
 [lints]

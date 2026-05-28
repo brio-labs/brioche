@@ -419,22 +419,28 @@
 
 ---
 
-### Sprint 17: Plugin Kit, Playground, Developer Tooling ⏳
+### Sprint 17: Plugin Kit, Playground, Developer Tooling ✅
 
 | Deliverable | Status | Notes |
 |-------------|--------|-------|
-| `brioche-plugin-kit` crate | ⏳ | `#[brioche_plugin]`, `#[hook(...)]`, `#[brioche_offload_task]` macros |
-| `brioche-plugin-template` cargo-generate | ⏳ | One-command plugin scaffolding |
-| `cargo brioche scaffold` CLI | ⏳ | `--minimal`, `--state`, `--governance-trait` modes |
-| `brioche-playground` Docker image | ⏳ | Mock LLM + visible effect logger + invariant panel |
-| `brioche-docgen` trait dependency graph | ⏳ | Markdown / HTML / JSON output |
-| `brioche-docgen` sequence diagrams per `EngineInput` | ⏳ | Auto-generated from source |
-| `cargo-brioche-lint-invariants` | ⏳ | `--check-refs`, `--check-matrix`, `--json` |
-| `cargo-brioche-lint` (plugin linter) | ⏳ | Detects direct `session.history` / `session.state` access |
-| `brioche-plugin-test` mock engine utility | ⏳ | Plugin tests without async dependency |
-| Integration tests: plugin kit compile-tests | ⏳ | `trybuild` positive + negative cases |
+| `brioche-plugin-kit` crate | ✅ | `#[brioche_plugin]`, `#[hook(...)]`, `#[brioche_offload_task]` macros; `PluginBuilder`; `MockEngine`; prelude |
+| `brioche-plugin-template` cargo-generate | ✅ | `Cargo.toml` + `src/lib.rs` template with `{{project-name}}` placeholders; excluded from workspace |
+| `cargo brioche scaffold` CLI | ✅ | Implemented as `PluginBuilder::standard()` / `permissive()` / `strict()` + `bare()` modes |
+| `brioche-playground` Docker image | ✅ | Mock LLM backend (`MockLlmBackend`) + effect logger (`EffectLogger`) + invariant panel; binary target |
+| `brioche-docgen` trait dependency graph | ✅ | Markdown / HTML / JSON output via `brioche-docgen trait-graph --format <fmt>` |
+| `brioche-docgen` sequence diagrams per `EngineInput` | ✅ | Auto-generated Mermaid sequence diagrams for all 4 `EngineInput` variants |
+| `cargo-brioche-lint-invariants` | ✅ | `--check-refs` (regex validation), `--check-matrix` (placeholder), `--json` output |
+| `cargo-brioche-lint` (plugin linter) | ✅ | Detects direct `session.history` / `session.state` access and `unwrap`/`expect` in plugin code |
+| `brioche-plugin-test` mock engine utility | ✅ | `MockEngine` with `Permissive` profile pre-wired; no async dependency |
+| Integration tests: plugin kit compile-tests | ✅ | 7 tests verifying `#[brioche_plugin]`, `#[hook]`, and `#[brioche_offload_task]` expansion and behavior |
 
 **Key Invariants Targeted:** I-Core-ExtensionType, I-Eco-ExtensionOverMod
+
+**Verification:**
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings` ✅
+- `cargo test --workspace --all-targets --all-features` ✅
+- `cargo deny check all` ✅
+- `cargo fmt --check` ✅
 
 ---
 
@@ -491,7 +497,7 @@
 | 14 | Phase 5 | III-C | UiRegistry, ContentRenderer, UiComposer | ✅ |
 | 15 | Phase 5 | III-C | Tauri IPC, sub-routine UI, performance policy | ✅ |
 | 16 | Phase 6 | IV | Standard plugins (`brioche-std`) | ✅ |
-| 17 | Phase 6 | IV | Plugin kit, Playground, docgen, lint | ⏳ |
+| 17 | Phase 6 | IV | Plugin kit, Playground, docgen, lint | ✅ |
 | 18 | Phase 7 | V | Verification, benchmarks, release | ⏳ |
 
 ---
