@@ -26,6 +26,15 @@ async-trait = "0.1"
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3"
+criterion = { version = "0.8", features = ["html_reports"] }
+
+[[bench]]
+name = "redb_idempotence"
+harness = false
+
+[[bench]]
+name = "subroutine_cache_l1"
+harness = false
 
 [lints]
 workspace = true
