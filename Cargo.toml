@@ -1,5 +1,10 @@
 [workspace]
-members = ["crates/*"]
+members = [
+  "crates/*",
+  "crates/cargo-brioche-lint-invariants",
+  "crates/cargo-brioche-lint",
+]
+exclude = ["crates/brioche-plugin-template"]
 resolver = "2"
 
 [workspace.package]
@@ -22,6 +27,8 @@ brioche-macro = { path = "crates/brioche-macro" }
 brioche-plugin-kit = { path = "crates/brioche-plugin-kit" }
 brioche-docgen = { path = "crates/brioche-docgen" }
 brioche-playground = { path = "crates/brioche-playground" }
+cargo-brioche-lint-invariants = { path = "crates/cargo-brioche-lint-invariants" }
+cargo-brioche-lint = { path = "crates/cargo-brioche-lint" }
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
