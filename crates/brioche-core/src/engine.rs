@@ -269,6 +269,33 @@ impl BriocheEngine {
         &self.session_registry
     }
 
+    /// Evaluate the `after_prediction` route.
+    ///
+    /// Called after the LLM prediction completes (before tool execution
+    /// or transition to `Idle`). Collects `PluginFault` effects for any
+    /// plugin errors but does not short-circuit.
+    ///
+    /// # Complexity
+    /// O(p) where p = plugins on `route_after_prediction`.
+    ///
+    /// Refs: I-Core-PluginOrder, I-Core-StreamNoBranch
+    fn eval_after_prediction(&mut self, session: &mut Session) -> Vec<Effect> {
+        let mut effects = Vec::new();
+        let route = self.routing_table.route_after_prediction.clone();
+        for &idx in &route {
+            let name = self.plugins[idx].name();
+            session.extensions.insert(session.snapshot());
+            let result = self.with_rollback(session, name, |engine, session| {
+                let plugin = &engine.plugins[idx];
+                plugin.after_prediction(&mut session.extensions)
+            });
+            if let Err(err) = result {
+                effects.push(self.plugin_fault(name, err));
+            }
+        }
+        effects
+    }
+
     /// Mutable access to the internal `SessionRegistry`.
     pub fn session_registry_mut(&mut self) -> &mut SessionRegistry {
         &mut self.session_registry
@@ -601,11 +628,11 @@ impl BriocheEngine {
         }
 
         // Mechanical accumulation of tool calls discovered in the stream.
-        let accumulator = session
-            .extensions
-            .get_or_insert_default::<StreamToolAccumulator>();
         match event {
             StreamEvent::ToolCallStart { id, name, .. } => {
+                let accumulator = session
+                    .extensions
+                    .get_or_insert_default::<StreamToolAccumulator>();
                 accumulator.pending.insert(
                     id.clone(),
                     ToolCallDescriptor {
@@ -617,6 +644,9 @@ impl BriocheEngine {
                 );
             }
             StreamEvent::ToolArgumentChunk { id, chunk, .. } => {
+                let accumulator = session
+                    .extensions
+                    .get_or_insert_default::<StreamToolAccumulator>();
                 if let Some(descriptor) = accumulator.pending.get_mut(id) {
                     descriptor
                         .arguments
@@ -624,10 +654,18 @@ impl BriocheEngine {
                 }
             }
             StreamEvent::ToolCallDone { .. } => {
+                // Prediction completes before tool execution.
+                effects.extend(self.eval_after_prediction(session));
+
                 // Drain all pending descriptors and materialize them.
-                let pending: Vec<ToolCallDescriptor> = std::mem::take(&mut accumulator.pending)
-                    .into_values()
-                    .collect();
+                let pending: Vec<ToolCallDescriptor> = {
+                    let accumulator = session
+                        .extensions
+                        .get_or_insert_default::<StreamToolAccumulator>();
+                    std::mem::take(&mut accumulator.pending)
+                        .into_values()
+                        .collect()
+                };
                 if !pending.is_empty() {
                     let mut descriptors = pending;
                     self.handle_tool_calls(session, &mut descriptors, &mut effects)?;
@@ -642,6 +680,16 @@ impl BriocheEngine {
                     };
                     session.push_state(AgentState::ExecutingTools { generation_id })?;
                     effects.push(Effect::ExecuteTools(active));
+                    effects.push(Effect::SaveSession);
+                }
+            }
+            StreamEvent::Done => {
+                // Prediction completes without tool calls.
+                effects.extend(self.eval_after_prediction(session));
+
+                if matches!(session.state, AgentState::Predicting { .. }) {
+                    session.pop_state()?;
+                    effects.push(Effect::SystemIdle);
                     effects.push(Effect::SaveSession);
                 }
             }
