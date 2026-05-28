@@ -29,5 +29,29 @@ postcard = { version = "1", default-features = false, features = ["use-std"] }
 name = "extension_lookup"
 harness = false
 
+[[bench]]
+name = "stream_latency"
+harness = false
+
+[[bench]]
+name = "stream_zero_alloc"
+harness = false
+
+[[bench]]
+name = "hook_effect_o1"
+harness = false
+
+[[bench]]
+name = "cross_instance_determinism"
+harness = false
+
+[[bench]]
+name = "cow_rollback"
+harness = false
+
+[[bench]]
+name = "tiered_rollback_critical"
+harness = false
+
 [lints]
 workspace = true
