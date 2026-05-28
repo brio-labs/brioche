@@ -456,3 +456,307 @@ pub fn derive_brioche_extension_type(input: TokenStream) -> TokenStream {
 
     TokenStream::from(expanded)
 }
+
+// ---------------------------------------------------------------------------
+// Plugin authoring macros — Sprint 17
+// ---------------------------------------------------------------------------
+
+use syn::{ImplItem, ItemImpl, LitStr, Token, parse::Parse, parse::ParseStream};
+
+/// Parsed arguments for `#[brioche_plugin(...)]`.
+struct PluginArgs {
+    name: LitStr,
+    capabilities: Vec<String>,
+    priority: Option<i16>,
+}
+
+impl Parse for PluginArgs {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        let mut name: Option<LitStr> = None;
+        let mut capabilities: Vec<String> = Vec::new();
+        let mut priority: Option<i16> = None;
+
+        while !input.is_empty() {
+            let ident: syn::Ident = input.parse()?;
+            input.parse::<Token![=]>()?;
+            if ident == "name" {
+                name = Some(input.parse()?);
+            } else if ident == "capabilities" {
+                let lit: LitStr = input.parse()?;
+                capabilities = lit
+                    .value()
+                    .split('|')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+            } else if ident == "priority" {
+                let lit: syn::LitInt = input.parse()?;
+                priority = Some(lit.base10_parse()?);
+            } else {
+                return Err(syn::Error::new_spanned(
+                    ident,
+                    "unknown argument; expected `name`, `capabilities`, or `priority`",
+                ));
+            }
+            if input.peek(Token![,]) {
+                input.parse::<Token![,]>()?;
+            }
+        }
+
+        let name = name.ok_or_else(|| {
+            syn::Error::new(input.span(), "`name` is required in #[brioche_plugin(...)]")
+        })?;
+
+        Ok(PluginArgs {
+            name,
+            capabilities,
+            priority,
+        })
+    }
+}
+
+/// Convert a capability string (e.g. `"ON_INPUT"`) into a token stream
+/// referencing the corresponding `PluginCapabilities` constant.
+fn capability_to_tokens(cap: &str) -> proc_macro2::TokenStream {
+    match cap {
+        "NONE" => quote!(::brioche_core::PluginCapabilities::NONE),
+        "ON_INPUT" => quote!(::brioche_core::PluginCapabilities::ON_INPUT),
+        "BEFORE_PREDICTION" => quote!(::brioche_core::PluginCapabilities::BEFORE_PREDICTION),
+        "ON_STREAM_EVENT" => quote!(::brioche_core::PluginCapabilities::ON_STREAM_EVENT),
+        "AFTER_PREDICTION" => quote!(::brioche_core::PluginCapabilities::AFTER_PREDICTION),
+        "ON_TOOL_CALLS" => quote!(::brioche_core::PluginCapabilities::ON_TOOL_CALLS),
+        "ON_TOOL_RESULT" => quote!(::brioche_core::PluginCapabilities::ON_TOOL_RESULT),
+        "ON_ERROR" => quote!(::brioche_core::PluginCapabilities::ON_ERROR),
+        _ => {
+            let msg = format!("unknown capability `{}`", cap);
+            quote!(compile_error!(#msg))
+        }
+    }
+}
+
+/// `#[brioche_plugin(name = "...", capabilities = "ON_INPUT | BEFORE_PREDICTION")]`
+///
+/// Attribute macro applied to an `impl BriochePlugin for MyPlugin` block.
+/// It injects `fn name()`, `fn capabilities()`, and optionally `fn priority()`
+/// into the impl. All other items are passed through unchanged.
+///
+/// Helper attributes `#[hook(...)]` on methods are stripped by this macro.
+///
+/// # Example
+/// ```ignore
+/// #[brioche_plugin(name = "my_plugin", capabilities = "ON_INPUT")]
+/// impl BriochePlugin for MyPlugin {
+///     #[hook(on_input)]
+///     fn on_input(&self, input: &EngineInput, ext: &mut ExtensionStorage) -> PluginResult<PolicyDecision> {
+///         Ok(PolicyDecision::Allow)
+///     }
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn brioche_plugin(args: TokenStream, input: TokenStream) -> TokenStream {
+    let args = parse_macro_input!(args as PluginArgs);
+    let mut item_impl = parse_macro_input!(input as ItemImpl);
+
+    let name_lit = &args.name;
+    let _name_str = name_lit.value();
+
+    // Build capabilities expression via BitOr chain.
+    let caps_expr = if args.capabilities.is_empty() {
+        quote!(::brioche_core::PluginCapabilities::NONE)
+    } else {
+        let first = capability_to_tokens(&args.capabilities[0]);
+        let rest: Vec<_> = args
+            .capabilities
+            .iter()
+            .skip(1)
+            .map(|s| capability_to_tokens(s.as_str()))
+            .collect();
+        quote! {
+            #first #(| #rest)*
+        }
+    };
+
+    let priority_expr = match args.priority {
+        Some(p) => quote!(#p),
+        None => quote!(0),
+    };
+
+    // Strip #[hook(...)] attributes from methods.
+    for item in &mut item_impl.items {
+        if let ImplItem::Fn(method) = item {
+            method.attrs.retain(|attr| !attr.path().is_ident("hook"));
+        }
+    }
+
+    // Build the injected trait methods.
+    let injected: syn::ImplItem = syn::parse_quote! {
+        fn name(&self) -> &'static str {
+            #name_lit
+        }
+    };
+    let injected_caps: syn::ImplItem = syn::parse_quote! {
+        fn capabilities(&self) -> ::brioche_core::PluginCapabilities {
+            #caps_expr
+        }
+    };
+    let injected_priority: syn::ImplItem = syn::parse_quote! {
+        fn priority(&self) -> i16 {
+            #priority_expr
+        }
+    };
+
+    // Prepend injected methods so they appear first.
+    item_impl.items.insert(
+        0,
+        syn::parse_quote!(
+            fn __plugin_marker(&self) {}
+        ),
+    );
+    // Remove the dummy marker we just inserted (it was just to satisfy type check).
+    item_impl.items.remove(0);
+
+    // We need to be careful: if the impl already contains `name()`, `capabilities()`,
+    // or `priority()`, we must not duplicate them. Check for existing.
+    let has_name = item_impl
+        .items
+        .iter()
+        .any(|item| matches!(item, ImplItem::Fn(f) if f.sig.ident == "name"));
+    let has_caps = item_impl
+        .items
+        .iter()
+        .any(|item| matches!(item, ImplItem::Fn(f) if f.sig.ident == "capabilities"));
+    let has_priority = item_impl
+        .items
+        .iter()
+        .any(|item| matches!(item, ImplItem::Fn(f) if f.sig.ident == "priority"));
+
+    let mut new_items = Vec::new();
+    if !has_name {
+        new_items.push(injected);
+    }
+    if !has_caps {
+        new_items.push(injected_caps);
+    }
+    if !has_priority {
+        new_items.push(injected_priority);
+    }
+    new_items.extend(item_impl.items);
+    item_impl.items = new_items;
+
+    TokenStream::from(quote!(#item_impl))
+}
+
+/// `#[hook(on_input)]` — helper attribute consumed by `#[brioche_plugin]`.
+///
+/// When used outside of a `#[brioche_plugin]` impl block, this macro
+/// is a no-op (it passes the item through unchanged). This allows
+/// IDE syntax highlighting and macro expansion to work incrementally.
+#[proc_macro_attribute]
+pub fn hook(_args: TokenStream, input: TokenStream) -> TokenStream {
+    // Pass through unchanged. The outer `#[brioche_plugin]` macro strips
+    // this attribute when it processes the impl block.
+    input
+}
+
+/// `#[brioche_offload_task]` — wraps a function for CPU-task offloading.
+///
+/// Generates a companion module with `effect(task_id, input) -> Effect`
+/// and (de)serialization helpers.
+///
+/// # Requirements
+/// - The function must take exactly one argument (the input payload).
+/// - The argument and return types must implement `Serialize` and `DeserializeOwned`.
+///
+/// # Example
+/// ```ignore
+/// #[brioche_offload_task]
+/// fn heavy_computation(input: Vec<u8>) -> Vec<u8> {
+///     // CPU-intensive work
+///     input
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn brioche_offload_task(_args: TokenStream, input: TokenStream) -> TokenStream {
+    let func = parse_macro_input!(input as syn::ItemFn);
+    let fn_name = &func.sig.ident;
+    let vis = &func.vis;
+    let inputs = &func.sig.inputs;
+    let output = &func.sig.output;
+    let block = &func.block;
+    let generics = &func.sig.generics;
+
+    if inputs.len() != 1 {
+        return syn::Error::new_spanned(
+            func.sig,
+            "#[brioche_offload_task] function must take exactly one argument",
+        )
+        .to_compile_error()
+        .into();
+    }
+
+    let mod_name = syn::Ident::new(&format!("__brioche_offload_{}", fn_name), fn_name.span());
+
+    let arg = match inputs.first() {
+        Some(arg) => arg,
+        None => {
+            return syn::Error::new_spanned(
+                func.sig,
+                "#[brioche_offload_task] function must take exactly one argument",
+            )
+            .to_compile_error()
+            .into();
+        }
+    };
+    let arg_ty = match arg {
+        syn::FnArg::Typed(pat_ty) => &pat_ty.ty,
+        _ => {
+            return syn::Error::new_spanned(arg, "expected typed argument")
+                .to_compile_error()
+                .into();
+        }
+    };
+
+    let output_ty = match output {
+        syn::ReturnType::Default => quote!(()),
+        syn::ReturnType::Type(_, ty) => quote!(#ty),
+    };
+
+    let expanded = quote! {
+        #vis fn #fn_name #generics (#inputs) #output #block
+
+        #[doc(hidden)]
+        #vis mod #mod_name {
+            use super::*;
+
+            /// Serialize the input payload for CPU task offloading.
+            pub fn serialize_input(input: &#arg_ty) -> ::std::vec::Vec<u8> {
+                match ::brioche_core::postcard::to_stdvec(input) {
+                    Ok(v) => v,
+                    Err(_) => ::std::vec::Vec::new(),
+                }
+            }
+
+            /// Deserialize the result payload after CPU task completion.
+            pub fn deserialize_output(bytes: &[u8]) -> #output_ty {
+                match ::brioche_core::postcard::from_bytes(bytes) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        // Fallback: return a default value.
+                        // This path is best-effort; the caller should validate.
+                        ::core::default::Default::default()
+                    }
+                }
+            }
+
+            /// Build an `Effect::ExecuteCpuTask` from a task id and input.
+            pub fn effect(task_id: impl Into<::std::string::String>, input: &#arg_ty) -> ::brioche_core::Effect {
+                ::brioche_core::Effect::ExecuteCpuTask {
+                    task_id: task_id.into(),
+                    payload: serialize_input(input),
+                }
+            }
+        }
+    };
+
+    TokenStream::from(expanded)
+}
