@@ -394,22 +394,28 @@
 
 ## Phase 6: Ecosystem — Book IV (Sprints 16–17)
 
-### Sprint 16: Standard Plugins ⏳
+### Sprint 16: Standard Plugins ✅
 
 | Deliverable | Status | Notes |
 |-------------|--------|-------|
-| `CircuitBreaker` (`before_prediction`) | ⏳ | Detects redundant tool call loops |
-| `TokenTracker` (`after_prediction`) | ⏳ | Real-time cost/volume tracking |
-| `ContextOptimizer` (`before_prediction`) | ⏳ | Triggers `TriggerSummarization` at 85% threshold |
-| `ToolTimeoutPolicy` (`on_tool_calls`) | ⏳ | Bounds `ToolCallDescriptor.timeout_ms` |
-| `ToolResultPolicy` (`on_tool_result`) | ⏳ | Truncates oversized results |
-| `PendingTaskManager` (`on_tool_result` + `AsyncTaskResult`) | ⏳ | Long-task `Pending` pattern |
-| `GcPolicy` (`after_prediction`) | ⏳ | Decides `TriggerGc` on `SystemIdle` |
-| `AuditLogger` (`on_input`) | ⏳ | Deterministic replay log with batching |
-| `brioche-std` crate integration | ⏳ | All standard plugins behind `std` feature flag |
-| Integration tests: standard plugin matrix | ⏳ | Per-plugin scenario tests |
+| `CircuitBreaker` (`before_prediction`) | ✅ | Detects redundant tool call loops |
+| `TokenTracker` (`before_prediction` + `after_prediction`) | ✅ | Real-time cost/volume tracking |
+| `ContextOptimizer` (`before_prediction`) | ✅ | Triggers `TriggerSummarization` at 85% threshold |
+| `ToolTimeoutPolicy` (`on_tool_calls`) | ✅ | Re-export from governance-default with std defaults |
+| `ToolResultPolicy` (`on_tool_result`) | ✅ | Truncates oversized results |
+| `PendingTaskManager` (`on_tool_result` + `AsyncTaskResult`) | ✅ | Long-task `Pending` pattern |
+| `GcPolicy` (`after_prediction`) | ✅ | Decides `TriggerGc` on `SystemIdle` |
+| `AuditLogger` (`on_input`) | ✅ | Deterministic replay log with batching |
+| `brioche-std` crate integration | ✅ | All standard plugins exported from `brioche_std` |
+| Integration tests: standard plugin matrix | ✅ | 19 tests in `tests/standard_plugins.rs` |
 
 **Key Invariants Targeted:** I-Eco-ExtensionOverMod, I-Eco-NoDirectMutation, I-Eco-OrderedCollections, I-Eco-Decision-Isolation
+
+**Verification:**
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings` ✅
+- `cargo test --workspace --all-targets` ✅
+- `cargo fmt --check` ✅
+- `cargo deny check all` ✅
 
 ---
 
@@ -484,7 +490,7 @@
 | 13 | Phase 4 | III-B | Loading, rehydration, GC | ✅ |
 | 14 | Phase 5 | III-C | UiRegistry, ContentRenderer, UiComposer | ✅ |
 | 15 | Phase 5 | III-C | Tauri IPC, sub-routine UI, performance policy | ✅ |
-| 16 | Phase 6 | IV | Standard plugins (`brioche-std`) | ⏳ |
+| 16 | Phase 6 | IV | Standard plugins (`brioche-std`) | ✅ |
 | 17 | Phase 6 | IV | Plugin kit, Playground, docgen, lint | ⏳ |
 | 18 | Phase 7 | V | Verification, benchmarks, release | ⏳ |
 
@@ -506,4 +512,4 @@
 
 ---
 
-*Last updated: 2026-05-27 — Sprint 14 complete; PHILOSOPHY compliance review passed*
+*Last updated: 2026-05-28 — Sprint 16 complete; standard plugins shipped*
