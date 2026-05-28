@@ -172,6 +172,7 @@ version = "0.1.0"
 dependencies = [
  "brioche-core",
  "brioche-governance",
+ "criterion",
  "indexmap",
  "serde",
  "serde_json",
@@ -221,6 +222,7 @@ dependencies = [
  "brioche-core",
  "brioche-governance",
  "brioche-shell-runtime",
+ "criterion",
  "lru",
  "redb",
  "rmp-serde",
