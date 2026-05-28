@@ -6,7 +6,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Procedural macros for BriocheExtensionType"
+description = "Procedural macros for BriocheExtensionType and plugin authoring"
 
 [lib]
 proc-macro = true
@@ -14,11 +14,13 @@ proc-macro = true
 [dependencies]
 proc-macro2 = "1"
 quote = "1"
-syn = { version = "2", features = ["full"] }
+syn = { version = "2", features = ["full", "visit-mut", "extra-traits"] }
 
 [dev-dependencies]
 trybuild = { version = "1", features = ["diff"] }
 brioche-core = { workspace = true }
+brioche-governance = { workspace = true }
+brioche-plugin-kit = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 
 [lints]

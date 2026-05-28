@@ -1,0 +1,21 @@
+[package]
+name = "cargo-brioche-lint"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Cargo subcommand for linting Brioche plugins"
+
+[[bin]]
+name = "cargo-brioche-lint"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+syn = { version = "2", features = ["full", "visit"] }
+walkdir = "2"
+
+[lints]
+workspace = true
