@@ -264,9 +264,12 @@ version = "0.1.0"
 dependencies = [
  "brioche-core",
  "brioche-governance",
+ "brioche-governance-default",
  "brioche-shell-persistence",
  "brioche-shell-projection",
  "brioche-shell-runtime",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
