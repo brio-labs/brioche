@@ -5,6 +5,13 @@ on:
     paths:
       - "crates/brioche-core/**"
       - "crates/brioche-governance/**"
+      - "crates/brioche-governance-default/**"
+      - "crates/brioche-shell-persistence/**"
+      - "crates/brioche-shell-runtime/**"
+
+permissions:
+  contents: read
+  pull-requests: write
 
 env:
   CARGO_TERM_COLOR: always
