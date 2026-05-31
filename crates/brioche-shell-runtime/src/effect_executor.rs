@@ -10,7 +10,7 @@
 
 use crate::{BriocheShell, NetworkRecovery, PersistenceMode, ShellError};
 use brioche_core::{
-    ActiveToolCall, ChatMessage, ErrorCode, SubRoutineHandle, SystemSignal, ToolResultDTO,
+    ActiveToolCall, ChatMessage, ErrorCode, SubRoutineHandle, SystemSignal, ToolResultDTO, UiWidget,
 };
 use std::sync::Arc;
 
@@ -67,12 +67,8 @@ pub trait EffectExecutor: Clone + Send + Sync + 'static {
         shell: &BriocheShell,
     ) -> Result<(), ShellError>;
 
-    /// Forward a UI widget payload to the presentation layer.
-    async fn forward_to_ui(
-        &self,
-        widget_type: String,
-        payload: serde_json::Value,
-    ) -> Result<(), ShellError>;
+    /// Forward a structured UI widget to the presentation layer.
+    async fn forward_to_ui(&self, widget: UiWidget) -> Result<(), ShellError>;
 
     /// Log an error effect (telemetry / tracing).
     async fn log_error(&self, code: ErrorCode, message: String) -> Result<(), ShellError>;
@@ -287,11 +283,7 @@ where
             .await
     }
 
-    async fn forward_to_ui(
-        &self,
-        _widget_type: String,
-        _payload: serde_json::Value,
-    ) -> Result<(), ShellError> {
+    async fn forward_to_ui(&self, _widget: UiWidget) -> Result<(), ShellError> {
         // In Sprint 9 this is a no-op; Shell Projection (Sprint 14)
         // will wire this to the Tauri IPC layer.
         Ok(())

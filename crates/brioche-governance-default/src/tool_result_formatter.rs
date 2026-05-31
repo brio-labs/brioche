@@ -11,6 +11,7 @@
 
 use brioche_core::{
     BriochePlugin, ExtensionStorage, PluginCapabilities, PluginResult, ToolResultDTO,
+    TruncatedToolResult,
 };
 
 /// Tool result formatting configuration.
@@ -98,12 +99,8 @@ impl BriochePlugin for ToolResultFormatter {
             };
 
             if self.max_result_bytes > 0 && content.len() > self.max_result_bytes {
-                let truncated = format!(
-                    "{{\"truncated\":true,\"original_len\":{},\"preview\":\"{}\"}}",
-                    content.len(),
-                    &content[..self.max_result_bytes.min(content.len())]
-                );
-                result.outcome = brioche_core::ToolOutcome::Success(truncated);
+                let meta = TruncatedToolResult::from_content(&content, self.max_result_bytes);
+                result.outcome = brioche_core::ToolOutcome::Success(meta.to_json());
             }
 
             state.formatted_count += 1;

@@ -11,7 +11,7 @@
 //!
 //! Refs: SPECS.md §Book III-C Ch 3
 
-use brioche_core::Effect;
+use brioche_core::{Effect, UiWidget};
 use std::collections::VecDeque;
 
 /// Priority tier for a `ForwardToUi` effect.
@@ -22,7 +22,7 @@ use std::collections::VecDeque;
 /// Refs: I-UI-Composer-FrameSync
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum EffectPriority {
-    /// `ForwardToUi` with `widget_type == "text_chunk"` — never dropped.
+    /// `ForwardToUi(UiWidget::TextChunk { .. })` — never dropped.
     TextChunk,
     /// Focus, scroll — slides to next frame if necessary.
     Navigation,
@@ -110,8 +110,8 @@ impl UiComposer {
     ///
     /// Complexity: O(1) amortized.
     pub fn enqueue(&mut self, effect: Effect) {
-        if let Effect::ForwardToUi { widget_type, .. } = &effect {
-            let priority = classify_widget(widget_type);
+        if let Effect::ForwardToUi(widget) = &effect {
+            let priority = classify_widget(widget);
             self.pending.push_back(ScheduledEffect {
                 effect,
                 priority,
@@ -168,8 +168,8 @@ impl UiComposer {
         // k = chosen effects, acceptable because k <= n and n is typically
         // small (< 50).
         chosen.sort_by_key(|eff| {
-            if let Effect::ForwardToUi { widget_type, .. } = eff {
-                classify_widget(widget_type) as u8
+            if let Effect::ForwardToUi(widget) = eff {
+                classify_widget(widget) as u8
             } else {
                 // unreachable because we only enqueue ForwardToUi
                 255
@@ -206,26 +206,52 @@ impl UiComposer {
     }
 }
 
-/// Classify a widget type string into an [`EffectPriority`] tier.
+/// Classify a [`UiWidget`] into an [`EffectPriority`] tier.
 ///
 /// This is the authoritative mapping used by both `UiComposer` and
 /// the frontend to agree on priority semantics.
 ///
-/// Complexity: O(1). Match on string constants.
-fn classify_widget(widget_type: &str) -> EffectPriority {
-    match widget_type {
-        crate::widget::WIDGET_TEXT_CHUNK => EffectPriority::TextChunk,
-        // Navigation-like widgets
-        "focus" | "scroll" => EffectPriority::Navigation,
-        // Semantic widgets
-        "accordion_expand" | "highlight" | "subroutine_loaded" => EffectPriority::Semantic,
-        // Known cosmetic widgets
-        "animation" | "transition" | "spinner" => EffectPriority::Cosmetic,
-        // Default: special governance widgets are treated as semantic
-        // because they convey important state changes.
-        _ if UiRegistry::is_special_widget(widget_type) => EffectPriority::Semantic,
+/// Structured variants are matched exhaustively; third-party widgets
+/// via `UiWidget::Custom` fall back to string-based classification.
+///
+/// Complexity: O(1). Match on enum variant.
+fn classify_widget(widget: &UiWidget) -> EffectPriority {
+    match widget {
+        UiWidget::TextChunk { .. } => EffectPriority::TextChunk,
+        // Navigation-like widgets (third-party via Custom).
+        UiWidget::Custom { widget_type, .. }
+            if matches!(widget_type.as_str(), "focus" | "scroll") =>
+        {
+            EffectPriority::Navigation
+        }
+        // Semantic: governance widgets and structural state changes.
+        UiWidget::Error { .. }
+        | UiWidget::CriticalError { .. }
+        | UiWidget::SystemDegraded { .. }
+        | UiWidget::NetworkError { .. }
+        | UiWidget::Status(_)
+        | UiWidget::SubRoutineTimeout { .. }
+        | UiWidget::SubRoutineLoaded { .. }
+        | UiWidget::PendingTask { .. } => EffectPriority::Semantic,
+        // Third-party semantic widgets.
+        UiWidget::Custom { widget_type, .. }
+            if matches!(
+                widget_type.as_str(),
+                "accordion_expand" | "highlight" | "subroutine_loaded"
+            ) || UiRegistry::is_special_widget(widget_type) =>
+        {
+            EffectPriority::Semantic
+        }
+        // Known cosmetic widgets (third-party via Custom).
+        UiWidget::Custom { widget_type, .. }
+            if matches!(widget_type.as_str(), "animation" | "transition" | "spinner") =>
+        {
+            EffectPriority::Cosmetic
+        }
+        // Test widgets are low priority.
+        UiWidget::Test { .. } => EffectPriority::Cosmetic,
         // Everything else defaults to cosmetic (lowest priority).
-        _ => EffectPriority::Cosmetic,
+        UiWidget::Custom { .. } => EffectPriority::Cosmetic,
     }
 }
 

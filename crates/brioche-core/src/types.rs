@@ -203,6 +203,69 @@ pub struct ToolResultDTO {
     pub outcome: ToolOutcome,
 }
 
+/// Structured truncation metadata for oversized tool results.
+///
+/// Replaces hand-rolled JSON `format!()` with a typed domain object
+/// that serializes deterministically via `serde_json`.
+///
+/// Refs: I-Comp-Pure-Logic, I-Comp-Typed-Effects
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TruncatedToolResult {
+    pub truncated: bool,
+    pub original_len: usize,
+    pub preview: String,
+}
+
+impl TruncatedToolResult {
+    /// Creates a truncation record from the full content and a byte limit.
+    ///
+    /// Complexity: O(1). One `String` allocation for the preview.
+    pub fn from_content(content: &str, max_bytes: usize) -> Self {
+        let preview = content[..max_bytes.min(content.len())].to_string();
+        Self {
+            truncated: true,
+            original_len: content.len(),
+            preview,
+        }
+    }
+
+    /// Serializes to a JSON string for injection into `ToolOutcome::Success`.
+    ///
+    /// Complexity: O(n) where n = JSON length. One `String` allocation.
+    pub fn to_json(&self) -> String {
+        // unwrap is safe: TruncatedToolResult only contains Strings and primitives.
+        serde_json::to_string(self).unwrap_or_else(|_| "{}".into())
+    }
+}
+
+/// Event log for COW rollback telemetry.
+///
+/// Written by `CycleRollbackPolicy` implementations during `commit_hook`
+/// and `rollback_hook`, then consumed by `RollbackTelemetryEmitter`.
+///
+/// Refs: I-Gov-Rollback-BestEffort, I-Comp-Pure-Logic
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, BriocheExtensionType,
+)]
+pub struct RollbackEventLog {
+    /// Events recorded since the last consumption.
+    #[brioche(deterministic_order)]
+    pub events: Vec<RollbackEvent>,
+}
+
+/// Single COW rollback event.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RollbackEvent {
+    /// Hook name during which the event occurred.
+    pub hook_name: String,
+    /// `true` = rollback restored snapshots; `false` = commit discarded them.
+    pub was_rollback: bool,
+    /// Cumulative weight of the frame at decision time (bytes).
+    pub frame_weight: usize,
+    /// Whether the budget was exceeded (abandoned rollback).
+    pub budget_exceeded: bool,
+}
+
 // ---------------------------------------------------------------------------
 // Session
 // ---------------------------------------------------------------------------
@@ -231,6 +294,15 @@ pub struct Session {
     /// Mechanical state: tools currently in execution.
     /// Managed exclusively by the kernel. Not modifiable by plugins.
     pub active_tools: Vec<ActiveToolCall>,
+    /// Buffer temporaire pour accumuler les fragments de texte assistant
+    /// durant le streaming LLM. Matérialisé en `ChatMessage::Assistant`
+    /// au `StreamEvent::Done` ou `StreamEvent::ToolCallDone`.
+    ///
+    /// Ce champ est mécanique : il appartient au cycle de vie du kernel
+    /// et n'est jamais exposé aux plugins via `ExtensionStorage`.
+    ///
+    /// Refs: I-Core-StreamAccumulator, I-Core-Pure
+    pub pending_assistant_text: String,
     /// Stable-marker making `Session` `!Send + !Sync`.
     _not_send_sync: NotSendSync,
 }
@@ -244,6 +316,7 @@ impl std::fmt::Debug for Session {
             .field("state", &self.state)
             .field("state_stack_depth", &self.state_stack.len())
             .field("active_tools", &self.active_tools)
+            .field("pending_assistant_len", &self.pending_assistant_text.len())
             .finish_non_exhaustive()
     }
 }
@@ -261,6 +334,7 @@ impl Session {
             state_stack: Vec::new(),
             extensions: ExtensionStorage::new(),
             active_tools: Vec::new(),
+            pending_assistant_text: String::new(),
             _not_send_sync: std::marker::PhantomData,
         }
     }
@@ -542,6 +616,80 @@ pub enum HistoryEdit {
 }
 
 // ---------------------------------------------------------------------------
+// UiWidget
+// ---------------------------------------------------------------------------
+
+/// Structured UI widget emitted via `Effect::ForwardToUi`.
+///
+/// Replaces the previous `String` + `serde_json::Value` anti-pattern with
+/// exhaustively matchable domain types. Third-party widgets that do not
+/// match a known shape fall back to `UiWidget::Custom`.
+///
+/// The projection layer can still match on canonical widget type strings
+/// via `UiWidget::widget_type()` during migration; new code should match
+/// on enum variants directly.
+///
+/// Refs: I-Comp-Typed-Effects
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UiWidget {
+    /// Text fragment from LLM streaming.
+    TextChunk { trace_id: String, text: String },
+    /// Generic error notification displayed in the content area.
+    Error { code: String, message: String },
+    /// Critical system error (e.g., governance cascade failure).
+    CriticalError {
+        component: String,
+        detail: Option<String>,
+    },
+    /// System degradation banner (e.g., plugin quarantined).
+    SystemDegraded { plugin: String },
+    /// Network unavailability notification.
+    NetworkError { reason: String },
+    /// Generic status indicator (e.g., "cancelled").
+    Status(String),
+    /// Sub-routine timeout notification.
+    SubRoutineTimeout {
+        handle: SubRoutineHandle,
+        limit_ms: u64,
+    },
+    /// Sub-routine successfully restored.
+    SubRoutineLoaded { handle: SubRoutineHandle },
+    /// Pending task status update.
+    PendingTask { task_id: String, status: String },
+    /// Test widget for integration tests.
+    Test { msg: String },
+    /// Catch-all for unknown third-party widgets.
+    Custom {
+        widget_type: String,
+        payload: serde_json::Value,
+    },
+}
+
+impl UiWidget {
+    /// Returns the canonical widget type string.
+    ///
+    /// Used by the projection layer for registry lookup and priority
+    /// classification while the ecosystem migrates to structured variants.
+    ///
+    /// Complexity: O(1).
+    pub fn widget_type(&self) -> &str {
+        match self {
+            UiWidget::TextChunk { .. } => "text_chunk",
+            UiWidget::Error { .. } => "error",
+            UiWidget::CriticalError { .. } => "critical_error",
+            UiWidget::SystemDegraded { .. } => "system_degraded",
+            UiWidget::NetworkError { .. } => "network_error",
+            UiWidget::Status(_) => "status",
+            UiWidget::SubRoutineTimeout { .. } => "subroutine_timeout",
+            UiWidget::SubRoutineLoaded { .. } => "subroutine_loaded",
+            UiWidget::PendingTask { .. } => "pending_task",
+            UiWidget::Test { .. } => "test",
+            UiWidget::Custom { widget_type, .. } => widget_type,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Effect
 // ---------------------------------------------------------------------------
 
@@ -556,10 +704,7 @@ pub enum HistoryEdit {
 pub enum Effect {
     CallLlmNetwork,
     ExecuteTools(Vec<ActiveToolCall>),
-    ForwardToUi {
-        widget_type: String,
-        payload: serde_json::Value,
-    },
+    ForwardToUi(UiWidget),
     Error {
         code: ErrorCode,
         message: String,
@@ -760,7 +905,7 @@ pub fn effect_to_bitmask(effect: &Effect) -> u64 {
     match effect {
         Effect::CallLlmNetwork => EffectBit::CALL_LLM_NETWORK,
         Effect::ExecuteTools(_) => EffectBit::EXECUTE_TOOLS,
-        Effect::ForwardToUi { .. } => EffectBit::FORWARD_TO_UI,
+        Effect::ForwardToUi(_) => EffectBit::FORWARD_TO_UI,
         Effect::Error { .. } => EffectBit::ERROR,
         Effect::SaveSession => EffectBit::SAVE_SESSION,
         Effect::SavePluginBlob { .. } => EffectBit::SAVE_PLUGIN_BLOB,

@@ -43,6 +43,7 @@ fn build_shell() -> BriocheShell {
         || (build_minimal_engine(), Session::new("test")),
         ShellConfig::default(),
         executor,
+        None,
     )
 }
 
@@ -192,6 +193,7 @@ async fn effect_executor_tools_parallel() {
         || (build_minimal_engine(), Session::new("test")),
         ShellConfig::default(),
         executor.clone(),
+        None,
     );
 
     // Push a user message so the engine enters Predicting.
@@ -497,6 +499,7 @@ async fn transition_journal_persists_inputs() {
         || (build_minimal_engine(), Session::new("test")),
         ShellConfig::default(),
         DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), NoopPersistence),
+        None,
     );
 
     // Send inputs through the shell.
@@ -544,6 +547,7 @@ async fn persistence_mode_sync_blocks_on_save() {
         || (build_minimal_engine(), Session::new("test")),
         config,
         executor,
+        None,
     );
 
     assert!(
@@ -591,6 +595,7 @@ async fn network_recovery_emits_system_signal_on_exhaustion() {
         || (build_minimal_engine(), Session::new("test")),
         ShellConfig::default(),
         executor,
+        None,
     );
 
     // Trigger a CallLlmNetwork effect by sending a user message.

@@ -1,9 +1,11 @@
 //! UiRegistry — Book III-C §1
 //!
 //! Extensibility contract mapping widget type identifiers to anchor slots.
-//! The kernel emits `Effect::ForwardToUi` with a `widget_type` string;
-//! the frontend resolves this string via the registry to determine where
-//! to mount the component.
+//! The kernel emits structured `Effect::ForwardToUi(UiWidget)` effects;
+//! the projection layer serializes the enum to JSON at the IPC boundary.
+//! The frontend resolves the widget type string via the registry to
+//! determine where to mount the component. Third-party widgets that do
+//! not match a known `UiWidget` variant use `UiWidget::Custom`.
 //!
 //! ## Invariants upheld
 //! - I-UI-NoUIType: Registry stores only strings and enums; no Vue/Tauri types.
