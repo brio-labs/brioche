@@ -168,6 +168,8 @@ Brioche is a secure monolithic SDK for language model orchestration. It resolves
 
 * **Governance through profiles:** The `brioche-governance-default` crate provides predefined governance profiles (`Permissive`, `Standard`, `Strict`) that encapsulate selection and configuration of fundamental and optional traits. These profiles are a configuration abstraction, not a kernel modification. A profile is injected via `BriocheEngineBuilder::with_profile()`; the kernel remains agnostic of the notion of profile.
 
+* **Compositional design canon (CUPID / SCIFI / FP / DOD):** The architecture is validated by four complementary methodological frameworks. CUPID (Composable, Unix philosophy, Predictable, Idiomatic, Domain-based) ensures code joy and maintainability. SCIFI (Split, Connect, Improve, Facilitate, Iterate) provides the operational workflow for plugin design. Functional Programming mandates data/behavior separation and explicit effects. Data-Oriented Design optimizes for cache-conscious data layout and pre-computed dispatch. See PHILOSOPHY.md §7.
+
 <br>
 
 ---
@@ -271,7 +273,7 @@ The kernel makes no trust in the shell's execution time. The epoch is maintained
 
 **Synchronous cycle rollback (`CycleRollbackPolicy` trait):**
 
-The kernel exposes an optional governance trait `CycleRollbackPolicy`. Before each monitored hook, the kernel calls `cycle_rollback_policy.begin_hook()`; for each first mutation of an extension via `get_mut`, the trait's `on_mutation()` is called with the VTable `clone_box`. At end of hook, the kernel calls `commit_hook()` if no anomaly occurred, or `rollback_hook()` if the policy decides to abandon the frame (e.g., cumulative snapshot weight exceeds `max_cow_bytes_per_hook`). The `UndoFrameGuard` implementation provides a granular COW (Copy-On-Write) snapshot mechanism: only actually mutated extensions are cloned via the VTable `clone_box` at the time of first write. The `TieredUndoFrameGuard` implementation extends this mechanism with grading by criticality tier (`Critical`, `Standard`, `BestEffort`), guaranteeing that `#[brioche(critical_state)]` types are always restored independently of the `max_cow_bytes_per_hook` threshold, while standard and best-effort types are subject to differentiated thresholds. The `UndoFrameGuard` implementation exposes a configurable per-type snapshot strategy (`SnapshotStrategy`) and a cost threshold (`max_cow_bytes_per_hook`) beyond which rollback is abandoned in favor of a `PluginFault` without state restoration for non-critical tiers. The default implementation `NoopCycleRollbackPolicy` (provided by `brioche-governance-default`) performs no operation, preserving the behavior without active injection. Without injection of this trait, the kernel emits the `PluginFault` without state restoration.
+The kernel exposes an optional governance trait `CycleRollbackPolicy`. Before each monitored hook, the kernel calls `cycle_rollback_policy.begin_hook()`; for each first mutation of an extension via `get_mut`, the trait's `on_mutation()` is called with the VTable `clone_box`. At end of hook, the kernel calls `commit_hook(ext)` if no anomaly occurred, or `rollback_hook(ext)` if the policy decides to abandon the frame (e.g., cumulative snapshot weight exceeds `max_cow_bytes_per_hook`). The `UndoFrameGuard` implementation provides a granular COW (Copy-On-Write) snapshot mechanism: only actually mutated extensions are cloned via the VTable `clone_box` at the time of first write. The `TieredUndoFrameGuard` implementation extends this mechanism with grading by criticality tier (`Critical`, `Standard`, `BestEffort`), guaranteeing that `#[brioche(critical_state)]` types are always restored independently of the `max_cow_bytes_per_hook` threshold, while standard and best-effort types are subject to differentiated thresholds. The `UndoFrameGuard` implementation exposes a configurable per-type snapshot strategy (`SnapshotStrategy`) and a cost threshold (`max_cow_bytes_per_hook`) beyond which rollback is abandoned in favor of a `PluginFault` without state restoration for non-critical tiers. The default implementation `NoopCycleRollbackPolicy` (provided by `brioche-governance-default`) performs no operation, preserving the behavior without active injection. Without injection of this trait, the kernel emits the `PluginFault` without state restoration.
 
 <br>
 
@@ -644,7 +646,7 @@ pub enum HistoryEdit {
 pub enum Effect {
     CallLlmNetwork,
     ExecuteTools(Vec<ActiveToolCall>),
-    ForwardToUi { widget_type: String, payload: serde_json::Value },
+    ForwardToUi(UiWidget),
     Error { code: ErrorCode, message: String },
     SaveSession,
     SavePluginBlob { plugin_id: String, data: Vec<u8> },
@@ -665,6 +667,29 @@ pub enum ErrorCode {
     PluginFaulted,
 }
 ```
+
+<br>
+
+**Structured UI widget (`UiWidget`):**
+
+```rust
+pub enum UiWidget {
+    TextChunk { trace_id: String, text: String },
+    Error { code: String, message: String },
+    CriticalError { component: String, detail: Option<String> },
+    SystemDegraded { plugin: String },
+    NetworkError { reason: String },
+    Status(String),
+    SubRoutineTimeout { handle: SubRoutineHandle, limit_ms: u64 },
+    SubRoutineLoaded { handle: SubRoutineHandle },
+    PendingTask { task_id: String, status: String },
+    Test { msg: String },
+    /// Catch-all for unknown third-party widgets.
+    Custom { widget_type: String, payload: serde_json::Value },
+}
+```
+
+`UiWidget` replaces the previous `String` + `serde_json::Value` anti-pattern with exhaustively matchable domain types. Third-party widgets that do not match a known shape fall back to `UiWidget::Custom`. See I-Comp-Typed-Effects.
 
 <br>
 
@@ -760,6 +785,9 @@ pub enum SnapshotStrategy {
 <br>
 
 **Invariant:** Typed extension access is O(log n) by `TypeId` (n = registered types, typically < 20) and infallible after `get_or_insert_default`.
+
+**Cache locality note (Data-Oriented Design):**
+`ExtensionStorage` uses `BTreeMap` rather than `HashMap` for determinism. For the typical *n* < 20 registered types, tree-node locality is comparable to linear search and preserves the `Ord` invariant required for reproducibility. A future benchmark may validate `Vec` versus `BTreeMap` at this scale (PHILOSOPHY.md §7.4).
 
 <br>
 
@@ -1065,7 +1093,7 @@ The kernel injects `SessionSnapshot` into `ExtensionStorage` before each hook.
 
 **2. Rollback preparation (`CycleRollbackPolicy` trait):**
 
-If a `CycleRollbackPolicy` is injected, call `cycle_rollback_policy.begin_hook()` before each hook invocation; the trait intercepts `get_mut` calls on `ExtensionStorage` and triggers COW cloning via `clone_box` from the VTable at the time of first write. The estimated weight of the extension (`estimated_weight_bytes`) is consulted; if the cumulative total exceeds `max_cow_bytes_per_hook` (or the adaptive budget configured by `CowBudgetPolicy` if `AdaptiveUndoFrameGuard` or `TieredUndoFrameGuard` is injected), the snapshot is abandoned for that mutation according to the type's `SnapshotStrategy`. If the policy abandons the frame, the kernel calls `rollback_hook()` on the trait to restore state, then emits `Effect::PluginFault { plugin_name, error: PluginError::Soft }` and continues cycle evaluation. If the hook completes normally, the kernel calls `commit_hook()`. Without an injected `CycleRollbackPolicy`, the kernel emits the `PluginFault` without state restoration.
+If a `CycleRollbackPolicy` is injected, call `cycle_rollback_policy.begin_hook()` before each hook invocation; the trait intercepts `get_mut` calls on `ExtensionStorage` and triggers COW cloning via `clone_box` from the VTable at the time of first write. The estimated weight of the extension (`estimated_weight_bytes`) is consulted; if the cumulative total exceeds `max_cow_bytes_per_hook` (or the adaptive budget configured by `CowBudgetPolicy` if `AdaptiveUndoFrameGuard` or `TieredUndoFrameGuard` is injected), the snapshot is abandoned for that mutation according to the type's `SnapshotStrategy`. If the policy abandons the frame, the kernel calls `rollback_hook()` on the trait to restore state, then emits `Effect::PluginFault { plugin_name, error: PluginError::Soft }` and continues cycle evaluation. If the hook completes normally, the kernel calls `commit_hook(ext)`. Without an injected `CycleRollbackPolicy`, the kernel emits the `PluginFault` without state restoration.
 
 <br>
 
@@ -1073,7 +1101,7 @@ If a `CycleRollbackPolicy` is injected, call `cycle_rollback_policy.begin_hook()
 
 Call `epoch_guard.intercept_epoch(input, ext)`.
 
-* If `EpochAction::Block { reason }` : return `ForwardToUi { widget_type: "error", payload }` + `SystemIdle`.
+* If `EpochAction::Block { reason }` : return `ForwardToUi(UiWidget::Error { code, message })` + `SystemIdle`.
 * If `EpochAction::Proceed` : continue.
 
 <br>
@@ -1092,7 +1120,7 @@ If `session.state` is `SubRoutine(handle)`, resolve the child session via `sessi
 Call `on_input` on plugins of the `route_on_input` route in priority order.
 
 * If a plugin returns `OverrideTransition(effects)` : the kernel pushes an entry in `TransitionTraceLog` of `ExtensionStorage` and immediately returns these effects. Any subsequent `OverrideTransition` emitted by a lower-priority plugin on the same route is ignored. The kernel then pushes an entry in `SupersededTransitionTraceLog` for each preemption. If the `TransitionConflictLogger` plugin is active, it consumes these traces via its `after_prediction` hook.
-* If a plugin returns `Block { reason }` : return `ForwardToUi { widget_type: "error", payload }` + `SystemIdle`.
+* If a plugin returns `Block { reason }` : return `ForwardToUi(UiWidget::Error { code, message })` + `SystemIdle`.
 * If `MutateHistory` or `RequestEffect` : apply/concatenate.
 * If `Allow` : continue to standard dispatch.
 
@@ -1184,7 +1212,7 @@ If the accumulated effects vector contains `Effect::PluginFault` targeting a gov
 
 **11. Cycle rollback (`CycleRollbackPolicy` trait):**
 
-If a `CycleRollbackPolicy` is injected, call `commit_hook()` if the budget is respected, or `rollback_hook()` followed by `PluginFault` if the budget is exceeded. The rollback only restores actually mutated extensions in this hook, limited by `max_cow_bytes_per_hook` (or by `CowBudgetPolicy` if `AdaptiveUndoFrameGuard` or `TieredUndoFrameGuard` is injected). Types annotated `#[brioche(critical_state)]` are restored independently of the threshold.
+If a `CycleRollbackPolicy` is injected, call `commit_hook(ext)` if the budget is respected, or `rollback_hook(ext)` followed by `PluginFault` if the budget is exceeded. The rollback only restores actually mutated extensions in this hook, limited by `max_cow_bytes_per_hook` (or by `CowBudgetPolicy` if `AdaptiveUndoFrameGuard` or `TieredUndoFrameGuard` is injected). Types annotated `#[brioche(critical_state)]` are restored independently of the threshold.
 
 <br>
 
@@ -1369,6 +1397,42 @@ Fundamental governance plugins are dedicated traits, called sequentially by the 
 
 ---
 
+### 1.4 Compositional design principles
+
+Governance plugins follow the CUPID/SCIFI/FP/DOD canon defined in PHILOSOPHY.md §7. Concretely:
+
+* **Atomic concern:** Each plugin implements exactly one observable policy concern. A plugin that calculates depth limits does not construct UI effects; a plugin that detects tool calls does not format results. If a plugin's doc comment contains "and," split it.
+* **Pure calculation extraction:** Deterministic business logic is extracted into standalone pure functions. Hooks orchestrate; functions compute.
+
+```rust
+// GOOD: Pure function, testable without mocks
+pub fn calculate_depth(stack_depth: usize, current_state: AgentStateTag) -> u64 {
+    if current_state == AgentStateTag::SubRoutine { stack_depth as u64 + 1 } else { stack_depth as u64 }
+}
+
+// In the hook:
+let current_depth = calculate_depth(snapshot.state_stack_depth, snapshot.current_state);
+```
+
+* **Structured effects:** Policy decisions return typed `Effect` variants. `ForwardToUi` carries `UiWidget`, a structured domain enum. No opaque `String`/`serde_json::Value` holes where the domain has known shapes.
+
+```rust
+// GOOD: Structured, exhaustively matchable
+Effect::ForwardToUi(UiWidget::Error {
+    code: "DEPTH_LIMIT_EXCEEDED".into(),
+    message: format!("depth {} >= {}", current_depth, max_depth),
+})
+
+// BAD: Stringly-typed hole — the compiler cannot audit this
+Effect::ForwardToUi { widget_type: "error".into(), payload: json!({ ... }) }
+```
+
+* **Capability traits:** Traits declare what a type *can do*, never what it *is*. No supertrait hierarchies, no `BasePlugin`, no inheritance-like coupling. `EpochInterceptor` and `SubRoutineHandler` are standalone capabilities.
+
+<br>
+
+---
+
 ---
 
 ## Chapter 2: Fundamental traits
@@ -1510,7 +1574,9 @@ pub trait CycleRollbackPolicy: Send + Sync {
     );
 
     /// Called if the budget is respected — mutations are kept.
-    fn commit_hook(&self);
+    /// Receives `ExtensionStorage` so the policy can append telemetry
+    /// events (e.g., to `RollbackEventLog`) before clearing its frame.
+    fn commit_hook(&self, ext: &mut ExtensionStorage);
 
     /// Called if the budget is exceeded — restoration from snapshots.
     /// Only extensions whose cumulative weight is under max_cow_bytes_per_hook
@@ -1519,7 +1585,7 @@ pub trait CycleRollbackPolicy: Send + Sync {
 }
 ```
 
-**Optional.** Without injection, the kernel performs no snapshot or rollback of `ExtensionStorage`. With injection, the kernel calls `begin_hook()` before each monitored hook, `commit_hook()` at end of hook if the budget is respected, or `rollback_hook()` followed by `Effect::PluginFault` if the budget is exceeded. The `UndoFrameGuard` implementation (Section 5.15) uses a granular COW mechanism: only actually mutated extensions are cloned via `clone_box` from the VTable at the time of first write, limited by the `max_cow_bytes_per_hook` threshold. The `TieredUndoFrameGuard` implementation (Section 5.24) extends this mechanism with criticality grading.
+**Optional.** Without injection, the kernel performs no snapshot or rollback of `ExtensionStorage`. With injection, the kernel calls `begin_hook()` before each monitored hook, `commit_hook(ext)` at end of hook if the budget is respected, or `rollback_hook(ext)` followed by `Effect::PluginFault` if the budget is exceeded. The `UndoFrameGuard` implementation (Section 5.15) uses a granular COW mechanism: only actually mutated extensions are cloned via `clone_box` from the VTable at the time of first write, limited by the `max_cow_bytes_per_hook` threshold. The `TieredUndoFrameGuard` implementation (Section 5.24) extends this mechanism with criticality grading.
 
 <br>
 
@@ -1767,13 +1833,17 @@ pub struct EpochState {
 
 <br>
 
-**`handle_subroutine` algorithm:**
+**`handle_subroutine` algorithm (orchestration layer):**
 
-1. Delegate `transition(child, input)` via the mechanism.
-2. Observe `child.state` post-transition:
-   * `Idle` : extract the last message from `child.history`, inject as `System` into `parent.history`, restore parent state via `pop_state`, ask the kernel to remove the child from `SessionRegistry`, return `Some(vec![SaveSession, CallLlmNetwork])`.
-   * `Failure(err)` : inject the error as `System`, restore parent state, remove the child from `SessionRegistry`, return `Some(vec![SaveSession, CallLlmNetwork])`.
-   * Other : update the child in the `SessionRegistry` (the kernel has already mutated `child` in place), return `None`.
+The implementation delegates each `EngineInput` variant to a dedicated pure helper, separating orchestration from calculation:
+
+* `delegate_user_message(child, content)` — pushes `ChatMessage::User` into child history, transitions child to `Predicting`, returns `[CallLlmNetwork, SaveSession]`.
+* `accumulate_stream_tools(child, event)` — accumulates `ToolCallStart` / `ToolArgumentChunk` / `ToolCallDone` fragments into `StreamToolAccumulator`. Returns `Some([ExecuteTools(active), SaveSession])` when a complete tool call set is ready.
+* `resolve_tool_results(child, generation_id, results)` — converts `ToolResultDTO` outcomes into `ChatMessage::ToolResult` entries, clears `active_tools`, transitions child back to `Predicting`.
+* `detect_subroutine_termination(parent, child)` — checks `child.state`:
+  * `Idle` : extracts the last message from `child.history`, injects as `System` into `parent.history`, restores parent state via `pop_state`, returns `Some([SaveSession, CallLlmNetwork])`.
+  * `Failure` : injects `"sub-routine failed"` as `System`, restores parent state, returns `Some([SaveSession, CallLlmNetwork])`.
+  * Other : returns `None`.
 
 <br>
 
@@ -1915,7 +1985,7 @@ pub struct QuarantineState {
 
 1. Upon receipt of `GovernanceNotification::PluginFaulted { plugin_name }` (via adapter), insert `plugin_name` into `QuarantineState.quarantined`.
 2. Return `PolicyDecision::OverrideTransition(vec![
-     Effect::ForwardToUi { widget_type: "system_degraded".into(), payload: json!({ "plugin": plugin_name }) },
+     Effect::ForwardToUi(UiWidget::SystemDegraded { plugin: plugin_name.clone() }),
      Effect::SaveSession,
      Effect::RebuildRoutes,
      Effect::SystemIdle,
@@ -1931,29 +2001,40 @@ pub struct QuarantineState {
 
 ### 5.11 RecoveryPolicy
 
-**Objective:** Define recovery policy after network failure or user cancellation, without modifying the kernel's standard dispatch.
+**Objective:** Circuit-breaker guard against cascading failures. Monitors `SessionSnapshot` to detect consecutive `Failure` states and blocks further input when a threshold is exceeded.
 
 <br>
 
-**Algorithm (`SystemSignal` consumption):**
+**Extended state:**
 
-1. If `SystemSignal::NetworkUnavailable { details }` :
-   * Return `PolicyDecision::OverrideTransition(vec![
-       Effect::ForwardToUi { widget_type: "network_error".into(), payload: json!(details) },
-       Effect::SaveSession,
-       Effect::SystemIdle,
-     ])`.
-
-2. If `SystemSignal::OperationCancelled` :
-   * Return `PolicyDecision::OverrideTransition(vec![
-       Effect::ForwardToUi { widget_type: "status".into(), payload: json!("cancelled") },
-       Effect::SaveSession,
-       Effect::SystemIdle,
-     ])`.
+```rust
+#[derive(BriocheExtensionType)]
+#[brioche(critical_state)]
+pub struct RecoveryState {
+    pub consecutive_recoveries: u64,
+    pub last_error: Option<String>,
+    pub inputs_blocked: u64,
+}
+```
 
 <br>
 
-**Note:** The stack cleanup mechanism (pop, epoch++, Idle) is handled by `EpochGuard` + `StateConsistencyGuard`. `RecoveryPolicy` always returns `OverrideTransition` for system signals.
+**Algorithm (`on_input`):**
+
+1. Read `SessionSnapshot` from `ExtensionStorage`. Let `is_failure = snapshot.current_state == Failure`.
+2. If `is_failure` :
+   * Increment `RecoveryState.consecutive_recoveries`.
+   * Set `last_error` to a representation of the current input.
+   * If `consecutive_recoveries >= max_consecutive_recoveries` (default 3) :
+     - Increment `inputs_blocked`.
+     - Return `PolicyDecision::Block { reason: "recovery: max consecutive failures exceeded".into() }`.
+3. If `!is_failure` and the circuit is not already open :
+   * Reset `consecutive_recoveries` to 0 and clear `last_error`.
+4. Return `PolicyDecision::Allow`.
+
+<br>
+
+**Note:** The stack cleanup mechanism (pop, epoch++, Idle) is handled by `EpochGuard` + `StateConsistencyGuard`. `RecoveryPolicy` does not emit `OverrideTransition`; it uses the standard `Block` decision, which the kernel translates into `Effect::Error` + `Effect::SystemIdle`. This plugin is a pure circuit breaker, not a signal adapter.
 
 <br>
 
@@ -1998,19 +2079,35 @@ pub struct DepthState {
 
 <br>
 
-**Positioning:** Optional governance plugin registering on `after_prediction` (`priority = i16::MIN`).
+**Positioning:** Optional governance plugin registering on `after_prediction` (`priority = 100`).
+
+<br>
+
+**Extended state:**
+
+```rust
+#[derive(BriocheExtensionType)]
+pub struct TransitionConflictState {
+    pub total_conflicts: u64,
+    pub unique_preempted_plugins: u64,
+    pub last_preempted_plugin: Option<String>,
+}
+```
 
 <br>
 
 **`after_prediction` algorithm:**
 
-1. Read `SupersededTransitionTraceLog` from `ExtensionStorage`.
-2. For each trace present, log the preemption (source, attempted decision, preempting plugin, epoch) via the telemetry channel (`TelemetryChannel`) or a `SavePluginBlob` effect if telemetry is not active.
-3. Clean consumed traces from `ExtensionStorage` to avoid accumulation.
+1. Steal all entries from `SupersededTransitionTraceLog` (via `std::mem::take`) to avoid double-counting.
+2. For each trace, update `TransitionConflictState`:
+   * Increment `total_conflicts` by the number of entries.
+   * Count unique `preempted_by` plugins and store in `unique_preempted_plugins`.
+   * Update `last_preempted_plugin`.
+3. The trace log is automatically cleared by the theft; no manual cleanup needed.
 
 <br>
 
-**Note:** This plugin is a pure extension. It does not modify the kernel's preemption logic; it only consumes ring buffers left by the mechanism.
+**Note:** This plugin is a pure extension. It does not modify the kernel's preemption logic; it only consumes and archives ring buffers left by the mechanism. The aggregated state is queryable by external telemetry consumers via `ExtensionStorage`.
 
 <br>
 
@@ -2031,7 +2128,7 @@ pub struct DepthState {
 1. Upon receipt of `SystemSignal::Tick { elapsed_ms }` (via `SystemSignalAdapter`), iterate over `SubRoutineTimerState.timers`.
 2. For each active sub-routine, calculate `elapsed_ms - timestamp_start_ms`. If greater than `timeout_limit_ms` (configurable, default 30000) :
    * Return `PolicyDecision::OverrideTransition(vec![
-       Effect::ForwardToUi { widget_type: "subroutine_timeout".into(), payload: json!({ "handle": handle, "limit_ms": timeout_limit_ms }) },
+       Effect::ForwardToUi(UiWidget::SubRoutineTimeout { handle: handle.clone(), limit_ms: *timeout_limit_ms }),
        Effect::SaveSession,
        Effect::SystemIdle,
      ])`.
@@ -2185,13 +2282,13 @@ pub struct UndoFrameState {
 
 1. Log the fault via `TelemetryChannel` with level `critical`.
 2. If the current state is `Idle` or `Predicting`, return `Some(vec![
-     Effect::ForwardToUi { widget_type: "critical_error", payload: json!({ "component": failed_plugin }) },
+     Effect::ForwardToUi(UiWidget::CriticalError { component: failed_plugin.clone(), detail: None }),
      Effect::SaveSession,
      Effect::SystemIdle,
    ])`.
 3. If the current state is `ExecutingTools` or `SubRoutine`, return `Some(vec![
      Effect::OverrideTransition(vec![
-       Effect::ForwardToUi { widget_type: "critical_error", payload },
+       Effect::ForwardToUi(UiWidget::CriticalError { component: failed_plugin.clone(), detail: Some(payload.to_string()) }),
        Effect::SaveSession,
        Effect::SystemIdle,
      ]),
@@ -2249,8 +2346,9 @@ pub struct AdaptiveUndoFrameState {
 
 **`commit_hook` algorithm:**
 
-1. Set `active_frame` to `None`. Mutations are kept.
-2. Reset `current_frame_weight` to 0.
+1. Append a `RollbackEvent` to `RollbackEventLog` in `ExtensionStorage` (`was_rollback = false`, `frame_weight = current_frame_weight`).
+2. Set `active_frame` to `None`. Mutations are kept.
+3. Reset `current_frame_weight` to 0.
 
 <br>
 
@@ -2258,14 +2356,15 @@ pub struct AdaptiveUndoFrameState {
 
 1. If `active_frame` is `Some(frame)` and `current_frame_weight < effective_max_cow_bytes` :
    * For each `(type_id, backup)` in the frame, insert the backup into `ext.hot_map`.
-2. Set `active_frame` to `None`.
-3. Reset `current_frame_weight` to 0.
+2. Append a `RollbackEvent` to `RollbackEventLog` in `ExtensionStorage` (`was_rollback = true`, `budget_exceeded = current_frame_weight >= effective_max_cow_bytes`).
+3. Set `active_frame` to `None`.
+4. Reset `current_frame_weight` to 0.
 
 <br>
 
 **Complexity:** O(k) where k = number of actually mutated extensions in the hook and whose cumulative weight is under the effective threshold. Read-only extensions cost zero allocation. Rollback is best-effort: if the adaptive threshold is exceeded, the `PluginFault` is emitted without state restoration.
 
-**Note:** `AdaptiveUndoFrameGuard` is an extension of `UndoFrameGuard` (Section 5.15). It does not modify the kernel's COW mechanism; it only adds consultation of the `CowBudgetPolicy` trait for an adaptive budget. `UndoFrameGuard` remains available with its fixed 64 KB threshold.
+**Note:** `AdaptiveUndoFrameGuard` stores an optional `Box<dyn CowBudgetPolicy>` set via `with_budget_policy()`. When present, `effective_max()` queries the policy for the current hook's budget; otherwise it falls back to the static threshold. This is a structural wiring of the dependency, not a placeholder. The guard appends telemetry events to `RollbackEventLog` for consumption by `RollbackTelemetryEmitter`.
 
 <br>
 
@@ -2502,11 +2601,11 @@ pub struct TieredUndoFrameState {
 
 ### 5.25 RollbackTelemetryEmitter (consumer plugin)
 
-**Objective:** Emit telemetry events when a COW rollback is abandoned due to threshold overrun, without modifying the rollback mechanism.
+**Objective:** Aggregate COW rollback telemetry produced by `CycleRollbackPolicy` implementations, without modifying the rollback mechanism.
 
 <br>
 
-**Positioning:** `RollbackTelemetryEmitter` is a standard plugin that registers on the `on_error` hook and consumes `PluginFault`s emitted by the kernel when a `CycleRollbackPolicy` is active. It emits events to `TelemetryChannel` for observability.
+**Positioning:** `RollbackTelemetryEmitter` is a standard plugin registering on `after_prediction` (`priority = 200`). It consumes `RollbackEventLog` written by `CycleRollbackPolicy` implementations during `commit_hook` and `rollback_hook`.
 
 <br>
 
@@ -2515,24 +2614,32 @@ pub struct TieredUndoFrameState {
 ```rust
 #[derive(BriocheExtensionType)]
 pub struct RollbackTelemetryState {
-    /// Counter of abandoned rollbacks per hook.
-    pub abandoned_rollbacks: BTreeMap<String, u64>, // hook_name -> count
-    /// Last exceeded weight per hook.
-    pub last_exceeded_weight: BTreeMap<String, usize>,
+    /// Total number of abandoned rollbacks (budget exceeded).
+    pub abandoned_count: u64,
+    /// Total number of successful rollbacks.
+    pub restored_count: u64,
+    /// Cumulative weight of abandonments (bytes).
+    pub abandoned_weight_total: u64,
+    /// Per-hook stats: (hook_name, abandonments, restorations).
+    #[brioche(deterministic_order)]
+    pub per_hook_stats: Vec<(String, u64, u64)>,
 }
 ```
 
 <br>
 
-**`on_error` algorithm:**
+**`after_prediction` algorithm:**
 
-1. If the error is a `PluginFault` with `PluginError::Soft` and the context indicates an abandoned rollback increment `RollbackTelemetryState.abandoned_rollbacks[hook_name]`.
-2. Emit an event to `TelemetryChannel` with the reason for the abandoned rollback, the concerned hook, the estimated weight, and the configured threshold.
-3. If `RollbackTelemetryState.abandoned_rollbacks[hook_name]` exceeds a configurable threshold, return `PolicyDecision::RequestEffect(Effect::SavePluginBlob { ... })` to persist the counters.
+1. Steal all events from `RollbackEventLog` (via `std::mem::take`) to avoid double-counting.
+2. For each `RollbackEvent`:
+   * If `was_rollback && budget_exceeded` : increment `abandoned_count`, add `frame_weight` to `abandoned_weight_total`.
+   * If `was_rollback && !budget_exceeded` : increment `restored_count`.
+   * Update `per_hook_stats` via linear scan (n < 20 hooks).
+3. The event log is automatically cleared by the theft.
 
 <br>
 
-**Note:** This plugin does not modify the `CycleRollbackPolicy` mechanics. It is a passive observer that consumes existing `PluginFault`s for telemetry. It can be activated or deactivated without impacting the functional behavior of rollback.
+**Note:** This plugin does not modify the `CycleRollbackPolicy` mechanics. `CycleRollbackPolicy` implementations (e.g., `UndoFrameGuard`, `AdaptiveUndoFrameGuard`, `TieredUndoFrameGuard`) are responsible for appending events to `RollbackEventLog` during `commit_hook` and `rollback_hook`. The emitter is a pure consumer that aggregates and archives.
 
 <br>
 
@@ -2654,6 +2761,9 @@ The shell can call `engine.rebuild_routes(&active_mask)` at any time. The mask (
 
 **Performance invariant:** The `handle_stream_event` loop contains no heap allocation between entry and exit of the hot path for plugins in `Pass` or `Hold` mode. Mutations pass through `Bytes` (ref-counted clone) or through `OffloadTask` (delegation outside the hot path). `HookEffectConstraint` validation is O(1) by bitmask in the hot path.
 
+**Composability trade-off:**
+`BriocheEngine` declares governance traits as individual fields (`epoch_guard`, `subroutine_handler`, etc.) rather than a single `Vec<Box<dyn GovernanceStage>>`. This structural rigidity guarantees compile-time trait safety and zero-cost dispatch at the expense of requiring kernel modifications when new fundamental trait categories are introduced. This is a deliberate choice: fundamental traits are rare and their fixed ordering is a correctness invariant (I-Gov-Traits-Order). Standard plugins remain fully composable via `BriochePlugin` + `UnifiedRoutingTable`.
+
 <br>
 
 ---
@@ -2671,7 +2781,7 @@ The shell can call `engine.rebuild_routes(&active_mask)` at any time. The mask (
 9. **RebuildRoutes guarantee** : if present, guarantee final position; truncate following effects.
 10. **ConsistencyVerifier** : `verify_consistency`. If `Some(effects)` AND `RebuildRoutes` is not present → return. If `RebuildRoutes` is present, the verifier's effects are ignored (I-Comp-Rebuild-Overrides-Consistency).
 10.5. **GovernanceFailoverHandler** (optional) : If the vector contains `PluginFault` targeting a `GovernanceCategory` and no `RebuildRoutes` is present, call `handle_failure`. If `Some(effects)`, replace the raw `PluginFault` (I-Gov-Failover-LastResort).
-11. **CycleRollbackPolicy** : if injected, call `commit_hook()` or `rollback_hook()` according to budget, limited by `max_cow_bytes_per_hook` (or by `CowBudgetPolicy` if `AdaptiveUndoFrameGuard` or `TieredUndoFrameGuard` is injected, I-Gov-CowBudget-Adaptative).
+11. **CycleRollbackPolicy** : if injected, call `commit_hook(ext)` or `rollback_hook(ext)` according to budget, limited by `max_cow_bytes_per_hook` (or by `CowBudgetPolicy` if `AdaptiveUndoFrameGuard` or `TieredUndoFrameGuard` is injected, I-Gov-CowBudget-Adaptative).
 12. Return the accumulated effects.
 
 <br>
@@ -3383,7 +3493,7 @@ The system uses a two-level cache for sub-routines. The shell manipulates only f
 pub struct SubRoutineCache {
     /// Sub-routines currently rendered by the UI (open accordions).
     /// Explicitly managed by the shell. These DTOs are never evicted.
-    l1_visible: HashMap<String, SessionHeadDTO>,
+    l1_visible: BTreeMap<String, SessionHeadDTO>,
     /// Recently used sub-routines, managed by LRU policy.
     l2_lru: LruCache<String, SessionHeadDTO>,
 }
@@ -3505,7 +3615,7 @@ Upon receipt of `Effect::TriggerGc` (emitted by the `GcPolicy` plugin), if the d
 
 ### 1.1 Principle
 
-The kernel never emits Vue components. It merely emits structured instructions (`Effect::ForwardToUi`) containing a widget text identifier (`widget_type`) and a JSON payload. The `UiRegistry` on the frontend maintains a dynamic mapping that resolves the identifier into an asynchronous import of the corresponding component.
+The kernel never emits Vue components. It merely emits structured instructions (`Effect::ForwardToUi(UiWidget)`) carrying a domain-typed `UiWidget` enum variant. The `UiRegistry` on the frontend maintains a dynamic mapping that resolves the variant into an asynchronous import of the corresponding component. The projection layer serializes the structured enum to JSON at the IPC boundary.
 
 <br>
 
@@ -3591,7 +3701,7 @@ pub struct UiComposer {
 }
 
 pub enum EffectPriority {
-    TextChunk,      // ForwardToUi with widget_type "text_chunk" — never dropped
+    TextChunk,      // ForwardToUi(UiWidget::TextChunk) — never dropped
     Navigation,     // Focus, scroll — slides if necessary
     Semantic,       // Accordion expansion, highlight — slides
     Cosmetic,       // Animations, transitions — dropped if 3 frames behind
@@ -3862,7 +3972,7 @@ The kernel never touches `current_watermark`. When a `HistoryCompacted` is proce
 
 ---
 
-#### 1.4.2 ToolResultPolicy
+#### 1.4.2 ToolResultFormatter
 
 **Objective:** Manage the volume of tool results before persistence in history.
 
@@ -3871,9 +3981,18 @@ The kernel never touches `current_watermark`. When a `HistoryCompacted` is proce
 **`on_tool_result` algorithm:**
 
 1. For each `ToolResultDTO` :
-   * If `outcome` is `Success(data)` and `data.len()` exceeds `max_tool_result_size` (configurable, e.g., 50 KB), truncate the content and add an indicator suffix.
-   * Alternatively, if the plugin is configured to summarize, return `PluginError::Soft` and emit a dedicated `Effect::TriggerSummarization` (via `RequestEffect`).
+   * Extract the content from `outcome` (covers `Success`, `BusinessError`, `SystemError`, and `TimeoutWithPartialData`).
+   * If `content.len()` exceeds `max_result_bytes` (configurable, default 65536 bytes), construct a `TruncatedToolResult` domain object:
+     ```rust
+     let meta = TruncatedToolResult::from_content(&content, max_result_bytes);
+     result.outcome = ToolOutcome::Success(meta.to_json());
+     ```
+   * `TruncatedToolResult` replaces hand-rolled JSON `format!()` with a typed, serializable struct, upholding I-Comp-Pure-Logic and I-Comp-Typed-Effects.
 2. Mutations are applied in place on the list.
+
+<br>
+
+**Note:** `ToolResultFormatter` lives in `brioche-governance-default` and is re-exported by `brioche-std` and `brioche-plugin_kit`. There is no duplicate `ToolResultPolicy`; the canonical implementation is `ToolResultFormatter` (CUPID — Unix Philosophy).
 
 <br>
 
@@ -3892,7 +4011,7 @@ The kernel never touches `current_watermark`. When a `HistoryCompacted` is proce
 **`on_tool_result` algorithm:**
 
 1. If a tool returns a result indicating a long task, create an entry in `PendingTaskState.pending`.
-2. Return `PolicyDecision::ForwardToUi { widget_type: "pending_task", payload }`.
+2. Return `PolicyDecision::RequestEffect(Effect::ForwardToUi(UiWidget::PendingTask { task_id, status }))`.
 
 <br>
 
@@ -4279,6 +4398,10 @@ Composition invariants define the interaction rules between governance traits an
 | **I-Comp-Rebuild-Overrides-Consistency** | `ConsistencyVerifier` can never overwrite a `RebuildRoutes`. If `ConsistencyVerifier` returns `Some(effects)` and the accumulated vector already contains `RebuildRoutes`, the verifier's effects are ignored and traced in `SupersededTransitionTraceLog` (reason: `ConsistencyBypassedByRebuild`). |
 | **I-Comp-Rollback-Excludes-Governance** | A `CycleRollbackPolicy` never rolls back mutations performed by fundamental governance traits (`EpochInterceptor`, `SubRoutineHandler`, `ConsistencyVerifier`, `DecisionAggregator`). Only pre-routed hooks of ordinary plugins are monitored. |
 | **I-Comp-Failover-NoOverride** | The `GovernanceFailoverHandler` trait intervenes only if `QuarantineManager` has not processed a governance fault (absence of `RebuildRoutes` with `PluginFault` targeting a `Governance` category). It does not short-circuit fundamental traits nor standard dispatch. |
+| **I-Comp-Atomic-Concern** | Each plugin implements exactly one observable policy concern. A plugin that checks depth limits does not construct UI effects; a plugin that counts tool calls does not format results. Concern separation is enforced by code review. |
+| **I-Comp-Pure-Logic** | Deterministic calculation logic inside hooks is extracted into standalone pure functions. Hooks orchestrate state access; functions compute values. Pure functions are unit-testable without `ExtensionStorage` mocks. |
+| **I-Comp-Typed-Effects** | `Effect` variants carry structured domain types. `ForwardToUi` does not transport opaque `String`/`serde_json::Value` holes where the domain has known widget shapes. The projection layer models UI widgets as structured enums. |
+| **I-Comp-Trait-Capability** | Traits declare capabilities (`EpochInterceptor`, `SubRoutineHandler`), not taxonomies. No supertrait hierarchies, no `BasePlugin` patterns, no inheritance-like coupling. Each trait is a standalone composable unit. |
 
 <br>
 
@@ -4340,7 +4463,7 @@ Composition invariants define the interaction rules between governance traits an
 
 | ID | Invariant |
 |----|-----------|
-| **I-UI-NoUIType** | The kernel never emits specific UI components; only `ForwardToUi` with `widget_type` and JSON payload transit. |
+| **I-UI-NoUIType** | The kernel never emits specific UI components; only structured `ForwardToUi(UiWidget)` effects transit. The projection layer serializes the enum to JSON at the IPC boundary. |
 | **I-UI-NoDirectDOM** | The `UiComposer` never modifies the DOM directly; it works via Vue 3's VDOM synchronized on `requestAnimationFrame`. |
 | **I-UI-StreamBuffer** | The `StreamBuffer` uses a Vue 3 `shallowRef` to accumulate fragments outside granular reactivity, triggering a single render per frame. |
 | **I-UI-IPC-Rate** | The main rendering thread never receives more than one IPC event per frame (16 ms) under normal conditions. |
@@ -4639,7 +4762,7 @@ The following configurations are the only officially supported and CI-tested pro
 | **NegotiationBroker** | Governance plugin implementing `DecisionAggregator` with multi-turn negotiation via `ExtensionStorage`. Max 3 phases. |
 | **TreeDecisionAggregator** | Governance plugin implementing `DecisionAggregator` with conditional decision tree. |
 | **TieredUndoFrameGuard** | Governance plugin implementing `CycleRollbackPolicy` with criticality grading (`Critical`, `Standard`, `BestEffort`). |
-| **RollbackTelemetryEmitter** | Standard plugin consuming `PluginFault` for rollback telemetry. Passive observer. |
+| **RollbackTelemetryEmitter** | Standard plugin consuming `RollbackEventLog` for rollback telemetry. Aggregates abandoned/restored counts and per-hook stats via `RollbackTelemetryState`. |
 | **HistoricalCowBudgetPolicy** | Governance plugin implementing `CowBudgetPolicy` with sliding history and auto-tuning. |
 | **GovernanceProfile** | Configuration abstraction (`Permissive`, `Standard`, `Strict`) of the `brioche-governance-default` crate. |
 | **TransitionJournal** | Shell component persisting each `EngineInput` in lock-free shared memory for post-watchdog replay. |
@@ -4647,6 +4770,16 @@ The following configurations are the only officially supported and CI-tested pro
 | **UnifiedRoutingTable** | Internal kernel routing table unifying fundamental traits and pre-routed hooks. |
 | **brioche-docgen** | Interactive documentation generator from source code. |
 | **cargo-brioche-lint-invariants** | Linter verifying consistency of invariant references in source code. |
+| **UiWidget** | Structured domain enum for `Effect::ForwardToUi`. Replaces stringly-typed widget identifiers with exhaustively matchable variants (PHILOSOPHY.md §7.5, SPECS.md §2.4). |
+| **TruncatedToolResult** | Structured domain object for oversized tool result truncation. Replaces hand-rolled JSON `format!()` with typed serialization, upholding I-Comp-Pure-Logic and I-Comp-Typed-Effects. |
+| **RollbackEventLog** | Extension type written by `CycleRollbackPolicy` implementations during `commit_hook` and `rollback_hook`, consumed by `RollbackTelemetryEmitter`. Decouples telemetry from policy mechanics. |
+| **RollbackEvent** | Single COW rollback event: hook name, rollback vs commit, frame weight, budget exceeded flag. |
+| **TransitionConflictState** | Extension type archiving aggregated `SupersededTransitionTraceLog` data: total conflicts, unique preempted plugins, last preempted plugin. |
+| **HistorySyncDecorator** | Generic `ToolExecutor` decorator synchronizing tool results with the LLM client history mirror. Separates tool execution from LLM history concerns (CUPID — Atomic concern). |
+| **CUPID** | Dan North's framework: Composable, Unix philosophy, Predictable, Idiomatic, Domain-based. Validated by PHILOSOPHY.md §7.1. |
+| **SCIFI** | Jakob Jenkov's compositional design workflow: Split, Connect, Improve, Facilitate, Iterate. Validated by PHILOSOPHY.md §7.2. |
+| **Data-Oriented Design (DOD)** | Design philosophy optimizing for memory layout and cache locality. In Brioche: behavior-free data, pre-computed dispatch, cache-conscious collections. See PHILOSOPHY.md §7.4. |
+| **Atomic concern** | Design rule: each plugin implements exactly one observable policy concern. See PHILOSOPHY.md §7.5 and I-Comp-Atomic-Concern. |
 
 <br>
 
@@ -4700,6 +4833,10 @@ The following configurations are the only officially supported and CI-tested pro
 | 42 | I-Shell-TransitionJournal | The `TransitionJournal` persists each `EngineInput` in lock-free shared memory before `transition()`. It is consulted by the `EngineWatchdog` in case of restart to replay unpersisted transitions. The kernel remains agnostic of this journal (I-Shell-TransitionJournal). |
 | 43 | I-Shell-Persistence-Mode | The `PersistenceMode` (`Async` or `Sync`) is a shell configuration that controls the flush of `SaveSession`. The kernel remains agnostic of this mode (I-Shell-Persistence-Mode). |
 | 44 | I-Gov-Negotiation-Broker | `NegotiationBroker` is an alternative implementation of the `DecisionAggregator` trait. It offers a multi-turn negotiation mechanism (max 3 phases) via `ExtensionStorage` without modifying the trait interface nor the kernel's transition algorithm (I-Gov-Negotiation-Broker). |
+| 45 | I-Comp-Atomic-Concern | Each plugin implements exactly one observable policy concern. A plugin that checks depth limits does not construct UI effects; a plugin that counts tool calls does not format results. Enforced by code review (PHILOSOPHY.md §7.5). |
+| 46 | I-Comp-Pure-Logic | Deterministic calculation logic inside hooks is extracted into standalone pure functions. Hooks orchestrate state access; functions compute values. Pure functions are unit-testable without `ExtensionStorage` mocks (PHILOSOPHY.md §7.5). |
+| 47 | I-Comp-Typed-Effects | `Effect` variants carry structured domain types. `ForwardToUi` does not transport opaque `String`/`serde_json::Value` holes where the domain has known widget shapes. The projection layer models UI widgets as structured enums (PHILOSOPHY.md §7.5). |
+| 48 | I-Comp-Trait-Capability | Traits declare capabilities (`EpochInterceptor`, `SubRoutineHandler`), not taxonomies. No supertrait hierarchies, no `BasePlugin` patterns, no inheritance-like coupling. Each trait is a standalone composable unit (PHILOSOPHY.md §7.5). |
 
 <br>
 

@@ -419,7 +419,7 @@ impl BriocheEngine {
         }
 
         if let Some(r) = rollback.as_mut() {
-            r.commit_hook();
+            r.commit_hook(&mut session.extensions);
         }
 
         self.cycle_rollback_policy = rollback;
@@ -627,8 +627,14 @@ impl BriocheEngine {
             }
         }
 
-        // Mechanical accumulation of tool calls discovered in the stream.
+        // Mechanical accumulation of assistant text and tool calls discovered
+        // in the stream.
         match event {
+            StreamEvent::TextChunk { chunk, .. } => {
+                session
+                    .pending_assistant_text
+                    .push_str(&String::from_utf8_lossy(chunk));
+            }
             StreamEvent::ToolCallStart { id, name, .. } => {
                 let accumulator = session
                     .extensions
@@ -654,6 +660,13 @@ impl BriocheEngine {
                 }
             }
             StreamEvent::ToolCallDone { .. } => {
+                // Persist any assistant text that preceded the tool calls.
+                if !session.pending_assistant_text.is_empty() {
+                    session.history.push(ChatMessage::Assistant {
+                        content: std::mem::take(&mut session.pending_assistant_text),
+                    });
+                }
+
                 // Prediction completes before tool execution.
                 effects.extend(self.eval_after_prediction(session));
 
@@ -684,6 +697,13 @@ impl BriocheEngine {
                 }
             }
             StreamEvent::Done => {
+                // Persist accumulated assistant text before returning to Idle.
+                if !session.pending_assistant_text.is_empty() {
+                    session.history.push(ChatMessage::Assistant {
+                        content: std::mem::take(&mut session.pending_assistant_text),
+                    });
+                }
+
                 // Prediction completes without tool calls.
                 effects.extend(self.eval_after_prediction(session));
 

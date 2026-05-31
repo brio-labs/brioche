@@ -37,21 +37,11 @@ impl GovernanceFailoverHandler for SystemFailoverGuard {
             _ => return Ok(None),
         };
 
-        let mut payload = serde_json::Map::new();
-        payload.insert(
-            "component".to_string(),
-            serde_json::Value::String(plugin_name),
-        );
-        payload.insert(
-            "message".to_string(),
-            serde_json::Value::String("governance component failed; system degraded".into()),
-        );
-
         Ok(Some(vec![
-            Effect::ForwardToUi {
-                widget_type: "critical_error".into(),
-                payload: serde_json::Value::Object(payload),
-            },
+            Effect::ForwardToUi(brioche_core::UiWidget::CriticalError {
+                component: plugin_name,
+                detail: Some("governance component failed; system degraded".into()),
+            }),
             Effect::SaveSession,
             Effect::SystemIdle,
         ]))

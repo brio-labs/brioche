@@ -25,7 +25,6 @@ pub mod context_optimizer;
 pub mod gc_policy;
 pub mod pending_task_manager;
 pub mod token_tracker;
-pub mod tool_result_policy;
 pub mod tool_timeout_policy;
 
 // ---------------------------------------------------------------------------
@@ -40,5 +39,4 @@ pub use pending_task_manager::{
     PendingTaskInfo, PendingTaskManager, PendingTaskState, PendingTaskStatus,
 };
 pub use token_tracker::{TokenTracker, TokenTrackerState};
-pub use tool_result_policy::{ToolResultPolicy, ToolResultPolicyState};
 pub use tool_timeout_policy::{ToolTimeoutPolicy, ToolTimeoutState};

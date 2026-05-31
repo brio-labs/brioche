@@ -8,7 +8,8 @@
 //! Refs: I-Gov-SubRoutineLifecycle-Guard
 
 use brioche_core::{
-    BriochePlugin, EngineInput, ExtensionStorage, PluginCapabilities, PluginResult, PolicyDecision,
+    AgentStateTag, BriochePlugin, EngineInput, ExtensionStorage, PluginCapabilities, PluginResult,
+    PolicyDecision, SessionSnapshot,
 };
 use std::collections::BTreeMap;
 
@@ -31,23 +32,30 @@ pub struct SubRoutineTimerState {
 
 /// Sub-routine timeout policy.
 ///
-/// On `on_input`, verifies if a sub-routine has exceeded its timeout.
-/// If so, emits an `OverrideTransition` to `Idle`.
-pub struct SubRoutineTimeoutPolicy {
-    #[allow(dead_code)]
-    default_timeout_ms: u64,
-}
+/// On `on_input`, verifies if any active sub-routine has exceeded its
+/// timeout limit stored in `SubRoutineTimerState`. Timers are populated
+/// by the shell-side adapter (Sprint 9+); this plugin performs the
+/// policy check only.
+///
+/// Refs: I-Gov-SubRoutineLifecycle-Guard, I-Comp-Pure-Logic
+pub struct SubRoutineTimeoutPolicy;
 
 impl SubRoutineTimeoutPolicy {
-    /// Creates a policy with a default timeout.
-    pub fn with_default_timeout(default_timeout_ms: u64) -> Self {
-        Self { default_timeout_ms }
+    /// Creates a new policy instance.
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Creates a policy with a default timeout (ignored until shell
+    /// adapter populates timers; kept for API compatibility).
+    pub fn with_default_timeout(_default_timeout_ms: u64) -> Self {
+        Self::new()
     }
 }
 
 impl Default for SubRoutineTimeoutPolicy {
     fn default() -> Self {
-        Self::with_default_timeout(300000)
+        Self::new()
     }
 }
 
@@ -64,20 +72,49 @@ impl BriochePlugin for SubRoutineTimeoutPolicy {
         -30 // After epoch, recovery, depth
     }
 
-    /// Prepares the timer state (shell drainage in Sprint 9+).
+    /// Checks active sub-routine timers for expiry.
     ///
     /// # Complexity
-    /// O(log n). One `ExtensionStorage` read.
+    /// O(n) where n = number of tracked timers. Linear scan.
     fn on_input(
         &self,
         _input: &EngineInput,
         ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
-        let _state = ext.get_or_insert_default::<SubRoutineTimerState>();
+        let is_subroutine = {
+            let snapshot = ext.get_or_insert_default::<SessionSnapshot>();
+            snapshot.current_state == AgentStateTag::SubRoutine
+        };
 
-        // Full tick-based timeout logic requires shell-side SystemSignal::Tick
-        // drainage. For Sprint 8, we register the state structure.
-        // The shell adapter will populate timers and check elapsed time.
+        let state = ext.get_or_insert_default::<SubRoutineTimerState>();
+
+        if !is_subroutine {
+            // Not in a sub-routine: clear stale timers to prevent
+            // unbounded growth.
+            state.timers.clear();
+            return Ok(PolicyDecision::Allow);
+        }
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        // Collect expired handles before mutating the map.
+        let expired: Vec<_> = state
+            .timers
+            .iter()
+            .filter(|(_, (start, limit))| now.saturating_sub(*start) > *limit)
+            .map(|(handle, _)| handle.clone())
+            .collect();
+
+        if let Some(handle) = expired.into_iter().next() {
+            state.timers.remove(&handle);
+            return Ok(PolicyDecision::Block {
+                reason: format!("sub-routine {:?} exceeded timeout", handle),
+            });
+        }
+
         Ok(PolicyDecision::Allow)
     }
 }

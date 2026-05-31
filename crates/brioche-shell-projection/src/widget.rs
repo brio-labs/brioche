@@ -1,8 +1,10 @@
 //! Widget type constants — Book III-C §1.2
 //!
-//! Special governance widgets emitted by kernel plugins via
-//! `Effect::ForwardToUi`. These identifiers have predefined semantics
-//! in the frontend and are pre-registered in `UiRegistry`.
+//! Canonical string identifiers for `UiWidget` variants used by the
+//! projection layer and frontend registry. The kernel emits structured
+//! `Effect::ForwardToUi(UiWidget)` effects; the projection layer maps
+//! variants to these strings via `UiWidget::widget_type()` for
+//! frontend resolution. Third-party widgets use `UiWidget::Custom`.
 //!
 //! ## Invariants upheld
 //! - I-UI-NoUIType: These are plain strings, not frontend component types.
