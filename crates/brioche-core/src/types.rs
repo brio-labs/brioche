@@ -544,6 +544,9 @@ impl From<&AgentState> for AgentStateTag {
 /// The kernel injects this before each hook so plugins can observe state
 /// without direct `session.state` access.
 ///
+/// ## Snapshot strategy
+/// COW: full clone (~64 bytes). Lightweight — three scalar fields.
+///
 /// Refs: I-Core-Pure
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 pub struct SessionSnapshot {
@@ -935,6 +938,9 @@ pub struct TransitionTrace {
 
 /// Ring buffer for traceability of applied `OverrideTransition`s (max 128 entries, FIFO).
 ///
+/// ## Snapshot strategy
+/// COW: full clone. Weight ~O(n) where n = entries (max 128).
+///
 /// Refs: I-Gov-OverrideTrace, I-Core-NoPanic
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 #[brioche(critical_state)]
@@ -956,6 +962,9 @@ pub struct SupersededTransitionTrace {
 
 /// Ring buffer of preempted `OverrideTransition`s (max 128 entries, FIFO).
 ///
+/// ## Snapshot strategy
+/// COW: full clone. Weight ~O(n) where n = entries (max 128).
+///
 /// Refs: I-Gov-OverrideTrace
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 #[brioche(critical_state)]
@@ -970,6 +979,9 @@ pub struct SupersededTransitionTraceLog {
 
 /// Epoch state managed by `EpochGuard` (governance) and read by the kernel
 /// for trace logging.
+///
+/// ## Snapshot strategy
+/// COW: full clone (~8 bytes). Single scalar — negligible weight.
 ///
 /// Refs: I-Gov-Epoch-Reject
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
