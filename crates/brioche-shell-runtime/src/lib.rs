@@ -41,7 +41,7 @@ pub use engine_watchdog::{
 pub use llm_client::{LlmClient, MockLlmClient};
 pub use network_recovery::{ExponentialBackoff, NetworkRecovery, NoRetry};
 pub use persistence_mode::PersistenceMode;
-pub use shell::{BriocheShell, ShellConfig, ShellError, StateSnapshot};
+pub use shell::{BriocheShell, SessionCallback, ShellConfig, ShellError, StateSnapshot};
 pub use signal_adapter::{
     AsyncTaskResultAdapter, GovernanceNotificationAdapter, SystemSignalAdapter,
 };

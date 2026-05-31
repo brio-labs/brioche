@@ -243,6 +243,114 @@ fn transition_llm_stream_not_predicting_returns_empty() {
     assert!(effects.is_empty());
 }
 
+#[test]
+fn transition_llm_stream_accumulates_assistant_text() {
+    let mut engine = match BriocheEngineBuilder::new()
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .build()
+    {
+        Ok(e) => e,
+        Err(err) => {
+            assert_eq!(1, 0, "build failed: {}", err);
+            return;
+        }
+    };
+
+    let mut session = Session::new("test");
+    let push_result = session.push_state(AgentState::Predicting { generation_id: 1 });
+    assert!(push_result.is_ok());
+
+    // Simulate streaming: two text chunks then Done.
+    let chunk1 = StreamEvent::TextChunk {
+        path: Default::default(),
+        chunk: bytes::Bytes::from_static(b"Hello "),
+    };
+    let chunk2 = StreamEvent::TextChunk {
+        path: Default::default(),
+        chunk: bytes::Bytes::from_static(b"world"),
+    };
+    let done = StreamEvent::Done;
+
+    let effects1 = engine.transition(&mut session, &EngineInput::LlmStream(chunk1));
+    let effects2 = engine.transition(&mut session, &EngineInput::LlmStream(chunk2));
+    let effects3 = engine.transition(&mut session, &EngineInput::LlmStream(done));
+
+    // No effects from chunks themselves; Done triggers SystemIdle + SaveSession.
+    assert!(effects1.is_empty());
+    assert!(effects2.is_empty());
+    assert!(effects3.iter().any(|e| matches!(e, Effect::SystemIdle)));
+    assert!(effects3.iter().any(|e| matches!(e, Effect::SaveSession)));
+
+    // Buffer should be empty after Done.
+    assert!(session.pending_assistant_text.is_empty());
+
+    // Assistant message should be in history.
+    assert_eq!(session.history.len(), 1);
+    assert!(matches!(
+        &session.history[0],
+        ChatMessage::Assistant { content } if content == "Hello world"
+    ));
+
+    // State should have popped back to Idle.
+    assert!(matches!(session.state, AgentState::Idle));
+}
+
+#[test]
+fn transition_llm_stream_tool_call_done_persists_preceding_text() {
+    let mut engine = match BriocheEngineBuilder::new()
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .with_default_tool_timeout_ms(1000)
+        .build()
+    {
+        Ok(e) => e,
+        Err(err) => {
+            assert_eq!(1, 0, "build failed: {}", err);
+            return;
+        }
+    };
+
+    let mut session = Session::new("test");
+    let push_result = session.push_state(AgentState::Predicting { generation_id: 1 });
+    assert!(push_result.is_ok());
+
+    // Assistant says something, then calls a tool.
+    let text = StreamEvent::TextChunk {
+        path: Default::default(),
+        chunk: bytes::Bytes::from_static(b"Let me check"),
+    };
+    let start = StreamEvent::ToolCallStart {
+        path: Default::default(),
+        id: "tc1".into(),
+        name: "calc".into(),
+    };
+    let done = StreamEvent::ToolCallDone {
+        path: Default::default(),
+    };
+
+    engine.transition(&mut session, &EngineInput::LlmStream(text));
+    engine.transition(&mut session, &EngineInput::LlmStream(start));
+    let effects = engine.transition(&mut session, &EngineInput::LlmStream(done));
+
+    // Preceding text should be persisted as Assistant message.
+    assert_eq!(session.history.len(), 1);
+    assert!(matches!(
+        &session.history[0],
+        ChatMessage::Assistant { content } if content == "Let me check"
+    ));
+
+    // Buffer cleared.
+    assert!(session.pending_assistant_text.is_empty());
+
+    // State transitions to ExecutingTools.
+    assert!(matches!(
+        session.state,
+        AgentState::ExecutingTools { generation_id: 1 }
+    ));
+    assert!(effects.iter().any(|e| matches!(e, Effect::ExecuteTools(_))));
+}
+
 // ---------------------------------------------------------------------------
 // ToolCallsResult dispatch
 // ---------------------------------------------------------------------------
@@ -415,17 +523,9 @@ impl BriochePlugin for OverrideInputPlugin {
         _ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
         Ok(PolicyDecision::OverrideTransition(vec![
-            Effect::ForwardToUi {
-                widget_type: "test".into(),
-                payload: {
-                    let mut map = serde_json::Map::new();
-                    map.insert(
-                        "msg".to_string(),
-                        serde_json::Value::String("overridden".to_string()),
-                    );
-                    serde_json::Value::Object(map)
-                },
-            },
+            Effect::ForwardToUi(brioche_core::UiWidget::Test {
+                msg: "overridden".to_string(),
+            }),
         ]))
     }
 }
@@ -451,7 +551,7 @@ fn transition_override_input_short_circuits() {
     // Should NOT transition to Predicting because on_input short-circuited.
     assert!(matches!(session.state, AgentState::Idle));
     assert!(effects.iter().any(|e| matches!(
-        e, Effect::ForwardToUi { widget_type, .. } if widget_type == "test"
+        e, Effect::ForwardToUi(widget) if widget.widget_type() == "test"
     )));
 }
 
@@ -1191,7 +1291,7 @@ fn transition_with_system_failover_guard_replaces_fault() {
 
     // The failover should have replaced the fault with ForwardToUi + SystemIdle.
     assert!(effects.iter().any(|e| matches!(
-        e, Effect::ForwardToUi { widget_type, .. } if widget_type == "critical_error"
+        e, Effect::ForwardToUi(widget) if widget.widget_type() == "critical_error"
     )));
 }
 

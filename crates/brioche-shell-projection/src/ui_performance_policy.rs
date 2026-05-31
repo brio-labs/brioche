@@ -118,7 +118,7 @@ impl UiPerformancePolicy {
         let mut non_ui = Vec::new();
 
         for effect in effects {
-            if matches!(effect, Effect::ForwardToUi { .. }) {
+            if matches!(effect, Effect::ForwardToUi(_)) {
                 self.composer.enqueue(effect);
             } else {
                 non_ui.push(effect);

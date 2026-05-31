@@ -169,6 +169,7 @@ mod tests {
             },
             ShellConfig::default(),
             executor,
+            None,
         )
     }
 

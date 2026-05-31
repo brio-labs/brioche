@@ -277,7 +277,7 @@ pub trait CycleRollbackPolicy: Send + Sync {
     fn on_mutation(&mut self, type_id: TypeId, vtable: &ExtVTable, current: &dyn Any);
 
     /// Called if the budget is respected — mutations are kept.
-    fn commit_hook(&mut self);
+    fn commit_hook(&mut self, ext: &mut ExtensionStorage);
 
     /// Called if the budget is exceeded — restoration from snapshots.
     fn rollback_hook(&mut self, ext: &mut ExtensionStorage);

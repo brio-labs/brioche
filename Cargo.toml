@@ -16,7 +16,12 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/brio-labs/brioche"
 
 [workspace.dependencies]
+async-trait = "0.1"
+bytes = "1"
 brioche-core = { path = "crates/brioche-core" }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
 brioche-governance = { path = "crates/brioche-governance" }
 brioche-governance-default = { path = "crates/brioche-governance-default" }
 brioche-shell-runtime = { path = "crates/brioche-shell-runtime" }
@@ -27,6 +32,8 @@ brioche-macro = { path = "crates/brioche-macro" }
 brioche-plugin-kit = { path = "crates/brioche-plugin-kit" }
 brioche-docgen = { path = "crates/brioche-docgen" }
 brioche-playground = { path = "crates/brioche-playground" }
+brioche-provider-openai = { path = "crates/brioche-provider-openai" }
+brioche-tools-system = { path = "crates/brioche-tools-system" }
 cargo-brioche-lint-invariants = { path = "crates/cargo-brioche-lint-invariants" }
 cargo-brioche-lint = { path = "crates/cargo-brioche-lint" }
 
