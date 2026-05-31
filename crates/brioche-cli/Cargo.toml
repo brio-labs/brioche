@@ -24,7 +24,7 @@ nu-ansi-term = "0.50"
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 async-trait = { workspace = true }
-clap = { version = "4.6", features = ["derive", "env"] }
+argh = "0.1"
 
 [lints]
 workspace = true
