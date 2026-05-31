@@ -520,6 +520,141 @@ def check_invariant_format() -> CheckResult:
 
 
 # ---------------------------------------------------------------------------
+# 9. Module-level docs (!!) for every crate lib.rs
+#    PHILOSOPHY.md §4.3: Every crate root and module must have a //! block.
+# ---------------------------------------------------------------------------
+
+CRATE_LIB_FILES = [
+    "crates/brioche-core/src/lib.rs",
+    "crates/brioche-docgen/src/lib.rs",
+    "crates/brioche-governance-default/src/lib.rs",
+    "crates/brioche-governance/src/lib.rs",
+    "crates/brioche-macro/src/lib.rs",
+    "crates/brioche-playground/src/lib.rs",
+    "crates/brioche-plugin-kit/src/lib.rs",
+    "crates/brioche-plugin-template/src/lib.rs",
+    "crates/brioche-provider-openai/src/lib.rs",
+    "crates/brioche-shell-persistence/src/lib.rs",
+    "crates/brioche-shell-projection/src/lib.rs",
+    "crates/brioche-shell-runtime/src/lib.rs",
+    "crates/brioche-std/src/lib.rs",
+    "crates/brioche-tools-system/src/lib.rs",
+]
+
+
+def check_module_docs() -> CheckResult:
+    result = CheckResult("Module-level docs (!!)")
+
+    for rel in CRATE_LIB_FILES:
+        path = PROJECT_ROOT / rel
+        if not path.exists():
+            result.add(path, 0, "file does not exist")
+            continue
+
+        content = path.read_text()
+        lines = content.split("\n")
+
+        # Look for a //! block before any non-comment, non-blank, non-attribute line.
+        has_mod_doc = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("//!"):
+                has_mod_doc = True
+                break
+            if stripped == "" or stripped.startswith(("#![", "//")):
+                continue
+            # Reached code / attributes that aren't module docs
+            break
+
+        if not has_mod_doc:
+            result.add(path, 1, "missing `//!` module-level documentation block")
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 10. Session !Send / !Sync marker
+#     SPECS.md §2.1: Session is !Send and !Sync.
+#     Rust stable uses PhantomData<*mut ()> since negative impls are unstable.
+# ---------------------------------------------------------------------------
+
+
+def check_session_send_sync() -> CheckResult:
+    result = CheckResult("Session !Send/!Sync marker")
+    path = PROJECT_ROOT / "crates" / "brioche-core" / "src" / "types.rs"
+
+    if not path.exists():
+        result.add(path, 0, "types.rs not found")
+        return result
+
+    content = path.read_text()
+
+    # Accept either PhantomData<*mut ()> or a field named _not_send_sync / NotSendSync
+    if "PhantomData<*mut ()>" not in content and "_not_send_sync" not in content:
+        result.add(
+            path,
+            1,
+            "Session struct missing `!Send + !Sync` marker (expected PhantomData<*mut ()> "
+            "or `_not_send_sync` field)",
+        )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 11. critical_state annotation on fundamental governance types
+#     SPECS.md §3.2: EpochState, QuarantineState, DepthState, TransitionTraceLog,
+#     SupersededTransitionTraceLog, SubRoutineTimerState, HookEffectConstraintState
+#     must carry #[brioche(critical_state)].
+# ---------------------------------------------------------------------------
+
+FUNDAMENTAL_CRITICAL_TYPES = [
+    "EpochState",
+    "QuarantineState",
+    "DepthState",
+    "TransitionTraceLog",
+    "SupersededTransitionTraceLog",
+    "SubRoutineTimerState",
+    "HookEffectConstraintState",
+]
+
+
+def check_critical_state() -> CheckResult:
+    result = CheckResult("critical_state annotations")
+
+    for rel in INVARIANT_CRATES:
+        crate_src = PROJECT_ROOT / rel
+        if not crate_src.exists():
+            continue
+
+        for path in crate_src.rglob("*.rs"):
+            content = path.read_text()
+            lines = content.split("\n")
+
+            for i, line in enumerate(lines):
+                stripped = line.strip()
+                if not stripped.startswith("pub struct "):
+                    continue
+
+                struct_name = stripped.split()[2]
+                if struct_name not in FUNDAMENTAL_CRITICAL_TYPES:
+                    continue
+
+                # Look back up to 10 lines for #[brioche(critical_state)]
+                window_start = max(0, i - 10)
+                window = "\n".join(lines[window_start:i])
+                if "#[brioche(critical_state)]" not in window:
+                    result.add(
+                        path,
+                        i + 1,
+                        f"`{struct_name}` is a fundamental governance type and must carry "
+                        f"`#[brioche(critical_state)]` (SPECS.md §3.2)",
+                    )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -532,6 +667,9 @@ CHECKS = [
     check_trait_hierarchies,
     check_effect_structure,
     check_invariant_format,
+    check_module_docs,
+    check_session_send_sync,
+    check_critical_state,
 ]
 
 

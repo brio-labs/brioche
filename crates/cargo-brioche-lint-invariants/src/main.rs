@@ -31,9 +31,21 @@ const KNOWN_CATEGORIES: &[&str] = &[
     "I-Eco",
 ];
 
+/// Canonical non-invariant references that are also valid in `Refs:` blocks.
+///
+/// - `SPECS` refers to SPECS.md (the canonical architecture specification).
+/// - `SCIFI` refers to the SCIFI compositional design methodology
+///   (PHILOSOPHY.md §7.2).
+const KNOWN_CANONICAL_REFS: &[&str] = &["SPECS", "SCIFI"];
+
 /// Returns true if `inv` starts with any of the known category prefixes.
 fn has_known_category(inv: &str) -> bool {
     KNOWN_CATEGORIES.iter().any(|cat| inv.starts_with(*cat))
+}
+
+/// Returns true if `inv` is a known canonical non-invariant reference.
+fn is_known_canonical_ref(inv: &str) -> bool {
+    KNOWN_CANONICAL_REFS.contains(&inv)
 }
 
 /// CLI arguments.
@@ -152,7 +164,8 @@ fn check_refs(root: &PathBuf) -> Vec<FileResult> {
                     let inv = inv.trim();
                     let matches_format = invariant_re.is_match(inv);
                     let known_category = has_known_category(inv);
-                    let valid = matches_format && known_category;
+                    let canonical_ref = is_known_canonical_ref(inv);
+                    let valid = (matches_format && known_category) || canonical_ref;
                     refs.push(RefEntry {
                         file: path.display().to_string(),
                         line: line_no + 1,
