@@ -1,22 +1,21 @@
-//! `brioche-cli` — Shell Terminal pour Brioche.
+//! `brioche-cli` — Shell Terminal for Brioche.
 //!
-//! Point d'entrée minimal : parsing des arguments, initialisation de
-//! la persistence, et dispatch vers le mode headless ou interactif.
+//! Minimal entry point: argument parsing, persistence initialization,
+//! and dispatch to headless or interactive mode.
 //!
-//! Toute la logique métier vit dans les modules fils :
-//! - `shell_builder` — construction d'un `BriocheShell` complet
-//! - `headless` — mode non-interactif (une seule commande)
-//! - `interactive` — mode REPL avec multi-session
-//! - `bridge` — routing des messages et commandes slash
-//! - `repl` — lecture bloquante via reedline
-//! - `ui` — rendu terminal
+//! All business logic lives in child modules:
+//! - `shell_builder` — builds a complete `BriocheShell`
+//! - `headless` — non-interactive mode (single command)
+//! - `interactive` — REPL with multi-session support
+//! - `bridge` — message routing and slash commands
+//! - `repl` — blocking read via reedline
+//! - `ui` — terminal rendering
 //!
 //! Refs: SPECS.md §Book III-A, §Book III-C
 
 use std::sync::Arc;
 
 use brioche_shell_persistence::{RedbStorage, new_session_store};
-use clap::Parser;
 
 mod bridge;
 mod config;
@@ -29,36 +28,48 @@ mod ui;
 
 use config::CliConfig;
 
-/// Brioche CLI — Shell Terminal avec LLM et outils système.
-#[derive(Parser, Debug)]
-#[command(name = "brioche-cli")]
-#[command(about = "Interactive shell terminal for Brioche with LLM and system tools")]
-#[command(version)]
+/// Brioche CLI — Shell Terminal with LLM and system tools.
+#[derive(argh::FromArgs, Debug)]
+#[argh(
+    name = "brioche-cli",
+    description = "Interactive shell terminal for Brioche with LLM and system tools"
+)]
 struct Args {
-    /// Clé API pour le provider LLM (override BRIOCHE_API_KEY).
-    #[arg(short, long, env = "BRIOCHE_API_KEY")]
+    /// API key for the LLM provider (overrides BRIOCHE_API_KEY).
+    #[argh(option, short = 'a', long = "api-key")]
     api_key: Option<String>,
 
-    /// Modèle LLM (override BRIOCHE_MODEL, défaut: gpt-4o-mini).
-    #[arg(short, long, env = "BRIOCHE_MODEL")]
+    /// LLM model (overrides BRIOCHE_MODEL, default: gpt-4o-mini).
+    #[argh(option, short = 'm', long = "model")]
     model: Option<String>,
 
-    /// URL de base de l'API (override BRIOCHE_BASE_URL).
-    #[arg(short, long, env = "BRIOCHE_BASE_URL")]
+    /// base URL for the API (overrides BRIOCHE_BASE_URL).
+    #[argh(option, short = 'b', long = "base-url")]
     base_url: Option<String>,
 
-    /// Exécuter un seul prompt en mode non-interactif.
-    #[arg(short, long)]
+    /// run a single prompt in non-interactive mode.
+    #[argh(option, short = 'o', long = "one-shot")]
     one_shot: Option<String>,
 
-    /// Désactiver la confirmation interactive pour les commandes shell.
-    #[arg(long)]
+    /// disable interactive confirmation for shell commands.
+    #[argh(switch, long = "no-confirm")]
     no_confirm: bool,
+
+    /// print version and exit.
+    #[argh(switch, short = 'V', long = "version")]
+    version: bool,
 }
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[tokio::main]
 async fn main() {
-    let args = Args::parse();
+    let args: Args = argh::from_env();
+
+    if args.version {
+        println!("brioche-cli {VERSION}");
+        std::process::exit(0);
+    }
 
     let user_config = config::UserConfig {
         api_key: args.api_key,
@@ -69,14 +80,14 @@ async fn main() {
 
     if cli_config.openai.api_key.is_empty() {
         eprintln!(
-            "{} Aucune clé API configurée.",
+            "{} No API key configured.",
             nu_ansi_term::Color::Yellow.paint("⚠")
         );
-        eprintln!("   Utilisez --api-key, la variable BRIOCHE_API_KEY, ou voyez --help.");
+        eprintln!("   Use --api-key, the BRIOCHE_API_KEY env var, or see --help.");
         std::process::exit(1);
     }
 
-    // Persistence (partagée entre tous les shells).
+    // Persistence (shared across all shells).
     let (redb_storage, session_store) = init_persistence();
 
     if let Some(prompt) = args.one_shot {
@@ -86,7 +97,7 @@ async fn main() {
     }
 }
 
-/// Ouvre (ou crée) la base Redb et retourne le stockage + le store.
+/// Opens (or creates) the Redb database and returns the storage + store.
 fn init_persistence() -> (RedbStorage, brioche_shell_persistence::SessionStore) {
     let data_dir = std::env::var("HOME")
         .map(|h| std::path::PathBuf::from(h).join(".local/share/brioche"))
