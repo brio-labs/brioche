@@ -29,7 +29,7 @@ help: the trait `for<'de> Deserialize<'de>` is not implemented for `BadState`
           and $N others
   = note: required for `BadState` to implement `DeserializeOwned`
 note: required by a bound in `BriocheExtensionType`
- --> $WORKSPACE/crates/brioche-core/src/extension.rs
+ --> $WORKSPACE/crates/kernel/brioche-core/src/extension.rs
   |
   | pub trait BriocheExtensionType:
   |           -------------------- required by a bound in this trait
@@ -61,7 +61,7 @@ help: the trait `Serialize` is not implemented for `BadState`
             (T0, T1, T2, T3, T4)
           and $N others
 note: required by a bound in `BriocheExtensionType`
- --> $WORKSPACE/crates/brioche-core/src/extension.rs
+ --> $WORKSPACE/crates/kernel/brioche-core/src/extension.rs
   |
   | pub trait BriocheExtensionType:
   |           -------------------- required by a bound in this trait
@@ -81,7 +81,7 @@ help: the trait `Default` is not implemented for `BadState`
 6 | pub struct BadState {
   | ^^^^^^^^^^^^^^^^^^^
 note: required by a bound in `BriocheExtensionType`
- --> $WORKSPACE/crates/brioche-core/src/extension.rs
+ --> $WORKSPACE/crates/kernel/brioche-core/src/extension.rs
   |
   | pub trait BriocheExtensionType:
   |           -------------------- required by a bound in this trait
@@ -116,7 +116,7 @@ help: the trait `Default` is not implemented for `BadState`
 6 | pub struct BadState {
   | ^^^^^^^^^^^^^^^^^^^
 note: required by a bound in `EXT_ID`
- --> $WORKSPACE/crates/brioche-core/src/extension.rs
+ --> $WORKSPACE/crates/kernel/brioche-core/src/extension.rs
   |
   |     + Default
   |       ^^^^^^^ required by this bound in `BriocheExtensionType::EXT_ID`
@@ -148,7 +148,7 @@ help: the trait `Serialize` is not implemented for `BadState`
             (T0, T1, T2, T3, T4)
           and $N others
 note: required by a bound in `EXT_ID`
- --> $WORKSPACE/crates/brioche-core/src/extension.rs
+ --> $WORKSPACE/crates/kernel/brioche-core/src/extension.rs
   |
   |     + serde::Serialize
   |       ^^^^^^^^^^^^^^^^ required by this bound in `BriocheExtensionType::EXT_ID`
@@ -179,7 +179,7 @@ help: the trait `for<'de> Deserialize<'de>` is not implemented for `BadState`
           and $N others
   = note: required for `BadState` to implement `DeserializeOwned`
 note: required by a bound in `EXT_ID`
- --> $WORKSPACE/crates/brioche-core/src/extension.rs
+ --> $WORKSPACE/crates/kernel/brioche-core/src/extension.rs
   |
   |     + serde::de::DeserializeOwned
   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `BriocheExtensionType::EXT_ID`

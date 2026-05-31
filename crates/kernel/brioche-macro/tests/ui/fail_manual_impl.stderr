@@ -31,7 +31,7 @@ help: the trait `for<'de> Deserialize<'de>` is not implemented for `EvilState`
           and $N others
   = note: required for `EvilState` to implement `DeserializeOwned`
 note: required by a bound in `BriocheExtensionType`
- --> $WORKSPACE/crates/brioche-core/src/extension.rs
+ --> $WORKSPACE/crates/kernel/brioche-core/src/extension.rs
   |
   | pub trait BriocheExtensionType:
   |           -------------------- required by a bound in this trait
@@ -63,7 +63,7 @@ help: the trait `Serialize` is not implemented for `EvilState`
             (T0, T1, T2, T3, T4)
           and $N others
 note: required by a bound in `BriocheExtensionType`
- --> $WORKSPACE/crates/brioche-core/src/extension.rs
+ --> $WORKSPACE/crates/kernel/brioche-core/src/extension.rs
   |
   | pub trait BriocheExtensionType:
   |           -------------------- required by a bound in this trait
@@ -78,7 +78,7 @@ error[E0277]: the trait bound `EvilState: Default` is not satisfied
   |                               ^^^^^^^^^ the trait `Default` is not implemented for `EvilState`
   |
 note: required by a bound in `BriocheExtensionType`
- --> $WORKSPACE/crates/brioche-core/src/extension.rs
+ --> $WORKSPACE/crates/kernel/brioche-core/src/extension.rs
   |
   | pub trait BriocheExtensionType:
   |           -------------------- required by a bound in this trait
@@ -98,7 +98,7 @@ error[E0277]: the trait bound `EvilState: Clone` is not satisfied
   |                               ^^^^^^^^^ the trait `Clone` is not implemented for `EvilState`
   |
 note: required by a bound in `BriocheExtensionType`
- --> $WORKSPACE/crates/brioche-core/src/extension.rs
+ --> $WORKSPACE/crates/kernel/brioche-core/src/extension.rs
   |
   | pub trait BriocheExtensionType:
   |           -------------------- required by a bound in this trait
@@ -131,7 +131,7 @@ help: the trait `brioche_core::extension::__private::Sealed` is not implemented 
             SupersededTransitionTraceLog
             TransitionTraceLog
 note: required by a bound in `BriocheExtensionType`
- --> $WORKSPACE/crates/brioche-core/src/extension.rs
+ --> $WORKSPACE/crates/kernel/brioche-core/src/extension.rs
   |
   | pub trait BriocheExtensionType:
   |           -------------------- required by a bound in this trait
