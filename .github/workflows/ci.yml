@@ -15,6 +15,9 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  # -------------------------------------------------------------------------
+  # Gate 0 — Fast static checks (run in parallel)
+  # -------------------------------------------------------------------------
   deny:
     runs-on: ubuntu-latest
     steps:
@@ -34,9 +37,19 @@ jobs:
           components: rustfmt
       - run: cargo fmt --check
 
+  # Nightly rustfmt enforces imports_granularity, group_imports,
+  # reorder_impl_items, and format_code_in_doc_comments (PHILOSOPHY.md §3.1).
+  fmt-nightly:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+      - run: cargo fmt --check
+
   clippy:
     runs-on: ubuntu-latest
-    needs: [fmt]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -45,6 +58,49 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo doc --workspace --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
+  # -------------------------------------------------------------------------
+  # Gate 1 — Philosophy & invariant checks (run in parallel with tests)
+  # -------------------------------------------------------------------------
+  philosophy-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build custom lint crates
+        run: |
+          cargo build --package cargo-brioche-lint
+          cargo build --package cargo-brioche-lint-invariants
+
+      - name: "Run cargo-brioche-lint (mechanism vs policy)"
+        run: |
+          # cargo-brioche-lint is designed for plugin crates (policy layer).
+          # brioche-core is the mechanism layer — direct Session field access
+          # there is legitimate kernel code, not a plugin violation.
+          cargo run --package cargo-brioche-lint -- --path crates/brioche-governance
+          cargo run --package cargo-brioche-lint -- --path crates/brioche-plugin-template
+
+      - name: "Run cargo-brioche-lint-invariants (Refs: validation)"
+        run: |
+          cargo run --package cargo-brioche-lint-invariants -- check-refs --root crates/
+
+      - name: Comprehensive philosophy check
+        run: python3 scripts/philosophy-check.py
+
+  # -------------------------------------------------------------------------
+  # Gate 2 — Test matrix (unit, doc, property)
+  # -------------------------------------------------------------------------
   test:
     runs-on: ubuntu-latest
     needs: [clippy, deny]
@@ -63,28 +119,23 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --doc --all-features
 
-  docs:
+  # Property tests with a high case count to surface edge-case failures
+  # that unit tests miss (PHILOSOPHY.md §5.4, SPECS.md Book V Ch.10).
+  proptest:
     runs-on: ubuntu-latest
-    needs: [test]
+    needs: [clippy, deny]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo doc --workspace --no-deps --all-features
+      - name: Run property tests (high volume)
+        run: cargo test --package brioche-core --test property_transition --all-features
         env:
-          RUSTDOCFLAGS: "-D warnings"
+          PROPTEST_CASES: "10000"
 
-  philosophy-check:
-    runs-on: ubuntu-latest
-    needs: [fmt, clippy]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Comprehensive philosophy check
-        run: python3 scripts/philosophy-check.py
-
+  # -------------------------------------------------------------------------
+  # Gate 3 — Build profiles & benchmark smoke tests
+  # -------------------------------------------------------------------------
   profiles:
     runs-on: ubuntu-latest
     needs: [clippy, deny]
@@ -98,6 +149,28 @@ jobs:
       - name: Build with profile ${{ matrix.profile }}
         run: cargo build --workspace --profile ${{ matrix.profile }}
 
+  # Benchmarks assert that hot-path budgets documented in PHILOSOPHY.md are
+  # still met. We at least compile them and run a single iteration as smoke.
+  benchmark-smoke:
+    runs-on: ubuntu-latest
+    needs: [clippy, deny]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Compile benchmarks
+        run: cargo bench --workspace --no-run
+      - name: Smoke-run key benchmarks (minimal sample)
+        run: |
+          # Criterion requires sample-size >= 10. Use minimal warm-up/measurement
+          # to keep CI fast while still verifying the benches execute without panic.
+          cargo bench --package brioche-core --bench extension_lookup -- --sample-size 10 --warm-up-time 1 --measurement-time 1
+          cargo bench --package brioche-core --bench stream_latency -- --sample-size 10 --warm-up-time 1 --measurement-time 1
+          cargo bench --package brioche-core --bench hook_effect_o1 -- --sample-size 10 --warm-up-time 1 --measurement-time 1
+
+  # -------------------------------------------------------------------------
+  # Gate 4 — Security audit
+  # -------------------------------------------------------------------------
   audit:
     runs-on: ubuntu-latest
     needs: [deny]
