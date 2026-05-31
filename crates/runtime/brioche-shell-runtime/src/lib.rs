@@ -38,7 +38,7 @@ pub use effect_executor::{DefaultEffectExecutor, EffectExecutor, NoopPersistence
 pub use engine_watchdog::{
     EngineWatchdog, EngineWatchdogHandle, RecoveryProcedure, WatchdogPing, WatchdogPong,
 };
-pub use llm_client::{LlmClient, MockLlmClient};
+pub use llm_client::{LlmChunk, LlmClient, MockLlmClient};
 pub use network_recovery::{ExponentialBackoff, NetworkRecovery, NoRetry};
 pub use persistence_mode::PersistenceMode;
 pub use shell::{BriocheShell, SessionCallback, ShellConfig, ShellError, StateSnapshot};

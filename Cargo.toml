@@ -1,8 +1,12 @@
 [workspace]
 members = [
-  "crates/*",
-  "crates/cargo-brioche-lint-invariants",
-  "crates/cargo-brioche-lint",
+  "crates/kernel/*",
+  "crates/runtime/*",
+  "crates/providers/*",
+  "crates/tools/*",
+  "crates/ecosystem/*",
+  "crates/apps/*",
+  "crates/infra/*",
 ]
 exclude = ["crates/brioche-plugin-template"]
 resolver = "2"
@@ -18,7 +22,7 @@ repository = "https://github.com/brio-labs/brioche"
 [workspace.dependencies]
 async-trait = "0.1"
 bytes = "1"
-brioche-core = { path = "crates/brioche-core" }
+brioche-core = { path = "crates/kernel/brioche-core" }
 serde_json = "1"
 tokio = { version = "1", features = [
   "rt-multi-thread",
@@ -27,20 +31,21 @@ tokio = { version = "1", features = [
   "time",
 ] }
 tokio-util = { version = "0.7", features = ["rt"] }
-brioche-governance = { path = "crates/brioche-governance" }
-brioche-governance-default = { path = "crates/brioche-governance-default" }
-brioche-shell-runtime = { path = "crates/brioche-shell-runtime" }
-brioche-shell-persistence = { path = "crates/brioche-shell-persistence" }
-brioche-shell-projection = { path = "crates/brioche-shell-projection" }
-brioche-std = { path = "crates/brioche-std" }
-brioche-macro = { path = "crates/brioche-macro" }
-brioche-plugin-kit = { path = "crates/brioche-plugin-kit" }
-brioche-docgen = { path = "crates/brioche-docgen" }
-brioche-playground = { path = "crates/brioche-playground" }
-brioche-provider-openai = { path = "crates/brioche-provider-openai" }
-brioche-tools-system = { path = "crates/brioche-tools-system" }
-cargo-brioche-lint-invariants = { path = "crates/cargo-brioche-lint-invariants" }
-cargo-brioche-lint = { path = "crates/cargo-brioche-lint" }
+brioche-governance = { path = "crates/kernel/brioche-governance" }
+brioche-governance-default = { path = "crates/kernel/brioche-governance-default" }
+brioche-shell-runtime = { path = "crates/runtime/brioche-shell-runtime" }
+brioche-shell-persistence = { path = "crates/runtime/brioche-shell-persistence" }
+brioche-shell-projection = { path = "crates/runtime/brioche-shell-projection" }
+brioche-std = { path = "crates/ecosystem/brioche-std" }
+brioche-macro = { path = "crates/kernel/brioche-macro" }
+brioche-plugin-kit = { path = "crates/ecosystem/brioche-plugin-kit" }
+brioche-docgen = { path = "crates/ecosystem/brioche-docgen" }
+brioche-playground = { path = "crates/ecosystem/brioche-playground" }
+brioche-provider-openai = { path = "crates/providers/brioche-provider-openai" }
+brioche-tools-system = { path = "crates/tools/brioche-tools-system" }
+brioche-reedline = { path = "crates/infra/brioche-reedline" }
+cargo-brioche-lint-invariants = { path = "crates/infra/cargo-brioche-lint-invariants" }
+cargo-brioche-lint = { path = "crates/infra/cargo-brioche-lint" }
 
 [workspace.lints.clippy]
 unwrap_used = "deny"

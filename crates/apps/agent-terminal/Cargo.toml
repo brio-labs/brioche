@@ -1,20 +1,21 @@
 [package]
-name = "brioche-cli"
+name = "agent-terminal"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Interactive REPL for Brioche using reedline"
+description = "Minimal terminal agent for Brioche"
 
 [[bin]]
-name = "brioche-cli"
+name = "agent-terminal"
 path = "src/main.rs"
 
 [dependencies]
 brioche-core = { workspace = true }
 brioche-plugin-kit = { workspace = true }
+brioche-reedline = { workspace = true }
 brioche-shell-runtime = { workspace = true }
 brioche-shell-persistence = { workspace = true }
 brioche-provider-openai = { workspace = true }

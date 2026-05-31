@@ -7,20 +7,21 @@
 //! Utilise `reedline::ExternalPrinter` pour permettre au bridge async
 //! d'afficher des messages sans corrompre le prompt reedline.
 //!
-//! Le REPL gère `/quit` et `/q` directement (ne les envoie pas au
-//! bridge) pour garantir une sortie immédiate.
-//!
 //! Refs: I-Shell-Runtime-OnlyIO
 
 use reedline::{
     Completer, DefaultHinter, DefaultPrompt, DefaultValidator, ExternalPrinter, FileBackedHistory,
     Reedline, Signal, Span, Suggestion,
 };
+use tokio_util::sync::CancellationToken;
 
-/// Compléteur custom pour le CLI Brioche.
-struct BriocheCompleter;
+/// Compléteur de base pour les agents terminal Brioche.
+///
+/// Complète les commandes slash (`/help`, `/quit`, `/session`…) et
+/// les chemins de fichiers.
+pub struct BasicCompleter;
 
-impl BriocheCompleter {
+impl BasicCompleter {
     fn complete_slash(line: &str, pos: usize) -> Vec<Suggestion> {
         let commands = [
             ("/help", "Afficher l'aide"),
@@ -81,7 +82,7 @@ impl BriocheCompleter {
     }
 }
 
-impl Completer for BriocheCompleter {
+impl Completer for BasicCompleter {
     fn complete(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
         let prefix = &line[..pos];
 
@@ -109,20 +110,32 @@ impl Completer for BriocheCompleter {
 ///
 /// `cancel` est utilisé pour signaler au bridge et à la UI
 /// que le programme doit se terminer.
+///
+/// `completer` est optionnel — si fourni, il sera utilisé pour la
+/// complétion dans le REPL. Par défaut, `BasicCompleter` est utilisé.
+///
+/// `history_path` est optionnel — si fourni, l'historique reedline
+/// sera persisté dans ce fichier.
 pub fn run(
     input_tx: tokio::sync::mpsc::Sender<String>,
     printer: ExternalPrinter<String>,
-    cancel: tokio_util::sync::CancellationToken,
+    cancel: CancellationToken,
+    completer: Option<Box<dyn reedline::Completer>>,
+    history_path: Option<std::path::PathBuf>,
 ) {
-    let history: Box<dyn reedline::History> =
-        match FileBackedHistory::with_file(1000, "/tmp/brioche-cli-history.txt".into()) {
+    let history: Box<dyn reedline::History> = match history_path {
+        Some(path) => match FileBackedHistory::with_file(1000, path) {
             Ok(h) => Box::new(h),
             Err(_) => Box::new(
                 FileBackedHistory::new(1000).unwrap_or_else(|_| FileBackedHistory::default()),
             ),
-        };
+        },
+        None => {
+            Box::new(FileBackedHistory::new(1000).unwrap_or_else(|_| FileBackedHistory::default()))
+        }
+    };
 
-    let completer = Box::new(BriocheCompleter);
+    let completer = completer.unwrap_or_else(|| Box::new(BasicCompleter));
 
     let mut reedline = Reedline::create()
         .with_history(history)
