@@ -76,29 +76,14 @@ jobs:
 
   philosophy-check:
     runs-on: ubuntu-latest
-    needs: [fmt]
+    needs: [fmt, clippy]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build docs (deny missing docs)
-        run: cargo doc --workspace --no-deps --all-features
-        env:
-          RUSTDOCFLAGS: "-D warnings"
-
-      - name: Check invariant references format
-        run: |
-          ! grep -rn "^\s*///.*I-[A-Z]" --include="*.rs" crates/ | \
-            grep -v "Refs:"
-
-      - name: Check for forbidden words in Core
-        run: |
-          ! grep -rE "unwrap\(\)|expect\(" crates/brioche-core/src/
-          ! grep -r "panic!" crates/brioche-core/src/
-
-      - name: Check hot-path documentation
-        run: python3 scripts/check_hotpath_docs.py
+      - name: Comprehensive philosophy check
+        run: python3 scripts/philosophy-check.py
 
   profiles:
     runs-on: ubuntu-latest
