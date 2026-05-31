@@ -408,7 +408,113 @@ impl BriochePlugin for RateLimiter {
 
 ---
 
-## 7. Summary: The Non-Negotiables
+## 7. Compositional Design Canon: CUPID, SCIFI, Functional Programming, and Data-Oriented Design
+
+Brioche's rejection of SOLID is not an absence of philosophy—it is an affirmative choice for a different family of principles. The following methodologies provide the theoretical foundation that validates our architectural decisions and keeps the codebase simple, maintainable, and auditable.
+
+---
+
+### 7.1 CUPID: The Properties of Joyful Code
+
+Dan North's CUPID framework defines five properties that make code *maintainable* without rigid rules. Brioche maps each property to an architectural commitment:
+
+| CUPID Property | Brioche Manifestation |
+|----------------|----------------------|
+| **Composable** | `BriochePlugin` trait + `UnifiedRoutingTable`. Plugins assemble without structural coupling. Traits are capabilities, not taxonomies. |
+| **Unix philosophy** | Mechanism vs Policy separation. Each plugin does one thing (`EpochGuard`, `DepthGuard`, `QuarantineManager`). No plugin builds UI JSON *and* checks depth limits. |
+| **Predictable** | Determinism by design: `BTreeMap`, no `rand`, no `Instant::now()` in Core. Effects are explicit. Two identical inputs always produce identical outputs. |
+| **Idiomatic** | Sealed traits, proc-macros, exhaustive `match`, `Result` for errors—native Rust patterns. No OOP-in-Rust cargo culting. |
+| **Domain-based** | `AgentState`, `EngineInput`, `Effect`—names directly model the LLM orchestration domain. The code reads like the spec. |
+
+### 7.2 SCIFI: Compositional Design as Methodology
+
+Jakob Jenkov's SCIFI principles provide an operational workflow for composition-driven design. Brioche follows them explicitly:
+
+1. **Split** — Divide responsibilities into small, independent units. Each governance plugin is a single observable concern. `ToolCallDetector` only counts; `ToolResultFormatter` only formats.
+2. **Connect** — Wire units through explicit interfaces. `BriocheEngine` + `UnifiedRoutingTable` connect plugins without them knowing each other exist.
+3. **Improve** — Refine interfaces until they are self-documenting. `PluginCapabilities` evolved from a runtime bitmask check into pre-routed indices (I-Core-StreamNoBranch).
+4. **Facilitate** — Provide façades for common operations. `BriocheEngineBuilder` is the façade; governance profiles (`Permissive`, `Standard`, `Strict`) are pre-configured façades.
+5. **Iterate** — Governance plugins are swapped without kernel changes. New safety policies are added via composition, never by modifying mechanism code.
+
+### 7.3 Functional Programming: Data and Behavior Separation
+
+Functional Programming eliminates inheritance by separating state from behavior. Brioche applies this at the architectural level:
+
+- **State is data.** `AgentState`, `Session`, `ExtensionStorage` contain no logic. They are containers shaped by ADTs.
+- **Behavior is functions.** Plugins are pure functions from `(input, state)` to `(decision, effects)`. The only "mutation" is explicit `&mut ExtensionStorage`.
+- **Effects are values.** `Vec<Effect>` is a data structure describing intent, not an action. The shell interprets it.
+- **No hidden I/O.** Every side effect is named, typed, and returned. There are no `async fn` in Core, no background threads, no implicit logging.
+
+### 7.4 Data-Oriented Design: Layout First, Logic Second
+
+Data-Oriented Design (DOD) optimizes for memory layout and cache locality. In Brioche:
+
+- **Entities are identifiers.** A `Session` is an ID that collects components (`AgentState`, `ExtensionStorage`, `history`). Systems (plugins) process them independently.
+- **Behavior-free data.** `BriocheExtensionType` types carry no methods. They are plain data structs processed by plugin systems.
+- **Cache-conscious access.** `ExtensionStorage` uses `BTreeMap` (tree of contiguous nodes) rather than `HashMap` (pointer-chasing buckets). For *n* < 20 registered types, tree traversal is cache-friendlier than hash indirection.
+- **Pre-computed dispatch.** `UnifiedRoutingTable` resolves plugin routes at init time, eliminating hot-path branching and vtable traversal.
+
+### 7.5 Design Rules Derived from the Canon
+
+The following rules operationalize CUPID/SCIFI/FP/DOD for day-to-day Brioche development. Violations block CI.
+
+#### Rule: One Concern Per Plugin (Unix Philosophy)
+A plugin must do exactly one observable thing. If you find yourself writing "and" in the plugin's doc comment, split it.
+
+```rust
+// BAD: DepthGuard calculates depth AND builds UI effects AND formats error JSON
+// GOOD: DepthGuard calculates depth and returns PolicyDecision::Block
+//       The UI projection layer handles rendering ErrorCode::StateInconsistency
+```
+
+#### Rule: Extract Pure Functions from Hooks (FP)
+Move deterministic calculation logic out of hook methods into standalone pure functions. This makes the logic unit-testable without `ExtensionStorage` mocks.
+
+```rust
+// GOOD: Pure function, testable without mocks
+fn calculate_depth(stack_depth: u64, current_state: AgentStateTag) -> u64 {
+    if current_state == AgentStateTag::SubRoutine { stack_depth + 1 } else { stack_depth }
+}
+
+// In the hook:
+let depth = calculate_depth(snapshot.state_stack_depth, snapshot.current_state);
+```
+
+#### Rule: No Stringly-Typed Holes in Effect (Domain-Based)
+`Effect` variants must carry structured data, not `String` or `serde_json::Value` umbrellas. If the domain has known widget types, model them as an enum.
+
+```rust
+// BAD: Untyped payload — the compiler cannot help you audit this
+Effect::ForwardToUi { widget_type: String, payload: serde_json::Value }
+
+// GOOD: Structured, exhaustively matchable — the compiler is your auditor
+Effect::ForwardToUi(UiWidget::Error { code: String, message: String })
+```
+
+#### Rule: Traits Are Capabilities, Not Taxonomies (Composable)
+A trait must declare "I can do X," never "I am a Y." No supertrait hierarchies. No `BasePlugin`.
+
+```rust
+// BAD: Taxonomy trait — creates inheritance coupling
+trait GovernancePlugin: BriochePlugin { ... }
+
+// GOOD: Capability trait — standalone, composable
+trait EpochInterceptor: Send + Sync { ... }
+```
+
+#### Rule: Document the Data Layout (DOD)
+When adding a new `BriocheExtensionType`, document its memory footprint and snapshot strategy. The reviewer must verify cache friendliness.
+
+```rust
+/// COW snapshot strategy: FullClone (< 256 bytes).
+/// Estimated weight: 128 bytes (two BTreeMaps, typically < 10 entries each).
+#[derive(BriocheExtensionType)]
+pub struct QuarantineState { ... }
+```
+
+---
+
+## 8. Summary: The Non-Negotiables
 
 | Rule | Enforcement |
 |------|-------------|
@@ -420,5 +526,10 @@ impl BriochePlugin for RateLimiter {
 | **Hot paths document complexity.** | PR checklist + `scripts/check_hotpath_docs.py` |
 | **Mechanism vs Policy separation.** | Human review + ADR requirement |
 | **Determinism by design, not by test.** | `proptest` + replay tests + `HashMap` ban |
+| **One concern per plugin.** No plugin does two observable things. | Code review + PHILOSOPHY.md §7.5 |
+| **Extract pure functions from hooks.** Testable without mocks. | Code review + unit-test gate |
+| **No stringly-typed holes in `Effect`.** Structured payloads only. | Compiler + code review |
+| **Traits are capabilities, not taxonomies.** No supertrait hierarchies. | Compiler + code review |
+| **Document data layout.** Memory footprint and snapshot strategy. | Code review + `scripts/check_hotpath_docs.py` |
 
 This philosophy is not a suggestion. It is the **immune system** of the codebase. Violate it, and the architecture rots. Enforce it, and the compiler becomes your strictest, most reliable collaborator.

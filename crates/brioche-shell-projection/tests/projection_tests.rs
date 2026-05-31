@@ -28,24 +28,11 @@ fn empty_payload() -> serde_json::Value {
     serde_json::Value::Object(serde_json::Map::new())
 }
 
-fn text_chunk_payload(trace_id: &str, text: &str) -> serde_json::Value {
-    let mut map = serde_json::Map::new();
-    map.insert(
-        "trace_id".to_string(),
-        serde_json::Value::String(trace_id.to_string()),
-    );
-    map.insert(
-        "text".to_string(),
-        serde_json::Value::String(text.to_string()),
-    );
-    serde_json::Value::Object(map)
-}
-
 fn make_text_chunk_effect(trace_id: &str, text: &str) -> Effect {
-    Effect::ForwardToUi {
-        widget_type: WIDGET_TEXT_CHUNK.to_string(),
-        payload: text_chunk_payload(trace_id, text),
-    }
+    Effect::ForwardToUi(brioche_core::UiWidget::TextChunk {
+        trace_id: trace_id.to_string(),
+        text: text.to_string(),
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -187,17 +174,7 @@ fn content_renderer_consumes_text_chunk() {
 #[test]
 fn content_renderer_ignores_non_text_chunk() {
     let mut renderer = ContentRenderer::new();
-    let effect = Effect::ForwardToUi {
-        widget_type: WIDGET_STATUS.to_string(),
-        payload: {
-            let mut map = serde_json::Map::new();
-            map.insert(
-                "msg".to_string(),
-                serde_json::Value::String("ok".to_string()),
-            );
-            serde_json::Value::Object(map)
-        },
-    };
+    let effect = Effect::ForwardToUi(brioche_core::UiWidget::Status("ok".to_string()));
     assert!(!renderer.process_effect(&effect));
     assert!(renderer.buffer().is_empty());
 }
@@ -260,10 +237,10 @@ fn ui_composer_ignores_non_forward_to_ui() {
 #[test]
 fn ui_composer_enqueues_forward_to_ui() {
     let mut composer = UiComposer::new();
-    composer.enqueue(Effect::ForwardToUi {
-        widget_type: WIDGET_TEXT_CHUNK.to_string(),
-        payload: empty_payload(),
-    });
+    composer.enqueue(Effect::ForwardToUi(brioche_core::UiWidget::TextChunk {
+        trace_id: "default".to_string(),
+        text: String::new(),
+    }));
     assert_eq!(composer.pending_count(), 1);
 }
 
@@ -271,14 +248,10 @@ fn ui_composer_enqueues_forward_to_ui() {
 fn ui_composer_text_chunk_never_dropped() {
     let mut composer = UiComposer::with_budget(0); // impossible budget
     for i in 0..10 {
-        composer.enqueue(Effect::ForwardToUi {
-            widget_type: WIDGET_TEXT_CHUNK.to_string(),
-            payload: {
-                let mut map = serde_json::Map::new();
-                map.insert("i".to_string(), serde_json::Value::Number(i.into()));
-                serde_json::Value::Object(map)
-            },
-        });
+        composer.enqueue(Effect::ForwardToUi(brioche_core::UiWidget::TextChunk {
+            trace_id: "default".to_string(),
+            text: i.to_string(),
+        }));
     }
     let frame = composer.compose_frame();
     assert_eq!(frame.len(), 10, "text chunks must never be dropped");
@@ -288,10 +261,10 @@ fn ui_composer_text_chunk_never_dropped() {
 fn ui_composer_cosmetic_dropped_after_3_frames() {
     let mut composer = UiComposer::with_budget(0);
     for _ in 0..4 {
-        composer.enqueue(Effect::ForwardToUi {
+        composer.enqueue(Effect::ForwardToUi(brioche_core::UiWidget::Custom {
             widget_type: "animation".to_string(),
             payload: empty_payload(),
-        });
+        }));
     }
 
     // With budget 0, cosmetic effects (cost 3) never fit, so they age each frame.
@@ -316,26 +289,26 @@ fn ui_composer_cosmetic_dropped_after_3_frames() {
 #[test]
 fn ui_composer_priority_ordering() {
     let mut composer = UiComposer::with_budget(10);
-    composer.enqueue(Effect::ForwardToUi {
+    composer.enqueue(Effect::ForwardToUi(brioche_core::UiWidget::Custom {
         widget_type: "animation".to_string(),
         payload: empty_payload(),
-    });
-    composer.enqueue(Effect::ForwardToUi {
-        widget_type: WIDGET_TEXT_CHUNK.to_string(),
-        payload: empty_payload(),
-    });
-    composer.enqueue(Effect::ForwardToUi {
+    }));
+    composer.enqueue(Effect::ForwardToUi(brioche_core::UiWidget::TextChunk {
+        trace_id: "default".to_string(),
+        text: String::new(),
+    }));
+    composer.enqueue(Effect::ForwardToUi(brioche_core::UiWidget::Custom {
         widget_type: "focus".to_string(),
         payload: empty_payload(),
-    });
+    }));
 
     let frame = composer.compose_frame();
     assert_eq!(frame.len(), 3);
 
     // First effect must be text chunk (highest priority).
     match &frame[0] {
-        Effect::ForwardToUi { widget_type, .. } => {
-            assert_eq!(widget_type, WIDGET_TEXT_CHUNK);
+        Effect::ForwardToUi(widget) => {
+            assert_eq!(widget.widget_type(), WIDGET_TEXT_CHUNK);
         }
         _ => unreachable!("expected ForwardToUi"),
     }
@@ -344,10 +317,10 @@ fn ui_composer_priority_ordering() {
 #[test]
 fn ui_composer_clear_empties_pending() {
     let mut composer = UiComposer::new();
-    composer.enqueue(Effect::ForwardToUi {
-        widget_type: WIDGET_TEXT_CHUNK.to_string(),
-        payload: empty_payload(),
-    });
+    composer.enqueue(Effect::ForwardToUi(brioche_core::UiWidget::TextChunk {
+        trace_id: "default".to_string(),
+        text: String::new(),
+    }));
     composer.clear();
     assert_eq!(composer.pending_count(), 0);
 }
@@ -408,10 +381,10 @@ fn ui_performance_policy_process_effects_separates_ui_and_non_ui() {
     let mut policy = UiPerformancePolicy::new();
     let effects = vec![
         Effect::SaveSession,
-        Effect::ForwardToUi {
-            widget_type: WIDGET_TEXT_CHUNK.to_string(),
-            payload: text_chunk_payload("t1", "hi"),
-        },
+        Effect::ForwardToUi(brioche_core::UiWidget::TextChunk {
+            trace_id: "t1".to_string(),
+            text: "hi".to_string(),
+        }),
         Effect::TriggerGc,
     ];
 
@@ -419,11 +392,7 @@ fn ui_performance_policy_process_effects_separates_ui_and_non_ui() {
     // Non-UI effects pass through first.
     assert!(frame.iter().any(|e| matches!(e, Effect::SaveSession)));
     assert!(frame.iter().any(|e| matches!(e, Effect::TriggerGc)));
-    assert!(
-        frame
-            .iter()
-            .any(|e| matches!(e, Effect::ForwardToUi { .. }))
-    );
+    assert!(frame.iter().any(|e| matches!(e, Effect::ForwardToUi(_))));
 }
 
 #[test]
@@ -437,10 +406,10 @@ fn ui_performance_policy_set_frame_budget_directly() {
 fn ui_performance_policy_has_pending_tracks_composer() {
     let mut policy = UiPerformancePolicy::new();
     assert!(!policy.has_pending());
-    policy.process_effects(vec![Effect::ForwardToUi {
+    policy.process_effects(vec![Effect::ForwardToUi(brioche_core::UiWidget::Custom {
         widget_type: "animation".to_string(),
         payload: empty_payload(),
-    }]);
+    })]);
     assert!(policy.has_pending());
 }
 
@@ -475,14 +444,15 @@ fn end_to_end_stream_accumulation_and_composition() {
 #[test]
 fn special_widget_maps_to_semantic_priority() {
     let mut composer = UiComposer::with_budget(10);
-    composer.enqueue(Effect::ForwardToUi {
-        widget_type: WIDGET_SYSTEM_DEGRADED.to_string(),
-        payload: empty_payload(),
-    });
-    composer.enqueue(Effect::ForwardToUi {
+    composer.enqueue(Effect::ForwardToUi(
+        brioche_core::UiWidget::SystemDegraded {
+            plugin: "test".to_string(),
+        },
+    ));
+    composer.enqueue(Effect::ForwardToUi(brioche_core::UiWidget::Custom {
         widget_type: "animation".to_string(),
         payload: empty_payload(),
-    });
+    }));
 
     let frame = composer.compose_frame();
     assert_eq!(frame.len(), 2);
@@ -490,8 +460,8 @@ fn special_widget_maps_to_semantic_priority() {
     // Special governance widgets are semantic priority; cosmetic is lowest.
     // Both should fit within budget 10 (semantic cost 2 + cosmetic cost 3 = 5 <= 10).
     match &frame[0] {
-        Effect::ForwardToUi { widget_type, .. } => {
-            assert_eq!(widget_type, WIDGET_SYSTEM_DEGRADED);
+        Effect::ForwardToUi(widget) => {
+            assert_eq!(widget.widget_type(), WIDGET_SYSTEM_DEGRADED);
         }
         _ => unreachable!("expected ForwardToUi"),
     }

@@ -102,13 +102,21 @@ impl CycleRollbackPolicy for UndoFrameGuard {
         self.snapshotted_types.insert(type_id);
     }
 
-    fn commit_hook(&mut self) {
+    fn commit_hook(&mut self, ext: &mut ExtensionStorage) {
+        let log = ext.get_or_insert_default::<brioche_core::RollbackEventLog>();
+        log.events.push(brioche_core::RollbackEvent {
+            hook_name: String::new(),
+            was_rollback: false,
+            frame_weight: self.current_frame_weight,
+            budget_exceeded: self.current_frame_weight >= self.max_cow_bytes_per_hook,
+        });
         self.active_frame = None;
         self.current_frame_weight = 0;
         self.snapshotted_types.clear();
     }
 
     fn rollback_hook(&mut self, ext: &mut ExtensionStorage) {
+        let budget_exceeded = self.current_frame_weight >= self.max_cow_bytes_per_hook;
         if self.current_frame_weight < self.max_cow_bytes_per_hook
             && let Some(frame) = self.active_frame.take()
         {
@@ -116,6 +124,13 @@ impl CycleRollbackPolicy for UndoFrameGuard {
                 ext.restore_boxed(type_id, backup);
             }
         }
+        let log = ext.get_or_insert_default::<brioche_core::RollbackEventLog>();
+        log.events.push(brioche_core::RollbackEvent {
+            hook_name: String::new(),
+            was_rollback: true,
+            frame_weight: self.current_frame_weight,
+            budget_exceeded,
+        });
         self.active_frame = None;
         self.current_frame_weight = 0;
         self.snapshotted_types.clear();

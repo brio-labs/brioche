@@ -60,6 +60,22 @@ impl From<&AgentState> for FlattenedAgentState {
     }
 }
 
+impl From<FlattenedAgentState> for AgentState {
+    fn from(state: FlattenedAgentState) -> Self {
+        match state {
+            FlattenedAgentState::Idle => Self::Idle,
+            FlattenedAgentState::Predicting { generation_id } => Self::Predicting { generation_id },
+            FlattenedAgentState::ExecutingTools { generation_id } => {
+                Self::ExecutingTools { generation_id }
+            }
+            FlattenedAgentState::SubRoutine(handle) => {
+                Self::SubRoutine(brioche_core::SubRoutineHandle::new(handle))
+            }
+            FlattenedAgentState::Failure => Self::Failure,
+        }
+    }
+}
+
 /// Session head DTO — the unit of atomic persistence.
 ///
 /// Contains everything needed to reconstruct a `Session` except the
@@ -116,5 +132,21 @@ impl SessionHeadDTO {
             persisted_msg_count: session.persisted_msg_count,
             compaction_index: 0,
         }
+    }
+
+    /// Reconstruct a live `Session` from the DTO and a message history.
+    ///
+    /// The session is created in memory and can be passed to
+    /// `BriocheEngine::transition()` directly.
+    ///
+    /// Refs: I-Persist-Idempotence
+    pub fn to_session(&self, history: Vec<brioche_core::ChatMessage>) -> brioche_core::Session {
+        use brioche_core::Session;
+        let mut session = Session::new(&self.id);
+        session.history = history;
+        session.persisted_msg_count = self.persisted_msg_count;
+        session.state = self.state.clone().into();
+        session.state_stack = self.state_stack.iter().cloned().map(Into::into).collect();
+        session
     }
 }

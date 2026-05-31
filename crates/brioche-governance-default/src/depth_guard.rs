@@ -50,6 +50,20 @@ impl Default for DepthGuard {
     }
 }
 
+/// Pure function: calculates the effective sub-routine nesting depth.
+///
+/// Hooks orchestrate; functions compute. This is unit-testable without
+/// `ExtensionStorage` mocks.
+///
+/// Refs: I-Comp-Pure-Logic
+pub fn calculate_depth(stack_depth: usize, current_state: AgentStateTag) -> u64 {
+    if current_state == AgentStateTag::SubRoutine {
+        stack_depth as u64 + 1
+    } else {
+        stack_depth as u64
+    }
+}
+
 impl BriochePlugin for DepthGuard {
     fn name(&self) -> &'static str {
         "depth_guard"
@@ -78,14 +92,7 @@ impl BriochePlugin for DepthGuard {
         }
 
         let snapshot = ext.get_or_insert_default::<SessionSnapshot>();
-        let stack_depth = snapshot.state_stack_depth as u64;
-
-        // SubRoutine state itself contributes +1 to perceived depth.
-        let current_depth = if snapshot.current_state == AgentStateTag::SubRoutine {
-            stack_depth + 1
-        } else {
-            stack_depth
-        };
+        let current_depth = calculate_depth(snapshot.state_stack_depth, snapshot.current_state);
 
         let state = ext.get_or_insert_default::<DepthState>();
         state.max_depth = self.max_depth;
@@ -100,25 +107,13 @@ impl BriochePlugin for DepthGuard {
                         current_depth, self.max_depth
                     ),
                 },
-                Effect::ForwardToUi {
-                    widget_type: "error".into(),
-                    payload: {
-                        let mut map = serde_json::Map::new();
-                        map.insert(
-                            "code".to_string(),
-                            serde_json::Value::String("DEPTH_LIMIT_EXCEEDED".into()),
-                        );
-                        map.insert(
-                            "depth".to_string(),
-                            serde_json::Value::Number(current_depth.into()),
-                        );
-                        map.insert(
-                            "max".to_string(),
-                            serde_json::Value::Number(self.max_depth.into()),
-                        );
-                        serde_json::Value::Object(map)
-                    },
-                },
+                Effect::ForwardToUi(brioche_core::UiWidget::Error {
+                    code: "DEPTH_LIMIT_EXCEEDED".into(),
+                    message: format!(
+                        "sub-routine depth limit exceeded: {} >= {}",
+                        current_depth, self.max_depth
+                    ),
+                }),
                 Effect::SystemIdle,
             ]));
         }

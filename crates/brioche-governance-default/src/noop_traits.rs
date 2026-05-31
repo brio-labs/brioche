@@ -77,7 +77,7 @@ impl CycleRollbackPolicy for NoopCycleRollbackPolicy {
     ) {
     }
 
-    fn commit_hook(&mut self) {}
+    fn commit_hook(&mut self, _ext: &mut ExtensionStorage) {}
 
     fn rollback_hook(&mut self, _ext: &mut ExtensionStorage) {}
 }

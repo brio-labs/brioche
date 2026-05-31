@@ -2,17 +2,16 @@
 //!
 //! Manages delegation and resolution of sub-routines via `SessionRegistry`.
 //!
-//! # Known limitation
-//! The `SubRoutineHandler` trait receives the mutable `child` but not the engine.
-//! Full delegation of `transition(child, input)` requires an evolution of the
-//! kernel/shell interface (Sprint 7+). For Sprint 6, this implementation handles
-//! simple cases (pass-through) and `Idle`/`Failure` termination detection.
+//! # Refactoring
+//! Each `EngineInput` variant is handled by a dedicated pure helper
+//! (`delegate_user_message`, `accumulate_stream_tools`, `resolve_tool_results`,
+//! `detect_subroutine_termination`) to separate orchestration from calculation.
 //!
-//! Refs: I-Comp-Epoch-Subroutine
+//! Refs: I-Comp-Epoch-Subroutine, I-Comp-Pure-Logic
 
 use brioche_core::{
     ActiveToolCall, AgentState, ChatMessage, Effect, EngineInput, PluginResult, Session,
-    SubRoutineHandler,
+    StreamEvent, SubRoutineHandler, ToolResultDTO,
 };
 
 /// Sub-routine orchestrator.
@@ -34,6 +33,154 @@ impl Default for SubRoutineOrchestrator {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Pure helpers — each corresponds to one `EngineInput` variant.
+// ---------------------------------------------------------------------------
+
+/// Push a user message into the child's history and transition to Predicting.
+fn delegate_user_message(
+    child: &mut Session,
+    content: &str,
+) -> Result<Vec<Effect>, brioche_core::BriocheError> {
+    child.history.push(ChatMessage::User {
+        content: content.into(),
+    });
+
+    let generation = child
+        .extensions
+        .get_or_insert_default::<brioche_core::EpochState>()
+        .current_generation;
+    child.push_state(AgentState::Predicting {
+        generation_id: generation,
+    })?;
+
+    Ok(vec![Effect::CallLlmNetwork, Effect::SaveSession])
+}
+
+/// Accumulate tool-call fragments from an `LlmStream` event.
+///
+/// Returns `Some(effects)` when a complete tool call set is ready.
+fn accumulate_stream_tools(
+    child: &mut Session,
+    event: &StreamEvent,
+) -> Result<Option<Vec<Effect>>, brioche_core::BriocheError> {
+    if !matches!(child.state, AgentState::Predicting { .. }) {
+        return Ok(None);
+    }
+
+    match event {
+        StreamEvent::ToolCallStart { id, name, .. } => {
+            let acc = child
+                .extensions
+                .get_or_insert_default::<brioche_core::StreamToolAccumulator>();
+            acc.pending.insert(
+                id.clone(),
+                brioche_core::ToolCallDescriptor {
+                    tool_id: id.clone(),
+                    tool_name: name.clone(),
+                    arguments: String::new(),
+                    timeout_ms: None,
+                },
+            );
+            Ok(None)
+        }
+        StreamEvent::ToolArgumentChunk { id, chunk, .. } => {
+            let acc = child
+                .extensions
+                .get_or_insert_default::<brioche_core::StreamToolAccumulator>();
+            if let Some(desc) = acc.pending.get_mut(id) {
+                desc.arguments.push_str(&String::from_utf8_lossy(chunk));
+            }
+            Ok(None)
+        }
+        StreamEvent::ToolCallDone { .. } => {
+            let acc = child
+                .extensions
+                .get_or_insert_default::<brioche_core::StreamToolAccumulator>();
+            let pending: Vec<_> = std::mem::take(&mut acc.pending).into_values().collect();
+            if pending.is_empty() {
+                return Ok(None);
+            }
+            let active: Vec<ActiveToolCall> = pending
+                .into_iter()
+                .map(|d| brioche_core::seal(vec![d]).remove(0))
+                .collect();
+            child.active_tools = active.clone();
+            let generation = match child.state {
+                AgentState::Predicting { generation_id } => generation_id,
+                _ => 0,
+            };
+            child.push_state(AgentState::ExecutingTools {
+                generation_id: generation,
+            })?;
+            Ok(Some(vec![
+                Effect::ExecuteTools(active),
+                Effect::SaveSession,
+            ]))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Convert tool results into history entries and transition child back to Predicting.
+fn resolve_tool_results(
+    child: &mut Session,
+    generation_id: u64,
+    results: &[ToolResultDTO],
+) -> Result<(), brioche_core::BriocheError> {
+    if !matches!(child.state, AgentState::ExecutingTools { .. }) {
+        return Ok(());
+    }
+    child.pop_state()?;
+    child.active_tools.clear();
+
+    for result in results {
+        let content = match &result.outcome {
+            brioche_core::ToolOutcome::Success(s)
+            | brioche_core::ToolOutcome::BusinessError(s)
+            | brioche_core::ToolOutcome::SystemError(s) => s.clone(),
+            brioche_core::ToolOutcome::TimeoutWithPartialData { partial_output } => {
+                partial_output.clone().unwrap_or_default()
+            }
+        };
+        child.history.push(ChatMessage::ToolResult {
+            id: result.tool_id.clone(),
+            content,
+        });
+    }
+
+    child.push_state(AgentState::Predicting { generation_id })?;
+    Ok(())
+}
+
+/// Detect terminal sub-routine states and bubble the result up to the parent.
+fn detect_subroutine_termination(
+    parent: &mut Session,
+    child: &mut Session,
+) -> Result<Option<Vec<Effect>>, brioche_core::BriocheError> {
+    match &child.state {
+        AgentState::Idle => {
+            if let Some(last) = child.history.last() {
+                parent.history.push(last.clone());
+            }
+            parent.pop_state()?;
+            Ok(Some(vec![Effect::SaveSession, Effect::CallLlmNetwork]))
+        }
+        AgentState::Failure => {
+            parent.history.push(ChatMessage::System {
+                content: "sub-routine failed".into(),
+            });
+            parent.pop_state()?;
+            Ok(Some(vec![Effect::SaveSession, Effect::CallLlmNetwork]))
+        }
+        _ => Ok(None),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Trait implementation — thin orchestration layer.
+// ---------------------------------------------------------------------------
+
 impl SubRoutineHandler for SubRoutineOrchestrator {
     fn handle_subroutine(
         &self,
@@ -41,131 +188,24 @@ impl SubRoutineHandler for SubRoutineOrchestrator {
         child: &mut Session,
         input: &EngineInput,
     ) -> PluginResult<Option<Vec<Effect>>> {
+        let wrap = |e: brioche_core::BriocheError| brioche_core::PluginError::Soft {
+            plugin_name: "subroutine_orchestrator".into(),
+            message: e.to_string(),
+        };
+
         match input {
-            EngineInput::UserMessage(content) => {
-                child.history.push(ChatMessage::User {
-                    content: content.clone(),
-                });
+            EngineInput::UserMessage(content) => delegate_user_message(child, content)
+                .map(Some)
+                .map_err(wrap),
 
-                // Mechanical transition Idle -> Predicting on the child.
-                let generation = child
-                    .extensions
-                    .get_or_insert_default::<brioche_core::EpochState>()
-                    .current_generation;
-                let _ = child.push_state(AgentState::Predicting {
-                    generation_id: generation,
-                });
-
-                Ok(Some(vec![Effect::CallLlmNetwork, Effect::SaveSession]))
-            }
-
-            EngineInput::LlmStream(event) => {
-                // Hot-path: direct stream delegation to the child.
-                // Le kernel n'applique pas `transition()` sur l'enfant ici ;
-                // l'orchestrateur simule l'accumulation d'outils si besoin.
-                if matches!(child.state, AgentState::Predicting { .. }) {
-                    use brioche_core::StreamEvent;
-                    match event {
-                        StreamEvent::ToolCallStart { id, name, .. } => {
-                            let acc = child
-                                .extensions
-                                .get_or_insert_default::<brioche_core::StreamToolAccumulator>();
-                            acc.pending.insert(
-                                id.clone(),
-                                brioche_core::ToolCallDescriptor {
-                                    tool_id: id.clone(),
-                                    tool_name: name.clone(),
-                                    arguments: String::new(),
-                                    timeout_ms: None,
-                                },
-                            );
-                        }
-                        StreamEvent::ToolArgumentChunk { id, chunk, .. } => {
-                            let acc = child
-                                .extensions
-                                .get_or_insert_default::<brioche_core::StreamToolAccumulator>();
-                            if let Some(desc) = acc.pending.get_mut(id) {
-                                desc.arguments.push_str(&String::from_utf8_lossy(chunk));
-                            }
-                        }
-                        StreamEvent::ToolCallDone { .. } => {
-                            let acc = child
-                                .extensions
-                                .get_or_insert_default::<brioche_core::StreamToolAccumulator>();
-                            let pending: Vec<_> =
-                                std::mem::take(&mut acc.pending).into_values().collect();
-                            if !pending.is_empty() {
-                                let active: Vec<ActiveToolCall> = pending
-                                    .into_iter()
-                                    .map(|d| brioche_core::seal(vec![d]).remove(0))
-                                    .collect();
-                                child.active_tools = active.clone();
-                                let generation = match child.state {
-                                    AgentState::Predicting { generation_id } => generation_id,
-                                    _ => 0,
-                                };
-                                let _ = child.push_state(AgentState::ExecutingTools {
-                                    generation_id: generation,
-                                });
-                                return Ok(Some(vec![
-                                    Effect::ExecuteTools(active),
-                                    Effect::SaveSession,
-                                ]));
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                Ok(None)
-            }
+            EngineInput::LlmStream(event) => accumulate_stream_tools(child, event).map_err(wrap),
 
             EngineInput::ToolCallsResult {
                 generation_id,
                 results,
             } => {
-                if matches!(child.state, AgentState::ExecutingTools { .. }) {
-                    let _ = child.pop_state();
-                    child.active_tools.clear();
-
-                    for result in results {
-                        let content = match &result.outcome {
-                            brioche_core::ToolOutcome::Success(s)
-                            | brioche_core::ToolOutcome::BusinessError(s)
-                            | brioche_core::ToolOutcome::SystemError(s) => s.clone(),
-                            brioche_core::ToolOutcome::TimeoutWithPartialData {
-                                partial_output,
-                            } => partial_output.clone().unwrap_or_default(),
-                        };
-                        child.history.push(ChatMessage::ToolResult {
-                            id: result.tool_id.clone(),
-                            content,
-                        });
-                    }
-
-                    let _ = child.push_state(AgentState::Predicting {
-                        generation_id: *generation_id,
-                    });
-                }
-
-                // Sub-routine termination detection.
-                match &child.state {
-                    AgentState::Idle => {
-                        // Extrait le dernier message de l'enfant et l'injecte dans le parent.
-                        if let Some(last) = child.history.last() {
-                            parent.history.push(last.clone());
-                        }
-                        parent.pop_state().ok();
-                        Ok(Some(vec![Effect::SaveSession, Effect::CallLlmNetwork]))
-                    }
-                    AgentState::Failure => {
-                        parent.history.push(ChatMessage::System {
-                            content: "sub-routine failed".into(),
-                        });
-                        parent.pop_state().ok();
-                        Ok(Some(vec![Effect::SaveSession, Effect::CallLlmNetwork]))
-                    }
-                    _ => Ok(None),
-                }
+                resolve_tool_results(child, *generation_id, results).map_err(wrap)?;
+                detect_subroutine_termination(parent, child).map_err(wrap)
             }
 
             EngineInput::RestoreSubRoutine { .. } => {
