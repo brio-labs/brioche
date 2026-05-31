@@ -1,0 +1,25 @@
+[package]
+name = "brioche-tools-system"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "System tool executor for Brioche Shell Runtime"
+
+[dependencies]
+brioche-core = { workspace = true }
+brioche-shell-runtime = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+thiserror = "2"
+
+tracing = "0.1"
+async-trait = { workspace = true }
+
+[lints]
+workspace = true

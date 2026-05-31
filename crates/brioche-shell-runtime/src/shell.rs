@@ -111,6 +111,15 @@ impl Default for ShellConfig {
     }
 }
 
+/// Callback invoqué sur le engine thread après chaque transition.
+///
+/// Le callback reçoit une référence immuable au `Session` (qui est
+/// `!Send`). C'est le mécanisme standard pour extraire un snapshot
+/// de session et le pousser vers la couche de persistence.
+///
+/// Refs: I-Shell-Session-NoSend
+pub type SessionCallback = Box<dyn Fn(&Session) + Send>;
+
 /// Command sent to the engine thread to rebuild routing tables.
 ///
 /// Refs: I-Gov-Rebuild-Barrier
@@ -119,6 +128,61 @@ struct RebuildCommand {
     active_mask: Vec<bool>,
     /// Channel to signal completion back to the async effect loop.
     done: oneshot::Sender<()>,
+}
+
+/// Trackeur de tâches async critiques lancées par le shell.
+///
+/// Garantit que les `JoinHandle` des tâches de fond ne sont pas
+/// perdus, permettant un diagnostic en cas de panique ou de
+/// terminaison prématurée.
+///
+/// Refs: I-Shell-Runtime-OnlyIO, SCIFI — Connect
+#[derive(Clone)]
+pub struct TaskTracker {
+    handles: Arc<std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+}
+
+impl TaskTracker {
+    /// Crée un nouveau trackeur vide.
+    pub fn new() -> Self {
+        Self {
+            handles: Arc::new(std::sync::Mutex::new(Vec::new())),
+        }
+    }
+
+    /// Lance une tâche et conserve son `JoinHandle`.
+    pub fn spawn<F>(&self, future: F)
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let handle = tokio::spawn(future);
+        if let Ok(mut handles) = self.handles.lock() {
+            handles.push(handle);
+        }
+    }
+
+    /// Vérifie l'état des tâches trackées.
+    ///
+    /// Retourne `true` si toutes les tâches sont encore actives.
+    /// Pour chaque tâche terminée, émet un `tracing::error`.
+    pub fn health_check(&self) -> bool {
+        let mut all_healthy = true;
+        if let Ok(handles) = self.handles.lock() {
+            for h in handles.iter() {
+                if h.is_finished() {
+                    tracing::error!("tracked background task finished unexpectedly");
+                    all_healthy = false;
+                }
+            }
+        }
+        all_healthy
+    }
+}
+
+impl Default for TaskTracker {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Main async runtime coordinator.
@@ -150,6 +214,7 @@ struct RebuildCommand {
 ///     },
 ///     ShellConfig::default(),
 ///     executor,
+///     None,
 /// );
 /// # }
 /// ```
@@ -175,9 +240,12 @@ pub struct BriocheShell {
     ///
     /// Refs: I-Gov-Rebuild-Barrier
     rebuild_in_progress: Arc<AtomicBool>,
-    /// Shared configuration.
-    #[allow(dead_code)]
-    config: Arc<ShellConfig>,
+    /// Tracker for critical background tasks.
+    ///
+    /// Ensures spawned tasks are not silently lost.
+    ///
+    /// Refs: SCIFI — Connect
+    task_tracker: TaskTracker,
 }
 
 impl BriocheShell {
@@ -186,6 +254,10 @@ impl BriocheShell {
     ///
     /// `engine_factory` is called on the dedicated engine thread.
     /// This respects the `!Send` invariant of `BriocheEngine` and `Session`.
+    ///
+    /// `session_callback` is called on the engine thread after every
+    /// successful transition. Use it to snapshot the session for
+    /// persistence (e.g. `SessionHeadDTO::from_session`).
     ///
     /// ## Startup procedure (9 steps)
     ///
@@ -202,7 +274,12 @@ impl BriocheShell {
     ///    backpressure worker.
     ///
     /// Refs: SPECS.md §Book III-A Ch 1.1, I-Shell-Session-NoSend
-    pub fn new<F, E>(engine_factory: F, config: ShellConfig, executor: E) -> Self
+    pub fn new<F, E>(
+        engine_factory: F,
+        config: ShellConfig,
+        executor: E,
+        session_callback: Option<SessionCallback>,
+    ) -> Self
     where
         F: FnOnce() -> (BriocheEngine, Session) + Send + 'static,
         E: EffectExecutor + 'static,
@@ -247,11 +324,13 @@ impl BriocheShell {
                 rebuild_rx,
                 journal_for_engine,
                 config.transition_journal_enabled,
+                session_callback,
             );
         });
 
         let config_arc = Arc::new(config.clone());
         let rebuild_in_progress = Arc::new(AtomicBool::new(false));
+        let task_tracker = TaskTracker::new();
         let shell = Self {
             input_tx: input_tx.clone(),
             system_signal_tx: system_signal_tx.clone(),
@@ -259,12 +338,12 @@ impl BriocheShell {
             async_task_result_tx: async_task_result_tx.clone(),
             rebuild_tx,
             rebuild_in_progress: Arc::clone(&rebuild_in_progress),
-            config: Arc::clone(&config_arc),
+            task_tracker: task_tracker.clone(),
         };
 
         // Spawn the async effect consumption loop.
         let shell_clone = shell.clone();
-        tokio::spawn(async move {
+        task_tracker.spawn(async move {
             effect_consumption_loop(
                 output_rx,
                 shell_clone,
@@ -277,11 +356,11 @@ impl BriocheShell {
 
         // Step 8: launch the periodic tick emitter.
         let tick_emitter = TickEmitter::new(system_signal_tx, config.tick_interval_ms);
-        tokio::spawn(tick_emitter.run());
+        task_tracker.spawn(tick_emitter.run());
 
         // Step 7 (continued): launch the engine watchdog.
         let watchdog = EngineWatchdog::default().with_transition_journal(journal_for_watchdog);
-        tokio::spawn(watchdog.run(ping_tx, pong_rx));
+        task_tracker.spawn(watchdog.run(ping_tx, pong_rx));
 
         // Step 4: install default telemetry subscriber.
         let telemetry = TelemetryChannel::new(256);
@@ -383,6 +462,15 @@ impl BriocheShell {
         Ok(())
     }
 
+    /// Verify that all critical background tasks are still running.
+    ///
+    /// Returns `true` if healthy; logs an error for each finished task.
+    ///
+    /// Refs: SCIFI — Connect
+    pub fn health_check(&self) -> bool {
+        self.task_tracker.health_check()
+    }
+
     /// Gracefully shut down the shell.
     ///
     /// Drops the input sender, causing the engine thread to exit
@@ -419,6 +507,7 @@ fn engine_thread_loop(
     mut rebuild_rx: mpsc::Receiver<RebuildCommand>,
     journal: Arc<TransitionJournal>,
     journal_enabled: bool,
+    session_callback: Option<SessionCallback>,
 ) {
     loop {
         // Check for rebuild commands before processing the next input.
@@ -463,6 +552,12 @@ fn engine_thread_loop(
         // Execute the synchronous transition.
         let effects = engine.transition(&mut session, &input);
         let snapshot = StateSnapshot::from_session(&session);
+
+        // Invoke the session callback (persistence snapshot) on the
+        // engine thread while we still own the Session.
+        if let Some(ref cb) = session_callback {
+            cb(&session);
+        }
 
         // Send results back to the async runtime.
         if output_tx.blocking_send((effects, snapshot)).is_err() {
@@ -551,11 +646,8 @@ where
             let generation_id = snapshot.generation_id.unwrap_or(0);
             executor.execute_tools(calls, generation_id, shell).await?;
         }
-        Effect::ForwardToUi {
-            widget_type,
-            payload,
-        } => {
-            executor.forward_to_ui(widget_type, payload).await?;
+        Effect::ForwardToUi(widget) => {
+            executor.forward_to_ui(widget).await?;
         }
         Effect::Error { code, message } => {
             executor.log_error(code, message).await?;

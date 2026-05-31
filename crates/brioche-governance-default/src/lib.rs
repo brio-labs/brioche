@@ -91,7 +91,7 @@ pub use tool_call_detector::{ToolCallDetector, ToolCallDetectorState};
 pub use tool_execution_tracker::{ToolExecutionTelemetry, ToolExecutionTracker};
 pub use tool_result_formatter::{ToolResultFormatter, ToolResultFormatterState};
 pub use tool_timeout_policy::{ToolTimeoutPolicy, ToolTimeoutState};
-pub use transition_conflict_logger::TransitionConflictLogger;
+pub use transition_conflict_logger::{TransitionConflictLogger, TransitionConflictState};
 pub use tree_decision_aggregator::{
     DecisionCondition, DecisionNode, DecisionTreeState, TreeDecisionAggregator,
 };

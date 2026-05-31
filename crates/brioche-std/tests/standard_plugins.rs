@@ -13,10 +13,11 @@ use brioche_core::{
     ToolResultDTO,
 };
 use brioche_governance_default::{LexicographicDecisionAggregator, SubRoutineCleanupGuard};
+use brioche_governance_default::{ToolResultFormatter, ToolResultFormatterState};
 use brioche_std::{
     AuditLogger, AuditLoggerState, CircuitBreaker, CircuitBreakerState, ContextOptimizer,
     ContextOptimizerState, GcPolicy, GcPolicyState, PendingTaskManager, PendingTaskState,
-    TokenTracker, TokenTrackerState, ToolResultPolicy, ToolResultPolicyState, ToolTimeoutPolicy,
+    TokenTracker, TokenTrackerState, ToolTimeoutPolicy,
 };
 
 // ---------------------------------------------------------------------------
@@ -266,12 +267,12 @@ fn std_tool_timeout_policy_bounds_max() {
 }
 
 // ---------------------------------------------------------------------------
-// ToolResultPolicy
+// ToolResultFormatter
 // ---------------------------------------------------------------------------
 
 #[test]
-fn tool_result_policy_truncates_oversized() {
-    let policy = ToolResultPolicy::with_max_result_bytes(10);
+fn tool_result_formatter_truncates_oversized() {
+    let formatter = ToolResultFormatter::with_max_result_bytes(10);
     let mut ext = ExtensionStorage::new();
     let mut results = vec![ToolResultDTO {
         tool_id: "t1".into(),
@@ -280,13 +281,12 @@ fn tool_result_policy_truncates_oversized() {
     }];
 
     assert!(
-        policy.on_tool_result(&mut results, &mut ext).is_ok(),
+        formatter.on_tool_result(&mut results, &mut ext).is_ok(),
         "on_tool_result should succeed"
     );
 
-    let state = ext.get_or_insert_default::<ToolResultPolicyState>();
-    assert_eq!(state.results_truncated, 1);
-    assert_eq!(state.results_processed, 1);
+    let state = ext.get_or_insert_default::<ToolResultFormatterState>();
+    assert_eq!(state.formatted_count, 1);
 
     if let ToolOutcome::Success(content) = &results[0].outcome {
         assert!(content.contains("truncated"));
@@ -297,8 +297,8 @@ fn tool_result_policy_truncates_oversized() {
 }
 
 #[test]
-fn tool_result_policy_passes_small_results() {
-    let policy = ToolResultPolicy::with_max_result_bytes(100);
+fn tool_result_formatter_passes_small_results() {
+    let formatter = ToolResultFormatter::with_max_result_bytes(100);
     let mut ext = ExtensionStorage::new();
     let mut results = vec![ToolResultDTO {
         tool_id: "t1".into(),
@@ -307,13 +307,12 @@ fn tool_result_policy_passes_small_results() {
     }];
 
     assert!(
-        policy.on_tool_result(&mut results, &mut ext).is_ok(),
+        formatter.on_tool_result(&mut results, &mut ext).is_ok(),
         "on_tool_result should succeed"
     );
 
-    let state = ext.get_or_insert_default::<ToolResultPolicyState>();
-    assert_eq!(state.results_truncated, 0);
-    assert_eq!(state.results_processed, 1);
+    let state = ext.get_or_insert_default::<ToolResultFormatterState>();
+    assert_eq!(state.formatted_count, 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -480,7 +479,7 @@ fn engine_with_all_std_plugins_runs_user_message() {
         .with_plugin(Box::new(TokenTracker::new()))
         .with_plugin(Box::new(ContextOptimizer::default()))
         .with_plugin(Box::new(ToolTimeoutPolicy::default()))
-        .with_plugin(Box::new(ToolResultPolicy::default()))
+        .with_plugin(Box::new(ToolResultFormatter::default()))
         .with_plugin(Box::new(PendingTaskManager::default()))
         .with_plugin(Box::new(GcPolicy::default()))
         .with_plugin(Box::new(AuditLogger::default()))

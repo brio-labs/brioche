@@ -306,13 +306,14 @@ impl ExtensionStorage {
         {
             return typed;
         }
-        // SAFETY: This path is unreachable. The TypeId key is unique per
-        // type, and we inserted Box<T> with that exact key above. A
-        // downcast failure would imply a fundamental rustc/std bug.
-        // We use Box::leak instead of unreachable!() to uphold
-        // I-Core-NoPanic (no panics in Core), accepting the theoretical
-        // one-time memory leak over a kernel crash.
-        debug_assert!(false, "unreachable: TypeId guarantees type safety");
+        // This path is theoretically unreachable: we verified the type
+        // above by removing the value, checking downcast_mut, and
+        // re-inserting Box<T>. A failure here implies a fundamental
+        // rustc or std library bug.
+        //
+        // We leak a default instance rather than panicking to uphold
+        // I-Core-NoPanic (no panics in Core). The one-time memory cost
+        // is acceptable for preserving kernel stability.
         Box::leak(Box::new(T::default()))
     }
 

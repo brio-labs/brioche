@@ -43,39 +43,30 @@ impl ContentRenderer {
 
     /// Process a single `Effect`.
     ///
-    /// If the effect is `ForwardToUi` with `widget_type == "text_chunk"`,
-    /// the payload is inspected for `trace_id` and `text` fields and the
-    /// fragment is appended to the internal buffer. The method returns
+    /// If the effect is `ForwardToUi(UiWidget::TextChunk { .. })`,
+    /// the `trace_id` and `text` fields are extracted and the fragment is
+    /// appended to the internal buffer. The method returns
     /// `true` to indicate consumption.
     ///
     /// For all other effects, the method returns `false` and the caller
     /// must forward the effect onward.
     ///
-    /// # Payload schema
-    /// ```json
-    /// { "trace_id": "abc", "text": "fragment" }
-    /// ```
+    /// # Payload
+    /// `UiWidget::TextChunk { trace_id, text }`
     ///
     /// Complexity: O(log n + m) where n = traces in buffer,
     /// m = text fragment length.
     pub fn process_effect(&mut self, effect: &Effect) -> bool {
-        let Effect::ForwardToUi {
-            widget_type,
-            payload,
-        } = effect
-        else {
+        let Effect::ForwardToUi(widget) = effect else {
             return false;
         };
 
-        if widget_type != crate::widget::WIDGET_TEXT_CHUNK {
-            return false;
-        }
-
-        let trace_id = payload
-            .get("trace_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("default");
-        let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");
+        let (trace_id, text) = match widget {
+            brioche_core::UiWidget::TextChunk { trace_id, text } => {
+                (trace_id.as_str(), text.as_str())
+            }
+            _ => return false,
+        };
 
         self.buffer.append(trace_id, text);
         true
