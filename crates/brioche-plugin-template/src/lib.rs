@@ -20,6 +20,9 @@ use brioche_plugin_kit::prelude::*;
 ///
 /// All persisted state must derive `BriocheExtensionType` and use ordered
 /// collections (`BTreeMap`, `BTreeSet`, `IndexMap`).
+///
+/// ## Snapshot strategy
+/// COW: full clone. Estimated weight: ~16 bytes (single u64 counter).
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, BriocheExtensionType)]
 pub struct {{ProjectName}}State {
     /// Count of processed inputs (deterministic counter).
