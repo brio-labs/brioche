@@ -1,12 +1,12 @@
-//! Thread de rendu terminal (projection).
+//! Terminal rendering primitives for LLM output.
 //!
 //! Affiche la réponse LLM **en un seul bloc** quand le stream est
-//! terminé (pas de streaming caractère par caractère).  Cela évite
+//! terminé (pas de streaming caractère par caractère). Cela évite
 //! les artefacts de réaffichage de reedline.
 //!
 //! Refs: I-Shell-Projection-Independent
 
-use brioche_provider_openai::LlmChunk;
+use brioche_shell_runtime::LlmChunk;
 use nu_ansi_term::{Color, Style};
 use reedline::ExternalPrinter;
 use tokio::sync::broadcast;

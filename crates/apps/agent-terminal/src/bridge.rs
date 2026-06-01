@@ -18,8 +18,8 @@ use tokio::sync::{RwLock, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::CliConfig;
-use crate::session_manager::SessionManager;
 use crate::shell_builder::build_shell;
+use brioche_reedline::session::SessionManager;
 
 /// Dependencies needed to create new shells (shared between
 /// `run`, `handle_slash_command`, and `handle_session_command`).

@@ -18,26 +18,14 @@
 
 use crate::{config::OpenAiConfig, request::build_request_body, sse::SseParser};
 use brioche_core::{ChatMessage, MAX_INLINE_CHUNK, StreamEvent, ToolOutcome, ToolResultDTO};
-use brioche_shell_runtime::{BriocheShell, EngineInput, LlmClient, ShellError, SystemSignal};
+use brioche_shell_runtime::{
+    BriocheShell, EngineInput, LlmChunk, LlmClient, ShellError, SystemSignal,
+};
 use bytes::Bytes;
 use futures_util::StreamExt;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::sync::{RwLock, broadcast};
-
-/// Chunk diffusé vers la projection (CLI, GUI…). Le kernel ne le voit jamais.
-///
-/// Refs: I-Shell-Projection-Independent
-#[derive(Clone, Debug)]
-pub enum LlmChunk {
-    Text(String),
-    ToolCallStart { id: String, name: String },
-    ToolArgument { id: String, fragment: String },
-    ToolCallDone { id: String },
-    ToolResult { name: String, output: String },
-    Done,
-    Error(String),
-}
 
 /// Client LLM compatible OpenAI.
 ///

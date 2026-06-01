@@ -52,12 +52,12 @@ class CheckResult:
 # ---------------------------------------------------------------------------
 
 HOT_PATH_MODULES = [
-    "crates/brioche-core/src/lib.rs",
-    "crates/brioche-core/src/engine.rs",
-    "crates/brioche-core/src/extension.rs",
-    "crates/brioche-core/src/types.rs",
-    "crates/brioche-core/src/plugin.rs",
-    "crates/brioche-governance/src/lib.rs",
+    "crates/kernel/brioche-core/src/lib.rs",
+    "crates/kernel/brioche-core/src/engine.rs",
+    "crates/kernel/brioche-core/src/extension.rs",
+    "crates/kernel/brioche-core/src/types.rs",
+    "crates/kernel/brioche-core/src/plugin.rs",
+    "crates/kernel/brioche-governance/src/lib.rs",
 ]
 
 COMPLEXITY_KEYWORDS = [
@@ -128,8 +128,8 @@ def check_hotpath_docs() -> CheckResult:
 # ---------------------------------------------------------------------------
 
 INVARIANT_CRATES = [
-    "crates/brioche-core/src",
-    "crates/brioche-governance/src",
+    "crates/kernel/brioche-core/src",
+    "crates/kernel/brioche-governance/src",
 ]
 
 INVARIANT_PATTERNS = [
@@ -284,8 +284,8 @@ DETERMINISM_FORBIDDEN = [
 ]
 
 DETERMINISM_CRATES = [
-    "crates/brioche-core/src",
-    "crates/brioche-governance/src",
+    "crates/kernel/brioche-core/src",
+    "crates/kernel/brioche-governance/src",
 ]
 
 
@@ -329,7 +329,7 @@ PANIC_PATTERNS = [
 
 def check_panic_guards() -> CheckResult:
     result = CheckResult("Panic guards (Core)")
-    core_src = PROJECT_ROOT / "crates" / "brioche-core" / "src"
+    core_src = PROJECT_ROOT / "crates" / "kernel" / "brioche-core" / "src"
 
     for path in core_src.rglob("*.rs"):
         if "tests" in path.parts:
@@ -445,7 +445,7 @@ def check_effect_structure() -> CheckResult:
 
     # Find the Effect enum and check its variants don't use serde_json::Value
     # as a primary payload (UiWidget::Custom is the only allowed exception).
-    for path in (PROJECT_ROOT / "crates" / "brioche-core" / "src").rglob("*.rs"):
+    for path in (PROJECT_ROOT / "crates" / "kernel" / "brioche-core" / "src").rglob("*.rs"):
         content = path.read_text()
         lines = content.split("\n")
 
@@ -525,20 +525,24 @@ def check_invariant_format() -> CheckResult:
 # ---------------------------------------------------------------------------
 
 CRATE_LIB_FILES = [
-    "crates/brioche-core/src/lib.rs",
-    "crates/brioche-docgen/src/lib.rs",
-    "crates/brioche-governance-default/src/lib.rs",
-    "crates/brioche-governance/src/lib.rs",
-    "crates/brioche-macro/src/lib.rs",
-    "crates/brioche-playground/src/lib.rs",
-    "crates/brioche-plugin-kit/src/lib.rs",
+    "crates/kernel/brioche-core/src/lib.rs",
+    "crates/ecosystem/brioche-docgen/src/lib.rs",
+    "crates/kernel/brioche-governance-default/src/lib.rs",
+    "crates/kernel/brioche-governance/src/lib.rs",
+    "crates/kernel/brioche-macro/src/lib.rs",
+    "crates/ecosystem/brioche-playground/src/lib.rs",
+    "crates/ecosystem/brioche-plugin-kit/src/lib.rs",
     "crates/brioche-plugin-template/src/lib.rs",
-    "crates/brioche-provider-openai/src/lib.rs",
-    "crates/brioche-shell-persistence/src/lib.rs",
-    "crates/brioche-shell-projection/src/lib.rs",
-    "crates/brioche-shell-runtime/src/lib.rs",
-    "crates/brioche-std/src/lib.rs",
-    "crates/brioche-tools-system/src/lib.rs",
+    "crates/providers/brioche-provider-openai/src/lib.rs",
+    "crates/runtime/brioche-shell-persistence/src/lib.rs",
+    "crates/runtime/brioche-shell-projection/src/lib.rs",
+    "crates/runtime/brioche-shell-runtime/src/lib.rs",
+    "crates/ecosystem/brioche-std/src/lib.rs",
+    "crates/tools/brioche-tools-system/src/lib.rs",
+    "crates/apps/agent-terminal/src/main.rs",
+    "crates/infra/brioche-reedline/src/lib.rs",
+    "crates/infra/cargo-brioche-lint/src/main.rs",
+    "crates/infra/cargo-brioche-lint-invariants/src/main.rs",
 ]
 
 
@@ -581,7 +585,7 @@ def check_module_docs() -> CheckResult:
 
 def check_session_send_sync() -> CheckResult:
     result = CheckResult("Session !Send/!Sync marker")
-    path = PROJECT_ROOT / "crates" / "brioche-core" / "src" / "types.rs"
+    path = PROJECT_ROOT / "crates" / "kernel" / "brioche-core" / "src" / "types.rs"
 
     if not path.exists():
         result.add(path, 0, "types.rs not found")
