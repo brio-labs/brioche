@@ -315,6 +315,7 @@ dependencies = [
  "brioche-core",
  "brioche-shell-persistence",
  "brioche-shell-runtime",
+ "libc",
  "nu-ansi-term",
  "reedline",
  "tokio",

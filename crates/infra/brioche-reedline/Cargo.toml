@@ -20,6 +20,7 @@ reedline = { version = "0.48", features = ["external_printer"] }
 nu-ansi-term = "0.50"
 tokio = { workspace = true }
 tokio-util = { workspace = true }
+libc = "0.2"
 
 [lints]
 workspace = true

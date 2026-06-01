@@ -4,6 +4,12 @@
 //! ends (no character-by-character streaming). This avoids reedline
 //! redraw artifacts.
 //!
+//! Uses `reedline::ExternalPrinter` so output appears above the
+//! prompt without corrupting reedline's cursor state. After each
+//! message we send `SIGWINCH` to force reedline to wake from its
+//! blocking `crossterm::event::read()` and repaint, which processes
+//! the `ExternalPrinter` queue immediately.
+//!
 //! Refs: I-Shell-Projection-Independent
 
 use brioche_shell_runtime::LlmChunk;
@@ -11,6 +17,23 @@ use nu_ansi_term::{Color, Style};
 use reedline::ExternalPrinter;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
+
+/// Wake reedline from its blocking `read_line()` so it repaints
+/// and processes the `ExternalPrinter` queue immediately.
+///
+/// On Unix we send `SIGWINCH` to our own process. crossterm's
+/// signal handler converts this into an `Event::Resize`, which
+/// reedline handles by repainting the prompt — and during that
+/// repaint it prints any queued external messages.
+///
+/// On Windows this is a no-op; messages appear on the next
+/// keypress, which is acceptable.
+fn wake_reedline() {
+    #[cfg(unix)]
+    unsafe {
+        libc::kill(libc::getpid(), libc::SIGWINCH);
+    }
+}
 
 fn render_markdown(text: &str) -> String {
     let mut result = text.to_string();
@@ -63,21 +86,17 @@ fn render_block(text: &str) -> String {
 }
 
 /// Terminal render loop: receives LLM chunks via broadcast and
-/// prints them to stdout when the stream ends.
+/// displays them via `ExternalPrinter`.
 ///
-/// Responses are rendered as a single block (no character-by-character
-/// streaming) to avoid reedline redraw artifacts.
-///
-/// NOTE: We use `println!` instead of ` reedline::ExternalPrinter`
-/// because `ExternalPrinter` only processes messages when the reedline
-/// prompt is redrawn (i.e. on user input). While reedline blocks on
-/// `read_line()`, messages sent via `ExternalPrinter` are invisible.
+/// After each message we send `SIGWINCH` to force reedline to
+/// wake from its blocking read and repaint, processing the
+/// external printer queue immediately.
 ///
 /// Refs: I-Shell-Projection-Independent
 pub async fn run(
     mut llm_rx: broadcast::Receiver<LlmChunk>,
     cancel: CancellationToken,
-    _printer: ExternalPrinter<String>,
+    printer: ExternalPrinter<String>,
 ) {
     let mut full_response = String::new();
 
@@ -93,17 +112,20 @@ pub async fn run(
             }
             Ok(LlmChunk::ToolCallStart { name, .. }) => {
                 if !full_response.is_empty() {
-                    println!("{}\n", render_block(&full_response));
+                    let _ = printer.print(render_block(&full_response));
+                    wake_reedline();
                     full_response.clear();
                 }
-                println!(
-                    "  {} Tool call: {}...\n",
+                let _ = printer.print(format!(
+                    "  {} Tool call: {}...",
                     Color::Cyan.paint("⚙"),
                     Style::new().bold().paint(name)
-                );
+                ));
+                wake_reedline();
             }
             Ok(LlmChunk::ToolCallDone { .. }) => {
-                println!("  {}\n", Color::Cyan.paint("...done"));
+                let _ = printer.print(format!("  {}", Color::Cyan.paint("...done")));
+                wake_reedline();
             }
             Ok(LlmChunk::ToolResult { name, output }) => {
                 let preview: String = output.lines().take(5).collect::<Vec<_>>().join("\n");
@@ -112,21 +134,24 @@ pub async fn run(
                 } else {
                     ""
                 };
-                println!(
-                    "  {} Result from {}:\n    {}{}\n",
+                let _ = printer.print(format!(
+                    "  {} Result from {}:\n    {}{}",
                     Color::Green.paint("✓"),
                     Style::new().bold().paint(name),
                     preview,
                     ellipsis
-                );
+                ));
+                wake_reedline();
             }
             Ok(LlmChunk::Done) if !full_response.is_empty() => {
-                println!("{}\n", render_block(&full_response));
+                let _ = printer.print(render_block(&full_response));
+                wake_reedline();
                 full_response.clear();
             }
             Ok(LlmChunk::Error(error)) => {
                 if !full_response.is_empty() {
-                    println!("{}\n", render_block(&full_response));
+                    let _ = printer.print(render_block(&full_response));
+                    wake_reedline();
                     full_response.clear();
                 }
                 let compact = error
@@ -134,7 +159,12 @@ pub async fn run(
                     .find(|l| !l.trim().is_empty() && !l.trim().starts_with('{'))
                     .map(|l| l.trim().to_string())
                     .unwrap_or_else(|| error.lines().next().unwrap_or(&error).to_string());
-                println!("  {} LLM error: {}\n", Color::Red.paint("✗"), compact);
+                let _ = printer.print(format!(
+                    "  {} LLM error: {}",
+                    Color::Red.paint("✗"),
+                    compact
+                ));
+                wake_reedline();
             }
             Err(_) => break,
             _ => {}
