@@ -116,6 +116,12 @@
 - [BOOK IV — THE ECOSYSTEM BOOK](#book-iv--the-ecosystem-book)
   - [Chapter 1: Standard plugins](#chapter-1-standard-plugins)
   - [Chapter 2: Extending the ecosystem](#chapter-2-extending-the-ecosystem)
+  - [Chapter 2.5: Tool and Service Architecture](#chapter-25-tool-and-service-architecture)
+    - [2.5.1 One tool per crate](#251-one-tool-per-crate)
+    - [2.5.2 The SystemTool trait](#252-the-systemtool-trait)
+    - [2.5.3 Services — shared infrastructure](#253-services--shared-infrastructure)
+    - [2.5.4 Tool composition in agents](#254-tool-composition-in-agents)
+    - [2.5.5 Forbidden: tool-to-tool dependencies](#255-forbidden-tool-to-tool-dependencies)
   - [Chapter 3: Development tools](#chapter-3-development-tools)
   - [Chapter 4: Limits of the Ecosystem layer](#chapter-4-limits-of-the-ecosystem-layer)
 
@@ -228,7 +234,8 @@ Crates are grouped into categorized subfolders that map to the Books:
 | `crates/kernel/` | I + II | `brioche-core`, `brioche-macro`, `brioche-governance`, `brioche-governance-default` |
 | `crates/runtime/` | III-A/B/C | `brioche-shell-runtime`, `brioche-shell-persistence`, `brioche-shell-projection` |
 | `crates/providers/` | III-A | `brioche-provider-openai`, `brioche-provider-router` |
-| `crates/tools/` | III-A / IV | `brioche-tools-system`, `brioche-tools-mcp`, `brioche-tools-subagent`, `brioche-tools-lsp`, `brioche-tools-web` |
+| `crates/tools/` | III-A / IV | `brioche-tool-readfile`, `brioche-tool-writefile`, `brioche-tool-listdir`, `brioche-tool-shell`, `brioche-tool-fetch`, `brioche-tools-mcp`, `brioche-tools-subagent`, `brioche-tools-lsp`, `brioche-tools-web` |
+| `crates/services/` | III-A / IV | `brioche-service-http`, `brioche-service-process`, `brioche-service-html` |
 | `crates/ecosystem/` | IV | `brioche-std`, `brioche-plugin-kit`, `brioche-docgen`, `brioche-playground` |
 | `crates/apps/` | — | `agent-terminal`, `agent-tui` |
 | `crates/infra/` | — | `brioche-reedline`, `cargo-brioche-lint`, `cargo-brioche-lint-invariants` |
@@ -4152,6 +4159,176 @@ To create a third-party plugin:
 14. For effects requested via `RequestEffect`, verify that the target effect is allowed on the current hook. The kernel validates via `HookEffectConstraint` if injected; in the absence of constraint, the effect is allowed by default.
 15. Use the `brioche-plugin-kit` crate to automatically generate safe boilerplate (`EXT_ID`, ordered collections, `SessionSnapshot` accessors, hook registration). The kit preserves invariants without the developer having to memorize them.
 16. If two plugins need to negotiate a complex decision, merge them into a single plugin with internal negotiation state, or use `NegotiationBroker` as a `DecisionAggregator` implementation. `DecisionAggregator` aggregates independent decisions; it does not support direct inter-plugin communication.
+
+<br>
+
+---
+
+---
+
+## Chapter 2.5: Tool and Service Architecture
+
+> **Scope:** This chapter defines the norm for Brioche tools — leaf-node executors that implement the `SystemTool` trait — and the service infrastructure that supports them. The full authoring standard is maintained in `TOOLS_NORM.md`.
+
+---
+
+### 2.5.1 One tool per crate
+
+A Brioche tool is a **leaf node** in the architecture. It has one job, does it well, and knows nothing about the kernel, governance, other tools, or the agent that uses it. To preserve this isolation, every tool lives in its own crate.
+
+**Crate layout:**
+
+```
+crates/tools/brioche-tool-<name>/
+├── Cargo.toml
+├── README.md
+└── src/
+    ├── lib.rs          # trait impl + re-export
+    ├── config.rs       # tool-specific configuration (optional)
+    ├── schema.rs       # JSON schema helpers (optional)
+    └── tests/
+        └── integration_tests.rs
+```
+
+**Naming:** `brioche-tool-readfile`, `brioche-tool-shell`, `brioche-tool-fetch`. Multi-word names use kebab-case.
+
+**Dependencies:** A tool crate depends only on `brioche-shell-runtime` (for the `SystemTool` trait), `serde`, `tokio`, and domain-specific crates. It must never depend on `brioche-core`, `brioche-governance`, other tool crates, or `brioche-std`.
+
+**Compile-time benefit:** An agent that only needs `read_file` and `write_file` does not compile `reqwest`, `tokio::process`, or shell sandbox logic. Each tool's dependencies are isolated to its own crate.
+
+<br>
+
+---
+
+### 2.5.2 The SystemTool trait
+
+Every tool implements `SystemTool`, defined in `brioche-shell-runtime`:
+
+```rust
+#[async_trait::async_trait]
+pub trait SystemTool: Send + Sync {
+    fn name(&self) -> &'static str;               // "read_file"
+    fn description(&self) -> &'static str;        // "Read the contents of a text file."
+    fn parameters_schema(&self) -> serde_json::Value;
+    async fn run(
+        &self,
+        args: serde_json::Value,
+        cancel: CancellationToken,
+    ) -> Result<String, ToolError>;
+}
+```
+
+**Schema:** The `parameters_schema` follows the OpenAI function-calling format:
+
+```json
+{
+  "type": "function",
+  "function": {
+    "name": "read_file",
+    "description": "Read the contents of a text file.",
+    "parameters": {
+      "type": "object",
+      "properties": { "path": { "type": "string", "description": "..." } },
+      "required": ["path"]
+    }
+  }
+}
+```
+
+**Cancellation:** Every tool MUST respect `CancellationToken` via `tokio::select! { biased; _ = cancel.cancelled() => ... }` at the top-level await.
+
+**Error mapping:**
+
+| `ToolError` variant | Maps to `ToolOutcome` | When |
+|---------------------|----------------------|------|
+| `SandboxDenied` | `BusinessError` | Policy blocked the tool |
+| `InvalidArgs` | `BusinessError` | Required parameter missing |
+| `NotFound` | `BusinessError` | Target resource does not exist |
+| `Io` | `SystemError` | OS-level failure (disk, network) |
+
+The `SystemToolExecutor` (in `brioche-shell-runtime`) aggregates registered tools into a single `ToolExecutor` impl, dispatching each call by name.
+
+<br>
+
+---
+
+### 2.5.3 Services — shared infrastructure
+
+Tools MUST NOT depend on other tools. If two tools share code, extract a **service crate**.
+
+A service is infrastructure — not a tool. It has no `SystemTool` impl, no JSON schema, no `name()`. It is a library that tools use internally.
+
+| Tool | Uses service |
+|------|-------------|
+| `fetch_url` | `brioche-service-http` (shared reqwest client, retry, pooling) |
+| `web_search` | `brioche-service-http` + `brioche-service-html` |
+| `execute_command` | `brioche-service-process` (sandbox wrapper) |
+| `read_file` | `tokio::fs` directly (too simple for a service) |
+
+**Service rules:**
+- Services live in `crates/services/`, not `crates/tools/`.
+- Services have no `SystemTool` impl.
+- Multiple tools may depend on the same service.
+- Services may depend on each other.
+
+**Why not tool-to-tool?**
+
+| Problem | Example |
+|---------|---------|
+| Circular dependencies | `web_search` → `fetch_url` → `web_search` |
+| Sandbox policy leakage | Allowing `web_search` silently allows `fetch_url` |
+| Non-deterministic depth | Tool A → Tool B → Tool C — LLM cannot predict nesting |
+| Error attribution | `web_search` fails — search logic or fetch logic? |
+| Schema explosion | Tool A's schema documents Tool B's args too |
+| Testing complexity | Mocking Tool B inside Tool A requires a fake executor |
+
+The correct mechanisms for composing tool-like behavior are:
+1. **Shared service** — extract common infrastructure into `crates/services/`.
+2. **Subagent** — emit `Effect::ExecuteTools` and let the kernel schedule the sub-tool via `SubRoutineHandler`.
+3. **Redesign** — merge both behaviors into a single tool.
+
+<br>
+
+---
+
+### 2.5.4 Tool composition in agents
+
+An agent composes tools at build time in its `shell_builder.rs`:
+
+```rust
+use brioche_shell_runtime::SystemToolExecutor;
+use brioche_tool_readfile::ReadFileTool;
+use brioche_tool_writefile::WriteFileTool;
+use brioche_tool_shell::ExecuteCommandTool;
+
+let tools = SystemToolExecutor::new()
+    .with_tool(ReadFileTool)
+    .with_tool(WriteFileTool)
+    .with_tool(ExecuteCommandTool::with_allow_list(my_list));
+```
+
+**Rules:**
+- The agent decides which tools to include.
+- The agent configures tool-specific policies (allow-lists, timeouts).
+- Tools never self-register or auto-discover.
+- `SystemToolExecutor` maintains a `BTreeMap<String, Box<dyn SystemTool>>` for deterministic iteration order.
+
+<br>
+
+---
+
+### 2.5.5 Forbidden: tool-to-tool dependencies
+
+**Invariant:** No tool crate may declare a dependency on another tool crate in its `Cargo.toml`.
+
+**Rationale:** Tools are leaf nodes. A tool that needs another tool's behavior is either:
+- Using shared infrastructure → use a service crate.
+- Orchestrating multiple tool calls → use the kernel's `SubRoutineHandler`.
+- Combining two domains → redesign as a single tool.
+
+**Enforcement:** This is a project convention, not a compiler rule. The `cargo-brioche-lint` tool (infra) may verify it. The `philosophy-check.py` script checks for cross-tool dependencies.
+
+**Exception — tool adapters:** A "tool adapter" wraps a base tool with additional policy (e.g. `brioche-tool-readfile-strict` adds a path whitelist). This is NOT a tool-to-tool dependency — it re-exports the same struct with a thin wrapper. The adapter does not depend on the base tool crate; it copies or re-exports the implementation.
 
 <br>
 
