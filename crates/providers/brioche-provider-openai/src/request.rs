@@ -21,49 +21,70 @@ fn simple_msg(role: &str, content: &str) -> serde_json::Value {
 /// `ToolRequest` and `ToolResult` variants are mapped to the
 /// `tool_calls` / `tool` format expected by OpenAI.
 ///
+/// Consecutive `ToolRequest` messages are grouped into a single
+/// assistant message with multiple `tool_calls`.
+///
 /// # Complexity
 /// O(n) where n = number of messages. One `Vec` allocation.
 pub fn build_messages(history: &[ChatMessage]) -> Vec<serde_json::Value> {
-    history
-        .iter()
-        .map(|message| match message {
-            ChatMessage::System { content } => simple_msg("system", content),
-            ChatMessage::User { content } => simple_msg("user", content),
-            ChatMessage::Assistant { content } => simple_msg("assistant", content),
-            ChatMessage::ToolRequest {
-                id,
-                name,
-                arguments,
-            } => {
-                let mut func = serde_json::Map::new();
-                func.insert("name".into(), serde_json::Value::String(name.clone()));
-                func.insert(
-                    "arguments".into(),
-                    serde_json::Value::String(arguments.clone()),
-                );
+    let mut result = Vec::with_capacity(history.len());
+    let mut i = 0;
 
-                let mut tool_call = serde_json::Map::new();
-                tool_call.insert("id".into(), serde_json::Value::String(id.clone()));
-                tool_call.insert("type".into(), serde_json::Value::String("function".into()));
-                tool_call.insert("function".into(), serde_json::Value::Object(func));
+    while i < history.len() {
+        match &history[i] {
+            ChatMessage::System { content } => {
+                result.push(simple_msg("system", content));
+                i += 1;
+            }
+            ChatMessage::User { content } => {
+                result.push(simple_msg("user", content));
+                i += 1;
+            }
+            ChatMessage::Assistant { content } => {
+                result.push(simple_msg("assistant", content));
+                i += 1;
+            }
+            ChatMessage::ToolRequest { .. } => {
+                // Group consecutive ToolRequest into a single assistant message.
+                let mut tool_calls = Vec::new();
+                while i < history.len() {
+                    if let ChatMessage::ToolRequest { id, name, arguments } = &history[i] {
+                        let mut func = serde_json::Map::new();
+                        func.insert("name".into(), serde_json::Value::String(name.clone()));
+                        func.insert(
+                            "arguments".into(),
+                            serde_json::Value::String(arguments.clone()),
+                        );
+
+                        let mut tool_call = serde_json::Map::new();
+                        tool_call.insert("id".into(), serde_json::Value::String(id.clone()));
+                        tool_call.insert("type".into(), serde_json::Value::String("function".into()));
+                        tool_call.insert("function".into(), serde_json::Value::Object(func));
+                        tool_calls.push(serde_json::Value::Object(tool_call));
+                        i += 1;
+                    } else {
+                        break;
+                    }
+                }
 
                 let mut m = serde_json::Map::new();
                 m.insert("role".into(), serde_json::Value::String("assistant".into()));
-                m.insert(
-                    "tool_calls".into(),
-                    serde_json::Value::Array(vec![serde_json::Value::Object(tool_call)]),
-                );
-                serde_json::Value::Object(m)
+                m.insert("content".into(), serde_json::Value::Null);
+                m.insert("tool_calls".into(), serde_json::Value::Array(tool_calls));
+                result.push(serde_json::Value::Object(m));
             }
             ChatMessage::ToolResult { id, content } => {
                 let mut m = serde_json::Map::new();
                 m.insert("role".into(), serde_json::Value::String("tool".into()));
                 m.insert("tool_call_id".into(), serde_json::Value::String(id.clone()));
                 m.insert("content".into(), serde_json::Value::String(content.clone()));
-                serde_json::Value::Object(m)
+                result.push(serde_json::Value::Object(m));
+                i += 1;
             }
-        })
-        .collect()
+        }
+    }
+
+    result
 }
 
 /// Assembles the Chat Completions request body.

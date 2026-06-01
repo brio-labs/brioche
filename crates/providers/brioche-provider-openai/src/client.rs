@@ -399,14 +399,6 @@ impl LlmClient for OpenAiLlmClient {
                                 self.emit_tool_call_start(shell, &entry.id, &entry.name)
                                     .await?;
                                 entry.start_emitted = true;
-
-                                // Add the ToolRequest to history so
-                                // subsequent calls see the request.
-                                self.history.write().await.push(ChatMessage::ToolRequest {
-                                    id: entry.id.clone(),
-                                    name: entry.name.clone(),
-                                    arguments: String::new(),
-                                });
                             }
 
                             // Emit the argument fragment (only the delta,
@@ -422,11 +414,20 @@ impl LlmClient for OpenAiLlmClient {
         }
 
         // If finish_reason is "tool_calls", all tool calls are complete.
-        // We emit a single ToolCallDone (the kernel drains all pending).
+        // Emit a single ToolCallDone (the kernel drains all pending).
+        // Persist each complete ToolRequest with accumulated arguments.
         if finish_reason.as_deref() == Some("tool_calls")
             && let Some(first) = tool_acc.values().next()
         {
             self.emit_tool_call_done(shell, &first.id).await?;
+
+            for entry in tool_acc.values() {
+                self.history.write().await.push(ChatMessage::ToolRequest {
+                    id: entry.id.clone(),
+                    name: entry.name.clone(),
+                    arguments: entry.args.clone(),
+                });
+            }
         }
 
         // Mark the end of the stream and persist the assistant text.
