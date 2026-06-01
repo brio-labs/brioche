@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use brioche_core::{ActiveToolCall, ChatMessage, ToolResultDTO};
 use brioche_plugin_kit::PluginBuilder;
-use brioche_provider_openai::{LlmChunk, OpenAiLlmClient, SharedHistory};
+use brioche_provider_openai::{OpenAiLlmClient, SharedHistory, ShellEvent};
 use brioche_shell_persistence::{RedbStorage, SessionHeadDTO, SessionStore, SessionStoreEntry};
 use brioche_shell_runtime::{AllowList, SystemToolExecutor};
 use brioche_shell_runtime::{BriocheShell, DefaultEffectExecutor, ShellConfig, ToolExecutor};
@@ -47,16 +47,6 @@ impl<T: ToolExecutor> HistorySyncDecorator<T> {
 impl<T: ToolExecutor> ToolExecutor for HistorySyncDecorator<T> {
     async fn execute(&self, call: &ActiveToolCall, cancel: CancellationToken) -> ToolResultDTO {
         let result = self.inner.execute(call, cancel).await;
-
-        let output = match &result.outcome {
-            brioche_core::ToolOutcome::Success(s) => s.clone(),
-            brioche_core::ToolOutcome::BusinessError(s)
-            | brioche_core::ToolOutcome::SystemError(s) => format!("(error: {s})"),
-            brioche_core::ToolOutcome::TimeoutWithPartialData { partial_output } => {
-                format!("(timeout: {})", partial_output.clone().unwrap_or_default())
-            }
-        };
-        self.llm.emit_tool_result(&call.tool_name, &output);
         self.llm
             .push_tool_results(std::slice::from_ref(&result))
             .await;
@@ -68,7 +58,7 @@ impl<T: ToolExecutor> ToolExecutor for HistorySyncDecorator<T> {
 ///
 /// This function is reusable for creating multiple shells
 /// (multi-session) or a headless shell.
-pub fn build_shell(
+pub async fn build_shell(
     session_id: impl Into<String>,
     cli_config: &CliConfig,
     with_confirm: bool,
@@ -79,7 +69,7 @@ pub fn build_shell(
 ) -> (
     BriocheShell,
     OpenAiLlmClient,
-    broadcast::Receiver<LlmChunk>,
+    broadcast::Receiver<ShellEvent>,
     SharedHistory,
 ) {
     type ConfirmHandler = Option<std::sync::Arc<dyn Fn(&str) -> bool + Send + Sync>>;
@@ -117,17 +107,13 @@ pub fn build_shell(
     let (llm_client, llm_rx, history) = OpenAiLlmClient::new(cli_config.openai.clone());
 
     let schemas = tool_executor.schema_json();
-    let llm_for_schema = llm_client.clone();
-    tokio::spawn(async move {
-        // `set_tools_schema` is infallible (writes to an RwLock).
-        // The task runs in background so startup is not blocked.
-        llm_for_schema.set_tools_schema(schemas).await;
-    });
+    llm_client.set_tools_schema(schemas).await;
 
     let notifying_tools = HistorySyncDecorator::new(tool_executor, llm_client.clone());
 
     let effect_executor =
-        DefaultEffectExecutor::new(notifying_tools, llm_client.clone(), redb_storage.clone());
+        DefaultEffectExecutor::new(notifying_tools, llm_client.clone(), redb_storage.clone())
+            .with_ui_tx(llm_client.ui_tx());
 
     // Session callback — snapshot after each transition.
     let store_for_callback = Arc::clone(&session_store);

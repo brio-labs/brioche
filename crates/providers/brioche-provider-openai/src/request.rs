@@ -48,7 +48,12 @@ pub fn build_messages(history: &[ChatMessage]) -> Vec<serde_json::Value> {
                 // Group consecutive ToolRequest into a single assistant message.
                 let mut tool_calls = Vec::new();
                 while i < history.len() {
-                    if let ChatMessage::ToolRequest { id, name, arguments } = &history[i] {
+                    if let ChatMessage::ToolRequest {
+                        id,
+                        name,
+                        arguments,
+                    } = &history[i]
+                    {
                         let mut func = serde_json::Map::new();
                         func.insert("name".into(), serde_json::Value::String(name.clone()));
                         func.insert(
@@ -58,7 +63,8 @@ pub fn build_messages(history: &[ChatMessage]) -> Vec<serde_json::Value> {
 
                         let mut tool_call = serde_json::Map::new();
                         tool_call.insert("id".into(), serde_json::Value::String(id.clone()));
-                        tool_call.insert("type".into(), serde_json::Value::String("function".into()));
+                        tool_call
+                            .insert("type".into(), serde_json::Value::String("function".into()));
                         tool_call.insert("function".into(), serde_json::Value::Object(func));
                         tool_calls.push(serde_json::Value::Object(tool_call));
                         i += 1;
@@ -164,7 +170,10 @@ mod tests {
         assert_eq!(messages.len(), 2);
         let tool_calls = messages[1]["tool_calls"].as_array().unwrap();
         assert_eq!(tool_calls.len(), 1);
-        assert_eq!(tool_calls[0]["function"]["arguments"], "{\"path\":\"/tmp/test\"}");
+        assert_eq!(
+            tool_calls[0]["function"]["arguments"],
+            "{\"path\":\"/tmp/test\"}"
+        );
     }
 }
 

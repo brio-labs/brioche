@@ -12,7 +12,7 @@
 //!
 //! Refs: I-Shell-Projection-Independent
 
-use brioche_shell_runtime::LlmChunk;
+use brioche_shell_runtime::ShellEvent;
 use nu_ansi_term::{Color, Style};
 use reedline::ExternalPrinter;
 use tokio::sync::broadcast;
@@ -94,7 +94,7 @@ fn render_block(text: &str) -> String {
 ///
 /// Refs: I-Shell-Projection-Independent
 pub async fn run(
-    mut llm_rx: broadcast::Receiver<LlmChunk>,
+    mut llm_rx: broadcast::Receiver<ShellEvent>,
     cancel: CancellationToken,
     printer: ExternalPrinter<String>,
 ) {
@@ -107,10 +107,10 @@ pub async fn run(
         };
 
         match chunk {
-            Ok(LlmChunk::Text(content)) => {
+            Ok(ShellEvent::LlmText(content)) => {
                 full_response.push_str(&content);
             }
-            Ok(LlmChunk::ToolCallStart { name, .. }) => {
+            Ok(ShellEvent::LlmToolCallStart { name, .. }) => {
                 if !full_response.is_empty() {
                     let _ = printer.print(render_block(&full_response));
                     wake_reedline();
@@ -123,11 +123,11 @@ pub async fn run(
                 ));
                 wake_reedline();
             }
-            Ok(LlmChunk::ToolCallDone { .. }) => {
+            Ok(ShellEvent::LlmToolCallDone { .. }) => {
                 let _ = printer.print(format!("  {}", Color::Cyan.paint("...done")));
                 wake_reedline();
             }
-            Ok(LlmChunk::ToolResult { name, output }) => {
+            Ok(ShellEvent::ToolResult { name, output }) => {
                 let preview: String = output.lines().take(5).collect::<Vec<_>>().join("\n");
                 let ellipsis = if output.lines().count() > 5 {
                     " ..."
@@ -143,27 +143,53 @@ pub async fn run(
                 ));
                 wake_reedline();
             }
-            Ok(LlmChunk::Done) if !full_response.is_empty() => {
+            Ok(ShellEvent::LlmDone) if !full_response.is_empty() => {
                 let _ = printer.print(render_block(&full_response));
                 wake_reedline();
                 full_response.clear();
             }
-            Ok(LlmChunk::Error(error)) => {
+            Ok(ShellEvent::Error {
+                code,
+                message,
+                source,
+                recoverable,
+                suggestion,
+            }) => {
                 if !full_response.is_empty() {
                     let _ = printer.print(render_block(&full_response));
                     wake_reedline();
                     full_response.clear();
                 }
-                let compact = error
-                    .lines()
-                    .find(|l| !l.trim().is_empty() && !l.trim().starts_with('{'))
-                    .map(|l| l.trim().to_string())
-                    .unwrap_or_else(|| error.lines().next().unwrap_or(&error).to_string());
-                let _ = printer.print(format!(
-                    "  {} LLM error: {}",
+                let severity = if recoverable { "ERROR" } else { "FATAL" };
+                let mut text = format!(
+                    "  {} [{}][{}] {}: {}",
                     Color::Red.paint("✗"),
-                    compact
+                    severity,
+                    source,
+                    code,
+                    message.lines().next().unwrap_or(&message)
+                );
+                if let Some(hint) = suggestion {
+                    text.push_str(&format!("\n     → {}", hint));
+                }
+                let _ = printer.print(text);
+                wake_reedline();
+            }
+            Ok(ShellEvent::Warning { message, source }) => {
+                let _ = printer.print(format!(
+                    "  {} [{}] {}",
+                    Color::Yellow.paint("⚠"),
+                    source,
+                    message
                 ));
+                wake_reedline();
+            }
+            Ok(ShellEvent::Status { message }) => {
+                let _ = printer.print(format!("  {} {}", Color::Blue.paint("ℹ"), message));
+                wake_reedline();
+            }
+            Ok(ShellEvent::Thinking { message }) => {
+                let _ = printer.print(format!("  {} {}", Color::Blue.paint("◐"), message));
                 wake_reedline();
             }
             Err(_) => break,

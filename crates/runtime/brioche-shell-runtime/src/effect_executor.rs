@@ -8,11 +8,12 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO, I-Shell-ToolResult-PassThrough
 
-use crate::{BriocheShell, NetworkRecovery, PersistenceMode, ShellError};
+use crate::{BriocheShell, NetworkRecovery, PersistenceMode, ShellError, ShellEvent};
 use brioche_core::{
     ActiveToolCall, ChatMessage, ErrorCode, SubRoutineHandle, SystemSignal, ToolResultDTO, UiWidget,
 };
 use std::sync::Arc;
+use tokio::sync::broadcast;
 
 /// Pluggable persistence boundary.
 ///
@@ -124,6 +125,10 @@ pub struct DefaultEffectExecutor<T, L, P> {
     ///
     /// Refs: I-Shell-Network-Signal
     network_recovery: Option<Arc<dyn NetworkRecovery>>,
+    /// Broadcast channel for shell events (errors, status, tool results).
+    ///
+    /// Refs: SPECS.md §Book III-A Ch 1.2
+    ui_tx: Option<broadcast::Sender<ShellEvent>>,
 }
 
 impl<T, L, P> Clone for DefaultEffectExecutor<T, L, P> {
@@ -134,6 +139,7 @@ impl<T, L, P> Clone for DefaultEffectExecutor<T, L, P> {
             persistence: Arc::clone(&self.persistence),
             persistence_mode: self.persistence_mode,
             network_recovery: self.network_recovery.as_ref().map(Arc::clone),
+            ui_tx: self.ui_tx.clone(),
         }
     }
 }
@@ -147,6 +153,7 @@ impl<T, L, P> DefaultEffectExecutor<T, L, P> {
             persistence: Arc::new(persistence),
             persistence_mode: PersistenceMode::Async,
             network_recovery: None,
+            ui_tx: None,
         }
     }
 
@@ -165,6 +172,15 @@ impl<T, L, P> DefaultEffectExecutor<T, L, P> {
         self.network_recovery = Some(Arc::new(recovery));
         self
     }
+
+    /// Attach a shell-event broadcast channel so that the executor
+    /// can emit errors, warnings, and status updates visible to the user.
+    ///
+    /// Refs: SPECS.md §Book III-A Ch 1.2
+    pub fn with_ui_tx(mut self, ui_tx: broadcast::Sender<ShellEvent>) -> Self {
+        self.ui_tx = Some(ui_tx);
+        self
+    }
 }
 
 #[async_trait::async_trait]
@@ -180,6 +196,11 @@ where
         // SystemSignal::NetworkUnavailable as a last resort.
         //
         // Refs: I-Shell-Network-Signal
+        if let Some(ref ui_tx) = self.ui_tx {
+            let _ = ui_tx.send(ShellEvent::Thinking {
+                message: "Thinking…".into(),
+            });
+        }
         let mut attempt: u32 = 0;
         loop {
             match self.llm_client.call_llm(shell).await {
@@ -235,27 +256,58 @@ where
         use brioche_core::{EngineInput, ToolOutcome};
         use tokio_util::sync::CancellationToken;
 
+        if let Some(ref ui_tx) = self.ui_tx {
+            let names: Vec<_> = calls.iter().map(|c| c.tool_name.as_str()).collect();
+            let _ = ui_tx.send(ShellEvent::Thinking {
+                message: format!("Using {}…", names.join(", ")),
+            });
+        }
+
         let mut handles = Vec::with_capacity(calls.len());
 
         for call in calls {
             let tool_executor = Arc::clone(&self.tool_executor);
             let cancel = CancellationToken::new();
-            // ActiveToolCall.timeout_ms is the mechanical source of truth.
-            // The kernel's seal() already materializes this from the descriptor
-            // with default_tool_timeout_ms as fallback (SPECS.md §Book III-A Ch 1).
             let timeout_ms = call.timeout_ms;
+            let ui_tx = self.ui_tx.clone();
+            let tool_name = call.tool_name.clone();
 
             let handle = tokio::spawn(async move {
                 let result = tokio::select! {
                     biased;
                     _ = tokio::time::sleep(tokio::time::Duration::from_millis(timeout_ms)) => {
+                        if let Some(ref tx) = ui_tx {
+                            let _ = tx.send(ShellEvent::error(
+                                "ToolTimeout",
+                                format!("{tool_name} timed out after {timeout_ms} ms"),
+                                "tool_executor",
+                                true,
+                                Some(format!("Increase timeout or check if {tool_name} is stuck.")),
+                            ));
+                        }
                         ToolResultDTO {
                             tool_id: call.tool_id.clone(),
                             tool_name: call.tool_name.clone(),
                             outcome: ToolOutcome::TimeoutWithPartialData { partial_output: None },
                         }
                     }
-                    r = tool_executor.execute(&call, cancel.clone()) => r,
+                    r = tool_executor.execute(&call, cancel.clone()) => {
+                        if let Some(ref tx) = ui_tx {
+                            let output = match &r.outcome {
+                                ToolOutcome::Success(s) => s.clone(),
+                                ToolOutcome::BusinessError(s)
+                                | ToolOutcome::SystemError(s) => format!("(error: {s})"),
+                                ToolOutcome::TimeoutWithPartialData { partial_output } => {
+                                    format!("(timeout: {})", partial_output.clone().unwrap_or_default())
+                                }
+                            };
+                            let _ = tx.send(ShellEvent::ToolResult {
+                                name: tool_name.clone(),
+                                output,
+                            });
+                        }
+                        r
+                    }
                 };
                 result
             });
@@ -267,6 +319,14 @@ where
             match h.await {
                 Ok(r) => results.push(r),
                 Err(join_err) => {
+                    if let Some(ref ui_tx) = self.ui_tx {
+                        let _ = ui_tx.send(ShellEvent::fatal(
+                            "ToolPanic",
+                            format!("tool task panicked: {join_err}"),
+                            "tool_executor",
+                            Some("This is a bug — please report it.".into()),
+                        ));
+                    }
                     return Err(ShellError::EffectExecution(format!(
                         "tool task panicked: {}",
                         join_err
@@ -291,6 +351,15 @@ where
 
     async fn log_error(&self, code: ErrorCode, message: String) -> Result<(), ShellError> {
         tracing::error!(?code, %message, "engine error effect");
+        if let Some(ref ui_tx) = self.ui_tx {
+            let _ = ui_tx.send(ShellEvent::error(
+                format!("{:?}", code),
+                message,
+                "engine",
+                true,
+                Some("Check the logs or retry the last message.".into()),
+            ));
+        }
         Ok(())
     }
 

@@ -520,6 +520,11 @@ impl BriocheEngine {
         let generation_id = self.next_generation_id;
         self.next_generation_id += 1;
 
+        session
+            .extensions
+            .get_or_insert_default::<EpochState>()
+            .current_generation = generation_id;
+
         session.push_state(AgentState::Predicting { generation_id })?;
 
         // before_prediction hook: collect decisions.

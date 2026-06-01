@@ -6,7 +6,7 @@
 //! 3. Parses each SSE line into `delta.content` or `tool_calls`.
 //! 4. Segments fragments according to `MAX_INLINE_CHUNK`.
 //! 5. Sends each fragment to the kernel via `shell.send_input(LlmStream(...))`.
-//! 6. Broadcasts chunks simultaneously on a `broadcast::Sender<LlmChunk>`
+//! 6. Broadcasts chunks simultaneously on a `broadcast::Sender<ShellEvent>`
 //!    channel so the projection (CLI) can display them in real time.
 //!
 //! # Invariants
@@ -19,7 +19,7 @@
 use crate::{config::OpenAiConfig, request::build_request_body, sse::SseParser};
 use brioche_core::{ChatMessage, MAX_INLINE_CHUNK, StreamEvent, ToolOutcome, ToolResultDTO};
 use brioche_shell_runtime::{
-    BriocheShell, EngineInput, LlmChunk, LlmClient, ShellError, SystemSignal,
+    BriocheShell, EngineInput, LlmClient, ShellError, ShellEvent, SystemSignal,
 };
 use bytes::Bytes;
 use futures_util::StreamExt;
@@ -49,10 +49,10 @@ pub struct OpenAiLlmClient {
     config: OpenAiConfig,
     http: reqwest::Client,
     tools_schema: Arc<RwLock<Vec<serde_json::Value>>>,
-    ui_tx: broadcast::Sender<LlmChunk>,
-    /// Miroir de l'historique conversationnel.
+    ui_tx: broadcast::Sender<ShellEvent>,
+    /// Mirror of the conversational history.
     history: SharedHistory,
-    /// Buffer local pour accumuler le texte assistant du stream courant.
+    /// Local buffer to accumulate the assistant text from the current stream.
     pending_text: tokio::sync::Mutex<String>,
 }
 
@@ -78,7 +78,7 @@ impl OpenAiLlmClient {
     /// # Panics
     /// Never panics. Empty `api_key` is accepted (some local endpoints
     /// like Ollama do not require a key).
-    pub fn new(config: OpenAiConfig) -> (Self, broadcast::Receiver<LlmChunk>, SharedHistory) {
+    pub fn new(config: OpenAiConfig) -> (Self, broadcast::Receiver<ShellEvent>, SharedHistory) {
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_millis(config.timeout_ms))
             .build()
@@ -102,8 +102,17 @@ impl OpenAiLlmClient {
     /// Subscribes to the LLM chunk broadcast channel.
     ///
     /// Each call returns a new independent receiver.
-    pub fn subscribe(&self) -> broadcast::Receiver<LlmChunk> {
+    pub fn subscribe(&self) -> broadcast::Receiver<ShellEvent> {
         self.ui_tx.subscribe()
+    }
+
+    /// Returns a clone of the internal broadcast sender.
+    ///
+    /// This lets the `DefaultEffectExecutor` share the same
+    /// `ShellEvent` channel so errors from the effect loop are
+    /// visible to the user.
+    pub fn ui_tx(&self) -> broadcast::Sender<ShellEvent> {
+        self.ui_tx.clone()
     }
 
     /// Pushes a message into the history mirror.
@@ -154,7 +163,7 @@ impl OpenAiLlmClient {
                 }))
                 .await?;
         }
-        let _ = self.ui_tx.send(LlmChunk::Text(text.to_string()));
+        let _ = self.ui_tx.send(ShellEvent::LlmText(text.to_string()));
         Ok(())
     }
 
@@ -172,7 +181,7 @@ impl OpenAiLlmClient {
                 name: name.to_string(),
             }))
             .await?;
-        let _ = self.ui_tx.send(LlmChunk::ToolCallStart {
+        let _ = self.ui_tx.send(ShellEvent::LlmToolCallStart {
             id: id.to_string(),
             name: name.to_string(),
         });
@@ -196,7 +205,7 @@ impl OpenAiLlmClient {
                 }))
                 .await?;
         }
-        let _ = self.ui_tx.send(LlmChunk::ToolArgument {
+        let _ = self.ui_tx.send(ShellEvent::LlmToolArgument {
             id: id.to_string(),
             fragment: fragment.to_string(),
         });
@@ -212,7 +221,7 @@ impl OpenAiLlmClient {
             .await?;
         let _ = self
             .ui_tx
-            .send(LlmChunk::ToolCallDone { id: id.to_string() });
+            .send(ShellEvent::LlmToolCallDone { id: id.to_string() });
         Ok(())
     }
 
@@ -220,7 +229,7 @@ impl OpenAiLlmClient {
     ///
     /// Called by `NotifyingToolExecutor` after execution.
     pub fn emit_tool_result(&self, name: &str, output: &str) {
-        let _ = self.ui_tx.send(LlmChunk::ToolResult {
+        let _ = self.ui_tx.send(ShellEvent::ToolResult {
             name: name.to_string(),
             output: output.to_string(),
         });
@@ -290,7 +299,13 @@ impl LlmClient for OpenAiLlmClient {
             Err(err) => {
                 let msg = format!("Network error: {err}");
                 tracing::error!(error = %err, "OpenAI request failed");
-                let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
+                let _ = self.ui_tx.send(ShellEvent::error(
+                    "NetworkUnavailable",
+                    msg.clone(),
+                    "openai_provider",
+                    true,
+                    Some("Check your network connection and API base URL.".into()),
+                ));
                 shell
                     .send_system_signal(SystemSignal::NetworkUnavailable { reason: msg })
                     .await?;
@@ -313,7 +328,11 @@ impl LlmClient for OpenAiLlmClient {
             };
             let msg = format!("HTTP {status}: {compact}");
             tracing::error!(status = %status, body = %body_text, "OpenAI error response");
-            let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
+            let _ = self.ui_tx.send(ShellEvent::network_error(
+                status.as_u16(),
+                msg.clone(),
+                "openai_provider",
+            ));
             shell
                 .send_system_signal(SystemSignal::NetworkUnavailable { reason: msg })
                 .await?;
@@ -323,7 +342,7 @@ impl LlmClient for OpenAiLlmClient {
         let mut stream = response.bytes_stream();
         let mut parser = SseParser::new();
 
-        // Accumulateur de tool calls par index OpenAI.
+        // Tool call accumulator by OpenAI index.
         let mut tool_acc: BTreeMap<usize, ToolCallAccumulator> = BTreeMap::new();
         let mut finish_reason: Option<String> = None;
 
@@ -333,7 +352,13 @@ impl LlmClient for OpenAiLlmClient {
                 Err(err) => {
                     let msg = format!("SSE error: {err}");
                     tracing::error!(error = %err, "SSE stream error");
-                    let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
+                    let _ = self.ui_tx.send(ShellEvent::error(
+                        "SSEStreamError",
+                        msg.clone(),
+                        "openai_provider",
+                        true,
+                        Some("The provider closed the stream unexpectedly — retry.".into()),
+                    ));
                     shell
                         .send_system_signal(SystemSignal::NetworkUnavailable { reason: msg })
                         .await?;
@@ -365,7 +390,7 @@ impl LlmClient for OpenAiLlmClient {
                         self.emit_text_chunk(shell, content).await?;
                     }
 
-                    // Tool calls (deltas partiels)
+                    // Tool calls (partial deltas)
                     if let Some(tool_calls) = delta
                         .and_then(|d| d.get("tool_calls"))
                         .and_then(|t| t.as_array())
@@ -450,7 +475,7 @@ impl LlmClient for OpenAiLlmClient {
         shell
             .send_input(EngineInput::LlmStream(StreamEvent::Done))
             .await?;
-        let _ = self.ui_tx.send(LlmChunk::Done);
+        let _ = self.ui_tx.send(ShellEvent::LlmDone);
         Ok(())
     }
 }

@@ -168,7 +168,8 @@ async fn handle_session_command(
                 Arc::clone(&factory.store),
                 None,
                 None,
-            );
+            )
+            .await;
             {
                 let mut mgr = manager.write().await;
                 mgr.insert(new_id.clone(), new_shell);
@@ -224,7 +225,8 @@ async fn handle_session_command(
                 Arc::clone(&factory.store),
                 Some(messages),
                 Some(head),
-            );
+            )
+            .await;
             {
                 let mut mgr = manager.write().await;
                 mgr.insert(id.to_string(), new_shell);

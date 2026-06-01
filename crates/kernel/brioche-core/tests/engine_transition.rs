@@ -1420,6 +1420,21 @@ fn tool_execution_tracker_counts_outcomes() {
 fn engine_with_undo_frame_guard_instruments_hooks() {
     use brioche_governance_default::UndoFrameGuard;
 
+    /// Test-only extension type for verifying COW rollback behavior.
+    #[derive(
+        Clone,
+        Debug,
+        Default,
+        PartialEq,
+        Eq,
+        serde::Serialize,
+        serde::Deserialize,
+        brioche_core::BriocheExtensionType,
+    )]
+    struct TestCounter {
+        value: u64,
+    }
+
     struct MutatingPlugin;
     impl BriochePlugin for MutatingPlugin {
         fn name(&self) -> &'static str {
@@ -1433,8 +1448,8 @@ fn engine_with_undo_frame_guard_instruments_hooks() {
             _input: &EngineInput,
             ext: &mut ExtensionStorage,
         ) -> PluginResult<PolicyDecision> {
-            let state = ext.get_or_insert_default::<brioche_core::EpochState>();
-            state.current_generation = 999;
+            let state = ext.get_or_insert_default::<TestCounter>();
+            state.value = 999;
             Ok(PolicyDecision::Allow)
         }
     }
@@ -1454,11 +1469,9 @@ fn engine_with_undo_frame_guard_instruments_hooks() {
     };
 
     let mut session = Session::new("test");
-    session.extensions.insert(brioche_core::EpochState {
-        current_generation: 1,
-    });
+    session.extensions.insert(TestCounter { value: 1 });
 
-    // The hook mutates EpochState; COW instrumentation should not interfere
+    // The hook mutates TestCounter; COW instrumentation should not interfere
     // with normal operation (commit_hook is called when budget is respected).
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
 
@@ -1466,8 +1479,6 @@ fn engine_with_undo_frame_guard_instruments_hooks() {
     assert!(effects.iter().any(|e| matches!(e, Effect::CallLlmNetwork)));
 
     // The mutation should have been committed (not rolled back).
-    let state = session
-        .extensions
-        .get_or_insert_default::<brioche_core::EpochState>();
-    assert_eq!(state.current_generation, 999);
+    let state = session.extensions.get_or_insert_default::<TestCounter>();
+    assert_eq!(state.value, 999);
 }

@@ -37,7 +37,8 @@ pub async fn run(
         Arc::clone(&session_store),
         None,
         None,
-    );
+    )
+    .await;
 
     let manager = Arc::new(RwLock::new(SessionManager::new("cli-session", shell)));
 

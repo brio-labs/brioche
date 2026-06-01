@@ -10,22 +10,7 @@ use crate::BriocheShell;
 use brioche_core::{EngineInput, StreamEvent};
 use bytes::Bytes;
 
-/// Chunk broadcast to the projection (CLI, GUI…). The kernel never sees it.
-///
-/// This type lives in the runtime because it is the protocol between the LLM
-/// client and the projection layer, independent of the provider.
-///
-/// Refs: I-Shell-Projection-Independent
-#[derive(Clone, Debug)]
-pub enum LlmChunk {
-    Text(String),
-    ToolCallStart { id: String, name: String },
-    ToolArgument { id: String, fragment: String },
-    ToolCallDone { id: String },
-    ToolResult { name: String, output: String },
-    Done,
-    Error(String),
-}
+pub use crate::shell_event::ShellEvent;
 
 /// Abstract LLM client.
 ///

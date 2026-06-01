@@ -14,7 +14,7 @@
 //!   ├── SseParser (line by line)
 //!   ├── Segmenter (MAX_INLINE_CHUNK)
 //!   ├── shell.send_input(EngineInput::LlmStream) → kernel
-//!   └── broadcast::Sender<LlmChunk> → projection
+//!   └── broadcast::Sender<ShellEvent> → projection
 //! ```
 //!
 //! ## Invariants
@@ -28,6 +28,6 @@ pub mod config;
 pub mod request;
 pub mod sse;
 
-pub use brioche_shell_runtime::LlmChunk;
+pub use brioche_shell_runtime::ShellEvent;
 pub use client::{OpenAiLlmClient, SharedHistory};
 pub use config::OpenAiConfig;

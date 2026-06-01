@@ -91,6 +91,7 @@
 
 - [BOOK III-A — THE SHELL RUNTIME BOOK](#book-iii-a--the-shell-runtime-book)
   - [Chapter 1: Event loop and orchestration](#chapter-1-event-loop-and-orchestration)
+    - [1.4 ShellEvent bus (projection-independent)](#14-shellevent-bus-projection-independent)
   - [Chapter 2: BackpressureRegulator](#chapter-2-backpressureregulator)
   - [Chapter 3: SignalMultiplexer](#chapter-3-signalmultiplexer)
   - [Chapter 4: EngineWatchdog](#chapter-4-enginewatchdog)
@@ -3101,6 +3102,7 @@ The runtime shell manages global asynchronous orchestration via a Tokio runtime.
 * An `mpsc` channel for `AsyncTaskResult`s (consumed by `AsyncTaskResultAdapter` or by `UnifiedEventBus`).
 * An `mpsc` channel for `GovernanceNotification`s (consumed by `GovernanceNotificationAdapter` or by `UnifiedEventBus`).
 * An `mpsc` channel for telemetry (`TelemetryChannel`, consumed by the non-blocking subscriber).
+* A `broadcast::Sender<ShellEvent>` channel for projection-independent UI events (tool calls, tool results, errors with recovery hints, thinking status). Consumed by both terminal agents (`brioche-reedline`) and desktop agents (`brioche-shell-projection`) without coupling to either.
 * A `UnifiedEventBus` (optional shell component) that consolidates the three separate channels into a single `EngineEnvelope` flow before injection into `SignalDrainOrder`.
 * A `TransitionJournal` (shell component) that persists each `EngineInput` and its context in lock-free shared memory before the call to `transition()`, consulted by the `EngineWatchdog` in case of restart.
 * A `CancellationToken` per ongoing task, controllable from the UI.
@@ -3161,12 +3163,14 @@ Treated as a transactional barrier. No following effect from the same batch, no 
 1. Create `CancellationToken`.
 2. Read `ActiveToolCall.timeout_ms` (mechanical source of truth).
 3. If absent (`0` or not specified), use the engine's `default_tool_timeout_ms`. An `Effect::Error` has already been emitted. **No technical fallback** is applied beyond this mechanical safeguard.
-4. `tokio::spawn` :
+4. Broadcast `ShellEvent::Thinking { message: "Using <tool_name>…" }` to the projection layer.
+5. `tokio::spawn` :
    * Parallel execution.
    * `tokio::select!` :
-     * a. Timeout: capture partial logs → `TimeoutWithPartialData`.
+     * a. Timeout: broadcast `ShellEvent::Error` with suggestion; capture partial logs → `TimeoutWithPartialData`.
      * b. Cancellation by token → emit `SystemSignal::OperationCancelled`.
-5. The shell does not transform results by business policy. Raw `ToolResultDTO`s injected into the engine channel.
+   * On completion, broadcast `ShellEvent::ToolResult { name, output }` so the user sees output immediately, before the LLM follow-up.
+6. The shell does not transform results by business policy. Raw `ToolResultDTO`s injected into the engine channel.
 
 <br>
 
@@ -3178,9 +3182,11 @@ Treated as a transactional barrier. No following effect from the same batch, no 
 
 **CallLlmNetwork:**
 
-1. SSE connection.
-2. Each chunk segmented according to `MAX_INLINE_CHUNK` (4 KB), structured as `StreamEvent` with zero-copy `Bytes`.
-3. Network failure: `NetworkRecovery` (shell plugin) manages retries/backoff. As a last resort, `SystemSignal::NetworkUnavailable`. The kernel never receives a `NetworkFailure`.
+1. Broadcast `ShellEvent::Thinking { message: "Thinking…" }` so the user knows the agent is active.
+2. SSE connection.
+3. Each chunk segmented according to `MAX_INLINE_CHUNK` (4 KB), structured as `StreamEvent` with zero-copy `Bytes`.
+4. Simultaneously broadcast `ShellEvent::LlmText`, `ShellEvent::LlmToolCallStart`, `ShellEvent::LlmToolArgument`, and `ShellEvent::LlmToolCallDone` to the projection layer for real-time display.
+5. Network failure: broadcast `ShellEvent::Error` with a structured `code`, `source`, `recoverable` flag, and actionable `suggestion` (e.g. "→ Check your BRIOCHE_API_KEY"). `NetworkRecovery` (shell plugin) manages retries/backoff. As a last resort, `SystemSignal::NetworkUnavailable`. The kernel never receives a `NetworkFailure`.
 
 <br>
 
@@ -3211,13 +3217,56 @@ Notified via `after_prediction`. `GcPolicy` decides on triggering. If new user i
 
 **Error:**
 
-Telemetry log via `TelemetryChannel`. Possible transformation into `ForwardToUi`.
+Telemetry log via `TelemetryChannel`. Broadcast `ShellEvent::Error { code, message, source, recoverable, suggestion }` to the projection layer. Terminal agents render this as a boxed error block with the recovery hint; desktop agents map it to `ForwardToUi(UiWidget::Error)`.
 
 <br>
 
 **SubRoutineRestored:**
 
 Update of `SubRoutineCache` (L1/L2). UI notification for `loading` → `loaded` transition.
+
+<br>
+
+---
+
+### 1.4 ShellEvent bus (projection-independent)
+
+The shell runtime emits a **projection-independent event bus** — `broadcast::Sender<ShellEvent>` — so that every consumer (headless CLI, interactive TUI, desktop GUI, logs) can observe significant state changes, errors, and progress updates without coupling to any specific UI framework.
+
+**Design principles:**
+
+* **One channel, many consumers.** A single `broadcast::Sender<ShellEvent>` is held by the `DefaultEffectExecutor` and `OpenAiLlmClient`. Both the LLM client and the effect executor emit events; the agent subscribes.
+* **Structured over stringly.** Variants carry typed data (`code`, `source`, `recoverable`, `suggestion`). Formatting is the consumer's responsibility.
+* **Recoverable flag.** `Error::recoverable` lets the UI decide whether to abort the session or continue.
+* **Actionable suggestions.** Every `Error` carries an optional `suggestion` string (e.g. "→ Check your BRIOCHE_API_KEY"). This eliminates the "silent failure" anti-pattern where the user sees a code but has no idea what to do.
+
+**Event variants:**
+
+| Variant | Emitter | Consumer rendering |
+|---|---|---|
+| `LlmText(String)` | `OpenAiLlmClient` | Inline text block |
+| `LlmToolCallStart { id, name }` | `OpenAiLlmClient` | Tool card header (boxed) |
+| `LlmToolArgument { id, fragment }` | `OpenAiLlmClient` | Accumulated inside tool card |
+| `LlmToolCallDone { id }` | `OpenAiLlmClient` | Tool card footer |
+| `LlmDone` | `OpenAiLlmClient` | End-of-stream marker |
+| `ToolResult { name, output }` | `DefaultEffectExecutor` | Result card (boxed) |
+| `Status { message }` | `DefaultEffectExecutor` | Status line (`ℹ`) |
+| `Thinking { message }` | `DefaultEffectExecutor`, `OpenAiLlmClient` | Spinner line (`◐`) |
+| `Error { code, message, source, recoverable, suggestion }` | Any shell component | Error box with hint (`→`) |
+| `Warning { message, source }` | Any shell component | Warning line (`⚠`) |
+
+**Helper constructors:**
+
+* `ShellEvent::error(code, message, source, recoverable, suggestion)` — generic error.
+* `ShellEvent::network_error(status, message, source)` — auto-suggests fixes for HTTP 401/429/5xx.
+* `ShellEvent::fatal(code, message, source, suggestion)` — non-recoverable error.
+
+**Terminal vs desktop agents:**
+
+* **Terminal agents** (`agent-terminal`, `agent-tui`) consume `ShellEvent` directly via `brioche-reedline`'s `ExternalPrinter`. They render tool calls as Unicode box-drawing cards and errors as boxed blocks with recovery hints.
+* **Desktop agents** (`brioche-ui`) may consume `ShellEvent` and map it to `ForwardToUi(UiWidget::*)` effects, or subscribe directly to the broadcast channel via Tauri IPC.
+
+**Refs:** I-Shell-Projection-Independent, SPECS.md §Book III-C Ch 1.
 
 <br>
 
@@ -3668,7 +3717,7 @@ The kernel never emits Vue components. It merely emits structured instructions (
 | `system_degraded` | `QuarantineManager` | Warning banner displayed when a plugin has been quarantined. |
 | `network_error` | `RecoveryPolicy` | Displayed when a `SystemSignal::NetworkUnavailable` is intercepted. |
 | `status` | `RecoveryPolicy` | Generic state (e.g., "cancelled"). |
-| `error` | Shell | Generic widget for errors (`Effect::Error` transformed by the shell). |
+| `error` | Shell | Generic widget for errors. **Terminal agents** receive these via the `ShellEvent` broadcast bus (`ShellEvent::Error` with `suggestion`). **Desktop agents** map them to `ForwardToUi(UiWidget::Error)`. |
 | `subroutine_timeout` | `SubRoutineTimeoutPolicy` | Displayed when a sub-routine exceeds its time limit. |
 
 <br>

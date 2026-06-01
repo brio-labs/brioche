@@ -27,6 +27,7 @@ pub mod persistence_mode;
 pub mod sandbox;
 pub mod schema;
 pub mod shell;
+pub mod shell_event;
 pub mod signal_adapter;
 pub mod signal_multiplexer;
 pub mod system_tool;
@@ -41,11 +42,12 @@ pub use effect_executor::{DefaultEffectExecutor, EffectExecutor, NoopPersistence
 pub use engine_watchdog::{
     EngineWatchdog, EngineWatchdogHandle, RecoveryProcedure, WatchdogPing, WatchdogPong,
 };
-pub use llm_client::{LlmChunk, LlmClient, MockLlmClient};
+pub use llm_client::{LlmClient, MockLlmClient};
 pub use network_recovery::{ExponentialBackoff, NetworkRecovery, NoRetry};
 pub use persistence_mode::PersistenceMode;
 pub use sandbox::{AllowList, ConfirmHandler, SandboxPolicy};
 pub use shell::{BriocheShell, SessionCallback, ShellConfig, ShellError, StateSnapshot};
+pub use shell_event::ShellEvent;
 pub use signal_adapter::{
     AsyncTaskResultAdapter, GovernanceNotificationAdapter, SystemSignalAdapter,
 };
