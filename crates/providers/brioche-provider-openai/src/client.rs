@@ -1,18 +1,18 @@
-//! Implémentation `LlmClient` pour les endpoints compatibles OpenAI.
+//! `LlmClient` implementation for OpenAI-compatible endpoints.
 //!
-//! Le client :
-//! 1. Construit la requête JSON à partir de l'historique Brioche.
-//! 2. Ouvre une connexion SSE via `reqwest`.
-//! 3. Parse chaque ligne SSE en `delta.content` ou `tool_calls`.
-//! 4. Segmente les fragments selon `MAX_INLINE_CHUNK`.
-//! 5. Envoie chaque fragment au kernel via `shell.send_input(LlmStream(...))`.
-//! 6. Diffuse simultanément les chunks sur un canal `broadcast::Sender<LlmChunk>`
-//!    pour que la projection (CLI) puisse les afficher en temps réel.
+//! The client:
+//! 1. Builds the JSON request from Brioche history.
+//! 2. Opens an SSE connection via `reqwest`.
+//! 3. Parses each SSE line into `delta.content` or `tool_calls`.
+//! 4. Segments fragments according to `MAX_INLINE_CHUNK`.
+//! 5. Sends each fragment to the kernel via `shell.send_input(LlmStream(...))`.
+//! 6. Broadcasts chunks simultaneously on a `broadcast::Sender<LlmChunk>`
+//!    channel so the projection (CLI) can display them in real time.
 //!
 //! # Invariants
-//! - I-Core-ChunkBudget : tout fragment > 4096 octets est segmenté.
-//! - I-Shell-Network-Signal : en cas d'erreur, `SystemSignal::NetworkUnavailable`
-//!   est émis via le shell.
+//! - I-Core-ChunkBudget: any fragment > 4096 bytes is segmented.
+//! - I-Shell-Network-Signal: on error, `SystemSignal::NetworkUnavailable`
+//!   is emitted via the shell.
 //!
 //! Refs: SPECS.md §Book III-A, I-Core-ChunkBudget
 
@@ -27,22 +27,22 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::sync::{RwLock, broadcast};
 
-/// Client LLM compatible OpenAI.
+/// OpenAI-compatible LLM client.
 ///
-/// `tools_schema` est mis à jour dynamiquement par l'assembleur (CLI)
-/// quand le registry d'outils change. `Arc<RwLock>` permet une mise à
-/// jour sans reconstruction du client.
+/// `tools_schema` is updated dynamically by the assembler (CLI)
+/// when the tool registry changes. `Arc<RwLock>` allows updating
+/// without reconstructing the client.
 ///
 /// # Usage
 /// ```ignore
 /// let (client, llm_rx) = OpenAiLlmClient::new(config);
 /// client.set_tools_schema(schemas).await;
-/// // client est injecté dans DefaultEffectExecutor.
+/// // client is injected into DefaultEffectExecutor.
 /// ```
-/// Miroir de l'historique partagé entre le CLI et le client LLM.
+/// Shared history mirror between the CLI and the LLM client.
 ///
-/// Le CLI pousse les `UserMessage` ; le client pousse les `Assistant`
-/// et `ToolResult` au fil du stream.
+/// The CLI pushes `UserMessage`s; the client pushes `Assistant`
+/// and `ToolResult` messages as the stream progresses.
 pub type SharedHistory = Arc<RwLock<Vec<ChatMessage>>>;
 
 pub struct OpenAiLlmClient {
@@ -70,14 +70,14 @@ impl Clone for OpenAiLlmClient {
 }
 
 impl OpenAiLlmClient {
-    /// Crée un nouveau client et retourne le receiver de broadcast.
+    /// Creates a new client and returns the broadcast receiver.
     ///
-    /// Le canal de broadcast a une capacité de 256 messages. Les
-    /// récepteurs lents peuvent perdre des messages anciens.
+    /// The broadcast channel has a capacity of 256 messages. Slow
+    /// receivers may drop old messages.
     ///
     /// # Panics
-    /// Ne panique jamais. `api_key` vide est accepté (certains endpoints
-    /// locaux comme Ollama ne nécessitent pas de clé).
+    /// Never panics. Empty `api_key` is accepted (some local endpoints
+    /// like Ollama do not require a key).
     pub fn new(config: OpenAiConfig) -> (Self, broadcast::Receiver<LlmChunk>, SharedHistory) {
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_millis(config.timeout_ms))
@@ -99,30 +99,30 @@ impl OpenAiLlmClient {
         (client, ui_rx, history)
     }
 
-    /// S'abonne au canal de broadcast de chunks LLM.
+    /// Subscribes to the LLM chunk broadcast channel.
     ///
-    /// Chaque appel retourne un nouveau récepteur indépendant.
+    /// Each call returns a new independent receiver.
     pub fn subscribe(&self) -> broadcast::Receiver<LlmChunk> {
         self.ui_tx.subscribe()
     }
 
-    /// Pousse un message dans le miroir d'historique.
+    /// Pushes a message into the history mirror.
     ///
-    /// Le CLI appelle cette méthode avant d'envoyer un `UserMessage`
-    /// au shell, garantissant que le client LLM voit l'historique complet.
+    /// The CLI calls this method before sending a `UserMessage`
+    /// to the shell, ensuring the LLM client sees the full history.
     pub async fn push_message(&self, message: ChatMessage) {
         self.history.write().await.push(message);
     }
 
-    /// Met à jour la liste des outils disponibles sans reconstruire le client.
+    /// Updates the available tools list without rebuilding the client.
     ///
-    /// Cette liste est lue au début de chaque appel `call_llm()`.
+    /// This list is read at the start of each `call_llm()` call.
     pub async fn set_tools_schema(&self, schemas: Vec<serde_json::Value>) {
         let mut guard = self.tools_schema.write().await;
         *guard = schemas;
     }
 
-    /// Segment un payload `Bytes` selon `MAX_INLINE_CHUNK`.
+    /// Segments a `Bytes` payload according to `MAX_INLINE_CHUNK`.
     ///
     /// Refs: I-Core-ChunkBudget
     fn segment_bytes(bytes: Bytes, max_chunk: usize) -> Vec<Bytes> {
@@ -139,7 +139,7 @@ impl OpenAiLlmClient {
         fragments
     }
 
-    /// Émet un text chunk vers le kernel et la projection.
+    /// Emits a text chunk to the kernel and the projection.
     async fn emit_text_chunk(&self, shell: &BriocheShell, text: &str) -> Result<(), ShellError> {
         {
             let mut pending = self.pending_text.lock().await;
@@ -158,7 +158,7 @@ impl OpenAiLlmClient {
         Ok(())
     }
 
-    /// Émet un tool call event vers le kernel et la projection.
+    /// Emits a tool call event to the kernel and the projection.
     async fn emit_tool_call_start(
         &self,
         shell: &BriocheShell,
@@ -179,7 +179,7 @@ impl OpenAiLlmClient {
         Ok(())
     }
 
-    /// Émet un fragment d'argument de tool call.
+    /// Emits a tool call argument fragment.
     async fn emit_tool_argument(
         &self,
         shell: &BriocheShell,
@@ -203,7 +203,7 @@ impl OpenAiLlmClient {
         Ok(())
     }
 
-    /// Émet le marqueur de fin de tool call.
+    /// Emits the tool call end marker.
     async fn emit_tool_call_done(&self, shell: &BriocheShell, id: &str) -> Result<(), ShellError> {
         shell
             .send_input(EngineInput::LlmStream(StreamEvent::ToolCallDone {
@@ -216,9 +216,9 @@ impl OpenAiLlmClient {
         Ok(())
     }
 
-    /// Diffuse un résultat d'outil vers la projection (CLI).
+    /// Broadcasts a tool result to the projection (CLI).
     ///
-    /// Appelé par `NotifyingToolExecutor` après exécution.
+    /// Called by `NotifyingToolExecutor` after execution.
     pub fn emit_tool_result(&self, name: &str, output: &str) {
         let _ = self.ui_tx.send(LlmChunk::ToolResult {
             name: name.to_string(),
@@ -226,11 +226,11 @@ impl OpenAiLlmClient {
         });
     }
 
-    /// Pousse les résultats d'outils dans le miroir d'historique.
+    /// Pushes tool results into the history mirror.
     ///
-    /// Le CLI (via un wrapper EffectExecutor) appelle cette méthode
-    /// après avoir exécuté les outils, garantissant que le prochain
-    /// appel `call_llm()` voit les résultats dans l'historique.
+    /// The CLI (via an EffectExecutor wrapper) calls this method
+    /// after executing tools, ensuring the next `call_llm()` call
+    /// sees the results in the history.
     pub async fn push_tool_results(&self, results: &[ToolResultDTO]) {
         let mut history = self.history.write().await;
         for result in results {
@@ -250,7 +250,7 @@ impl OpenAiLlmClient {
     }
 }
 
-/// Accumulateur interne pour un tool call en cours de réception SSE.
+/// Internal accumulator for a tool call being received over SSE.
 #[derive(Clone, Debug, Default)]
 struct ToolCallAccumulator {
     id: String,
@@ -288,7 +288,7 @@ impl LlmClient for OpenAiLlmClient {
         let response = match request.send().await {
             Ok(r) => r,
             Err(err) => {
-                let msg = format!("Erreur réseau: {err}");
+                let msg = format!("Network error: {err}");
                 tracing::error!(error = %err, "OpenAI request failed");
                 let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
                 shell
@@ -301,7 +301,7 @@ impl LlmClient for OpenAiLlmClient {
         if !response.status().is_success() {
             let status = response.status();
             let body_text = response.text().await.unwrap_or_default();
-            // Extraire un message compact du JSON d'erreur OpenAI.
+            // Extract a compact message from the OpenAI error JSON.
             let compact = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body_text) {
                 json.get("error")
                     .and_then(|e| e.get("message"))
@@ -331,7 +331,7 @@ impl LlmClient for OpenAiLlmClient {
             let chunk = match chunk_result {
                 Ok(c) => c,
                 Err(err) => {
-                    let msg = format!("Erreur SSE: {err}");
+                    let msg = format!("SSE error: {err}");
                     tracing::error!(error = %err, "SSE stream error");
                     let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
                     shell
@@ -391,7 +391,7 @@ impl LlmClient for OpenAiLlmClient {
                                 }
                             }
 
-                            // Émettre ToolCallStart dès qu'on a id + name.
+                            // Emit ToolCallStart as soon as we have id + name.
                             if !entry.id.is_empty()
                                 && !entry.name.is_empty()
                                 && !entry.start_emitted
@@ -400,8 +400,8 @@ impl LlmClient for OpenAiLlmClient {
                                     .await?;
                                 entry.start_emitted = true;
 
-                                // Ajouter le ToolRequest à l'historique pour
-                                // que les appels suivants voient la demande.
+                                // Add the ToolRequest to history so
+                                // subsequent calls see the request.
                                 self.history.write().await.push(ChatMessage::ToolRequest {
                                     id: entry.id.clone(),
                                     name: entry.name.clone(),
@@ -409,8 +409,8 @@ impl LlmClient for OpenAiLlmClient {
                                 });
                             }
 
-                            // Émettre le fragment d'arguments (seulement le delta,
-                            // pas l'accumulation complète — le kernel fait push_str).
+                            // Emit the argument fragment (only the delta,
+                            // not the full accumulation — the kernel does push_str).
                             if entry.start_emitted && !arg_fragment.is_empty() {
                                 self.emit_tool_argument(shell, &entry.id, &arg_fragment)
                                     .await?;
@@ -421,15 +421,15 @@ impl LlmClient for OpenAiLlmClient {
             }
         }
 
-        // Si finish_reason est "tool_calls", tous les tool calls sont complets.
-        // On émet un seul ToolCallDone (le kernel draine tous les pending).
+        // If finish_reason is "tool_calls", all tool calls are complete.
+        // We emit a single ToolCallDone (the kernel drains all pending).
         if finish_reason.as_deref() == Some("tool_calls")
             && let Some(first) = tool_acc.values().next()
         {
             self.emit_tool_call_done(shell, &first.id).await?;
         }
 
-        // Marquer la fin du stream et persister le texte assistant.
+        // Mark the end of the stream and persist the assistant text.
         {
             let mut pending = self.pending_text.lock().await;
             let text = if !pending.is_empty() {

@@ -1,6 +1,6 @@
-//! Construction d'un `BriocheShell` complet avec tous ses composants.
+//! Builds a complete `BriocheShell` with all its components.
 //!
-//! Ce module est partagé entre le mode interactif et le mode headless.
+//! This module is shared between interactive and headless modes.
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
@@ -51,7 +51,7 @@ impl<T: ToolExecutor> ToolExecutor for HistorySyncDecorator<T> {
         let output = match &result.outcome {
             brioche_core::ToolOutcome::Success(s) => s.clone(),
             brioche_core::ToolOutcome::BusinessError(s)
-            | brioche_core::ToolOutcome::SystemError(s) => format!("(erreur: {s})"),
+            | brioche_core::ToolOutcome::SystemError(s) => format!("(error: {s})"),
             brioche_core::ToolOutcome::TimeoutWithPartialData { partial_output } => {
                 format!("(timeout: {})", partial_output.clone().unwrap_or_default())
             }
@@ -129,7 +129,7 @@ pub fn build_shell(
     let effect_executor =
         DefaultEffectExecutor::new(notifying_tools, llm_client.clone(), redb_storage.clone());
 
-    // Session callback — snapshot après chaque transition.
+    // Session callback — snapshot after each transition.
     let store_for_callback = Arc::clone(&session_store);
     let session_callback: brioche_shell_runtime::SessionCallback =
         Box::new(move |session: &brioche_core::Session| {

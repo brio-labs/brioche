@@ -1,24 +1,24 @@
-//! Gestionnaire de sessions multi-conversation pour les agents terminal.
+//! Multi-conversation session manager for terminal agents.
 //!
-//! Maintient plusieurs `BriocheShell` actifs en mémoire et permet
-//! de basculer entre eux via des commandes slash (`/session load`).
+//! Keeps multiple `BriocheShell`s active in memory and allows
+//! switching between them via slash commands (`/session load`).
 //!
 //! Refs: I-Shell-Session-NoSend
 
 use brioche_shell_runtime::BriocheShell;
 use std::collections::BTreeMap;
 
-/// Gestionnaire de sessions.
+/// Session manager.
 ///
-/// Chaque session est identifiée par un ID unique et possède son
-/// propre `BriocheShell` (donc son propre engine thread).
+/// Each session is identified by a unique ID and has its own
+/// `BriocheShell` (and therefore its own engine thread).
 pub struct SessionManager {
     sessions: BTreeMap<String, BriocheShell>,
     current: String,
 }
 
 impl SessionManager {
-    /// Crée un nouveau gestionnaire avec une session initiale.
+    /// Creates a new manager with an initial session.
     pub fn new(initial_id: impl Into<String>, shell: BriocheShell) -> Self {
         let id = initial_id.into();
         let mut sessions = BTreeMap::new();
@@ -29,17 +29,17 @@ impl SessionManager {
         }
     }
 
-    /// Référence au shell de la session courante.
+    /// Reference to the current session's shell.
     ///
-    /// Retourne `None` uniquement si l'invariant interne est violé
-    /// (la session courante n'existe pas dans le registre).
+    /// Returns `None` only if the internal invariant is violated
+    /// (the current session does not exist in the registry).
     pub fn current(&self) -> Option<&BriocheShell> {
         self.sessions.get(&self.current)
     }
 
-    /// Change la session active.
+    /// Switches the active session.
     ///
-    /// Retourne `true` si la session existe.
+    /// Returns `true` if the session exists.
     pub fn switch(&mut self, id: &str) -> bool {
         if self.sessions.contains_key(id) {
             self.current = id.to_string();
@@ -49,22 +49,22 @@ impl SessionManager {
         }
     }
 
-    /// Insère une nouvelle session.
+    /// Inserts a new session.
     pub fn insert(&mut self, id: impl Into<String>, shell: BriocheShell) {
         self.sessions.insert(id.into(), shell);
     }
 
-    /// Liste les IDs de toutes les sessions en mémoire.
+    /// Lists the IDs of all sessions in memory.
     pub fn list(&self) -> Vec<&String> {
         self.sessions.keys().collect()
     }
 
-    /// ID de la session courante.
+    /// ID of the current session.
     pub fn current_id(&self) -> &str {
         &self.current
     }
 
-    /// Accès à une session par son ID.
+    /// Accesses a session by its ID.
     pub fn get(&self, id: &str) -> Option<&BriocheShell> {
         self.sessions.get(id)
     }

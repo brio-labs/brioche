@@ -1,7 +1,7 @@
-//! Mode headless : exécute un seul prompt et affiche le résultat sur stdout.
+//! Headless mode: runs a single prompt and prints the result to stdout.
 //!
-//! Pas de REPL, pas de UI async, pas de `ExternalPrinter`.  On accumule
-//! la réponse via le broadcast et on l'affiche à la fin.
+//! No REPL, no async UI, no `ExternalPrinter`. We accumulate the
+//! response via broadcast and print it at the end.
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
@@ -14,11 +14,11 @@ use brioche_shell_persistence::{RedbStorage, SessionStore};
 use crate::config::CliConfig;
 use crate::shell_builder::build_shell;
 
-/// Exécute un seul prompt en mode non-interactif.
+/// Runs a single prompt in non-interactive mode.
 ///
-/// Accumule la réponse LLM pendant 30 s max, puis affiche le résultat
-/// sur stdout et quitte avec le code 0.  En cas d'erreur réseau ou
-/// LLM, affiche l'erreur sur stderr et quitte avec le code 1.
+/// Accumulates the LLM response for up to 30 s, then prints the result
+/// to stdout and exits with code 0. On network or LLM error, prints
+/// the error to stderr and exits with code 1.
 pub async fn run(
     prompt: String,
     cli_config: CliConfig,
@@ -28,7 +28,7 @@ pub async fn run(
     let (shell, llm_client, _llm_rx, _history) = build_shell(
         "headless",
         &cli_config,
-        false, // pas de confirmation interactive en headless
+        false, // no interactive confirmation in headless mode
         redb_storage,
         session_store,
         None,
@@ -42,11 +42,11 @@ pub async fn run(
         .await;
 
     if let Err(err) = shell.send_input(EngineInput::UserMessage(prompt)).await {
-        eprintln!("Erreur d'envoi: {err}");
+        eprintln!("Send error: {err}");
         std::process::exit(1);
     }
 
-    // S'abonner au broadcast pour accumuler la réponse.
+    // Subscribe to the broadcast to accumulate the response.
     let mut rx = llm_client.subscribe();
     let mut buffer = String::new();
     let mut done_received = false;
@@ -77,7 +77,7 @@ pub async fn run(
                 }
                 _ => {}
             },
-            Ok(Err(_)) => break, // broadcast fermé
+            Ok(Err(_)) => break, // broadcast closed
             Err(_) => {
                 if done_received && !in_tool_call {
                     break;

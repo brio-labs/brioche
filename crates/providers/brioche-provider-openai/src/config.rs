@@ -1,17 +1,17 @@
-//! Configuration explicite pour le provider OpenAI.
+//! Explicit configuration for the OpenAI provider.
 //!
-//! Aucune variable d'environnement n'est lue ici. L'assembleur (CLI)
-//! lit l'environnement et injecte une `OpenAiConfig` construite.
+//! No environment variables are read here. The assembler (CLI)
+//! reads the environment and injects a constructed `OpenAiConfig`.
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
-/// Configuration du client OpenAI.
+/// OpenAI client configuration.
 ///
-/// `base_url` permet de cibler Ollama, OpenRouter, ou tout autre
-/// endpoint compatible OpenAI.
+/// `base_url` allows targeting Ollama, OpenRouter, or any other
+/// OpenAI-compatible endpoint.
 ///
 /// # Invariants
-/// - `model` et `api_key` ne sont jamais vides après construction.
+/// - `model` and `api_key` are never empty after construction.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -445,7 +445,9 @@ def check_effect_structure() -> CheckResult:
 
     # Find the Effect enum and check its variants don't use serde_json::Value
     # as a primary payload (UiWidget::Custom is the only allowed exception).
-    for path in (PROJECT_ROOT / "crates" / "kernel" / "brioche-core" / "src").rglob("*.rs"):
+    for path in (PROJECT_ROOT / "crates" / "kernel" / "brioche-core" / "src").rglob(
+        "*.rs"
+    ):
         content = path.read_text()
         lines = content.split("\n")
 

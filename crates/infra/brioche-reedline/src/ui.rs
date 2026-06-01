@@ -1,8 +1,8 @@
 //! Terminal rendering primitives for LLM output.
 //!
-//! Affiche la réponse LLM **en un seul bloc** quand le stream est
-//! terminé (pas de streaming caractère par caractère). Cela évite
-//! les artefacts de réaffichage de reedline.
+//! Displays the LLM response **as a single block** when the stream
+//! ends (no character-by-character streaming). This avoids reedline
+//! redraw artifacts.
 //!
 //! Refs: I-Shell-Projection-Independent
 
@@ -62,17 +62,22 @@ fn render_block(text: &str) -> String {
         .join("\n")
 }
 
-/// Boucle de rendu terminal : reçoit les chunks LLM via broadcast et
-/// les affiche via `ExternalPrinter` quand le stream est terminé.
+/// Terminal render loop: receives LLM chunks via broadcast and
+/// prints them to stdout when the stream ends.
 ///
-/// Les réponses sont rendues en un seul bloc (pas de streaming
-/// caractère par caractère) pour éviter les artefacts reedline.
+/// Responses are rendered as a single block (no character-by-character
+/// streaming) to avoid reedline redraw artifacts.
+///
+/// NOTE: We use `println!` instead of ` reedline::ExternalPrinter`
+/// because `ExternalPrinter` only processes messages when the reedline
+/// prompt is redrawn (i.e. on user input). While reedline blocks on
+/// `read_line()`, messages sent via `ExternalPrinter` are invisible.
 ///
 /// Refs: I-Shell-Projection-Independent
 pub async fn run(
     mut llm_rx: broadcast::Receiver<LlmChunk>,
     cancel: CancellationToken,
-    printer: ExternalPrinter<String>,
+    _printer: ExternalPrinter<String>,
 ) {
     let mut full_response = String::new();
 
@@ -88,17 +93,17 @@ pub async fn run(
             }
             Ok(LlmChunk::ToolCallStart { name, .. }) => {
                 if !full_response.is_empty() {
-                    let _ = printer.print(render_block(&full_response));
+                    println!("{}\n", render_block(&full_response));
                     full_response.clear();
                 }
-                let _ = printer.print(format!(
-                    "  {} Appel outil: {}...",
+                println!(
+                    "  {} Tool call: {}...\n",
                     Color::Cyan.paint("⚙"),
                     Style::new().bold().paint(name)
-                ));
+                );
             }
             Ok(LlmChunk::ToolCallDone { .. }) => {
-                let _ = printer.print(format!("  {}", Color::Cyan.paint("...fait")));
+                println!("  {}\n", Color::Cyan.paint("...done"));
             }
             Ok(LlmChunk::ToolResult { name, output }) => {
                 let preview: String = output.lines().take(5).collect::<Vec<_>>().join("\n");
@@ -107,21 +112,21 @@ pub async fn run(
                 } else {
                     ""
                 };
-                let _ = printer.print(format!(
-                    "  {} Résultat de {}:\n    {}{}",
+                println!(
+                    "  {} Result from {}:\n    {}{}\n",
                     Color::Green.paint("✓"),
                     Style::new().bold().paint(name),
                     preview,
                     ellipsis
-                ));
+                );
             }
             Ok(LlmChunk::Done) if !full_response.is_empty() => {
-                let _ = printer.print(render_block(&full_response));
+                println!("{}\n", render_block(&full_response));
                 full_response.clear();
             }
             Ok(LlmChunk::Error(error)) => {
                 if !full_response.is_empty() {
-                    let _ = printer.print(render_block(&full_response));
+                    println!("{}\n", render_block(&full_response));
                     full_response.clear();
                 }
                 let compact = error
@@ -129,11 +134,7 @@ pub async fn run(
                     .find(|l| !l.trim().is_empty() && !l.trim().starts_with('{'))
                     .map(|l| l.trim().to_string())
                     .unwrap_or_else(|| error.lines().next().unwrap_or(&error).to_string());
-                let _ = printer.print(format!(
-                    "  {} Erreur LLM: {}",
-                    Color::Red.paint("✗"),
-                    compact
-                ));
+                println!("  {} LLM error: {}\n", Color::Red.paint("✗"), compact);
             }
             Err(_) => break,
             _ => {}
