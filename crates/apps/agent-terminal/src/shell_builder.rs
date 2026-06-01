@@ -10,11 +10,13 @@ use brioche_core::{ActiveToolCall, ChatMessage, ToolResultDTO};
 use brioche_plugin_kit::PluginBuilder;
 use brioche_provider_openai::{LlmChunk, OpenAiLlmClient, SharedHistory};
 use brioche_shell_persistence::{RedbStorage, SessionHeadDTO, SessionStore, SessionStoreEntry};
+use brioche_shell_runtime::{AllowList, SystemToolExecutor};
 use brioche_shell_runtime::{BriocheShell, DefaultEffectExecutor, ShellConfig, ToolExecutor};
-use brioche_tools_system::{
-    AllowList, ExecuteCommandTool, FetchUrlTool, ListDirTool, ReadFileTool, SystemToolExecutor,
-    WriteFileTool,
-};
+use brioche_tool_fetch::FetchUrlTool;
+use brioche_tool_listdir::ListDirTool;
+use brioche_tool_readfile::ReadFileTool;
+use brioche_tool_shell::ExecuteCommandTool;
+use brioche_tool_writefile::WriteFileTool;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 

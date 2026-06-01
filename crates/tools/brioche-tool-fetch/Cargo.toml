@@ -1,27 +1,29 @@
 [package]
-name = "brioche-tools-system"
+name = "brioche-tool-fetch"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "System tool executor for Brioche Shell Runtime"
+description = "Fetch the content of a URL via HTTP GET for Brioche agents"
+
+[lib]
+name = "brioche_tool_fetch"
+path = "src/lib.rs"
 
 [dependencies]
-brioche-core = { workspace = true }
 brioche-shell-runtime = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["fs", "process"] }
+tokio = { workspace = true }
 tokio-util = { workspace = true }
-reqwest = { version = "0.13", default-features = false, features = [
-  "native-tls",
-] }
-thiserror = "2"
-
+reqwest = { version = "0.13", default-features = false, features = ["native-tls"] }
 tracing = "0.1"
 async-trait = { workspace = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
 
 [lints]
 workspace = true

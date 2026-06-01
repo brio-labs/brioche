@@ -1,31 +1,30 @@
-//! Politique de sandbox pour l'exécution de commandes shell.
+//! Sandbox policy for command execution.
 //!
-//! C'est de la **policy**, pas du mécanisme. Le mécanisme est
-//! `execute_command` dans `tools::shell`. Cette politique décide
-//! si une commande est autorisée.
+//! This is **policy**, not mechanism. The mechanism is the tool
+//! implementation. This policy decides whether a command is allowed.
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
-/// Handler de confirmation interactive pour les commandes shell.
+/// Interactive confirmation handler for shell commands.
 ///
-/// Retourne `true` si l'utilisateur confirme l'exécution.
-/// Le handler peut bloquer sur stdin ; il est appelé dans
-/// `tokio::task::spawn_blocking` par l'outil.
+/// Returns `true` if the user confirms execution.
+/// The handler may block on stdin; it is called in
+/// `tokio::task::spawn_blocking` by the tool.
 pub type ConfirmHandler = std::sync::Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
-/// Politique de sandbox pour les commandes shell.
+/// Sandbox policy for shell commands.
 #[derive(Clone, Debug)]
 pub enum SandboxPolicy {
-    /// Toute commande est autorisée (mode dangereux, exige confirmation).
+    /// Any command is allowed (dangerous mode, requires confirmation).
     Permissive,
-    /// Seules les commandes de la allow-list sont autorisées.
-    /// Les autres déclenchent une confirmation interactive si un
-    /// `ConfirmHandler` est configuré sur l'outil, sinon une erreur
+    /// Only allow-listed commands are permitted.
+    /// Others trigger interactive confirmation if a
+    /// `ConfirmHandler` is configured on the tool, otherwise a
     /// `ToolError::SandboxDenied`.
     AllowList(AllowList),
-    /// Toute commande nécessite une confirmation interactive.
-    /// Le handler doit être configuré sur l'outil ; sinon retourne
-    /// une erreur en mode headless.
+    /// Every command requires interactive confirmation.
+    /// The handler must be configured on the tool; otherwise returns
+    /// an error in headless mode.
     Interactive,
 }
 
@@ -35,7 +34,7 @@ impl Default for SandboxPolicy {
     }
 }
 
-/// Liste explicite de commandes autorisées.
+/// Explicit allow-list of permitted commands.
 #[derive(Clone, Debug)]
 pub struct AllowList {
     commands: std::collections::BTreeSet<String>,

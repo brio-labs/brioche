@@ -1,8 +1,23 @@
-//! Web fetch tool.
+//! # Brioche Tool — Fetch URL
+//!
+//! Fetches the content of a URL via HTTP GET.
+//!
+//! ## Tool name
+//! `fetch_url`
+//!
+//! ## Arguments
+//! | Name | Type | Required | Description |
+//! |------|------|----------|-------------|
+//! | `url` | `string` | yes | URL to fetch |
+//!
+//! ## Example
+//! ```json
+//! { "url": "https://example.com" }
+//! ```
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
-use crate::registry::{SystemTool, ToolError};
+use brioche_shell_runtime::{SystemTool, ToolError};
 use tokio_util::sync::CancellationToken;
 
 /// Performs an HTTP GET on a URL.
@@ -44,6 +59,12 @@ impl SystemTool for FetchUrlTool {
         args: serde_json::Value,
         cancel: CancellationToken,
     ) -> Result<String, ToolError> {
+        if cancel.is_cancelled() {
+            return Err(ToolError::Io(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "cancelled",
+            )));
+        }
         let url = args["url"]
             .as_str()
             .ok_or_else(|| ToolError::InvalidArgs("missing 'url'".into()))?;
@@ -79,5 +100,39 @@ impl SystemTool for FetchUrlTool {
         }
 
         Ok(body)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn fetch_url_requires_url_arg() {
+        let tool = FetchUrlTool;
+        let args = serde_json::json!({});
+        let result = tool.run(args, CancellationToken::new()).await;
+
+        assert!(matches!(result, Err(ToolError::InvalidArgs(_))));
+    }
+
+    #[tokio::test]
+    async fn fetch_url_respects_cancellation() {
+        let tool = FetchUrlTool;
+        let args = serde_json::json!({ "url": "http://localhost:9999/never-reached" });
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+
+        let result = tool.run(args, cancel).await;
+        assert!(result.unwrap_err().to_string().contains("cancelled"));
+    }
+
+    #[test]
+    fn schema_is_valid_json() {
+        let tool = FetchUrlTool;
+        let schema = tool.parameters_schema();
+        assert!(schema.is_object());
+        let required = schema.get("required").unwrap().as_array().unwrap();
+        assert!(required.iter().any(|v| v == "url"));
     }
 }

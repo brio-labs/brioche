@@ -5,8 +5,8 @@
 //!
 //! Refs: I-Shell-ToolResult-PassThrough
 
+use crate::tool_executor::ToolExecutor;
 use brioche_core::{ActiveToolCall, ToolOutcome, ToolResultDTO};
-use brioche_shell_runtime::ToolExecutor;
 use std::collections::BTreeMap;
 use tokio_util::sync::CancellationToken;
 

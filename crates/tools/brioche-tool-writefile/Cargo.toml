@@ -1,0 +1,29 @@
+[package]
+name = "brioche-tool-writefile"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Write content to a text file for Brioche agents"
+
+[lib]
+name = "brioche_tool_writefile"
+path = "src/lib.rs"
+
+[dependencies]
+brioche-shell-runtime = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["fs"] }
+tokio-util = { workspace = true }
+tracing = "0.1"
+async-trait = { workspace = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3"
+
+[lints]
+workspace = true

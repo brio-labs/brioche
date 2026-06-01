@@ -24,9 +24,12 @@ pub mod engine_watchdog;
 pub mod llm_client;
 pub mod network_recovery;
 pub mod persistence_mode;
+pub mod sandbox;
+pub mod schema;
 pub mod shell;
 pub mod signal_adapter;
 pub mod signal_multiplexer;
+pub mod system_tool;
 pub mod telemetry;
 pub mod tick_emitter;
 pub mod tool_executor;
@@ -41,11 +44,13 @@ pub use engine_watchdog::{
 pub use llm_client::{LlmChunk, LlmClient, MockLlmClient};
 pub use network_recovery::{ExponentialBackoff, NetworkRecovery, NoRetry};
 pub use persistence_mode::PersistenceMode;
+pub use sandbox::{AllowList, ConfirmHandler, SandboxPolicy};
 pub use shell::{BriocheShell, SessionCallback, ShellConfig, ShellError, StateSnapshot};
 pub use signal_adapter::{
     AsyncTaskResultAdapter, GovernanceNotificationAdapter, SystemSignalAdapter,
 };
 pub use signal_multiplexer::SignalMultiplexer;
+pub use system_tool::{SystemTool, SystemToolExecutor, ToolError};
 pub use telemetry::{TelemetryChannel, TelemetryEvent, TelemetryLevel, install_default_subscriber};
 pub use tick_emitter::TickEmitter;
 pub use tool_executor::{EchoToolExecutor, ToolExecutor};

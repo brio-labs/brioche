@@ -19,7 +19,11 @@ brioche-reedline = { workspace = true }
 brioche-shell-runtime = { workspace = true }
 brioche-shell-persistence = { workspace = true }
 brioche-provider-openai = { workspace = true }
-brioche-tools-system = { workspace = true }
+brioche-tool-readfile = { path = "../../tools/brioche-tool-readfile" }
+brioche-tool-writefile = { path = "../../tools/brioche-tool-writefile" }
+brioche-tool-listdir = { path = "../../tools/brioche-tool-listdir" }
+brioche-tool-shell = { path = "../../tools/brioche-tool-shell" }
+brioche-tool-fetch = { path = "../../tools/brioche-tool-fetch" }
 reedline = { version = "0.48", features = ["external_printer"] }
 nu-ansi-term = "0.50"
 tokio = { workspace = true }

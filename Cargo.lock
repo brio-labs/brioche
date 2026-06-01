@@ -14,7 +14,11 @@ dependencies = [
  "brioche-reedline",
  "brioche-shell-persistence",
  "brioche-shell-runtime",
- "brioche-tools-system",
+ "brioche-tool-fetch",
+ "brioche-tool-listdir",
+ "brioche-tool-readfile",
+ "brioche-tool-shell",
+ "brioche-tool-writefile",
  "nu-ansi-term",
  "reedline",
  "tokio",
@@ -364,6 +368,7 @@ dependencies = [
  "brioche-governance-default",
  "bytes",
  "postcard",
+ "serde",
  "serde_json",
  "thiserror",
  "tokio",
@@ -387,17 +392,75 @@ dependencies = [
 ]
 
 [[package]]
-name = "brioche-tools-system"
+name = "brioche-tool-fetch"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "brioche-core",
  "brioche-shell-runtime",
  "reqwest",
  "serde",
  "serde_json",
- "thiserror",
  "tokio",
+ "tokio-test",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "brioche-tool-listdir"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "brioche-shell-runtime",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-test",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "brioche-tool-readfile"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "brioche-shell-runtime",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-test",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "brioche-tool-shell"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "brioche-shell-runtime",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-test",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "brioche-tool-writefile"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "brioche-shell-runtime",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-test",
  "tokio-util",
  "tracing",
 ]

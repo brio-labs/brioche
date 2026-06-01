@@ -1,17 +1,41 @@
-//! Sandboxed shell command execution tool.
+//! # Brioche Tool — Execute Command
+//!
+//! Executes a shell command with a configurable sandbox policy.
+//!
+//! ## Tool name
+//! `execute_command`
+//!
+//! ## Arguments
+//! | Name | Type | Required | Description |
+//! |------|------|----------|-------------|
+//! | `command` | `string` | yes | The shell command to execute |
+//! | `cwd` | `string` | no | Working directory (optional) |
+//!
+//! ## Safety
+//! - Only allowed commands are permitted by default (allow-list).
+//! - Interactive confirmation can be configured for unknown commands.
+//! - The agent is responsible for configuring the sandbox policy.
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
+use brioche_shell_runtime::{AllowList, ConfirmHandler, SandboxPolicy, SystemTool, ToolError};
 use std::sync::Arc;
-
-use crate::registry::{SystemTool, ToolError};
-use crate::sandbox::{AllowList, ConfirmHandler, SandboxPolicy};
 use tokio_util::sync::CancellationToken;
 
 /// Executes a shell command with a sandbox policy.
+#[derive(Clone)]
 pub struct ExecuteCommandTool {
     policy: SandboxPolicy,
     confirm_handler: Option<ConfirmHandler>,
+}
+
+impl std::fmt::Debug for ExecuteCommandTool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExecuteCommandTool")
+            .field("policy", &self.policy)
+            .field("confirm_handler", &self.confirm_handler.is_some())
+            .finish()
+    }
 }
 
 impl ExecuteCommandTool {
@@ -153,9 +177,18 @@ impl SystemTool for ExecuteCommandTool {
 
         let mut cmd = tokio::process::Command::new("sh");
         cmd.arg("-c").arg(command);
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
 
         if let Some(cwd) = args["cwd"].as_str() {
             cmd.current_dir(cwd);
+        }
+
+        if cancel.is_cancelled() {
+            return Err(ToolError::Io(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "cancelled",
+            )));
         }
 
         let child = cmd.spawn()?;
@@ -202,5 +235,57 @@ impl SystemTool for ExecuteCommandTool {
         }
 
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn execute_allowed_command() {
+        let tool = ExecuteCommandTool::with_allow_list(AllowList::new().with_command("echo"));
+        let args = serde_json::json!({ "command": "echo hello" });
+        let result = tool.run(args, CancellationToken::new()).await.unwrap();
+
+        assert!(result.contains("hello"));
+    }
+
+    #[tokio::test]
+    async fn execute_denied_command() {
+        let tool = ExecuteCommandTool::with_allow_list(AllowList::new());
+        let args = serde_json::json!({ "command": "echo hello" });
+        let result = tool.run(args, CancellationToken::new()).await;
+
+        assert!(matches!(result, Err(ToolError::SandboxDenied(_))));
+    }
+
+    #[tokio::test]
+    async fn execute_requires_command_arg() {
+        let tool = ExecuteCommandTool::new();
+        let args = serde_json::json!({});
+        let result = tool.run(args, CancellationToken::new()).await;
+
+        assert!(matches!(result, Err(ToolError::InvalidArgs(_))));
+    }
+
+    #[tokio::test]
+    async fn execute_respects_cancellation() {
+        let tool = ExecuteCommandTool::with_allow_list(AllowList::new().with_command("echo"));
+        let args = serde_json::json!({ "command": "echo hello" });
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+
+        let result = tool.run(args, cancel).await;
+        assert!(result.unwrap_err().to_string().contains("cancelled"));
+    }
+
+    #[test]
+    fn schema_is_valid_json() {
+        let tool = ExecuteCommandTool::new();
+        let schema = tool.parameters_schema();
+        assert!(schema.is_object());
+        let required = schema.get("required").unwrap().as_array().unwrap();
+        assert!(required.iter().any(|v| v == "command"));
     }
 }
