@@ -87,6 +87,87 @@ pub fn build_messages(history: &[ChatMessage]) -> Vec<serde_json::Value> {
     result
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_messages_groups_consecutive_tool_requests() {
+        let history = vec![
+            ChatMessage::User {
+                content: "read and write".into(),
+            },
+            ChatMessage::ToolRequest {
+                id: "call_1".into(),
+                name: "read_file".into(),
+                arguments: "{\"path\":\"/tmp/a\"}".into(),
+            },
+            ChatMessage::ToolRequest {
+                id: "call_2".into(),
+                name: "write_file".into(),
+                arguments: "{\"path\":\"/tmp/b\",\"content\":\"hi\"}".into(),
+            },
+            ChatMessage::ToolResult {
+                id: "call_1".into(),
+                content: "hello".into(),
+            },
+            ChatMessage::ToolResult {
+                id: "call_2".into(),
+                content: "done".into(),
+            },
+            ChatMessage::Assistant {
+                content: "All done".into(),
+            },
+        ];
+
+        let messages = build_messages(&history);
+        assert_eq!(messages.len(), 5);
+
+        // User
+        assert_eq!(messages[0]["role"], "user");
+
+        // Assistant with 2 tool_calls
+        assert_eq!(messages[1]["role"], "assistant");
+        assert!(messages[1]["content"].is_null());
+        let tool_calls = messages[1]["tool_calls"].as_array().unwrap();
+        assert_eq!(tool_calls.len(), 2);
+        assert_eq!(tool_calls[0]["id"], "call_1");
+        assert_eq!(tool_calls[0]["function"]["name"], "read_file");
+        assert_eq!(tool_calls[1]["id"], "call_2");
+        assert_eq!(tool_calls[1]["function"]["name"], "write_file");
+
+        // Tool results
+        assert_eq!(messages[2]["role"], "tool");
+        assert_eq!(messages[2]["tool_call_id"], "call_1");
+        assert_eq!(messages[3]["role"], "tool");
+        assert_eq!(messages[3]["tool_call_id"], "call_2");
+
+        // Final assistant
+        assert_eq!(messages[4]["role"], "assistant");
+        assert_eq!(messages[4]["content"], "All done");
+    }
+
+    #[test]
+    fn build_messages_single_tool_request() {
+        let history = vec![
+            ChatMessage::User {
+                content: "hello".into(),
+            },
+            ChatMessage::ToolRequest {
+                id: "call_1".into(),
+                name: "read_file".into(),
+                arguments: "{\"path\":\"/tmp/test\"}".into(),
+            },
+        ];
+
+        let messages = build_messages(&history);
+        assert_eq!(messages.len(), 2);
+        let tool_calls = messages[1]["tool_calls"].as_array().unwrap();
+        assert_eq!(tool_calls.len(), 1);
+        assert_eq!(tool_calls[0]["function"]["arguments"], "{\"path\":\"/tmp/test\"}");
+    }
+}
+
 /// Assembles the Chat Completions request body.
 ///
 /// `tools` is optional. When provided, the `tools` field is injected
