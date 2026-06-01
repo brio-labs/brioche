@@ -1,14 +1,17 @@
-//! `brioche-cli` — Shell Terminal for Brioche.
+//! `agent-terminal` — Minimal terminal agent for Brioche.
 //!
 //! Minimal entry point: argument parsing, persistence initialization,
 //! and dispatch to headless or interactive mode.
 //!
-//! All business logic lives in child modules:
+//! Agent-specific modules:
 //! - `shell_builder` — builds a complete `BriocheShell`
 //! - `headless` — non-interactive mode (single command)
 //! - `interactive` — REPL with multi-session support
 //! - `bridge` — message routing and slash commands
+//!
+//! Shared terminal infrastructure (from `brioche-reedline`):
 //! - `repl` — blocking read via reedline
+//! - `session` — multi-session manager
 //! - `ui` — terminal rendering
 //!
 //! Refs: SPECS.md §Book III-A, §Book III-C
@@ -21,18 +24,15 @@ mod bridge;
 mod config;
 mod headless;
 mod interactive;
-mod repl;
-mod session_manager;
 mod shell_builder;
-mod ui;
 
 use config::CliConfig;
 
-/// Brioche CLI — Shell Terminal with LLM and system tools.
+/// agent-terminal — Minimal terminal agent for Brioche.
 #[derive(argh::FromArgs, Debug)]
 #[argh(
-    name = "brioche-cli",
-    description = "Interactive shell terminal for Brioche with LLM and system tools"
+    name = "agent-terminal",
+    description = "Minimal terminal agent for Brioche with LLM and system tools"
 )]
 struct Args {
     /// API key for the LLM provider (overrides BRIOCHE_API_KEY).
@@ -67,7 +67,7 @@ async fn main() {
     let args: Args = argh::from_env();
 
     if args.version {
-        println!("brioche-cli {VERSION}");
+        println!("agent-terminal {VERSION}");
         std::process::exit(0);
     }
 

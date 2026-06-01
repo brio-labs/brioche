@@ -17,8 +17,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::bridge;
 use crate::config::CliConfig;
-use crate::session_manager::SessionManager;
 use crate::shell_builder::build_shell;
+use brioche_reedline::session::SessionManager;
 
 /// Launches the full interactive mode.
 pub async fn run(
@@ -69,11 +69,17 @@ pub async fn run(
 
     let printer_for_ui = printer.clone();
     let cancel_for_ui = cancel.clone();
-    let ui_handle = tokio::spawn(crate::ui::run(llm_rx, cancel_for_ui, printer_for_ui));
+    let ui_handle = tokio::spawn(brioche_reedline::ui::run(
+        llm_rx,
+        cancel_for_ui,
+        printer_for_ui,
+    ));
 
     let cancel_for_repl = cancel.clone();
-    let repl_handle =
-        tokio::task::spawn_blocking(move || crate::repl::run(input_tx, printer, cancel_for_repl));
+    let history_path = std::path::PathBuf::from("/tmp/agent-terminal-history.txt");
+    let repl_handle = tokio::task::spawn_blocking(move || {
+        brioche_reedline::repl::run(input_tx, printer, cancel_for_repl, None, Some(history_path))
+    });
 
     let (bridge_res, ui_res, repl_res) = tokio::join!(bridge_handle, ui_handle, repl_handle);
     if let Err(e) = bridge_res {

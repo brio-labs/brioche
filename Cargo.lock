@@ -3,6 +3,25 @@
 version = 4
 
 [[package]]
+name = "agent-terminal"
+version = "0.1.0"
+dependencies = [
+ "argh",
+ "async-trait",
+ "brioche-core",
+ "brioche-plugin-kit",
+ "brioche-provider-openai",
+ "brioche-reedline",
+ "brioche-shell-persistence",
+ "brioche-shell-runtime",
+ "brioche-tools-system",
+ "nu-ansi-term",
+ "reedline",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -182,24 +201,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "brioche-cli"
-version = "0.1.0"
-dependencies = [
- "argh",
- "async-trait",
- "brioche-core",
- "brioche-plugin-kit",
- "brioche-provider-openai",
- "brioche-shell-persistence",
- "brioche-shell-runtime",
- "brioche-tools-system",
- "nu-ansi-term",
- "reedline",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
 name = "brioche-core"
 version = "0.1.0"
 dependencies = [
@@ -301,6 +302,19 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "brioche-reedline"
+version = "0.1.0"
+dependencies = [
+ "brioche-core",
+ "brioche-shell-persistence",
+ "brioche-shell-runtime",
+ "nu-ansi-term",
+ "reedline",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]

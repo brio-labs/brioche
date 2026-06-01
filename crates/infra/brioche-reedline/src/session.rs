@@ -1,4 +1,4 @@
-//! Gestionnaire de sessions multi-conversation pour le CLI.
+//! Gestionnaire de sessions multi-conversation pour les agents terminal.
 //!
 //! Maintient plusieurs `BriocheShell` actifs en mémoire et permet
 //! de basculer entre eux via des commandes slash (`/session load`).

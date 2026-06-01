@@ -176,12 +176,14 @@ Brioche is a secure monolithic SDK for language model orchestration. It resolves
 
 ### 1.2 Global topology
 
-The system is divided into five watertight architectural layers, interconnected only by typed message channels. Policy complexity lives in extension crates that register onto mechanism hooks.
+The system is divided into six watertight architectural layers, interconnected only by typed message channels. Policy complexity lives in extension crates that register onto mechanism hooks. The **Agent Layer** is the composition site: each agent (e.g. `agent-terminal`, `agent-tui`) wires concrete implementations of the traits defined in lower layers (`ToolExecutor`, `LlmClient`, `Persistence`) into a runnable binary. Terminal agents use `brioche-reedline` (shared reedline infrastructure) directly above the Shell Runtime; desktop/web agents use `brioche-shell-projection` (Vue 3 / Tauri IPC) above the Shell Runtime.
 
 ```mermaid
 flowchart TB
-    subgraph UI["🖥️ Presentation Layer"]
-        UI_APP["brioche-ui<br/>(Vue 3)<br/>[UiRegistry]"]
+    subgraph AGENT["🤖 Agent Layer"]
+        AGENT_TERM["agent-terminal<br/>(reedline)<br/>[Minimal TUI]"]
+        AGENT_TUI["agent-tui<br/>(rich TUI)<br/>[MCP / LSP / Subagents]"]
+        AGENT_DESK["brioche-ui<br/>(Vue 3 / Tauri)<br/>[Desktop / Web UI]"]
     end
 
     subgraph SHELL_PROJ["🎨 Shell Projection Layer"]
@@ -204,7 +206,9 @@ flowchart TB
         GOV_APP["brioche-governance<br/>[QuarantineMgr]<br/>[RecoveryPolicy]<br/>[DepthGuard]<br/>[EpochGuard]<br/>[StateConsistency]<br/>[PolicyAggregator]<br/>[SubRoutineOrche]<br/>[ToolCallDetector]<br/>[ToolResultFormat]<br/>[HookEffectConstraint]<br/>[SubRoutineTimeoutPolicy]<br/>[UndoFrameGuard]<br/>[SubRoutineCleanupGuard]<br/>[NegotiationBroker]<br/>[TieredUndoFrameGuard]<br/>[RollbackTelemetryEmitter]<br/>[HistoricalCowBudgetPolicy]"]
     end
 
-    UI_APP <-->|"Tauri IPC<br/>(Invoke/Events)<br/>Binary MessagePack"| SHELL_PROJ_APP
+    AGENT_DESK <-->|"Tauri IPC<br/>(Invoke/Events)<br/>Binary MessagePack"| SHELL_PROJ_APP
+    AGENT_TERM -->|"brioche-reedline<br/>(ExternalPrinter)"| SHELL_RT_APP
+    AGENT_TUI -->|"brioche-reedline + brioche-tools-*"| SHELL_RT_APP
     SHELL_PROJ_APP <-->|"ForwardToUi effects processed"| SHELL_RT_APP
     SHELL_RT_APP <-->|"EngineInput (mpsc)"| CORE_APP
     SHELL_RT_APP <-->|"Vec&lt;Effect&gt;"| CORE_APP
@@ -214,6 +218,20 @@ flowchart TB
 ```
 
 <br>
+
+**Workspace organization:**
+
+Crates are grouped into categorized subfolders that map to the Books:
+
+| Folder | Book | Contents |
+|---|---|---|
+| `crates/kernel/` | I + II | `brioche-core`, `brioche-macro`, `brioche-governance`, `brioche-governance-default` |
+| `crates/runtime/` | III-A/B/C | `brioche-shell-runtime`, `brioche-shell-persistence`, `brioche-shell-projection` |
+| `crates/providers/` | III-A | `brioche-provider-openai`, `brioche-provider-router` |
+| `crates/tools/` | III-A / IV | `brioche-tools-system`, `brioche-tools-mcp`, `brioche-tools-subagent`, `brioche-tools-lsp`, `brioche-tools-web` |
+| `crates/ecosystem/` | IV | `brioche-std`, `brioche-plugin-kit`, `brioche-docgen`, `brioche-playground` |
+| `crates/apps/` | — | `agent-terminal`, `agent-tui` |
+| `crates/infra/` | — | `brioche-reedline`, `cargo-brioche-lint`, `cargo-brioche-lint-invariants` |
 
 **Event flow:**
 
@@ -3607,6 +3625,8 @@ Upon receipt of `Effect::TriggerGc` (emitted by the `GcPolicy` plugin), if the d
 
 # BOOK III-C — THE SHELL PROJECTION BOOK
 
+> **Scope note:** This book covers the **desktop / web UI projection** layer (Vue 3 + Tauri IPC). Terminal agents (`agent-terminal`, `agent-tui`) do not use this layer; they use `brioche-reedline` (shared terminal infrastructure) for REPL, session management, and rendering. `brioche-shell-projection` is strictly for desktop and web frontends.
+
 ---
 
 ## Chapter 1: Extensibility contract (UiRegistry)
@@ -4103,7 +4123,7 @@ impl BriocheExtensionType for AuditState {
 
 <br>
 
-**Note:** This plugin lives in `brioche-shell` (not `brioche-core`). It consumes network errors from `reqwest`, applies the retry/backoff policy, and transmits to the kernel only complete `LlmStream`s or a `SystemSignal::NetworkUnavailable` as a last resort.
+**Note:** This plugin lives in `brioche-shell-runtime` (not `brioche-core`). It consumes network errors from `reqwest`, applies the retry/backoff policy, and transmits to the kernel only complete `LlmStream`s or a `SystemSignal::NetworkUnavailable` as a last resort.
 
 <br>
 

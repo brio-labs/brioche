@@ -1,13 +1,19 @@
-error[E0277]: the trait bound `BadState: serde::Deserialize<'de>` is not satisfied
- --> tests/ui/fail_missing_clone.rs:4:12
+error: Field `data` uses HashMap. HashMap is prohibited in BriocheExtensionType persisted state. Use BTreeMap or IndexMap instead.
+ --> tests/ui/fail_hashmap.rs:6:15
   |
-4 | pub struct BadState {
+6 |     pub data: HashMap<String, u64>,
+  |               ^^^^^^^
+
+error[E0277]: the trait bound `BadState: serde::Deserialize<'de>` is not satisfied
+ --> tests/ui/fail_hashmap.rs:5:12
+  |
+5 | pub struct BadState {
   |            ^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `for<'de> Deserialize<'de>` is not implemented for `BadState`
- --> tests/ui/fail_missing_clone.rs:4:1
+ --> tests/ui/fail_hashmap.rs:5:1
   |
-4 | pub struct BadState {
+5 | pub struct BadState {
   | ^^^^^^^^^^^^^^^^^^^
   = note: for local types consider adding `#[derive(serde::Deserialize)]` to your `BadState` type
   = note: for types from other crates check whether the crate offers a `serde` feature flag
@@ -23,7 +29,7 @@ help: the trait `for<'de> Deserialize<'de>` is not implemented for `BadState`
           and $N others
   = note: required for `BadState` to implement `DeserializeOwned`
 note: required by a bound in `BriocheExtensionType`
- --> $WORKSPACE/crates/brioche-core/src/extension.rs
+ --> $WORKSPACE/crates/kernel/brioche-core/src/extension.rs
   |
   | pub trait BriocheExtensionType:
   |           -------------------- required by a bound in this trait
@@ -32,15 +38,15 @@ note: required by a bound in `BriocheExtensionType`
   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `BriocheExtensionType`
 
 error[E0277]: the trait bound `BadState: serde::Serialize` is not satisfied
- --> tests/ui/fail_missing_clone.rs:4:12
+ --> tests/ui/fail_hashmap.rs:5:12
   |
-4 | pub struct BadState {
+5 | pub struct BadState {
   |            ^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `Serialize` is not implemented for `BadState`
- --> tests/ui/fail_missing_clone.rs:4:1
+ --> tests/ui/fail_hashmap.rs:5:1
   |
-4 | pub struct BadState {
+5 | pub struct BadState {
   | ^^^^^^^^^^^^^^^^^^^
   = note: for local types consider adding `#[derive(serde::Serialize)]` to your `BadState` type
   = note: for types from other crates check whether the crate offers a `serde` feature flag
@@ -55,7 +61,7 @@ help: the trait `Serialize` is not implemented for `BadState`
             (T0, T1, T2, T3, T4)
           and $N others
 note: required by a bound in `BriocheExtensionType`
- --> $WORKSPACE/crates/brioche-core/src/extension.rs
+ --> $WORKSPACE/crates/kernel/brioche-core/src/extension.rs
   |
   | pub trait BriocheExtensionType:
   |           -------------------- required by a bound in this trait
@@ -64,13 +70,13 @@ note: required by a bound in `BriocheExtensionType`
   |       ^^^^^^^^^^^^^^^^ required by this bound in `BriocheExtensionType`
 
 error[E0277]: the trait bound `BadState: Default` is not satisfied
- --> tests/ui/fail_missing_clone.rs:4:12
+ --> tests/ui/fail_hashmap.rs:5:12
   |
-4 | pub struct BadState {
+5 | pub struct BadState {
   |            ^^^^^^^^ the trait `Default` is not implemented for `BadState`
   |
 note: required by a bound in `BriocheExtensionType`
- --> $WORKSPACE/crates/brioche-core/src/extension.rs
+ --> $WORKSPACE/crates/kernel/brioche-core/src/extension.rs
   |
   | pub trait BriocheExtensionType:
   |           -------------------- required by a bound in this trait
@@ -79,58 +85,18 @@ note: required by a bound in `BriocheExtensionType`
   |       ^^^^^^^ required by this bound in `BriocheExtensionType`
 help: consider annotating `BadState` with `#[derive(Default)]`
   |
-4 + #[derive(Default)]
-5 | pub struct BadState {
-  |
-
-error[E0277]: the trait bound `BadState: Clone` is not satisfied
- --> tests/ui/fail_missing_clone.rs:4:12
-  |
-4 | pub struct BadState {
-  |            ^^^^^^^^ the trait `Clone` is not implemented for `BadState`
-  |
-note: required by a bound in `BriocheExtensionType`
- --> $WORKSPACE/crates/brioche-core/src/extension.rs
-  |
-  | pub trait BriocheExtensionType:
-  |           -------------------- required by a bound in this trait
-...
-  |     + Clone
-  |       ^^^^^ required by this bound in `BriocheExtensionType`
-help: consider annotating `BadState` with `#[derive(Clone)]`
-  |
-4 + #[derive(Clone)]
-5 | pub struct BadState {
-  |
-
-error[E0277]: the trait bound `BadState: Clone` is not satisfied
- --> tests/ui/fail_missing_clone.rs:4:12
-  |
-4 | pub struct BadState {
-  |            ^^^^^^^^ the trait `Clone` is not implemented for `BadState`
-  |
-note: required by a bound in `EXT_ID`
- --> $WORKSPACE/crates/brioche-core/src/extension.rs
-  |
-  |     + Clone
-  |       ^^^^^ required by this bound in `BriocheExtensionType::EXT_ID`
-...
-  |     const EXT_ID: &'static str;
-  |           ------ required by a bound in this associated constant
-help: consider annotating `BadState` with `#[derive(Clone)]`
-  |
-4 + #[derive(Clone)]
-5 | pub struct BadState {
+5 + #[derive(Default)]
+6 | pub struct BadState {
   |
 
 error[E0277]: the trait bound `BadState: Default` is not satisfied
- --> tests/ui/fail_missing_clone.rs:4:12
+ --> tests/ui/fail_hashmap.rs:5:12
   |
-4 | pub struct BadState {
+5 | pub struct BadState {
   |            ^^^^^^^^ the trait `Default` is not implemented for `BadState`
   |
 note: required by a bound in `EXT_ID`
- --> $WORKSPACE/crates/brioche-core/src/extension.rs
+ --> $WORKSPACE/crates/kernel/brioche-core/src/extension.rs
   |
   |     + Default
   |       ^^^^^^^ required by this bound in `BriocheExtensionType::EXT_ID`
@@ -139,20 +105,20 @@ note: required by a bound in `EXT_ID`
   |           ------ required by a bound in this associated constant
 help: consider annotating `BadState` with `#[derive(Default)]`
   |
-4 + #[derive(Default)]
-5 | pub struct BadState {
+5 + #[derive(Default)]
+6 | pub struct BadState {
   |
 
 error[E0277]: the trait bound `BadState: serde::Serialize` is not satisfied
- --> tests/ui/fail_missing_clone.rs:4:12
+ --> tests/ui/fail_hashmap.rs:5:12
   |
-4 | pub struct BadState {
+5 | pub struct BadState {
   |            ^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `Serialize` is not implemented for `BadState`
- --> tests/ui/fail_missing_clone.rs:4:1
+ --> tests/ui/fail_hashmap.rs:5:1
   |
-4 | pub struct BadState {
+5 | pub struct BadState {
   | ^^^^^^^^^^^^^^^^^^^
   = note: for local types consider adding `#[derive(serde::Serialize)]` to your `BadState` type
   = note: for types from other crates check whether the crate offers a `serde` feature flag
@@ -167,7 +133,7 @@ help: the trait `Serialize` is not implemented for `BadState`
             (T0, T1, T2, T3, T4)
           and $N others
 note: required by a bound in `EXT_ID`
- --> $WORKSPACE/crates/brioche-core/src/extension.rs
+ --> $WORKSPACE/crates/kernel/brioche-core/src/extension.rs
   |
   |     + serde::Serialize
   |       ^^^^^^^^^^^^^^^^ required by this bound in `BriocheExtensionType::EXT_ID`
@@ -176,15 +142,15 @@ note: required by a bound in `EXT_ID`
   |           ------ required by a bound in this associated constant
 
 error[E0277]: the trait bound `BadState: serde::de::DeserializeOwned` is not satisfied
- --> tests/ui/fail_missing_clone.rs:4:12
+ --> tests/ui/fail_hashmap.rs:5:12
   |
-4 | pub struct BadState {
+5 | pub struct BadState {
   |            ^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `for<'de> Deserialize<'de>` is not implemented for `BadState`
- --> tests/ui/fail_missing_clone.rs:4:1
+ --> tests/ui/fail_hashmap.rs:5:1
   |
-4 | pub struct BadState {
+5 | pub struct BadState {
   | ^^^^^^^^^^^^^^^^^^^
   = help: the following other types implement trait `Deserialize<'de>`:
             &'a Path
@@ -198,7 +164,7 @@ help: the trait `for<'de> Deserialize<'de>` is not implemented for `BadState`
           and $N others
   = note: required for `BadState` to implement `DeserializeOwned`
 note: required by a bound in `EXT_ID`
- --> $WORKSPACE/crates/brioche-core/src/extension.rs
+ --> $WORKSPACE/crates/kernel/brioche-core/src/extension.rs
   |
   |     + serde::de::DeserializeOwned
   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `BriocheExtensionType::EXT_ID`
@@ -207,15 +173,15 @@ note: required by a bound in `EXT_ID`
   |           ------ required by a bound in this associated constant
 
 error[E0277]: the trait bound `BadState: serde::Serialize` is not satisfied
- --> tests/ui/fail_missing_clone.rs:3:10
+ --> tests/ui/fail_hashmap.rs:4:17
   |
-3 | #[derive(BriocheExtensionType)]
-  |          ^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+4 | #[derive(Clone, BriocheExtensionType)]
+  |                 ^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `Serialize` is not implemented for `BadState`
- --> tests/ui/fail_missing_clone.rs:4:1
+ --> tests/ui/fail_hashmap.rs:5:1
   |
-4 | pub struct BadState {
+5 | pub struct BadState {
   | ^^^^^^^^^^^^^^^^^^^
   = note: for local types consider adding `#[derive(serde::Serialize)]` to your `BadState` type
   = note: for types from other crates check whether the crate offers a `serde` feature flag
@@ -240,15 +206,15 @@ note: required by a bound in `to_stdvec`
   = note: this error originates in the derive macro `BriocheExtensionType` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0277]: the trait bound `BadState: serde::Deserialize<'de>` is not satisfied
- --> tests/ui/fail_missing_clone.rs:4:12
+ --> tests/ui/fail_hashmap.rs:5:12
   |
-4 | pub struct BadState {
+5 | pub struct BadState {
   |            ^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `Deserialize<'_>` is not implemented for `BadState`
- --> tests/ui/fail_missing_clone.rs:4:1
+ --> tests/ui/fail_hashmap.rs:5:1
   |
-4 | pub struct BadState {
+5 | pub struct BadState {
   | ^^^^^^^^^^^^^^^^^^^
   = note: for local types consider adding `#[derive(serde::Deserialize)]` to your `BadState` type
   = note: for types from other crates check whether the crate offers a `serde` feature flag
@@ -272,13 +238,13 @@ note: required by a bound in `brioche_core::postcard::from_bytes`
   |        ^^^^^^^^^^^^^^^ required by this bound in `from_bytes`
 
 error[E0277]: the trait bound `BadState: Default` is not satisfied
- --> tests/ui/fail_missing_clone.rs:4:12
+ --> tests/ui/fail_hashmap.rs:5:12
   |
-4 | pub struct BadState {
+5 | pub struct BadState {
   |            ^^^^^^^^ the trait `Default` is not implemented for `BadState`
   |
 help: consider annotating `BadState` with `#[derive(Default)]`
   |
-4 + #[derive(Default)]
-5 | pub struct BadState {
+5 + #[derive(Default)]
+6 | pub struct BadState {
   |
