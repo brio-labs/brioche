@@ -135,6 +135,8 @@ fn token_tracker_estimates_from_history() {
         },
         ChatMessage::Assistant {
             content: "hi there".into(),
+            reasoning: None,
+        tool_calls: Vec::new(),
         },
     ];
 
