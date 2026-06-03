@@ -6,53 +6,20 @@
 
 use std::sync::Arc;
 
-use brioche_core::{ActiveToolCall, ChatMessage, ToolResultDTO};
+use brioche_core::ChatMessage;
 use brioche_plugin_kit::PluginBuilder;
 use brioche_provider_openai::{OpenAiLlmClient, SharedHistory, ShellEvent};
 use brioche_shell_persistence::{RedbStorage, SessionHeadDTO, SessionStore, SessionStoreEntry};
-use brioche_shell_runtime::{AllowList, SystemToolExecutor};
-use brioche_shell_runtime::{BriocheShell, DefaultEffectExecutor, ShellConfig, ToolExecutor};
+use brioche_shell_runtime::SystemToolExecutor;
+use brioche_shell_runtime::{BriocheShell, DefaultEffectExecutor, ShellConfig};
 use brioche_tool_fetch::FetchUrlTool;
 use brioche_tool_listdir::ListDirTool;
 use brioche_tool_readfile::ReadFileTool;
 use brioche_tool_shell::ExecuteCommandTool;
 use brioche_tool_writefile::WriteFileTool;
 use tokio::sync::broadcast;
-use tokio_util::sync::CancellationToken;
 
 use crate::config::CliConfig;
-
-/// `ToolExecutor` decorator that synchronizes results with the LLM
-/// client history mirror.
-///
-/// Separates the "tool execution" concern (delegated to `inner`)
-/// from the "LLM history synchronization" concern (implemented
-/// here). The decorator is generic over `T: ToolExecutor` to
-/// enable chainable composition.
-///
-/// Refs: I-Shell-ToolResult-PassThrough, I-Comp-Atomic-Concern
-pub struct HistorySyncDecorator<T: ToolExecutor> {
-    inner: T,
-    llm: OpenAiLlmClient,
-}
-
-impl<T: ToolExecutor> HistorySyncDecorator<T> {
-    /// Wraps an existing `ToolExecutor` with LLM history sync.
-    pub fn new(inner: T, llm: OpenAiLlmClient) -> Self {
-        Self { inner, llm }
-    }
-}
-
-#[async_trait::async_trait]
-impl<T: ToolExecutor> ToolExecutor for HistorySyncDecorator<T> {
-    async fn execute(&self, call: &ActiveToolCall, cancel: CancellationToken) -> ToolResultDTO {
-        let result = self.inner.execute(call, cancel).await;
-        self.llm
-            .push_tool_results(std::slice::from_ref(&result))
-            .await;
-        result
-    }
-}
 
 /// Builds a complete `BriocheShell` with all its components.
 ///
@@ -61,7 +28,6 @@ impl<T: ToolExecutor> ToolExecutor for HistorySyncDecorator<T> {
 pub async fn build_shell(
     session_id: impl Into<String>,
     cli_config: &CliConfig,
-    with_confirm: bool,
     redb_storage: RedbStorage,
     session_store: SessionStore,
     initial_history: Option<Vec<ChatMessage>>,
@@ -72,30 +38,11 @@ pub async fn build_shell(
     broadcast::Receiver<ShellEvent>,
     SharedHistory,
 ) {
-    type ConfirmHandler = Option<std::sync::Arc<dyn Fn(&str) -> bool + Send + Sync>>;
-    let confirm_handler: ConfirmHandler = if with_confirm {
-        Some(std::sync::Arc::new(|cmd: &str| {
-            use std::io::Write;
-            print!(
-                "\n{} Command '{}' is not in the allow-list. Execute ? [y/N] ",
-                nu_ansi_term::Color::Yellow.paint("⚠"),
-                cmd
-            );
-            let _ = std::io::stdout().flush();
-            let mut input = String::new();
-            if std::io::stdin().read_line(&mut input).is_err() {
-                return false;
-            }
-            matches!(input.trim().to_lowercase().as_str(), "y" | "yes")
-        }))
-    } else {
-        None
-    };
-
-    let mut exec_tool = ExecuteCommandTool::with_allow_list(AllowList::default());
-    if let Some(handler) = confirm_handler {
-        exec_tool = exec_tool.with_confirm_handler(handler);
-    }
+    // Agent-terminal runs without a permission system — all commands
+    // are executed directly. This is intentional: the user is the
+    // human-in-the-loop and controls the terminal.
+    let exec_tool =
+        ExecuteCommandTool::new().with_policy(brioche_shell_runtime::SandboxPolicy::Permissive);
 
     let tool_executor = SystemToolExecutor::new()
         .with_tool(ReadFileTool)
@@ -106,13 +53,27 @@ pub async fn build_shell(
 
     let (llm_client, llm_rx, history) = OpenAiLlmClient::new(cli_config.openai.clone());
 
+    // Inject default system prompt into the LLM client's history mirror.
+    // This instructs the model to use available tools rather than
+    // emitting file contents directly in its response.
+    llm_client.push_message(ChatMessage::System {
+        content: "You are a helpful AI coding assistant with access to filesystem tools. \
+CRITICAL RULES: \
+1. When the user asks you to create, write, or modify ANY file, you MUST use the write_file tool. \
+2. NEVER output file contents directly in your response text — ALWAYS use the write_file tool with the full content. \
+3. For large files, you may use multiple write_file calls with append=true after the first call. \
+4. Use read_file before modifying existing files. \
+5. Use execute_command for shell commands. \
+6. Use list_dir to explore directories. \
+7. If you need to fetch content from the web, use fetch_url. \
+8. After using write_file, the tool result will confirm success. Do not read the file back unless the user asks.".into(),
+    }).await;
+
     let schemas = tool_executor.schema_json();
     llm_client.set_tools_schema(schemas).await;
 
-    let notifying_tools = HistorySyncDecorator::new(tool_executor, llm_client.clone());
-
     let effect_executor =
-        DefaultEffectExecutor::new(notifying_tools, llm_client.clone(), redb_storage.clone())
+        DefaultEffectExecutor::new(tool_executor, llm_client.clone(), redb_storage.clone())
             .with_ui_tx(llm_client.ui_tx());
 
     // Session callback — snapshot after each transition.

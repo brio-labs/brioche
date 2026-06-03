@@ -48,12 +48,27 @@ impl CliConfig {
             .or_else(|| std::env::var("BRIOCHE_BASE_URL").ok())
             .unwrap_or_else(|| "https://api.openai.com/v1".into());
 
+        let max_tokens = std::env::var("BRIOCHE_MAX_TOKENS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(4096u32);
+
+        // Reasoning effort: user override only. No per-model defaults.
+        //
+        // OpenRouter supports `reasoning.effort` ("none", "minimal",
+        // "low", "medium", "high", "xhigh"). When unset, the provider
+        // uses its default behavior.
+        //
+        // Set via BRIOCHE_REASONING_EFFORT env var.
+        let reasoning_effort = std::env::var("BRIOCHE_REASONING_EFFORT").ok();
+
         let openai = OpenAiConfig {
             api_key,
             model,
             base_url,
-            max_tokens: 4096,
+            max_tokens,
             timeout_ms: 120_000,
+            reasoning_effort,
         };
 
         Self {

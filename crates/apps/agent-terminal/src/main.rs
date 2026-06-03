@@ -51,10 +51,6 @@ struct Args {
     #[argh(option, short = 'o', long = "one-shot")]
     one_shot: Option<String>,
 
-    /// disable interactive confirmation for shell commands.
-    #[argh(switch, long = "no-confirm")]
-    no_confirm: bool,
-
     /// print version and exit.
     #[argh(switch, short = 'V', long = "version")]
     version: bool,
@@ -93,7 +89,7 @@ async fn main() {
     if let Some(prompt) = args.one_shot {
         headless::run(prompt, cli_config, redb_storage, session_store).await;
     } else {
-        interactive::run(cli_config, redb_storage, session_store, !args.no_confirm).await;
+        interactive::run(cli_config, redb_storage, session_store).await;
     }
 }
 

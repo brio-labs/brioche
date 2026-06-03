@@ -80,6 +80,19 @@ fn draw_error(
     eprintln!("└─────────────────────────────────┘");
 }
 
+/// Print accumulated reasoning to stderr, or silently discard it.
+fn flush_reasoning(buffer: &mut String, show: bool) {
+    if !buffer.is_empty() && show {
+        let text = std::mem::take(buffer);
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            eprintln!("💭  {}", trimmed);
+        }
+    } else {
+        buffer.clear();
+    }
+}
+
 /// Runs a single prompt in non-interactive mode.
 ///
 /// Accumulates the LLM response for up to 30 s, then prints the result
@@ -94,7 +107,6 @@ pub async fn run(
     let (shell, llm_client, _llm_rx, _history) = build_shell(
         "headless",
         &cli_config,
-        false, // no interactive confirmation in headless mode
         redb_storage,
         session_store,
         None,
@@ -122,62 +134,89 @@ pub async fn run(
     // Subscribe to the broadcast to accumulate the response.
     let mut rx = llm_client.subscribe();
     let mut buffer = String::new();
+    let mut reasoning_buffer = String::new();
     let mut done_received = false;
     let mut in_tool_call = false;
+    let mut consecutive_timeouts = 0u32;
+
+    let show_reasoning = std::env::var("BRIOCHE_SHOW_REASONING")
+        .is_ok_and(|s| s == "1" || s.eq_ignore_ascii_case("true"));
 
     loop {
         match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
-            Ok(Ok(chunk)) => match chunk {
-                ShellEvent::LlmText(content) => {
-                    buffer.push_str(&content);
-                    done_received = false;
-                }
-                ShellEvent::LlmToolCallStart { name, .. } => {
-                    draw_box(&name, "pending…");
-                    in_tool_call = true;
-                    done_received = false;
-                }
-                ShellEvent::LlmToolCallDone { .. } => {
-                    eprintln!("  … done");
-                    in_tool_call = false;
-                }
-                ShellEvent::ToolResult { name, output } => {
-                    let trimmed = output.trim();
-                    let preview = if trimmed.lines().count() > 10 {
-                        trimmed.lines().take(10).collect::<Vec<_>>().join("\n") + "\n… (truncated)"
-                    } else {
-                        trimmed.to_string()
-                    };
-                    draw_box(&format!("Result: {name}"), &preview);
-                }
-                ShellEvent::LlmDone => {
-                    done_received = true;
-                }
-                ShellEvent::Error {
-                    code,
-                    message,
-                    source,
-                    recoverable,
-                    suggestion,
-                } => {
-                    draw_error(&code, &message, source, recoverable, suggestion.as_deref());
-                    if !recoverable {
-                        std::process::exit(1);
+            Ok(Ok(chunk)) => {
+                consecutive_timeouts = 0;
+                match chunk {
+                    ShellEvent::LlmText(content) => {
+                        flush_reasoning(&mut reasoning_buffer, show_reasoning);
+                        buffer.push_str(&content);
+                        done_received = false;
                     }
+                    ShellEvent::LlmReasoning(content) => {
+                        reasoning_buffer.push_str(&content);
+                    }
+                    ShellEvent::LlmToolCallStart { name, .. } => {
+                        flush_reasoning(&mut reasoning_buffer, show_reasoning);
+                        draw_box(&name, "pending…");
+                        in_tool_call = true;
+                        done_received = false;
+                    }
+                    ShellEvent::LlmToolCallDone { .. } => {
+                        eprintln!("  … done");
+                        in_tool_call = false;
+                    }
+                    ShellEvent::ToolResult { name, output } => {
+                        let trimmed = output.trim();
+                        let preview = if trimmed.lines().count() > 10 {
+                            trimmed.lines().take(10).collect::<Vec<_>>().join("\n")
+                                + "\n… (truncated)"
+                        } else {
+                            trimmed.to_string()
+                        };
+                        draw_box(&format!("Result: {name}"), &preview);
+                    }
+                    ShellEvent::LlmDone => {
+                        flush_reasoning(&mut reasoning_buffer, show_reasoning);
+                        done_received = true;
+                    }
+                    ShellEvent::Error {
+                        code,
+                        message,
+                        source,
+                        recoverable,
+                        suggestion,
+                    } => {
+                        draw_error(&code, &message, source, recoverable, suggestion.as_deref());
+                        if !recoverable {
+                            std::process::exit(1);
+                        }
+                    }
+                    ShellEvent::Warning { message, source } => {
+                        eprintln!("⚠  [{}] {}", source, message);
+                    }
+                    ShellEvent::Status { message } => {
+                        eprintln!("◐  {}", message);
+                    }
+                    ShellEvent::Thinking { message } => {
+                        eprintln!("◐  {}", message);
+                    }
+                    _ => {}
                 }
-                ShellEvent::Warning { message, source } => {
-                    eprintln!("⚠  [{}] {}", source, message);
-                }
-                ShellEvent::Status { message } => {
-                    eprintln!("ℹ  {}", message);
-                }
-                ShellEvent::Thinking { message } => {
-                    eprintln!("◐  {}", message);
-                }
-                _ => {}
-            },
+            }
             Ok(Err(_)) => break, // broadcast closed
             Err(_) => {
+                consecutive_timeouts += 1;
+                if consecutive_timeouts == 1 {
+                    eprintln!(
+                        "\n⚠  No response after 30s — model may be reasoning slowly or provider is queuing…"
+                    );
+                } else if consecutive_timeouts >= 3 {
+                    eprintln!(
+                        "\n✗  Model unresponsive after {}s. Aborting.",
+                        consecutive_timeouts * 30
+                    );
+                    std::process::exit(1);
+                }
                 if done_received && !in_tool_call {
                     break;
                 }
