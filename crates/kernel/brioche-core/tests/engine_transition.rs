@@ -289,7 +289,7 @@ fn transition_llm_stream_accumulates_assistant_text() {
     assert_eq!(session.history.len(), 1);
     assert!(matches!(
         &session.history[0],
-        ChatMessage::Assistant { content } if content == "Hello world"
+        ChatMessage::Assistant { content, .. } if content == "Hello world"
     ));
 
     // State should have popped back to Idle.
@@ -337,7 +337,7 @@ fn transition_llm_stream_tool_call_done_persists_preceding_text() {
     assert_eq!(session.history.len(), 1);
     assert!(matches!(
         &session.history[0],
-        ChatMessage::Assistant { content } if content == "Let me check"
+        ChatMessage::Assistant { content, .. } if content == "Let me check"
     ));
 
     // Buffer cleared.
@@ -963,12 +963,14 @@ fn transition_llm_stream_missing_timeout_applies_default() {
     };
     let effects = engine.transition(&mut session, &EngineInput::LlmStream(done));
 
-    // Default timeout applied.
+    // Default timeout applied silently (no error). A missing timeout
+    // is now a normal condition: the kernel applies the default and
+    // lets governance plugins (if any) enforce stricter policies.
     assert_eq!(session.active_tools[0].timeout_ms, 3000);
 
-    // Error effect emitted because timeout was missing.
-    assert!(effects.iter().any(|e| matches!(
-        e, Effect::Error { code, message } if *code == ErrorCode::StateInconsistency && message.contains("Missing timeout")
+    // No spurious error for missing timeout.
+    assert!(!effects.iter().any(|e| matches!(
+        e, Effect::Error { message, .. } if message.contains("Missing timeout")
     )));
 }
 
