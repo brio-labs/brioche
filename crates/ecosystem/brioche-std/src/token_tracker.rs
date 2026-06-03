@@ -60,7 +60,7 @@ impl TokenTracker {
         match msg {
             ChatMessage::System { content } => (Self::estimate_tokens(content), "system"),
             ChatMessage::User { content } => (Self::estimate_tokens(content), "user"),
-            ChatMessage::Assistant { content } => (Self::estimate_tokens(content), "assistant"),
+            ChatMessage::Assistant { content, .. } => (Self::estimate_tokens(content), "assistant"),
             ChatMessage::ToolRequest { arguments, .. } => {
                 (Self::estimate_tokens(arguments), "tool_request")
             }
