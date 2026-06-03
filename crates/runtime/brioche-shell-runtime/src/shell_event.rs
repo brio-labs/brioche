@@ -22,6 +22,11 @@ pub enum ShellEvent {
     // ------------------------------------------------------------------
     /// Text fragment from the LLM response stream.
     LlmText(String),
+    /// Reasoning / chain-of-thought fragment from the LLM.
+    ///
+    /// Separate from `LlmText` so consumers can choose whether
+    /// to display reasoning inline, in a sidebar, or not at all.
+    LlmReasoning(String),
     /// A tool call has started (id + name now known).
     LlmToolCallStart { id: String, name: String },
     /// Partial argument JSON for an in-flight tool call.
@@ -81,6 +86,7 @@ impl std::fmt::Display for ShellEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ShellEvent::LlmText(text) => write!(f, "{text}"),
+            ShellEvent::LlmReasoning(text) => write!(f, "💭 {text}"),
             ShellEvent::LlmToolCallStart { id, name } => {
                 write!(f, "[tool] {name} (id={id}) starting")
             }

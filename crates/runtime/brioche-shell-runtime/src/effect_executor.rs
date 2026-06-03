@@ -256,13 +256,6 @@ where
         use brioche_core::{EngineInput, ToolOutcome};
         use tokio_util::sync::CancellationToken;
 
-        if let Some(ref ui_tx) = self.ui_tx {
-            let names: Vec<_> = calls.iter().map(|c| c.tool_name.as_str()).collect();
-            let _ = ui_tx.send(ShellEvent::Thinking {
-                message: format!("Using {}…", names.join(", ")),
-            });
-        }
-
         let mut handles = Vec::with_capacity(calls.len());
 
         for call in calls {
@@ -273,42 +266,46 @@ where
             let tool_name = call.tool_name.clone();
 
             let handle = tokio::spawn(async move {
-                let result = tokio::select! {
-                    biased;
-                    _ = tokio::time::sleep(tokio::time::Duration::from_millis(timeout_ms)) => {
-                        if let Some(ref tx) = ui_tx {
-                            let _ = tx.send(ShellEvent::error(
-                                "ToolTimeout",
-                                format!("{tool_name} timed out after {timeout_ms} ms"),
-                                "tool_executor",
-                                true,
-                                Some(format!("Increase timeout or check if {tool_name} is stuck.")),
-                            ));
+                let result = if timeout_ms == brioche_core::NO_TOOL_TIMEOUT_MS {
+                    // NO_TOOL_TIMEOUT_MS means no timeout — run until completion.
+                    tool_executor.execute(&call, cancel.clone()).await
+                } else {
+                    tokio::select! {
+                        biased;
+                        _ = tokio::time::sleep(tokio::time::Duration::from_millis(timeout_ms)) => {
+                            if let Some(ref tx) = ui_tx {
+                                let _ = tx.send(ShellEvent::error(
+                                    "ToolTimeout",
+                                    format!("{tool_name} timed out after {timeout_ms} ms"),
+                                    "tool_executor",
+                                    true,
+                                    Some(format!("Increase timeout or check if {tool_name} is stuck.")),
+                                ));
+                            }
+                            ToolResultDTO {
+                                tool_id: call.tool_id.clone(),
+                                tool_name: call.tool_name.clone(),
+                                outcome: ToolOutcome::TimeoutWithPartialData { partial_output: None },
+                            }
                         }
-                        ToolResultDTO {
-                            tool_id: call.tool_id.clone(),
-                            tool_name: call.tool_name.clone(),
-                            outcome: ToolOutcome::TimeoutWithPartialData { partial_output: None },
-                        }
-                    }
-                    r = tool_executor.execute(&call, cancel.clone()) => {
-                        if let Some(ref tx) = ui_tx {
-                            let output = match &r.outcome {
-                                ToolOutcome::Success(s) => s.clone(),
-                                ToolOutcome::BusinessError(s)
-                                | ToolOutcome::SystemError(s) => format!("(error: {s})"),
-                                ToolOutcome::TimeoutWithPartialData { partial_output } => {
-                                    format!("(timeout: {})", partial_output.clone().unwrap_or_default())
-                                }
-                            };
-                            let _ = tx.send(ShellEvent::ToolResult {
-                                name: tool_name.clone(),
-                                output,
-                            });
-                        }
-                        r
+                        r = tool_executor.execute(&call, cancel.clone()) => r
                     }
                 };
+                if let Some(ref tx) = ui_tx {
+                    let output = match &result.outcome {
+                        ToolOutcome::Success(s) => s.clone(),
+                        ToolOutcome::BusinessError(s) | ToolOutcome::SystemError(s) => {
+                            format!("(error: {s})")
+                        }
+                        ToolOutcome::TimeoutWithPartialData { partial_output } => {
+                            format!("(timeout: {})", partial_output.clone().unwrap_or_default())
+                        }
+                    };
+                    let _ = tx.send(ShellEvent::ToolResult {
+                        name: tool_name.clone(),
+                        output,
+                    });
+                }
                 result
             });
             handles.push(handle);
@@ -334,6 +331,13 @@ where
                 }
             }
         }
+
+        // Push tool results to the LLM history mirror IN CALL ORDER.
+        // This ensures the provider sees tool results in the same order
+        // as the tool_calls in the assistant message. Strict providers
+        // (MiniMax M3 via OpenRouter) reject requests where tool results
+        // appear in completion order.
+        self.llm_client.push_tool_results(&results).await;
 
         shell
             .send_input(EngineInput::ToolCallsResult {
