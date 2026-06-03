@@ -1,6 +1,6 @@
 //! Construction d'un `BriocheShell` complet avec tous ses composants.
 //!
-//! Ce module est partagé entre le mode interactif et le mode headless.
+//! This module is shared between interactive and headless modes.
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
@@ -12,8 +12,8 @@ use brioche_provider_openai::{LlmChunk, OpenAiLlmClient, SharedHistory};
 use brioche_shell_persistence::{RedbStorage, SessionHeadDTO, SessionStore, SessionStoreEntry};
 use brioche_shell_runtime::{BriocheShell, DefaultEffectExecutor, ShellConfig};
 use brioche_tools_system::{
-    ExecuteCommandTool, FetchUrlTool, ListDirTool, ReadFileTool, SandboxPolicy,
-    SystemToolExecutor, WriteFileTool,
+    ExecuteCommandTool, FetchUrlTool, ListDirTool, ReadFileTool, SandboxPolicy, SystemToolExecutor,
+    WriteFileTool,
 };
 use tokio::sync::broadcast;
 
@@ -39,8 +39,7 @@ pub fn build_shell(
     // Agent-terminal runs without a permission system — all commands
     // are executed directly. This is intentional: the user is the
     // human-in-the-loop and controls the terminal.
-    let exec_tool =
-        ExecuteCommandTool::new().with_policy(SandboxPolicy::Permissive);
+    let exec_tool = ExecuteCommandTool::new().with_policy(SandboxPolicy::Permissive);
 
     let tool_executor = SystemToolExecutor::new()
         .with_tool(ReadFileTool)
@@ -81,7 +80,7 @@ CRITICAL RULES: \
     let effect_executor =
         DefaultEffectExecutor::new(tool_executor, llm_client.clone(), redb_storage.clone());
 
-    // Session callback — snapshot après chaque transition.
+    // Session callback — snapshot after each transition.
     let store_for_callback = Arc::clone(&session_store);
     let session_callback: brioche_shell_runtime::SessionCallback =
         Box::new(move |session: &brioche_core::Session| {

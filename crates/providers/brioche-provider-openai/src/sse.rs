@@ -1,6 +1,6 @@
-//! Parser SSE (Server-Sent Events) pour le streaming OpenAI.
+//! SSE (Server-Sent Events) parser for OpenAI streaming.
 //!
-//! Chaque ligne du stream suit le format :
+//! Each line in the stream follows the format:
 //! ```text
 //! data: {...json...}
 //! ```
@@ -9,7 +9,7 @@
 
 use bytes::Bytes;
 
-/// État du parser SSE ligne par ligne.
+/// SSE parser state, line by line.
 #[derive(Clone, Debug, Default)]
 pub struct SseParser {
     buffer: String,

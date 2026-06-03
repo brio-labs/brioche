@@ -209,6 +209,8 @@ pub fn error_detector_for_model(model: &str) -> Box<dyn StreamErrorDetector> {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)] // serde_json::json! uses unwrap internally
+#[allow(clippy::unwrap_used)] // tests use unwrap for brevity
 mod tests {
     use super::*;
     use serde_json::json;

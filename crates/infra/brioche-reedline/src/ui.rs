@@ -68,11 +68,7 @@ fn render_block(text: &str) -> String {
 /// tool calls, or stream end). If `show` is false, the buffer
 /// is silently discarded — reasoning is still preserved in the
 /// history mirror, just not displayed.
-fn flush_reasoning(
-    printer: &ExternalPrinter<String>,
-    buffer: &mut String,
-    show: bool,
-) {
+fn flush_reasoning(printer: &ExternalPrinter<String>, buffer: &mut String, show: bool) {
     if !buffer.is_empty() && show {
         let text = std::mem::take(buffer);
         let trimmed = text.trim();
@@ -179,8 +175,8 @@ fn box_lines(label: &str, content: &str) -> Vec<String> {
         .max()
         .unwrap_or(0);
     let inner_w = (label_chars + 4)
+        .clamp(28, BOX_WIDTH)
         .max(content_max + 2)
-        .max(28)
         .min(BOX_WIDTH);
 
     let mut lines = Vec::new();
@@ -245,7 +241,10 @@ fn error_lines(
         .max()
         .unwrap_or(0);
     let top_label_len = severity.chars().count() + source.chars().count() + 7;
-    let inner_w = top_label_len.max(content_max + 2).max(28).min(BOX_WIDTH);
+    let inner_w = top_label_len
+        .clamp(28, BOX_WIDTH)
+        .max(content_max + 2)
+        .min(BOX_WIDTH);
 
     let mut lines = Vec::new();
 
@@ -396,14 +395,27 @@ pub async fn run(
                             .and_then(|s| s.as_str())
                             .unwrap_or("openai_provider")
                             .to_string();
-                        let recoverable = json.get("recoverable").and_then(|r| r.as_bool()).unwrap_or(true);
-                        let suggestion = json.get("suggestion").and_then(|s| s.as_str()).map(|s| s.to_string());
+                        let recoverable = json
+                            .get("recoverable")
+                            .and_then(|r| r.as_bool())
+                            .unwrap_or(true);
+                        let suggestion = json
+                            .get("suggestion")
+                            .and_then(|s| s.as_str())
+                            .map(|s| s.to_string());
                         (code, message, source, recoverable, suggestion)
                     } else {
-                        ("ProviderError".into(), error, "openai_provider".into(), true, None)
+                        (
+                            "ProviderError".into(),
+                            error,
+                            "openai_provider".into(),
+                            true,
+                            None,
+                        )
                     };
-                for line in error_lines(&code, &message, &source, recoverable, suggestion.as_deref(),
-                ) {
+                for line in
+                    error_lines(&code, &message, &source, recoverable, suggestion.as_deref())
+                {
                     let _ = printer.print(line);
                 }
                 wake_reedline();

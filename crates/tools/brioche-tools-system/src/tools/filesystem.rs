@@ -197,6 +197,8 @@ impl SystemTool for ListDirTool {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

@@ -579,6 +579,10 @@ async fn network_recovery_emits_system_signal_on_exhaustion() {
                 "always fails".into(),
             ))
         }
+
+        async fn push_tool_results(&self, _results: &[brioche_core::ToolResultDTO]) {
+            // Mock: no history mirror.
+        }
     }
 
     let recovery = ExponentialBackoff {

@@ -246,7 +246,6 @@ where
             let timeout_ms = call.timeout_ms;
 
             let handle = tokio::spawn(async move {
-                
                 if timeout_ms == brioche_core::NO_TOOL_TIMEOUT_MS {
                     // NO_TOOL_TIMEOUT_MS means no timeout — run until completion.
                     tool_executor.execute(&call, cancel.clone()).await

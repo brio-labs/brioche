@@ -21,11 +21,7 @@ use crate::shell_builder::build_shell;
 use brioche_reedline::session::SessionManager;
 
 /// Launches the full interactive mode.
-pub async fn run(
-    cli_config: CliConfig,
-    redb_storage: RedbStorage,
-    session_store: SessionStore,
-) {
+pub async fn run(cli_config: CliConfig, redb_storage: RedbStorage, session_store: SessionStore) {
     print_banner();
 
     let (shell, llm_client, llm_rx, _history) = build_shell(

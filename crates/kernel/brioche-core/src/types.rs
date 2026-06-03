@@ -321,12 +321,12 @@ pub struct Session {
     /// Mechanical state: tools currently in execution.
     /// Managed exclusively by the kernel. Not modifiable by plugins.
     pub active_tools: Vec<ActiveToolCall>,
-    /// Buffer temporaire pour accumuler les fragments de texte assistant
-    /// durant le streaming LLM. Matérialisé en `ChatMessage::Assistant`
-    /// au `StreamEvent::Done` ou `StreamEvent::ToolCallDone`.
+    /// Temporary buffer to accumulate assistant text fragments
+    /// during LLM streaming. Materialized into `ChatMessage::Assistant`
+    /// at `StreamEvent::Done` or `StreamEvent::ToolCallDone`.
     ///
-    /// Ce champ est mécanique : il appartient au cycle de vie du kernel
-    /// et n'est jamais exposé aux plugins via `ExtensionStorage`.
+    /// This field is mechanical: it belongs to the kernel lifecycle
+    /// and is never exposed to plugins via `ExtensionStorage`.
     ///
     /// Refs: I-Core-StreamAccumulator, I-Core-Pure
     pub pending_assistant_text: String,

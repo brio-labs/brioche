@@ -70,8 +70,7 @@ fn openai_tool_call(id: &str, name: &str, arguments: &str) -> serde_json::Value 
 /// O(n) where n = number of messages. One `Vec` allocation.
 pub fn build_messages(history: &[ChatMessage]) -> Vec<serde_json::Value> {
     let (start_idx, keep_first) = if history.len() > MAX_MESSAGES_PER_REQUEST {
-        let first_is_system = matches!(&history.first(), Some(ChatMessage::System { .. })
-        );
+        let first_is_system = matches!(&history.first(), Some(ChatMessage::System { .. }));
         if first_is_system {
             (history.len() - (MAX_MESSAGES_PER_REQUEST - 1), true)
         } else {

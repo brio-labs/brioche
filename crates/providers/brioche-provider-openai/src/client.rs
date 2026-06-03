@@ -32,7 +32,7 @@ use bytes::Bytes;
 use futures_util::StreamExt;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::{RwLock, broadcast};
 
 /// OpenAI-compatible LLM client.
@@ -302,9 +302,9 @@ impl LlmClient for OpenAiLlmClient {
                 .count()
                 + 1
         };
-        let _ = self.ui_tx.send(LlmChunk::Status(format!(
-            "Calling LLM (turn {turn})…"
-        )));
+        let _ = self
+            .ui_tx
+            .send(LlmChunk::Status(format!("Calling LLM (turn {turn})…")));
 
         let history_guard = self.history.read().await;
         let messages = crate::request::build_messages(&history_guard);
@@ -337,7 +337,9 @@ impl LlmClient for OpenAiLlmClient {
 
         let _ = self.ui_tx.send(LlmChunk::Status(format!(
             "HTTP POST {} — {} messages, ~{} chars",
-            url, msg_count, body_str.len(),
+            url,
+            msg_count,
+            body_str.len(),
         )));
 
         let request = self
@@ -394,16 +396,14 @@ impl LlmClient for OpenAiLlmClient {
         let mut event_count = 0usize;
         let mut content_chars = 0usize;
         let mut reasoning_chars = 0usize;
-        let mut last_activity = Instant::now();
-        let stream_start = Instant::now();
 
         let mut tool_acc: BTreeMap<usize, ToolCallAccumulator> = BTreeMap::new();
         let mut finish_reason: Option<String> = None;
         let mut first_chunk_seen = false;
 
         const READ_TIMEOUT: Duration = Duration::from_secs(45);
-        const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
-        let mut next_heartbeat = Instant::now() + HEARTBEAT_INTERVAL;
+        let mut heartbeat = tokio::time::interval(Duration::from_secs(15));
+        heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
             let chunk_result = match tokio::time::timeout(READ_TIMEOUT, stream.next()).await {
@@ -419,15 +419,13 @@ impl LlmClient for OpenAiLlmClient {
                         );
                     }
                     let _ = self.ui_tx.send(LlmChunk::Status(format!(
-                        "Stream closed after {chunk_count} chunks, {total_bytes} bytes, {event_count} events ({:.1}s)",
-                        stream_start.elapsed().as_secs_f64()
+                        "Stream closed after {chunk_count} chunks, {total_bytes} bytes, {event_count} events"
                     )));
                     break;
                 }
                 Err(_) => {
-                    let idle_secs = last_activity.elapsed().as_secs();
                     let diag = format!(
-                        "Idle timeout: no data for {idle_secs}s. \
+                        "Idle timeout: no data for 45s. \
                         Chunks: {chunk_count}, bytes: {total_bytes}, events: {event_count}, \
                         content: {content_chars}c, reasoning: {reasoning_chars}c, \
                         tool_calls: {}, finish_reason: {:?}",
@@ -479,7 +477,6 @@ impl LlmClient for OpenAiLlmClient {
 
             chunk_count += 1;
             total_bytes += chunk.len();
-            last_activity = Instant::now();
 
             tracing::trace!(
                 turn = turn,
@@ -489,12 +486,11 @@ impl LlmClient for OpenAiLlmClient {
                 "SSE chunk"
             );
 
-            if Instant::now() > next_heartbeat {
+            // Heartbeat: show we're still alive even if no parseable events.
+            if heartbeat.tick().await >= tokio::time::Instant::now() {
                 let _ = self.ui_tx.send(LlmChunk::Status(format!(
-                    "Still reading… {chunk_count} chunks, {total_bytes} bytes, {event_count} events ({:.1}s)",
-                    stream_start.elapsed().as_secs_f64()
+                    "Still reading… {chunk_count} chunks, {total_bytes} bytes, {event_count} events"
                 )));
-                next_heartbeat = Instant::now() + HEARTBEAT_INTERVAL;
             }
 
             for event in parser.feed(&chunk) {
@@ -533,7 +529,9 @@ impl LlmClient for OpenAiLlmClient {
                     {
                         if !first_chunk_seen {
                             first_chunk_seen = true;
-                            let _ = self.ui_tx.send(LlmChunk::Status("Receiving response…".into()));
+                            let _ = self
+                                .ui_tx
+                                .send(LlmChunk::Status("Receiving response…".into()));
                         }
                         if extracted.is_reasoning {
                             reasoning_chars += extracted.text.chars().count();
@@ -550,7 +548,9 @@ impl LlmClient for OpenAiLlmClient {
                     {
                         if !first_chunk_seen {
                             first_chunk_seen = true;
-                            let _ = self.ui_tx.send(LlmChunk::Status("Receiving response…".into()));
+                            let _ = self
+                                .ui_tx
+                                .send(LlmChunk::Status("Receiving response…".into()));
                         }
                         for tc in tool_calls {
                             let idx =
