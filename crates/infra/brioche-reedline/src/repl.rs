@@ -10,8 +10,9 @@
 //! Refs: I-Shell-Runtime-OnlyIO
 
 use reedline::{
-    Completer, DefaultHinter, DefaultPrompt, DefaultValidator, ExternalPrinter, FileBackedHistory,
-    Reedline, Signal, Span, Suggestion,
+    Completer, DefaultHinter, DefaultPrompt, DefaultValidator, DescriptionMode, Emacs,
+    ExternalPrinter, FileBackedHistory, IdeMenu, KeyCode, KeyModifiers, MenuBuilder, Reedline,
+    ReedlineEvent, ReedlineMenu, Signal, Span, Suggestion, default_emacs_keybindings,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -137,11 +138,32 @@ pub fn run(
 
     let completer = completer.unwrap_or_else(|| Box::new(BasicCompleter));
 
+    let completion_menu = Box::new(
+        IdeMenu::default()
+            .with_name("completion_menu")
+            .with_default_border()
+            .with_description_mode(DescriptionMode::PreferRight)
+            .with_min_description_width(20)
+            .with_max_description_width(50),
+    );
+
+    let mut keybindings = default_emacs_keybindings();
+    keybindings.add_binding(
+        KeyModifiers::NONE,
+        KeyCode::Tab,
+        ReedlineEvent::UntilFound(vec![
+            ReedlineEvent::Menu("completion_menu".to_string()),
+            ReedlineEvent::MenuNext,
+        ]),
+    );
+
     let mut reedline = Reedline::create()
         .with_history(history)
         .with_hinter(Box::new(DefaultHinter::default()))
         .with_validator(Box::new(DefaultValidator))
         .with_completer(completer)
+        .with_menu(ReedlineMenu::EngineCompleter(completion_menu))
+        .with_edit_mode(Box::new(Emacs::new(keybindings)))
         .with_external_printer(printer);
 
     let prompt = DefaultPrompt::default();

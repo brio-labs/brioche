@@ -311,8 +311,10 @@ dependencies = [
  "brioche-core",
  "brioche-shell-persistence",
  "brioche-shell-runtime",
+ "libc",
  "nu-ansi-term",
  "reedline",
+ "serde_json",
  "tokio",
  "tokio-util",
 ]
