@@ -3,7 +3,21 @@
 //! Refs: I-Shell-Runtime-OnlyIO
 
 use crate::registry::{SystemTool, ToolError};
+use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
+
+/// Expand a leading `~` to the user's home directory.
+///
+/// Models frequently emit paths like `~/Desktop/file.html`.
+/// This is a mechanical convenience, not policy.
+fn expand_tilde(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix("~/")
+        && let Ok(home) = std::env::var("HOME")
+    {
+        return format!("{}/{}", home.trim_end_matches('/'), rest);
+    }
+    path.into()
+}
 
 fn object_schema(required: &[&str], properties: &[(&str, &str)]) -> serde_json::Value {
     let mut props = serde_json::Map::new();
@@ -78,13 +92,36 @@ impl SystemTool for WriteFileTool {
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
-        object_schema(
-            &["path", "content"],
-            &[
-                ("path", "Absolute or relative path to the file"),
-                ("content", "Text content to write"),
-            ],
-        )
+        let mut props = serde_json::Map::new();
+        let mut path_p = serde_json::Map::new();
+        path_p.insert("type".into(), "string".into());
+        path_p.insert(
+            "description".into(),
+            "Absolute or relative path to the file".into(),
+        );
+        props.insert("path".into(), serde_json::Value::Object(path_p));
+
+        let mut content_p = serde_json::Map::new();
+        content_p.insert("type".into(), "string".into());
+        content_p.insert("description".into(), "Text content to write".into());
+        props.insert("content".into(), serde_json::Value::Object(content_p));
+
+        let mut append_p = serde_json::Map::new();
+        append_p.insert("type".into(), "boolean".into());
+        append_p.insert(
+            "description".into(),
+            "If true, append to the file instead of overwriting".into(),
+        );
+        props.insert("append".into(), serde_json::Value::Object(append_p));
+
+        let mut schema = serde_json::Map::new();
+        schema.insert("type".into(), "object".into());
+        schema.insert("properties".into(), serde_json::Value::Object(props));
+        schema.insert(
+            "required".into(),
+            serde_json::Value::Array(vec!["path".into(), "content".into()]),
+        );
+        serde_json::Value::Object(schema)
     }
 
     async fn run(
@@ -92,12 +129,31 @@ impl SystemTool for WriteFileTool {
         args: serde_json::Value,
         _cancel: CancellationToken,
     ) -> Result<String, ToolError> {
-        let path = args["path"]
+        let path_raw = args["path"]
             .as_str()
             .ok_or_else(|| ToolError::InvalidArgs("missing 'path'".into()))?;
+        let path = expand_tilde(path_raw);
         let content = args["content"].as_str().unwrap_or("");
-        tokio::fs::write(path, content).await?;
-        Ok(format!("written {} bytes to {}", content.len(), path))
+        let append = args["append"].as_bool().unwrap_or(false);
+
+        // Create parent directories if they don't exist.
+        if let Some(parent) = std::path::Path::new(&path).parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
+        if append {
+            let mut file = tokio::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .await?;
+            file.write_all(content.as_bytes()).await?;
+            file.flush().await?;
+            Ok(format!("appended {} bytes to {}", content.len(), path))
+        } else {
+            tokio::fs::write(&path, content).await?;
+            Ok(format!("written {} bytes to {}", content.len(), path))
+        }
     }
 }
 
@@ -137,5 +193,61 @@ impl SystemTool for ListDirTool {
             lines.push(format!("{} {}", kind, entry.file_name().to_string_lossy()));
         }
         Ok(lines.join("\n"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn write_file_schema_includes_append() {
+        let tool = WriteFileTool;
+        let schema = tool.parameters_schema();
+        let required = schema.get("required").unwrap().as_array().unwrap();
+        assert!(required.iter().any(|v| v == "path"));
+        assert!(required.iter().any(|v| v == "content"));
+        let props = schema.get("properties").unwrap().as_object().unwrap();
+        assert!(props.contains_key("append"));
+        assert_eq!(
+            props["append"].get("type").unwrap().as_str().unwrap(),
+            "boolean"
+        );
+    }
+
+    #[tokio::test]
+    async fn write_file_appends_content() {
+        let temp = tempfile::NamedTempFile::new().unwrap();
+
+        let tool = WriteFileTool;
+        let args = serde_json::json!({
+            "path": temp.path().to_str().unwrap(),
+            "content": "hello "
+        });
+        tool.run(args, CancellationToken::new()).await.unwrap();
+
+        let args = serde_json::json!({
+            "path": temp.path().to_str().unwrap(),
+            "content": "world",
+            "append": true
+        });
+        let result = tool.run(args, CancellationToken::new()).await.unwrap();
+
+        assert!(result.contains("appended"));
+        let read = tokio::fs::read_to_string(temp.path()).await.unwrap();
+        assert_eq!(read, "hello world");
+    }
+
+    #[test]
+    fn expand_tilde_with_home() {
+        if std::env::var("HOME").is_ok() {
+            let expanded = expand_tilde("~/test.txt");
+            assert!(!expanded.starts_with('~'));
+        }
+    }
+
+    #[test]
+    fn expand_tilde_no_tilde() {
+        assert_eq!(expand_tilde("/tmp/test.txt"), "/tmp/test.txt");
     }
 }
