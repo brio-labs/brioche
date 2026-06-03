@@ -128,8 +128,10 @@ fn idempotence_two_serializations_bit_for_bit() {
         content: "hello".into(),
     });
     session.history.push(ChatMessage::Assistant {
-        content: "world".into(),
-    });
+                content: "world".into(),
+                reasoning: None,
+                tool_calls: Vec::new(),
+            });
     session
         .push_state(AgentState::Predicting { generation_id: 42 })
         .unwrap_or_else(|e| unreachable!("{:?}", e));
@@ -161,15 +163,17 @@ fn extract_delta_non_empty() {
         content: "hello".into(),
     });
     session.history.push(ChatMessage::Assistant {
-        content: "world".into(),
-    });
+                content: "world".into(),
+                reasoning: None,
+                tool_calls: Vec::new(),
+            });
     session.persisted_msg_count = 1;
 
     let delta = extract_delta(&session);
     assert_eq!(delta.len(), 1);
     assert!(matches!(
         delta[0],
-        ChatMessage::Assistant { ref content } if content == "world"
+        ChatMessage::Assistant { ref content, .. } if content == "world"
     ));
 }
 
@@ -210,6 +214,8 @@ async fn redb_save_and_load_messages() {
         },
         ChatMessage::Assistant {
             content: "second".into(),
+            reasoning: None,
+            tool_calls: Vec::new(),
         },
     ];
 
@@ -329,8 +335,10 @@ async fn persistence_trait_save_session_with_delta() {
         content: "msg-0".into(),
     });
     session.history.push(ChatMessage::Assistant {
-        content: "msg-1".into(),
-    });
+                content: "msg-1".into(),
+                reasoning: None,
+                tool_calls: Vec::new(),
+            });
 
     let entry = SessionStoreEntry {
         head: SessionHeadDTO::from_session(&session),
@@ -570,8 +578,10 @@ async fn persistence_roundtrip_save_load_replay() {
         content: "user message".into(),
     });
     session.history.push(ChatMessage::Assistant {
-        content: "assistant reply".into(),
-    });
+                content: "assistant reply".into(),
+                reasoning: None,
+                tool_calls: Vec::new(),
+            });
     session
         .push_state(AgentState::Predicting { generation_id: 99 })
         .unwrap_or_else(|e| unreachable!("{:?}", e));
