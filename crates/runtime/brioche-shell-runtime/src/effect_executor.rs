@@ -246,18 +246,23 @@ where
             let timeout_ms = call.timeout_ms;
 
             let handle = tokio::spawn(async move {
-                let result = tokio::select! {
-                    biased;
-                    _ = tokio::time::sleep(tokio::time::Duration::from_millis(timeout_ms)) => {
-                        ToolResultDTO {
-                            tool_id: call.tool_id.clone(),
-                            tool_name: call.tool_name.clone(),
-                            outcome: ToolOutcome::TimeoutWithPartialData { partial_output: None },
+                
+                if timeout_ms == brioche_core::NO_TOOL_TIMEOUT_MS {
+                    // NO_TOOL_TIMEOUT_MS means no timeout — run until completion.
+                    tool_executor.execute(&call, cancel.clone()).await
+                } else {
+                    tokio::select! {
+                        biased;
+                        _ = tokio::time::sleep(tokio::time::Duration::from_millis(timeout_ms)) => {
+                            ToolResultDTO {
+                                tool_id: call.tool_id.clone(),
+                                tool_name: call.tool_name.clone(),
+                                outcome: ToolOutcome::TimeoutWithPartialData { partial_output: None },
+                            }
                         }
+                        r = tool_executor.execute(&call, cancel.clone()) => r,
                     }
-                    r = tool_executor.execute(&call, cancel.clone()) => r,
-                };
-                result
+                }
             });
             handles.push(handle);
         }
@@ -274,6 +279,13 @@ where
                 }
             }
         }
+
+        // Push tool results to the LLM history mirror IN CALL ORDER.
+        // This ensures the provider sees tool results in the same order
+        // as the tool_calls in the assistant message. Strict providers
+        // (MiniMax M3 via OpenRouter) reject requests where tool results
+        // appear in completion order.
+        self.llm_client.push_tool_results(&results).await;
 
         shell
             .send_input(EngineInput::ToolCallsResult {

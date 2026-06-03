@@ -7,7 +7,7 @@
 ///
 /// Refs: I-Core-ChunkBudget, I-Shell-Network-Signal
 use crate::BriocheShell;
-use brioche_core::{EngineInput, StreamEvent};
+use brioche_core::{EngineInput, StreamEvent, ToolResultDTO};
 use bytes::Bytes;
 
 /// Chunk diffusé vers la projection (CLI, GUI…). Le kernel ne le voit jamais.
@@ -19,12 +19,21 @@ use bytes::Bytes;
 #[derive(Clone, Debug)]
 pub enum LlmChunk {
     Text(String),
+    /// Reasoning / chain-of-thought fragment from the LLM.
+    ///
+    /// Separate from `Text` so consumers can choose whether
+    /// to display reasoning inline, in a sidebar, or not at all.
+    Reasoning(String),
     ToolCallStart { id: String, name: String },
     ToolArgument { id: String, fragment: String },
     ToolCallDone { id: String },
     ToolResult { name: String, output: String },
     Done,
     Error(String),
+    /// Warning message from the provider or runtime.
+    Warning(String),
+    /// Status update for long-running operations.
+    Status(String),
 }
 
 /// Abstract LLM client.
@@ -46,6 +55,16 @@ pub trait LlmClient: Send + Sync {
     ///
     /// Refs: I-Core-ChunkBudget
     async fn call_llm(&self, shell: &BriocheShell) -> Result<(), crate::ShellError>;
+
+    /// Push tool execution results into the conversational history.
+    ///
+    /// Results MUST be pushed in the same order as the original
+    /// `ActiveToolCall`s (i.e. the order of `tool_calls` in the
+    /// assistant message). Some providers reject requests where
+    /// tool results appear in a different order.
+    ///
+    /// Refs: I-Shell-ToolResult-PassThrough
+    async fn push_tool_results(&self, results: &[ToolResultDTO]);
 }
 
 // ---------------------------------------------------------------------------
@@ -82,6 +101,10 @@ impl LlmClient for MockLlmClient {
             }
         }
         Ok(())
+    }
+
+    async fn push_tool_results(&self, _results: &[ToolResultDTO]) {
+        // Mock client has no history mirror.
     }
 }
 
