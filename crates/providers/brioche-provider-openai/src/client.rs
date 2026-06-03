@@ -16,8 +16,15 @@
 //!
 //! Refs: SPECS.md §Book III-A, I-Core-ChunkBudget
 
-use crate::{config::OpenAiConfig, request::build_request_body, sse::SseParser};
-use brioche_core::{ChatMessage, MAX_INLINE_CHUNK, StreamEvent, ToolOutcome, ToolResultDTO};
+use crate::{
+    config::OpenAiConfig,
+    extractor::{ChunkExtractor, StreamErrorDetector},
+    request::build_request_body,
+    sse::SseParser,
+};
+use brioche_core::{
+    ChatMessage, MAX_INLINE_CHUNK, StreamEvent, ToolCallDescriptor, ToolOutcome, ToolResultDTO,
+};
 use brioche_shell_runtime::{
     BriocheShell, EngineInput, LlmClient, ShellError, ShellEvent, SystemSignal,
 };
@@ -25,6 +32,7 @@ use bytes::Bytes;
 use futures_util::StreamExt;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::{RwLock, broadcast};
 
 /// OpenAI-compatible LLM client.
@@ -54,6 +62,21 @@ pub struct OpenAiLlmClient {
     history: SharedHistory,
     /// Local buffer to accumulate the assistant text from the current stream.
     pending_text: tokio::sync::Mutex<String>,
+    /// Local buffer to accumulate reasoning text from the current stream.
+    /// Preserved in history so reasoning models can continue their
+    /// chain-of-thought across tool-calling turns.
+    pending_reasoning_text: tokio::sync::Mutex<String>,
+    /// Protocol-specific delta text extractor.
+    ///
+    /// Wrapped in `Arc` so `OpenAiLlmClient` remains `Clone` without
+    /// requiring the extractor trait to be `Clone`.
+    chunk_extractor: Arc<dyn ChunkExtractor>,
+    /// Protocol-specific SSE error detector.
+    ///
+    /// Some providers (OpenRouter) embed errors mid-stream.
+    /// Others (OpenAI) never do. The detector is chosen at
+    /// construction time based on the model identifier.
+    error_detector: Arc<dyn StreamErrorDetector>,
 }
 
 impl Clone for OpenAiLlmClient {
@@ -65,6 +88,9 @@ impl Clone for OpenAiLlmClient {
             ui_tx: self.ui_tx.clone(),
             history: Arc::clone(&self.history),
             pending_text: tokio::sync::Mutex::new(String::new()),
+            pending_reasoning_text: tokio::sync::Mutex::new(String::new()),
+            chunk_extractor: Arc::clone(&self.chunk_extractor),
+            error_detector: Arc::clone(&self.error_detector),
         }
     }
 }
@@ -80,12 +106,16 @@ impl OpenAiLlmClient {
     /// like Ollama do not require a key).
     pub fn new(config: OpenAiConfig) -> (Self, broadcast::Receiver<ShellEvent>, SharedHistory) {
         let http = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_millis(config.timeout_ms))
+            // No global request timeout — streaming generations can
+            // take minutes (e.g. 80KB file writes). Idle detection
+            // is handled by the per-chunk READ_TIMEOUT in call_llm().
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
         let (ui_tx, ui_rx) = broadcast::channel(256);
         let history: SharedHistory = Arc::new(RwLock::new(Vec::new()));
+        let chunk_extractor = Arc::from(crate::extractor::chunk_extractor_for_model(&config.model));
+        let error_detector = Arc::from(crate::extractor::error_detector_for_model(&config.model));
 
         let client = Self {
             config,
@@ -94,6 +124,9 @@ impl OpenAiLlmClient {
             ui_tx,
             history: Arc::clone(&history),
             pending_text: tokio::sync::Mutex::new(String::new()),
+            pending_reasoning_text: tokio::sync::Mutex::new(String::new()),
+            chunk_extractor,
+            error_detector,
         };
 
         (client, ui_rx, history)
@@ -165,6 +198,22 @@ impl OpenAiLlmClient {
         }
         let _ = self.ui_tx.send(ShellEvent::LlmText(text.to_string()));
         Ok(())
+    }
+
+    /// Broadcasts reasoning text to the UI projection only.
+    ///
+    /// Reasoning text is displayed to the user for transparency
+    /// but is **not** sent to the kernel and is **not** accumulated
+    /// in `pending_text` (so it never pollutes the conversation
+    /// history).
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    async fn broadcast_reasoning(&self, text: &str) {
+        {
+            let mut pending = self.pending_reasoning_text.lock().await;
+            pending.push_str(text);
+        }
+        let _ = self.ui_tx.send(ShellEvent::LlmReasoning(text.to_string()));
     }
 
     /// Emits a tool call event to the kernel and the projection.
@@ -273,8 +322,22 @@ impl LlmClient for OpenAiLlmClient {
     async fn call_llm(&self, shell: &BriocheShell) -> Result<(), ShellError> {
         let url = format!("{}/chat/completions", self.config.base_url);
 
+        let turn = {
+            let history = self.history.read().await;
+            // Count assistant messages to estimate turn number.
+            history
+                .iter()
+                .filter(|m| matches!(m, ChatMessage::Assistant { .. }))
+                .count()
+                + 1
+        };
+        let _ = self.ui_tx.send(ShellEvent::Status {
+            message: format!("Calling LLM (turn {turn})…"),
+        });
+
         let history_guard = self.history.read().await;
         let messages = crate::request::build_messages(&history_guard);
+        let msg_count = messages.len();
         drop(history_guard);
 
         let tools_guard = self.tools_schema.read().await;
@@ -284,8 +347,34 @@ impl LlmClient for OpenAiLlmClient {
             Some(&*tools_guard)
         };
 
-        let body = build_request_body(&self.config.model, messages, self.config.max_tokens, tools);
+        let body = build_request_body(
+            &self.config.model,
+            messages,
+            self.config.max_tokens,
+            self.config.reasoning_effort.as_deref(),
+            tools,
+        );
         drop(tools_guard);
+
+        // serde_json::Value implements Display, which is infallible and
+        // yields the same JSON representation as to_string.
+        let body_str = body.to_string();
+
+        // Diagnostic: write request body to temp file before sending.
+        // Activated by BRIOCHE_DIAG=1 env var. Not a hack — structured
+        // post-mortem diagnostics for provider compatibility issues.
+        if std::env::var("BRIOCHE_DIAG").is_ok() {
+            let _ = std::fs::write(format!("/tmp/brioche_request_turn_{turn}.json"), &body_str);
+        }
+
+        let _ = self.ui_tx.send(ShellEvent::Status {
+            message: format!(
+                "HTTP POST {} — {} messages, ~{} chars",
+                url,
+                msg_count,
+                body_str.len(),
+            ),
+        });
 
         let request = self
             .http
@@ -295,7 +384,12 @@ impl LlmClient for OpenAiLlmClient {
             .json(&body);
 
         let response = match request.send().await {
-            Ok(r) => r,
+            Ok(r) => {
+                let _ = self.ui_tx.send(ShellEvent::Status {
+                    message: format!("HTTP {} — starting SSE stream", r.status()),
+                });
+                r
+            }
             Err(err) => {
                 let msg = format!("Network error: {err}");
                 tracing::error!(error = %err, "OpenAI request failed");
@@ -327,7 +421,7 @@ impl LlmClient for OpenAiLlmClient {
                 body_text.lines().next().unwrap_or(&body_text).to_string()
             };
             let msg = format!("HTTP {status}: {compact}");
-            tracing::error!(status = %status, body = %body_text, "OpenAI error response");
+            tracing::error!(status = %status, error = %body_text, "OpenAI HTTP error");
             let _ = self.ui_tx.send(ShellEvent::network_error(
                 status.as_u16(),
                 msg.clone(),
@@ -341,15 +435,99 @@ impl LlmClient for OpenAiLlmClient {
 
         let mut stream = response.bytes_stream();
         let mut parser = SseParser::new();
+        let mut total_bytes = 0usize;
+        let mut chunk_count = 0usize;
+        let mut event_count = 0usize;
+        let mut content_chars = 0usize;
+        let mut reasoning_chars = 0usize;
+        let mut last_activity = Instant::now();
+        let stream_start = Instant::now();
 
         // Tool call accumulator by OpenAI index.
         let mut tool_acc: BTreeMap<usize, ToolCallAccumulator> = BTreeMap::new();
         let mut finish_reason: Option<String> = None;
+        let mut first_chunk_seen = false;
 
-        while let Some(chunk_result) = stream.next().await {
+        const READ_TIMEOUT: Duration = Duration::from_secs(45);
+        const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
+        let mut next_heartbeat = Instant::now() + HEARTBEAT_INTERVAL;
+
+        loop {
+            // Detect idle connection: if no bytes for 45s, abort with diagnostics.
+            let chunk_result = match tokio::time::timeout(READ_TIMEOUT, stream.next()).await {
+                Ok(Some(r)) => r,
+                Ok(None) => {
+                    // Stream closed naturally.
+                    let remaining = parser.remaining_buffer();
+                    if !remaining.is_empty() {
+                        let preview: String = remaining.chars().take(200).collect();
+                        tracing::warn!(
+                            preview = %preview,
+                            len = remaining.len(),
+                            "SSE stream closed with unprocessed data in parser buffer"
+                        );
+                    }
+                    let _ = self.ui_tx.send(ShellEvent::Status {
+                        message: format!(
+                            "Stream closed after {chunk_count} chunks, {total_bytes} bytes, {event_count} events ({:.1}s)",
+                            stream_start.elapsed().as_secs_f64()
+                        ),
+                    });
+                    break;
+                }
+                Err(_) => {
+                    let idle_secs = last_activity.elapsed().as_secs();
+                    let diag = format!(
+                        "Idle timeout: no data for {idle_secs}s. \
+                        Chunks: {chunk_count}, bytes: {total_bytes}, events: {event_count}, \
+                        content: {content_chars}c, reasoning: {reasoning_chars}c, \
+                        tool_calls: {}, finish_reason: {:?}",
+                        tool_acc.len(),
+                        finish_reason
+                    );
+                    tracing::warn!(%diag, "SSE read timeout");
+                    let _ = self.ui_tx.send(ShellEvent::Warning {
+                        message: diag.clone(),
+                        source: "openai_provider",
+                    });
+                    shell
+                        .send_system_signal(SystemSignal::NetworkUnavailable { reason: diag })
+                        .await?;
+                    return Ok(());
+                }
+            };
+
             let chunk = match chunk_result {
                 Ok(c) => c,
                 Err(err) => {
+                    // If we already have a finish_reason, the stream served
+                    // its purpose. Break and process accumulated data
+                    // rather than discarding everything.
+                    if finish_reason.is_some() {
+                        tracing::warn!(
+                            error = %err,
+                            finish_reason = ?finish_reason,
+                            "SSE stream error after finish_reason — using accumulated data"
+                        );
+                        let _ = self.ui_tx.send(ShellEvent::Warning {
+                            message: format!(
+                                "Provider closed connection early ({err}). \
+                                Using {event_count} events received so far."
+                            ),
+                            source: "openai_provider",
+                        });
+                        // After breaking, log any unprocessed buffer.
+                        let remaining = parser.remaining_buffer();
+                        if !remaining.is_empty() {
+                            let preview: String = remaining.chars().take(200).collect();
+                            tracing::warn!(
+                                preview = %preview,
+                                len = remaining.len(),
+                                "SSE stream error with unprocessed data in parser buffer"
+                            );
+                        }
+                        break;
+                    }
                     let msg = format!("SSE error: {err}");
                     tracing::error!(error = %err, "SSE stream error");
                     let _ = self.ui_tx.send(ShellEvent::error(
@@ -366,8 +544,56 @@ impl LlmClient for OpenAiLlmClient {
                 }
             };
 
+            chunk_count += 1;
+            total_bytes += chunk.len();
+            last_activity = Instant::now();
+
+            // TRACE: log raw chunk for deep diagnosis (only at trace level).
+            tracing::trace!(
+                turn = turn,
+                chunk = chunk_count,
+                bytes = chunk.len(),
+                preview = %String::from_utf8_lossy(&chunk).chars().take(200).collect::<String>(),
+                "SSE chunk"
+            );
+
+            // Heartbeat: show we're still alive even if no parseable events.
+            if Instant::now() > next_heartbeat {
+                let _ = self.ui_tx.send(ShellEvent::Status {
+                    message: format!(
+                        "Still reading… {chunk_count} chunks, {total_bytes} bytes, {event_count} events ({:.1}s)",
+                        stream_start.elapsed().as_secs_f64()
+                    ),
+                });
+                next_heartbeat = Instant::now() + HEARTBEAT_INTERVAL;
+            }
+
             for event in parser.feed(&chunk) {
+                event_count += 1;
+                tracing::debug!(event = %event.to_string(), "SSE event");
+
+                // Check for provider errors embedded in the SSE stream
+                // via the composable error detector.
+                if let Some(err_msg) = self.error_detector.detect_error(&event) {
+                    tracing::error!(%err_msg, "SSE provider error");
+                    let _ = self.ui_tx.send(ShellEvent::error(
+                        "ProviderError",
+                        err_msg.clone(),
+                        "openai_provider",
+                        true,
+                        Some("The provider rejected the request — check model compatibility or reduce context size.".into()),
+                    ));
+                    shell
+                        .send_system_signal(SystemSignal::NetworkUnavailable { reason: err_msg })
+                        .await?;
+                    return Ok(());
+                }
+
                 let Some(choices) = event.get("choices").and_then(|c| c.as_array()) else {
+                    // Log non-choice events for debugging (e.g. usage stats).
+                    if event.get("usage").is_some() {
+                        tracing::debug!(usage = ?event.get("usage"), "usage event");
+                    }
                     continue;
                 };
 
@@ -378,16 +604,27 @@ impl LlmClient for OpenAiLlmClient {
                         .and_then(|f| f.as_str())
                         .map(|s| s.to_string());
                     if finish.is_some() {
-                        finish_reason = finish;
+                        finish_reason = finish.clone();
+                        tracing::info!(finish_reason = ?finish, "finish_reason seen");
                     }
 
-                    // Text chunk
-                    if let Some(content) = delta
-                        .and_then(|d| d.get("content"))
-                        .and_then(|c| c.as_str())
-                        && !content.is_empty()
+                    // Text / reasoning chunk via composable extractor.
+                    if let Some(extracted) =
+                        delta.and_then(|d| self.chunk_extractor.extract_text(d))
                     {
-                        self.emit_text_chunk(shell, content).await?;
+                        if !first_chunk_seen {
+                            first_chunk_seen = true;
+                            let _ = self.ui_tx.send(ShellEvent::Status {
+                                message: "Receiving response…".into(),
+                            });
+                        }
+                        if extracted.is_reasoning {
+                            reasoning_chars += extracted.text.chars().count();
+                            self.broadcast_reasoning(&extracted.text).await;
+                        } else {
+                            content_chars += extracted.text.chars().count();
+                            self.emit_text_chunk(shell, &extracted.text).await?;
+                        }
                     }
 
                     // Tool calls (partial deltas)
@@ -395,7 +632,18 @@ impl LlmClient for OpenAiLlmClient {
                         .and_then(|d| d.get("tool_calls"))
                         .and_then(|t| t.as_array())
                     {
-                        for (idx, tc) in tool_calls.iter().enumerate() {
+                        if !first_chunk_seen {
+                            first_chunk_seen = true;
+                            let _ = self.ui_tx.send(ShellEvent::Status {
+                                message: "Receiving response…".into(),
+                            });
+                        }
+                        for tc in tool_calls {
+                            // Use the `index` field inside the tool call object,
+                            // not the array position. Each delta may contain
+                            // updates for arbitrary tool call indices.
+                            let idx =
+                                tc.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
                             let entry = tool_acc.entry(idx).or_default();
 
                             if let Some(id) = tc.get("id").and_then(|i| i.as_str())
@@ -438,38 +686,157 @@ impl LlmClient for OpenAiLlmClient {
             }
         }
 
-        // If finish_reason is "tool_calls", all tool calls are complete.
-        // Emit a single ToolCallDone (the kernel drains all pending).
-        // Persist each complete ToolRequest with accumulated arguments.
+        // If finish_reason is "tool_calls", emit the done marker.
+        // The kernel handles tool_calls internally; we only push
+        // Assistant and ToolResult messages to the history mirror.
         if finish_reason.as_deref() == Some("tool_calls")
             && let Some(first) = tool_acc.values().next()
         {
             self.emit_tool_call_done(shell, &first.id).await?;
-
-            for entry in tool_acc.values() {
-                self.history.write().await.push(ChatMessage::ToolRequest {
-                    id: entry.id.clone(),
-                    name: entry.name.clone(),
-                    arguments: entry.args.clone(),
-                });
-            }
         }
 
-        // Mark the end of the stream and persist the assistant text.
-        {
+        // Drain accumulated text and reasoning.
+        let text = {
             let mut pending = self.pending_text.lock().await;
-            let text = if !pending.is_empty() {
+            if !pending.is_empty() {
                 Some(std::mem::take(&mut *pending))
             } else {
                 None
-            };
-            drop(pending);
-            if let Some(text) = text {
-                self.history
-                    .write()
-                    .await
-                    .push(ChatMessage::Assistant { content: text });
             }
+        };
+        let reasoning = {
+            let mut pending_reasoning = self.pending_reasoning_text.lock().await;
+            if !pending_reasoning.is_empty() {
+                Some(std::mem::take(&mut *pending_reasoning))
+            } else {
+                None
+            }
+        };
+
+        /// Maximum characters to retain for assistant text before truncation.
+        ///
+        /// 8000 chars ≈ 2000 tokens (heuristic: ~4 chars/token).
+        /// This prevents oversized history entries from exhausting
+        /// the provider context window on long reasoning or text outputs.
+        const MAX_ASSISTANT_CHARS: usize = 8000;
+        let truncate = |text: String| -> String {
+            if text.chars().count() > MAX_ASSISTANT_CHARS {
+                let mut t: String = text.chars().take(MAX_ASSISTANT_CHARS - 3).collect();
+                t.push_str("...");
+                t
+            } else {
+                text
+            }
+        };
+
+        // Summarize what we got from the stream for diagnostics.
+        let _ = self.ui_tx.send(ShellEvent::Status {
+            message: format!(
+                "Stream summary: content={content_chars}c, reasoning={reasoning_chars}c, tool_calls={}, finish={:?}",
+                tool_acc.len(),
+                finish_reason
+            ),
+        });
+
+        if finish_reason.as_deref() == Some("tool_calls") {
+            // Build tool_calls from accumulated SSE data.
+            let tool_calls: Vec<ToolCallDescriptor> = tool_acc
+                .values()
+                .map(|entry| ToolCallDescriptor {
+                    tool_id: entry.id.clone(),
+                    tool_name: entry.name.clone(),
+                    arguments: entry.args.clone(),
+                    timeout_ms: None,
+                })
+                .collect();
+
+            // Emit diagnostics for any tool calls with invalid JSON
+            // arguments, but ALWAYS include them in history. The kernel
+            // already received the tool call via streaming and may have
+            // executed it (producing a ToolResult). If we omit the
+            // tool_call from history, the next request will have an
+            // orphaned ToolResult that the provider rejects.
+            let mut invalid = Vec::new();
+            for (idx, tc) in tool_calls.iter().enumerate() {
+                if !tc.arguments.is_empty()
+                    && let Err(err) = serde_json::from_str::<serde_json::Value>(&tc.arguments)
+                {
+                    invalid.push(format!(
+                        "tool_call[{idx}] '{}' (id={}): {err} | args_preview={}",
+                        tc.tool_name,
+                        tc.tool_id,
+                        tc.arguments.chars().take(80).collect::<String>()
+                    ));
+                }
+            }
+
+            if !invalid.is_empty() {
+                let diag = format!(
+                    "Tool call arguments invalid JSON — {} of {} failed:\n{}",
+                    invalid.len(),
+                    tool_calls.len(),
+                    invalid.join("\n")
+                );
+                tracing::error!(%diag, "tool_call validation failed");
+                let _ = self.ui_tx.send(ShellEvent::error(
+                    "ToolCallInvalidJson",
+                    diag,
+                    "openai_provider",
+                    true,
+                    Some("The model emitted malformed tool arguments. The tool execution failed and the error is in history.".into()),
+                ));
+            }
+
+            let content = text.map(truncate).unwrap_or_default();
+
+            // Sanitize tool call arguments for the history mirror.
+            // Some providers (OpenRouter) truncate very large tool call
+            // arguments mid-stream, producing invalid JSON. Sending that
+            // invalid JSON back in the next request causes HTTP 400.
+            // We preserve the tool_call_id but replace the arguments
+            // with a valid JSON error object so the provider accepts
+            // the request and the model can retry.
+            let sanitized_tool_calls: Vec<ToolCallDescriptor> = tool_calls
+                .into_iter()
+                .map(|mut tc| {
+                    if !tc.arguments.is_empty()
+                        && serde_json::from_str::<serde_json::Value>(&tc.arguments).is_err()
+                    {
+                        tc.arguments = r#"{"error":"truncated by provider"}"#.into();
+                    }
+                    tc
+                })
+                .collect();
+
+            self.history.write().await.push(ChatMessage::Assistant {
+                content,
+                reasoning,
+                tool_calls: sanitized_tool_calls,
+            });
+        } else if let Some(text) = text {
+            // Plain text response — no tool calls.
+            let trimmed = truncate(text);
+            self.history.write().await.push(ChatMessage::Assistant {
+                content: trimmed,
+                reasoning,
+                tool_calls: Vec::new(),
+            });
+        } else if finish_reason.is_some() {
+            // Empty response with a finish_reason (e.g. "stop" with no content,
+            // or "length" / "content_filter").
+            let _ = self.ui_tx.send(ShellEvent::Warning {
+                message: format!(
+                    "Model returned empty content (finish_reason={:?}). This may indicate a provider limitation or context window issue.",
+                    finish_reason
+                ),
+                source: "openai_provider",
+            });
+        } else {
+            // Stream closed with no content and no finish_reason.
+            let _ = self.ui_tx.send(ShellEvent::Warning {
+                message: "Stream closed with no content and no finish_reason. Provider may have dropped the connection.".into(),
+                source: "openai_provider",
+            });
         }
 
         shell
@@ -477,5 +844,9 @@ impl LlmClient for OpenAiLlmClient {
             .await?;
         let _ = self.ui_tx.send(ShellEvent::LlmDone);
         Ok(())
+    }
+
+    async fn push_tool_results(&self, results: &[ToolResultDTO]) {
+        OpenAiLlmClient::push_tool_results(self, results).await;
     }
 }

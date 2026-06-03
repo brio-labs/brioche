@@ -27,6 +27,10 @@ impl SseParser {
     /// Incomplete lines at the end of the block are accumulated in the
     /// internal buffer for the next call.
     ///
+    /// Parse errors are logged at `warn` level so we can diagnose
+    /// provider-specific SSE malformations instead of silently
+    /// dropping events.
+    ///
     /// # Complexity
     /// O(n) where n = number of bytes ingested. Single scan.
     pub fn feed(&mut self, bytes: &Bytes) -> impl Iterator<Item = serde_json::Value> + '_ {
@@ -41,12 +45,31 @@ impl SseParser {
                 if json_str == "[DONE]" {
                     continue;
                 }
-                if let Ok(value) = serde_json::from_str(json_str) {
-                    lines.push(value);
+                match serde_json::from_str::<serde_json::Value>(json_str) {
+                    Ok(value) => lines.push(value),
+                    Err(err) => {
+                        let preview: String = json_str.chars().take(200).collect();
+                        tracing::warn!(
+                            error = %err,
+                            preview = %preview,
+                            "SSE data: line is not valid JSON — skipping"
+                        );
+                    }
                 }
             }
         }
         lines.into_iter()
+    }
+
+    /// Returns any unprocessed data still in the internal buffer.
+    ///
+    /// Used at stream end to diagnose whether the provider sent an
+    /// incomplete `data:` line before closing the connection.
+    ///
+    /// # Complexity
+    /// O(1). Returns a string slice reference.
+    pub fn remaining_buffer(&self) -> &str {
+        &self.buffer
     }
 }
 

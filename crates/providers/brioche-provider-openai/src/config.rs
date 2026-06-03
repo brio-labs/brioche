@@ -21,6 +21,18 @@ pub struct OpenAiConfig {
     pub base_url: String,
     pub max_tokens: u32,
     pub timeout_ms: u64,
+    /// Reasoning effort level sent to the provider.
+    ///
+    /// OpenRouter normalizes this across providers:
+    /// - `"none"` — disables reasoning entirely (useful for MiniMax M3
+    ///   which emits creative output in reasoning instead of tools)
+    /// - `"minimal"` / `"low"` / `"medium"` / `"high"` / `"xhigh"`
+    ///
+    /// When `None`, no reasoning parameter is sent and the provider
+    /// uses its default behavior.
+    ///
+    /// Refs: openrouter.ai/docs/guides/best-practices/reasoning-tokens
+    pub reasoning_effort: Option<String>,
 }
 
 impl Default for OpenAiConfig {
@@ -31,6 +43,7 @@ impl Default for OpenAiConfig {
             base_url: "https://api.openai.com/v1".into(),
             max_tokens: 4096,
             timeout_ms: 120_000,
+            reasoning_effort: None,
         }
     }
 }

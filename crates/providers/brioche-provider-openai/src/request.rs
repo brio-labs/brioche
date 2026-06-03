@@ -16,76 +16,133 @@ fn simple_msg(role: &str, content: &str) -> serde_json::Value {
     serde_json::Value::Object(m)
 }
 
+/// Maximum characters to keep per tool result message.
+///
+/// Tool results (e.g. `read_file`, `list_dir`) can be very large.
+/// Keeping the full output in the LLM history quickly exhausts
+/// the context window. 4000 chars ≈ 1000 tokens (heuristic).
+const MAX_TOOL_RESULT_CHARS: usize = 4000;
+
+/// Maximum messages to send in a single request.
+///
+/// Keeps the most recent messages, plus the system message.
+/// This prevents context window overflow on long sessions.
+const MAX_MESSAGES_PER_REQUEST: usize = 30;
+
+/// Truncates a string with an ellipsis marker if it exceeds `max_len`.
+fn truncate(s: &str, max_len: usize) -> String {
+    if s.chars().count() <= max_len {
+        s.to_string()
+    } else {
+        let mut result: String = s.chars().take(max_len - 3).collect();
+        result.push_str("...");
+        result
+    }
+}
+
+/// Converts a `ToolCallDescriptor` into the OpenAI `tool_calls` object.
+fn openai_tool_call(id: &str, name: &str, arguments: &str) -> serde_json::Value {
+    let mut func = serde_json::Map::new();
+    func.insert("name".into(), serde_json::Value::String(name.into()));
+    func.insert(
+        "arguments".into(),
+        serde_json::Value::String(arguments.into()),
+    );
+
+    let mut tool_call = serde_json::Map::new();
+    tool_call.insert("id".into(), serde_json::Value::String(id.into()));
+    tool_call.insert("type".into(), serde_json::Value::String("function".into()));
+    tool_call.insert("function".into(), serde_json::Value::Object(func));
+    serde_json::Value::Object(tool_call)
+}
+
 /// Converts Brioche history into an array of OpenAI messages.
 ///
-/// `ToolRequest` and `ToolResult` variants are mapped to the
-/// `tool_calls` / `tool` format expected by OpenAI.
+/// `Assistant` messages carry their `tool_calls` inline, matching
+/// the OpenAI wire format directly. No merge logic is needed
+/// because the kernel produces the correct structure.
 ///
-/// Consecutive `ToolRequest` messages are grouped into a single
-/// assistant message with multiple `tool_calls`.
+/// Long tool results are truncated to `MAX_TOOL_RESULT_CHARS`.
+/// If history exceeds `MAX_MESSAGES_PER_REQUEST`, only the
+/// system message (if any) and the most recent messages are kept.
 ///
 /// # Complexity
 /// O(n) where n = number of messages. One `Vec` allocation.
 pub fn build_messages(history: &[ChatMessage]) -> Vec<serde_json::Value> {
-    let mut result = Vec::with_capacity(history.len());
-    let mut i = 0;
+    let (start_idx, keep_first) = if history.len() > MAX_MESSAGES_PER_REQUEST {
+        let first_is_system = matches!(&history.first(), Some(ChatMessage::System { .. }));
+        if first_is_system {
+            (history.len() - (MAX_MESSAGES_PER_REQUEST - 1), true)
+        } else {
+            (history.len() - MAX_MESSAGES_PER_REQUEST, false)
+        }
+    } else {
+        (0, false)
+    };
 
-    while i < history.len() {
-        match &history[i] {
+    let slice = &history[start_idx..];
+    let mut result = Vec::with_capacity(slice.len() + if keep_first { 1 } else { 0 });
+
+    if keep_first && let ChatMessage::System { content } = &history[0] {
+        result.push(simple_msg("system", content));
+    }
+
+    for msg in slice {
+        match msg {
             ChatMessage::System { content } => {
                 result.push(simple_msg("system", content));
-                i += 1;
             }
             ChatMessage::User { content } => {
                 result.push(simple_msg("user", content));
-                i += 1;
             }
-            ChatMessage::Assistant { content } => {
-                result.push(simple_msg("assistant", content));
-                i += 1;
-            }
-            ChatMessage::ToolRequest { .. } => {
-                // Group consecutive ToolRequest into a single assistant message.
-                let mut tool_calls = Vec::new();
-                while i < history.len() {
-                    if let ChatMessage::ToolRequest {
-                        id,
-                        name,
-                        arguments,
-                    } = &history[i]
-                    {
-                        let mut func = serde_json::Map::new();
-                        func.insert("name".into(), serde_json::Value::String(name.clone()));
-                        func.insert(
-                            "arguments".into(),
-                            serde_json::Value::String(arguments.clone()),
-                        );
-
-                        let mut tool_call = serde_json::Map::new();
-                        tool_call.insert("id".into(), serde_json::Value::String(id.clone()));
-                        tool_call
-                            .insert("type".into(), serde_json::Value::String("function".into()));
-                        tool_call.insert("function".into(), serde_json::Value::Object(func));
-                        tool_calls.push(serde_json::Value::Object(tool_call));
-                        i += 1;
-                    } else {
-                        break;
-                    }
-                }
-
+            ChatMessage::Assistant {
+                content,
+                reasoning,
+                tool_calls,
+            } => {
                 let mut m = serde_json::Map::new();
                 m.insert("role".into(), serde_json::Value::String("assistant".into()));
-                m.insert("content".into(), serde_json::Value::Null);
-                m.insert("tool_calls".into(), serde_json::Value::Array(tool_calls));
+                m.insert("content".into(), serde_json::Value::String(content.clone()));
+
+                if !tool_calls.is_empty() {
+                    let tc = tool_calls
+                        .iter()
+                        .map(|tc| openai_tool_call(&tc.tool_id, &tc.tool_name, &tc.arguments))
+                        .collect();
+                    m.insert("tool_calls".into(), serde_json::Value::Array(tc));
+                }
+
+                if let Some(r) = reasoning
+                    && !r.is_empty()
+                {
+                    m.insert("reasoning".into(), serde_json::Value::String(r.clone()));
+                }
+
+                result.push(serde_json::Value::Object(m));
+            }
+            ChatMessage::ToolRequest {
+                id,
+                name,
+                arguments,
+            } => {
+                // Backward-compat: standalone ToolRequest not preceded by
+                // an Assistant (should not happen with current kernel).
+                let mut m = serde_json::Map::new();
+                m.insert("role".into(), serde_json::Value::String("assistant".into()));
+                m.insert("content".into(), serde_json::Value::String("".into()));
+                m.insert(
+                    "tool_calls".into(),
+                    serde_json::Value::Array(vec![openai_tool_call(id, name, arguments)]),
+                );
                 result.push(serde_json::Value::Object(m));
             }
             ChatMessage::ToolResult { id, content } => {
+                let trimmed = truncate(content, MAX_TOOL_RESULT_CHARS);
                 let mut m = serde_json::Map::new();
                 m.insert("role".into(), serde_json::Value::String("tool".into()));
                 m.insert("tool_call_id".into(), serde_json::Value::String(id.clone()));
-                m.insert("content".into(), serde_json::Value::String(content.clone()));
+                m.insert("content".into(), serde_json::Value::String(trimmed));
                 result.push(serde_json::Value::Object(m));
-                i += 1;
             }
         }
     }
@@ -96,65 +153,68 @@ pub fn build_messages(history: &[ChatMessage]) -> Vec<serde_json::Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use brioche_shell_runtime::ChatMessage;
 
     #[test]
-    fn build_messages_groups_consecutive_tool_requests() {
+    fn build_messages_assistant_with_tool_calls() {
         let history = vec![
             ChatMessage::User {
-                content: "read and write".into(),
-            },
-            ChatMessage::ToolRequest {
-                id: "call_1".into(),
-                name: "read_file".into(),
-                arguments: "{\"path\":\"/tmp/a\"}".into(),
-            },
-            ChatMessage::ToolRequest {
-                id: "call_2".into(),
-                name: "write_file".into(),
-                arguments: "{\"path\":\"/tmp/b\",\"content\":\"hi\"}".into(),
-            },
-            ChatMessage::ToolResult {
-                id: "call_1".into(),
-                content: "hello".into(),
-            },
-            ChatMessage::ToolResult {
-                id: "call_2".into(),
-                content: "done".into(),
+                content: "explain this project".into(),
             },
             ChatMessage::Assistant {
-                content: "All done".into(),
+                content: "I'll check the directory.".into(),
+                reasoning: None,
+                tool_calls: vec![brioche_core::ToolCallDescriptor {
+                    tool_id: "call_1".into(),
+                    tool_name: "list_dir".into(),
+                    arguments: "{\"path\":\".\"}".into(),
+                    timeout_ms: None,
+                }],
+            },
+            ChatMessage::ToolResult {
+                id: "call_1".into(),
+                content: "Cargo.toml\nsrc/".into(),
             },
         ];
 
         let messages = build_messages(&history);
-        assert_eq!(messages.len(), 5);
+        assert_eq!(messages.len(), 3);
 
-        // User
         assert_eq!(messages[0]["role"], "user");
 
-        // Assistant with 2 tool_calls
         assert_eq!(messages[1]["role"], "assistant");
-        assert!(messages[1]["content"].is_null());
+        assert_eq!(messages[1]["content"], "I'll check the directory.");
         let tool_calls = messages[1]["tool_calls"].as_array().unwrap();
-        assert_eq!(tool_calls.len(), 2);
+        assert_eq!(tool_calls.len(), 1);
         assert_eq!(tool_calls[0]["id"], "call_1");
-        assert_eq!(tool_calls[0]["function"]["name"], "read_file");
-        assert_eq!(tool_calls[1]["id"], "call_2");
-        assert_eq!(tool_calls[1]["function"]["name"], "write_file");
+        assert_eq!(tool_calls[0]["function"]["name"], "list_dir");
 
-        // Tool results
         assert_eq!(messages[2]["role"], "tool");
         assert_eq!(messages[2]["tool_call_id"], "call_1");
-        assert_eq!(messages[3]["role"], "tool");
-        assert_eq!(messages[3]["tool_call_id"], "call_2");
-
-        // Final assistant
-        assert_eq!(messages[4]["role"], "assistant");
-        assert_eq!(messages[4]["content"], "All done");
     }
 
     #[test]
-    fn build_messages_single_tool_request() {
+    fn build_messages_assistant_without_tool_calls() {
+        let history = vec![
+            ChatMessage::User {
+                content: "hello".into(),
+            },
+            ChatMessage::Assistant {
+                content: "hi there".into(),
+                reasoning: None,
+                tool_calls: Vec::new(),
+            },
+        ];
+
+        let messages = build_messages(&history);
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[1]["role"], "assistant");
+        assert_eq!(messages[1]["content"], "hi there");
+        assert!(messages[1].get("tool_calls").is_none());
+    }
+
+    #[test]
+    fn build_messages_standalone_tool_request_backward_compat() {
         let history = vec![
             ChatMessage::User {
                 content: "hello".into(),
@@ -185,6 +245,7 @@ pub fn build_request_body(
     model: &str,
     messages: Vec<serde_json::Value>,
     max_tokens: u32,
+    reasoning_effort: Option<&str>,
     tools: Option<&[serde_json::Value]>,
 ) -> serde_json::Value {
     let mut body = serde_json::Map::new();
@@ -195,6 +256,12 @@ pub fn build_request_body(
         serde_json::Value::Number(max_tokens.into()),
     );
     body.insert("stream".into(), serde_json::Value::Bool(true));
+
+    if let Some(effort) = reasoning_effort {
+        let mut reasoning = serde_json::Map::new();
+        reasoning.insert("effort".into(), serde_json::Value::String(effort.into()));
+        body.insert("reasoning".into(), serde_json::Value::Object(reasoning));
+    }
 
     if let Some(tools) = tools
         && !tools.is_empty()
