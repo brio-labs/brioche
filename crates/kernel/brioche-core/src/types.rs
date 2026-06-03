@@ -108,6 +108,24 @@ pub enum ChatMessage {
     },
     Assistant {
         content: String,
+        /// Optional reasoning / chain-of-thought text.
+        /// Preserved for reasoning models (Qwen, DeepSeek, Claude
+        /// extended thinking) so that tool-calling continuity is
+        /// maintained across turns.  The kernel treats this as
+        /// opaque metadata.
+        ///
+        /// Refs: I-Shell-Runtime-OnlyIO
+        #[serde(default)]
+        reasoning: Option<String>,
+        /// Tool calls emitted by the assistant in this turn.
+        /// When non-empty, the message maps to OpenAI's
+        /// `assistant` role with both `content` and `tool_calls`.
+        /// This keeps the internal model aligned with the wire
+        /// format, eliminating adapter merge logic.
+        ///
+        /// Refs: I-Shell-Runtime-OnlyIO
+        #[serde(default)]
+        tool_calls: Vec<ToolCallDescriptor>,
     },
     ToolRequest {
         id: String,
@@ -140,6 +158,14 @@ pub struct ToolCallDescriptor {
     pub timeout_ms: Option<u64>,
 }
 
+/// Sentinel value for `ActiveToolCall.timeout_ms` meaning "no timeout".
+///
+/// When a tool call carries this value, the shell executor waits
+/// indefinitely for completion instead of scheduling a timeout task.
+///
+/// Refs: I-Core-ActiveToolCall
+pub const NO_TOOL_TIMEOUT_MS: u64 = 0;
+
 /// Kernel-internal representation of a tool call after `seal()`.
 ///
 /// This type is **not** constructible by plugins. It is produced exclusively
@@ -152,6 +178,7 @@ pub struct ActiveToolCall {
     pub tool_name: String,
     pub arguments: String,
     /// Materialized by the kernel after `on_tool_calls` hook execution.
+    /// A value of `NO_TOOL_TIMEOUT_MS` means the tool runs without timeout.
     pub timeout_ms: u64,
 }
 
@@ -294,12 +321,12 @@ pub struct Session {
     /// Mechanical state: tools currently in execution.
     /// Managed exclusively by the kernel. Not modifiable by plugins.
     pub active_tools: Vec<ActiveToolCall>,
-    /// Buffer temporaire pour accumuler les fragments de texte assistant
-    /// durant le streaming LLM. Matérialisé en `ChatMessage::Assistant`
-    /// au `StreamEvent::Done` ou `StreamEvent::ToolCallDone`.
+    /// Temporary buffer to accumulate assistant text fragments
+    /// during LLM streaming. Materialized into `ChatMessage::Assistant`
+    /// at `StreamEvent::Done` or `StreamEvent::ToolCallDone`.
     ///
-    /// Ce champ est mécanique : il appartient au cycle de vie du kernel
-    /// et n'est jamais exposé aux plugins via `ExtensionStorage`.
+    /// This field is mechanical: it belongs to the kernel lifecycle
+    /// and is never exposed to plugins via `ExtensionStorage`.
     ///
     /// Refs: I-Core-StreamAccumulator, I-Core-Pure
     pub pending_assistant_text: String,

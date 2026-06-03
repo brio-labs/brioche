@@ -13,7 +13,7 @@ use crate::{
     PermissiveHookEffectConstraint, QuarantineManager, RecoveryPolicy, RollbackTelemetryEmitter,
     StateConsistencyGuard, SubRoutineCleanupGuard, SubRoutineOrchestrator, SubRoutineTimeoutPolicy,
     SystemFailoverGuard, TieredUndoFrameGuard, ToolCallDetector, ToolExecutionTracker,
-    ToolResultFormatter, ToolTimeoutPolicy, TransitionConflictLogger,
+    ToolResultFormatter, TransitionConflictLogger,
 };
 use brioche_core::BriocheEngineBuilder;
 
@@ -127,7 +127,6 @@ impl GovernanceProfile {
             .with_plugin(Box::new(TransitionConflictLogger::new()))
             .with_plugin(Box::new(ToolCallDetector::new()))
             .with_plugin(Box::new(ToolResultFormatter::new()))
-            .with_plugin(Box::new(ToolTimeoutPolicy::with_default_timeout(30000)))
             .with_plugin(Box::new(SubRoutineTimeoutPolicy::with_default_timeout(
                 300000,
             )))
@@ -161,7 +160,6 @@ impl GovernanceProfile {
             .with_plugin(Box::new(TransitionConflictLogger::new()))
             .with_plugin(Box::new(ToolCallDetector::new()))
             .with_plugin(Box::new(ToolResultFormatter::new()))
-            .with_plugin(Box::new(ToolTimeoutPolicy::with_default_timeout(10000)))
             .with_plugin(Box::new(SubRoutineTimeoutPolicy::with_default_timeout(
                 60000,
             )))

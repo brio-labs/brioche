@@ -1,35 +1,36 @@
-//! Thread REPL bloquant (reedline).
+//! Blocking REPL thread (reedline).
 //!
-//! Ce module tourne dans `tokio::task::spawn_blocking`. Il lit les
-//! lignes utilisateur et les transmet via un `mpsc::Sender<String>`
-//! à une task async qui s'occupe de l'envoi au shell.
+//! This module runs in `tokio::task::spawn_blocking`. It reads user
+//! lines and forwards them via an `mpsc::Sender<String>` to an async
+//! task that handles sending to the shell.
 //!
-//! Utilise `reedline::ExternalPrinter` pour permettre au bridge async
-//! d'afficher des messages sans corrompre le prompt reedline.
+//! Uses `reedline::ExternalPrinter` to allow the async bridge to
+//! display messages without corrupting the reedline prompt.
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
 use reedline::{
-    Completer, DefaultHinter, DefaultPrompt, DefaultValidator, ExternalPrinter, FileBackedHistory,
-    Reedline, Signal, Span, Suggestion,
+    Completer, DefaultHinter, DefaultPrompt, DefaultValidator, DescriptionMode, Emacs,
+    ExternalPrinter, FileBackedHistory, IdeMenu, KeyCode, KeyModifiers, MenuBuilder, Reedline,
+    ReedlineEvent, ReedlineMenu, Signal, Span, Suggestion, default_emacs_keybindings,
 };
 use tokio_util::sync::CancellationToken;
 
-/// Compléteur de base pour les agents terminal Brioche.
+/// Basic completer for Brioche terminal agents.
 ///
-/// Complète les commandes slash (`/help`, `/quit`, `/session`…) et
-/// les chemins de fichiers.
+/// Completes slash commands (`/help`, `/quit`, `/session`…) and
+/// file paths.
 pub struct BasicCompleter;
 
 impl BasicCompleter {
     fn complete_slash(line: &str, pos: usize) -> Vec<Suggestion> {
         let commands = [
-            ("/help", "Afficher l'aide"),
-            ("/quit", "Quitter le CLI"),
-            ("/session", "Afficher la session courante"),
-            ("/session new", "Créer une nouvelle session"),
-            ("/session list", "Lister les sessions"),
-            ("/session load", "Charger une session persistée"),
+            ("/help", "Show help"),
+            ("/quit", "Exit the CLI"),
+            ("/session", "Show the current session"),
+            ("/session new", "Create a new session"),
+            ("/session list", "List sessions"),
+            ("/session load", "Load a persisted session"),
         ];
         commands
             .iter()
@@ -100,22 +101,22 @@ impl Completer for BasicCompleter {
     }
 }
 
-/// Lance la boucle reedline et envoie chaque ligne validée sur `input_tx`.
+/// Launch the reedline loop and send each validated line over `input_tx`.
 ///
-/// `/quit` et `/q` sont gérés directement par le REPL (sortie immédiate).
-/// `Ctrl+C` et `Ctrl+D` terminent aussi la boucle.
+/// `/quit` and `/q` are handled directly by the REPL (immediate exit).
+/// `Ctrl+C` and `Ctrl+D` also terminate the loop.
 ///
-/// `printer` est passé à reedline pour permettre au bridge d'imprimer
-/// des messages sans corrompre le prompt.
+/// `printer` is passed to reedline to allow the bridge to print
+/// messages without corrupting the prompt.
 ///
-/// `cancel` est utilisé pour signaler au bridge et à la UI
-/// que le programme doit se terminer.
+/// `cancel` is used to signal to the bridge and UI
+/// that the program should terminate.
 ///
-/// `completer` est optionnel — si fourni, il sera utilisé pour la
-/// complétion dans le REPL. Par défaut, `BasicCompleter` est utilisé.
+/// `completer` is optional — if provided, it will be used for
+/// completion in the REPL. By default, `BasicCompleter` is used.
 ///
-/// `history_path` est optionnel — si fourni, l'historique reedline
-/// sera persisté dans ce fichier.
+/// `history_path` is optional — if provided, reedline history
+/// will be persisted to this file.
 pub fn run(
     input_tx: tokio::sync::mpsc::Sender<String>,
     printer: ExternalPrinter<String>,
@@ -137,11 +138,32 @@ pub fn run(
 
     let completer = completer.unwrap_or_else(|| Box::new(BasicCompleter));
 
+    let completion_menu = Box::new(
+        IdeMenu::default()
+            .with_name("completion_menu")
+            .with_default_border()
+            .with_description_mode(DescriptionMode::PreferRight)
+            .with_min_description_width(20)
+            .with_max_description_width(50),
+    );
+
+    let mut keybindings = default_emacs_keybindings();
+    keybindings.add_binding(
+        KeyModifiers::NONE,
+        KeyCode::Tab,
+        ReedlineEvent::UntilFound(vec![
+            ReedlineEvent::Menu("completion_menu".to_string()),
+            ReedlineEvent::MenuNext,
+        ]),
+    );
+
     let mut reedline = Reedline::create()
         .with_history(history)
         .with_hinter(Box::new(DefaultHinter::default()))
         .with_validator(Box::new(DefaultValidator))
         .with_completer(completer)
+        .with_menu(ReedlineMenu::EngineCompleter(completion_menu))
+        .with_edit_mode(Box::new(Emacs::new(keybindings)))
         .with_external_printer(printer);
 
     let prompt = DefaultPrompt::default();
@@ -150,9 +172,9 @@ pub fn run(
         match reedline.read_line(&prompt) {
             Ok(Signal::Success(line)) => {
                 let trimmed = line.trim();
-                // Sortie immédiate — ne passe pas par le bridge.
+                // Immediate exit — does not go through the bridge.
                 if trimmed == "/quit" || trimmed == "/q" {
-                    println!("Au revoir.");
+                    println!("Goodbye.");
                     cancel.cancel();
                     break;
                 }
@@ -174,7 +196,7 @@ pub fn run(
             }
             Ok(_) => continue,
             Err(err) => {
-                eprintln!("Erreur reedline: {err}");
+                eprintln!("Reedline error: {err}");
                 cancel.cancel();
                 break;
             }

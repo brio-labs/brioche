@@ -1,7 +1,7 @@
-//! Mode headless : exécute un seul prompt et affiche le résultat sur stdout.
+//! Headless mode: execute a single prompt and print the result to stdout.
 //!
-//! Pas de REPL, pas de UI async, pas de `ExternalPrinter`.  On accumule
-//! la réponse via le broadcast et on l'affiche à la fin.
+//! No REPL, no async UI, no `ExternalPrinter`. Accumulates the
+//! response via the broadcast and prints at the end.
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
@@ -14,11 +14,24 @@ use brioche_shell_persistence::{RedbStorage, SessionStore};
 use crate::config::CliConfig;
 use crate::shell_builder::build_shell;
 
-/// Exécute un seul prompt en mode non-interactif.
+/// Print accumulated reasoning to stderr, or silently discard it.
+fn flush_reasoning(buffer: &mut String, show: bool) {
+    if !buffer.is_empty() && show {
+        let text = std::mem::take(buffer);
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            eprintln!("💭  {}", trimmed);
+        }
+    } else {
+        buffer.clear();
+    }
+}
+
+/// Runs a single prompt in non-interactive mode.
 ///
-/// Accumule la réponse LLM pendant 30 s max, puis affiche le résultat
-/// sur stdout et quitte avec le code 0.  En cas d'erreur réseau ou
-/// LLM, affiche l'erreur sur stderr et quitte avec le code 1.
+/// Accumulates the LLM response for up to 30 s, then prints the result
+/// to stdout and exits with code 0. On network or LLM error, prints
+/// the error to stderr and exits with code 1.
 pub async fn run(
     prompt: String,
     cli_config: CliConfig,
@@ -28,7 +41,6 @@ pub async fn run(
     let (shell, llm_client, _llm_rx, _history) = build_shell(
         "headless",
         &cli_config,
-        false, // pas de confirmation interactive en headless
         redb_storage,
         session_store,
         None,
@@ -42,43 +54,76 @@ pub async fn run(
         .await;
 
     if let Err(err) = shell.send_input(EngineInput::UserMessage(prompt)).await {
-        eprintln!("Erreur d'envoi: {err}");
+        eprintln!("Send error: {err}");
         std::process::exit(1);
     }
 
-    // S'abonner au broadcast pour accumuler la réponse.
+    // Subscribe to the broadcast to accumulate the response.
     let mut rx = llm_client.subscribe();
     let mut buffer = String::new();
+    let mut reasoning_buffer = String::new();
     let mut done_received = false;
     let mut in_tool_call = false;
+    let mut consecutive_timeouts = 0u32;
+
+    let show_reasoning = std::env::var("BRIOCHE_SHOW_REASONING")
+        .is_ok_and(|s| s == "1" || s.eq_ignore_ascii_case("true"));
 
     loop {
         match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
-            Ok(Ok(chunk)) => match chunk {
-                LlmChunk::Text(content) => {
-                    buffer.push_str(&content);
+            Ok(Ok(chunk)) => {
+                consecutive_timeouts = 0;
+                match chunk {
+                    LlmChunk::Text(content) => {
+                        flush_reasoning(&mut reasoning_buffer, show_reasoning);
+                        buffer.push_str(&content);
+                        done_received = false;
+                    }
+                    LlmChunk::Reasoning(content) => {
+                        reasoning_buffer.push_str(&content);
+                    }
+                    LlmChunk::ToolCallStart { .. } => {
+                        flush_reasoning(&mut reasoning_buffer, show_reasoning);
+                        in_tool_call = true;
+                        done_received = false;
+                    }
+                    LlmChunk::ToolCallDone { .. } => {
+                        in_tool_call = false;
+                    }
+                    LlmChunk::ToolResult { name, output } => {
+                        buffer.push_str(&format!("\n[tool {name}: {output}]\n"));
+                    }
+                    LlmChunk::Done => {
+                        flush_reasoning(&mut reasoning_buffer, show_reasoning);
+                        done_received = true;
+                    }
+                    LlmChunk::Error(error) => {
+                        eprintln!("LLM error: {error}");
+                        std::process::exit(1);
+                    }
+                    LlmChunk::Warning(message) => {
+                        eprintln!("⚠  {}", message);
+                    }
+                    LlmChunk::Status(message) => {
+                        eprintln!("◐  {}", message);
+                    }
+                    _ => {}
                 }
-                LlmChunk::ToolCallStart { .. } => {
-                    in_tool_call = true;
-                    done_received = false;
-                }
-                LlmChunk::ToolCallDone { .. } => {
-                    in_tool_call = false;
-                }
-                LlmChunk::ToolResult { name, output } => {
-                    buffer.push_str(&format!("\n[tool {name}: {output}]\n"));
-                }
-                LlmChunk::Done => {
-                    done_received = true;
-                }
-                LlmChunk::Error(error) => {
-                    eprintln!("LLM error: {error}");
+            }
+            Ok(Err(_)) => break, // broadcast closed
+            Err(_) => {
+                consecutive_timeouts += 1;
+                if consecutive_timeouts == 1 {
+                    eprintln!(
+                        "\n⚠  No response after 30s — model may be reasoning slowly or provider is queuing…"
+                    );
+                } else if consecutive_timeouts >= 3 {
+                    eprintln!(
+                        "\n✗  Model unresponsive after {}s. Aborting.",
+                        consecutive_timeouts * 30
+                    );
                     std::process::exit(1);
                 }
-                _ => {}
-            },
-            Ok(Err(_)) => break, // broadcast fermé
-            Err(_) => {
                 if done_received && !in_tool_call {
                     break;
                 }

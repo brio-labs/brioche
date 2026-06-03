@@ -1,6 +1,6 @@
-//! Outils système individuels.
+//! Individual system tools.
 //!
-//! Chaque module expose un struct implémentant `SystemTool`.
+//! Each module exposes a struct implementing `SystemTool`.
 //!
 //! Refs: I-Shell-ToolResult-PassThrough
 

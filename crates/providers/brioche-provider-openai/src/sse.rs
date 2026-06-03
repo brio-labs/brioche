@@ -1,6 +1,6 @@
-//! Parser SSE (Server-Sent Events) pour le streaming OpenAI.
+//! SSE (Server-Sent Events) parser for OpenAI streaming.
 //!
-//! Chaque ligne du stream suit le format :
+//! Each line in the stream follows the format:
 //! ```text
 //! data: {...json...}
 //! ```
@@ -9,7 +9,7 @@
 
 use bytes::Bytes;
 
-/// État du parser SSE ligne par ligne.
+/// SSE parser state, line by line.
 #[derive(Clone, Debug, Default)]
 pub struct SseParser {
     buffer: String,
@@ -22,13 +22,17 @@ impl SseParser {
         }
     }
 
-    /// Ingeste un bloc d'octets et retourne les lignes `data:` complètes.
+    /// Ingests a block of bytes and returns complete `data:` lines.
     ///
-    /// Les lignes incomplètes en fin de bloc sont accumulées dans le buffer
-    /// interne pour le prochain appel.
+    /// Incomplete lines at the end of the block are accumulated in the
+    /// internal buffer for the next call.
+    ///
+    /// Parse errors are logged at `warn` level so we can diagnose
+    /// provider-specific SSE malformations instead of silently
+    /// dropping events.
     ///
     /// # Complexity
-    /// O(n) où n = nombre d'octets ingérés. Un seul scan.
+    /// O(n) where n = number of bytes ingested. Single scan.
     pub fn feed(&mut self, bytes: &Bytes) -> impl Iterator<Item = serde_json::Value> + '_ {
         let text = String::from_utf8_lossy(bytes);
         self.buffer.push_str(&text);
@@ -41,12 +45,31 @@ impl SseParser {
                 if json_str == "[DONE]" {
                     continue;
                 }
-                if let Ok(value) = serde_json::from_str(json_str) {
-                    lines.push(value);
+                match serde_json::from_str::<serde_json::Value>(json_str) {
+                    Ok(value) => lines.push(value),
+                    Err(err) => {
+                        let preview: String = json_str.chars().take(200).collect();
+                        tracing::warn!(
+                            error = %err,
+                            preview = %preview,
+                            "SSE data: line is not valid JSON — skipping"
+                        );
+                    }
                 }
             }
         }
         lines.into_iter()
+    }
+
+    /// Returns any unprocessed data still in the internal buffer.
+    ///
+    /// Used at stream end to diagnose whether the provider sent an
+    /// incomplete `data:` line before closing the connection.
+    ///
+    /// # Complexity
+    /// O(1). Returns a string slice reference.
+    pub fn remaining_buffer(&self) -> &str {
+        &self.buffer
     }
 }
 

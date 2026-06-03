@@ -28,7 +28,6 @@ pub struct ShellFactory {
     pub redb: RedbStorage,
     pub store: SessionStore,
     pub config: CliConfig,
-    pub with_confirm: bool,
 }
 
 /// Main bridge loop.
@@ -163,7 +162,6 @@ async fn handle_session_command(
             let (new_shell, _new_llm, _new_rx, _history) = build_shell(
                 &new_id,
                 &factory.config,
-                factory.with_confirm,
                 factory.redb.clone(),
                 Arc::clone(&factory.store),
                 None,
@@ -219,7 +217,6 @@ async fn handle_session_command(
             let (new_shell, _new_llm, _new_rx, _history) = build_shell(
                 id,
                 &factory.config,
-                factory.with_confirm,
                 factory.redb.clone(),
                 Arc::clone(&factory.store),
                 Some(messages),
