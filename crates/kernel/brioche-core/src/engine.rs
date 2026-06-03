@@ -660,18 +660,8 @@ impl BriocheEngine {
                 }
             }
             StreamEvent::ToolCallDone { .. } => {
-                // Persist any assistant text that preceded the tool calls.
-                if !session.pending_assistant_text.is_empty() {
-                    session.history.push(ChatMessage::Assistant {
-                        content: std::mem::take(&mut session.pending_assistant_text),
-                    });
-                }
-
-                // Prediction completes before tool execution.
-                effects.extend(self.eval_after_prediction(session));
-
-                // Drain all pending descriptors and materialize them.
-                let pending: Vec<ToolCallDescriptor> = {
+                // Drain all pending descriptors.
+                let tool_calls: Vec<ToolCallDescriptor> = {
                     let accumulator = session
                         .extensions
                         .get_or_insert_default::<StreamToolAccumulator>();
@@ -679,8 +669,24 @@ impl BriocheEngine {
                         .into_values()
                         .collect()
                 };
-                if !pending.is_empty() {
-                    let mut descriptors = pending;
+
+                // Persist assistant text + tool calls as a single message.
+                session.history.push(ChatMessage::Assistant {
+                    content: std::mem::take(&mut session.pending_assistant_text),
+                    reasoning: None,
+                    tool_calls,
+                });
+
+                // Prediction completes before tool execution.
+                effects.extend(self.eval_after_prediction(session));
+
+                // Materialize tool calls for execution.
+                let tool_calls = match session.history.last() {
+                    Some(ChatMessage::Assistant { tool_calls, .. }) => tool_calls.clone(),
+                    _ => Vec::new(),
+                };
+                if !tool_calls.is_empty() {
+                    let mut descriptors = tool_calls;
                     self.handle_tool_calls(session, &mut descriptors, &mut effects)?;
                     let (active, err_effect) = self.materialize_tool_calls(descriptors);
                     if let Some(err) = err_effect {
@@ -701,6 +707,8 @@ impl BriocheEngine {
                 if !session.pending_assistant_text.is_empty() {
                     session.history.push(ChatMessage::Assistant {
                         content: std::mem::take(&mut session.pending_assistant_text),
+                        reasoning: None,
+                        tool_calls: Vec::new(),
                     });
                 }
 
@@ -769,31 +777,18 @@ impl BriocheEngine {
         &self,
         descriptors: Vec<ToolCallDescriptor>,
     ) -> (Vec<ActiveToolCall>, Option<Effect>) {
-        let mut missing = false;
         let active = descriptors
             .into_iter()
-            .map(|d| {
-                let timeout_ms = d.timeout_ms.unwrap_or_else(|| {
-                    missing = true;
-                    self.default_tool_timeout_ms
-                });
-                ActiveToolCall {
-                    tool_id: d.tool_id,
-                    tool_name: d.tool_name,
-                    arguments: d.arguments,
-                    timeout_ms,
-                }
+            .map(|d| ActiveToolCall {
+                tool_id: d.tool_id,
+                tool_name: d.tool_name,
+                arguments: d.arguments,
+                timeout_ms: d.timeout_ms.unwrap_or(self.default_tool_timeout_ms),
             })
             .collect();
-        let effect = if missing {
-            Some(Effect::Error {
-                code: ErrorCode::StateInconsistency,
-                message: "Missing timeout, applied default".into(),
-            })
-        } else {
-            None
-        };
-        (active, effect)
+        // When default_tool_timeout_ms is 0, missing timeout_ms is
+        // intentional (no-timeout policy). Don't emit a spurious error.
+        (active, None)
     }
 
     /// Dispatch `ToolCallsResult` input.

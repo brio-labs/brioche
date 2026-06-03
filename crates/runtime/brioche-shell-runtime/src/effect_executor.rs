@@ -10,9 +10,11 @@
 
 use crate::{BriocheShell, NetworkRecovery, PersistenceMode, ShellError};
 use brioche_core::{
-    ActiveToolCall, ChatMessage, ErrorCode, SubRoutineHandle, SystemSignal, ToolResultDTO, UiWidget,
+    ActiveToolCall, ChatMessage, ErrorCode, SubRoutineHandle, SystemSignal, ToolOutcome,
+    ToolResultDTO, UiWidget,
 };
 use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
 
 /// Pluggable persistence boundary.
 ///
@@ -167,6 +169,74 @@ impl<T, L, P> DefaultEffectExecutor<T, L, P> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Tool execution — pure functions extracted from the EffectExecutor hook.
+// ---------------------------------------------------------------------------
+
+/// Spawn one async task per tool call, applying the timeout policy.
+///
+/// # Invariants
+/// - `NO_TOOL_TIMEOUT_MS` means no timeout (run until completion).
+/// - Otherwise `tokio::select!` races the tool against the deadline.
+///
+/// Refs: I-Shell-ToolResult-PassThrough
+fn spawn_tool_tasks<T: crate::ToolExecutor + 'static>(
+    tool_executor: &Arc<T>,
+    calls: Vec<ActiveToolCall>,
+) -> Vec<tokio::task::JoinHandle<ToolResultDTO>> {
+    calls
+        .into_iter()
+        .map(|call| {
+            let tool_executor = Arc::clone(tool_executor);
+            let cancel = CancellationToken::new();
+            let timeout_ms = call.timeout_ms;
+
+            tokio::spawn(async move {
+                if timeout_ms == brioche_core::NO_TOOL_TIMEOUT_MS {
+                    tool_executor.execute(&call, cancel.clone()).await
+                } else {
+                    tokio::select! {
+                        biased;
+                        _ = tokio::time::sleep(tokio::time::Duration::from_millis(timeout_ms)) => {
+                            ToolResultDTO {
+                                tool_id: call.tool_id.clone(),
+                                tool_name: call.tool_name.clone(),
+                                outcome: ToolOutcome::TimeoutWithPartialData { partial_output: None },
+                            }
+                        }
+                        r = tool_executor.execute(&call, cancel.clone()) => r,
+                    }
+                }
+            })
+        })
+        .collect()
+}
+
+/// Await all tool tasks and collect their results.
+///
+/// # Errors
+/// Returns `ShellError::EffectExecution` if any task panics.
+///
+/// # Complexity
+/// O(n) where n = number of tool calls.
+async fn join_tool_results(
+    handles: Vec<tokio::task::JoinHandle<ToolResultDTO>>,
+) -> Result<Vec<ToolResultDTO>, ShellError> {
+    let mut results = Vec::with_capacity(handles.len());
+    for h in handles {
+        match h.await {
+            Ok(r) => results.push(r),
+            Err(join_err) => {
+                return Err(ShellError::EffectExecution(format!(
+                    "tool task panicked: {}",
+                    join_err
+                )));
+            }
+        }
+    }
+    Ok(results)
+}
+
 #[async_trait::async_trait]
 impl<T, L, P> EffectExecutor for DefaultEffectExecutor<T, L, P>
 where
@@ -232,48 +302,17 @@ where
         generation_id: u64,
         shell: &BriocheShell,
     ) -> Result<(), ShellError> {
-        use brioche_core::{EngineInput, ToolOutcome};
-        use tokio_util::sync::CancellationToken;
+        use brioche_core::EngineInput;
 
-        let mut handles = Vec::with_capacity(calls.len());
+        let handles = spawn_tool_tasks(&self.tool_executor, calls);
+        let results = join_tool_results(handles).await?;
 
-        for call in calls {
-            let tool_executor = Arc::clone(&self.tool_executor);
-            let cancel = CancellationToken::new();
-            // ActiveToolCall.timeout_ms is the mechanical source of truth.
-            // The kernel's seal() already materializes this from the descriptor
-            // with default_tool_timeout_ms as fallback (SPECS.md §Book III-A Ch 1).
-            let timeout_ms = call.timeout_ms;
-
-            let handle = tokio::spawn(async move {
-                let result = tokio::select! {
-                    biased;
-                    _ = tokio::time::sleep(tokio::time::Duration::from_millis(timeout_ms)) => {
-                        ToolResultDTO {
-                            tool_id: call.tool_id.clone(),
-                            tool_name: call.tool_name.clone(),
-                            outcome: ToolOutcome::TimeoutWithPartialData { partial_output: None },
-                        }
-                    }
-                    r = tool_executor.execute(&call, cancel.clone()) => r,
-                };
-                result
-            });
-            handles.push(handle);
-        }
-
-        let mut results = Vec::with_capacity(handles.len());
-        for h in handles {
-            match h.await {
-                Ok(r) => results.push(r),
-                Err(join_err) => {
-                    return Err(ShellError::EffectExecution(format!(
-                        "tool task panicked: {}",
-                        join_err
-                    )));
-                }
-            }
-        }
+        // Push tool results to the LLM history mirror IN CALL ORDER.
+        // This ensures the provider sees tool results in the same order
+        // as the tool_calls in the assistant message. Strict providers
+        // (MiniMax M3 via OpenRouter) reject requests where tool results
+        // appear in completion order.
+        self.llm_client.push_tool_results(&results).await;
 
         shell
             .send_input(EngineInput::ToolCallsResult {
