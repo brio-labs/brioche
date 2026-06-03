@@ -25,9 +25,14 @@
 
 pub mod client;
 pub mod config;
+pub mod extractor;
 pub mod request;
 pub mod sse;
 
 pub use brioche_shell_runtime::LlmChunk;
 pub use client::{OpenAiLlmClient, SharedHistory};
 pub use config::OpenAiConfig;
+pub use extractor::{
+    ChunkExtractor, ExtractedText, ReasoningModelExtractor, StandardExtractor,
+    chunk_extractor_for_model,
+};
