@@ -1,4 +1,4 @@
-//! Construction d'un `BriocheShell` complet avec tous ses composants.
+//! Builds a complete `BriocheShell` with all its components.
 //!
 //! This module is shared between interactive and headless modes.
 //!

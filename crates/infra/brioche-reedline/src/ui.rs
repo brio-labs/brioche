@@ -62,26 +62,43 @@ fn render_block(text: &str) -> String {
         .join("\n")
 }
 
-/// Flush accumulated reasoning to the printer.
+/// Accumulates reasoning text and flushes it to the printer on
+/// transition to content, tool calls, or stream end.
 ///
-/// Called when transitioning away from reasoning (to content,
-/// tool calls, or stream end). If `show` is false, the buffer
-/// is silently discarded — reasoning is still preserved in the
-/// history mirror, just not displayed.
-fn flush_reasoning(printer: &ExternalPrinter<String>, buffer: &mut String, show: bool) {
-    if !buffer.is_empty() && show {
-        let text = std::mem::take(buffer);
-        let trimmed = text.trim();
-        if !trimmed.is_empty() {
-            let _ = printer.print(format!(
-                "  {} {}",
-                Color::Fixed(244).paint("💭"),
-                Color::Fixed(244).paint(trimmed)
-            ));
-            wake_reedline();
+/// When `show` is false the buffer is silently discarded — reasoning
+/// is still preserved in the history mirror, just not displayed.
+struct ReasoningBuffer {
+    buffer: String,
+    show: bool,
+}
+
+impl ReasoningBuffer {
+    fn new(show: bool) -> Self {
+        Self {
+            buffer: String::new(),
+            show,
         }
-    } else {
-        buffer.clear();
+    }
+
+    fn push(&mut self, text: &str) {
+        self.buffer.push_str(text);
+    }
+
+    fn flush(&mut self, printer: &ExternalPrinter<String>) {
+        if !self.buffer.is_empty() && self.show {
+            let text = std::mem::take(&mut self.buffer);
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                let _ = printer.print(format!(
+                    "  {} {}",
+                    Color::Fixed(244).paint("💭"),
+                    Color::Fixed(244).paint(trimmed)
+                ));
+                wake_reedline();
+            }
+        } else {
+            self.buffer.clear();
+        }
     }
 }
 
@@ -295,6 +312,67 @@ fn error_lines(
     lines
 }
 
+/// Print the accumulated response block and clear the buffer.
+fn print_response_block(printer: &ExternalPrinter<String>, buffer: &mut String) {
+    if !buffer.is_empty() {
+        let _ = printer.print(render_block(buffer));
+        wake_reedline();
+        buffer.clear();
+    }
+}
+
+/// Truncate long tool output to a 10-line preview.
+fn truncate_output(output: &str) -> String {
+    let trimmed = output.trim();
+    if trimmed.lines().count() > 10 {
+        trimmed.lines().take(10).collect::<Vec<_>>().join("\n") + "\n… (truncated)"
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Parse a structured or raw error and render it as error lines.
+///
+/// Returns a vector of pre-formatted strings ready for the printer.
+fn render_error_block(error: &str) -> Vec<String> {
+    let (code, message, source, recoverable, suggestion) =
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(error) {
+            let code = json
+                .get("code")
+                .and_then(|c| c.as_str())
+                .unwrap_or("ProviderError")
+                .to_string();
+            let message = json
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or(error)
+                .to_string();
+            let source = json
+                .get("source")
+                .and_then(|s| s.as_str())
+                .unwrap_or("openai_provider")
+                .to_string();
+            let recoverable = json
+                .get("recoverable")
+                .and_then(|r| r.as_bool())
+                .unwrap_or(true);
+            let suggestion = json
+                .get("suggestion")
+                .and_then(|s| s.as_str())
+                .map(|s| s.to_string());
+            (code, message, source, recoverable, suggestion)
+        } else {
+            (
+                "ProviderError".into(),
+                error.to_string(),
+                "openai_provider".into(),
+                true,
+                None,
+            )
+        };
+    error_lines(&code, &message, &source, recoverable, suggestion.as_deref())
+}
+
 /// Terminal render loop: receives LLM chunks via broadcast and
 /// displays them via `ExternalPrinter`.
 ///
@@ -308,13 +386,10 @@ pub async fn run(
     printer: ExternalPrinter<String>,
 ) {
     let mut full_response = String::new();
-    let mut reasoning_buffer = String::new();
-
-    // When true, reasoning is displayed as it accumulates.
-    // When false (default), reasoning is silently collected for
-    // history continuity but not shown in the UI.
-    let show_reasoning = std::env::var("BRIOCHE_SHOW_REASONING")
-        .is_ok_and(|s| s == "1" || s.eq_ignore_ascii_case("true"));
+    let mut reasoning = ReasoningBuffer::new(
+        std::env::var("BRIOCHE_SHOW_REASONING")
+            .is_ok_and(|s| s == "1" || s.eq_ignore_ascii_case("true")),
+    );
 
     loop {
         let chunk = tokio::select! {
@@ -324,19 +399,15 @@ pub async fn run(
 
         match chunk {
             Ok(LlmChunk::Text(content)) => {
-                flush_reasoning(&printer, &mut reasoning_buffer, show_reasoning);
+                reasoning.flush(&printer);
                 full_response.push_str(&content);
             }
             Ok(LlmChunk::Reasoning(content)) => {
-                reasoning_buffer.push_str(&content);
+                reasoning.push(&content);
             }
             Ok(LlmChunk::ToolCallStart { name, .. }) => {
-                flush_reasoning(&printer, &mut reasoning_buffer, show_reasoning);
-                if !full_response.is_empty() {
-                    let _ = printer.print(render_block(&full_response));
-                    wake_reedline();
-                    full_response.clear();
-                }
+                reasoning.flush(&printer);
+                print_response_block(&printer, &mut full_response);
                 for line in box_lines(&name, "pending…") {
                     let _ = printer.print(line);
                 }
@@ -351,71 +422,20 @@ pub async fn run(
                 wake_reedline();
             }
             Ok(LlmChunk::ToolResult { name, output }) => {
-                let trimmed = output.trim();
-                let preview = if trimmed.lines().count() > 10 {
-                    trimmed.lines().take(10).collect::<Vec<_>>().join("\n") + "\n… (truncated)"
-                } else {
-                    trimmed.to_string()
-                };
+                let preview = truncate_output(&output);
                 for line in box_lines(&format!("Result: {}", name), &preview) {
                     let _ = printer.print(line);
                 }
                 wake_reedline();
             }
             Ok(LlmChunk::Done) => {
-                flush_reasoning(&printer, &mut reasoning_buffer, show_reasoning);
-                if !full_response.is_empty() {
-                    let _ = printer.print(render_block(&full_response));
-                    wake_reedline();
-                    full_response.clear();
-                }
+                reasoning.flush(&printer);
+                print_response_block(&printer, &mut full_response);
             }
             Ok(LlmChunk::Error(error)) => {
-                flush_reasoning(&printer, &mut reasoning_buffer, show_reasoning);
-                if !full_response.is_empty() {
-                    let _ = printer.print(render_block(&full_response));
-                    wake_reedline();
-                    full_response.clear();
-                }
-                // Parse structured error if possible
-                let (code, message, source, recoverable, suggestion) =
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&error) {
-                        let code = json
-                            .get("code")
-                            .and_then(|c| c.as_str())
-                            .unwrap_or("ProviderError")
-                            .to_string();
-                        let message = json
-                            .get("message")
-                            .and_then(|m| m.as_str())
-                            .unwrap_or(&error)
-                            .to_string();
-                        let source = json
-                            .get("source")
-                            .and_then(|s| s.as_str())
-                            .unwrap_or("openai_provider")
-                            .to_string();
-                        let recoverable = json
-                            .get("recoverable")
-                            .and_then(|r| r.as_bool())
-                            .unwrap_or(true);
-                        let suggestion = json
-                            .get("suggestion")
-                            .and_then(|s| s.as_str())
-                            .map(|s| s.to_string());
-                        (code, message, source, recoverable, suggestion)
-                    } else {
-                        (
-                            "ProviderError".into(),
-                            error,
-                            "openai_provider".into(),
-                            true,
-                            None,
-                        )
-                    };
-                for line in
-                    error_lines(&code, &message, &source, recoverable, suggestion.as_deref())
-                {
+                reasoning.flush(&printer);
+                print_response_block(&printer, &mut full_response);
+                for line in render_error_block(&error) {
                     let _ = printer.print(line);
                 }
                 wake_reedline();
