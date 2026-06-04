@@ -15,6 +15,10 @@ use std::collections::BTreeMap;
 ///
 /// Stored in `ExtensionStorage`. Uses `BTreeMap` to guarantee
 /// deterministic iteration.
+///
+/// ## Snapshot strategy
+/// COW: full clone. Weight scales with number of in-flight tools
+/// (typically < 10). One `BTreeMap<String, u64>` plus three counters.
 #[derive(
     Clone,
     Debug,

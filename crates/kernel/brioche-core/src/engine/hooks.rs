@@ -1,0 +1,164 @@
+use crate::{
+    BriocheError, BriochePlugin, Effect, EngineInput, ErrorCode, ErrorDetail, PluginError,
+    PluginResult, PolicyDecision, Session,
+};
+
+use super::BriocheEngine;
+use super::types::InputResult;
+
+impl BriocheEngine {
+    /// Evaluate a pre-routed plugin hook with snapshot injection, rollback,
+    /// and uniform error collection.
+    ///
+    /// `hook` receives `(plugin, session)` and returns a `PluginResult<R>`.
+    /// `on_ok` is called for each successful result.
+    ///
+    /// Returns a vector of `(plugin_name, error)` pairs for any plugin
+    /// failures. The caller decides how to materialize these into effects.
+    ///
+    /// Snapshot is injected once before the loop. Rollback is applied
+    /// per-plugin. This is the single canonical implementation of the
+    /// iteration pattern; no caller may replicate it.
+    ///
+    /// # Complexity
+    /// O(p) where p = route length. One snapshot insertion, one rollback
+    /// per plugin.
+    ///
+    /// Refs: I-Core-StreamNoBranch, I-Gov-Rollback-BestEffort
+    pub(crate) fn eval_route<R>(
+        &mut self,
+        session: &mut Session,
+        route: &[usize],
+        mut hook: impl FnMut(&dyn BriochePlugin, &mut Session) -> PluginResult<R>,
+        mut on_ok: impl FnMut(R),
+    ) -> Vec<(&'static str, PluginError)> {
+        session.extensions.insert(session.snapshot());
+        let mut errors = Vec::new();
+        for &idx in route {
+            let name = self.router.plugins[idx].name();
+            let result = self.with_rollback(session, name, |engine, session| {
+                hook(&*engine.router.plugins[idx], session)
+            });
+            match result {
+                Ok(r) => on_ok(r),
+                Err(err) => errors.push((name, err)),
+            }
+        }
+        errors
+    }
+
+    /// Evaluate the `after_prediction` route.
+    ///
+    /// Called after the LLM prediction completes (before tool execution
+    /// or transition to `Idle`). Collects `PluginFault` effects for any
+    /// plugin errors but does not short-circuit.
+    ///
+    /// Refs: I-Core-PluginOrder, I-Core-StreamNoBranch
+    pub(crate) fn eval_after_prediction(
+        &mut self,
+        session: &mut Session,
+        effects: &mut Vec<Effect>,
+    ) {
+        let route = self.router.routing_table.route_after_prediction.clone();
+        let faults = self.eval_route(
+            session,
+            &route,
+            |plugin, session| plugin.after_prediction(&mut session.extensions),
+            |_ok| {},
+        );
+        for (name, err) in faults {
+            effects.push(Self::plugin_fault(name, err));
+        }
+    }
+
+    /// Evaluate the `on_input` route.
+    ///
+    /// `OverrideTransition` from the first plugin wins; subsequent ones are
+    /// logged as superseded. `Block` short-circuits immediately.
+    ///
+    /// Refs: I-Core-PluginOrder, I-Gov-Decision-Required
+    pub(crate) fn eval_on_input(
+        &mut self,
+        session: &mut Session,
+        input: &EngineInput,
+    ) -> InputResult {
+        let mut accumulated = Vec::new();
+        let mut override_transition: Option<(Vec<Effect>, &'static str)> = None;
+
+        session.extensions.insert(session.snapshot());
+        let route_len = self.router.routing_table.route_on_input.len();
+        for i in 0..route_len {
+            let idx = self.router.routing_table.route_on_input[i];
+            let name = self.router.plugins[idx].name();
+
+            let decision = self.with_rollback(session, name, |engine, session| {
+                let plugin = &engine.router.plugins[idx];
+                plugin.on_input(input, &mut session.extensions)
+            });
+
+            match decision {
+                Ok(PolicyDecision::Allow) => {}
+                Ok(PolicyDecision::Block { reason }) => {
+                    return InputResult::Block { reason };
+                }
+                Ok(PolicyDecision::MutateHistory(edits)) => {
+                    if let Err(err) = session.apply_history_edits(&edits) {
+                        accumulated.push(Effect::Error {
+                            code: ErrorCode::StateInconsistency,
+                            detail: ErrorDetail::Generic(err.to_string()),
+                        });
+                    }
+                }
+                Ok(PolicyDecision::RequestEffect(eff)) => {
+                    accumulated.push(eff);
+                }
+                Ok(PolicyDecision::OverrideTransition(effects)) => {
+                    if override_transition.is_none() {
+                        override_transition = Some((effects, name));
+                    } else {
+                        self.log_superseded_transition(
+                            session,
+                            name,
+                            &PolicyDecision::OverrideTransition(effects),
+                        );
+                    }
+                }
+                Err(err) => {
+                    accumulated.push(Self::plugin_fault(name, err));
+                }
+            }
+        }
+
+        if let Some((effects, source)) = override_transition {
+            InputResult::OverrideTransition(effects, source)
+        } else if accumulated.is_empty() {
+            InputResult::Allow
+        } else {
+            InputResult::Accumulated(accumulated)
+        }
+    }
+
+    /// Invoke the `on_tool_calls` hook on all pre-routed plugins.
+    ///
+    /// Plugins mutate `timeout_ms` and other fields in place.
+    ///
+    /// Refs: I-Core-PluginOrder, I-Core-ActiveToolCall
+    pub(crate) fn handle_tool_calls(
+        &mut self,
+        session: &mut Session,
+        descriptors: &mut Vec<crate::ToolCallDescriptor>,
+        effects: &mut Vec<Effect>,
+    ) -> Result<(), BriocheError> {
+        let route = self.router.routing_table.route_on_tool_calls.clone();
+        let faults = self.eval_route(
+            session,
+            &route,
+            |plugin, session| plugin.on_tool_calls(descriptors, &mut session.extensions),
+            |_ok| {},
+        );
+        for (name, err) in faults {
+            effects.push(Self::plugin_fault(name, err));
+        }
+        Ok(())
+    }
+}

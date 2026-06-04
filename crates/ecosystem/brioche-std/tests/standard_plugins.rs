@@ -476,7 +476,7 @@ fn audit_logger_sequences_entries() {
 
 #[test]
 fn engine_with_all_std_plugins_runs_user_message() {
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_plugin(Box::new(CircuitBreaker::default()))
         .with_plugin(Box::new(TokenTracker::new()))
         .with_plugin(Box::new(ContextOptimizer::default()))
@@ -487,14 +487,7 @@ fn engine_with_all_std_plugins_runs_user_message() {
         .with_plugin(Box::new(AuditLogger::default()))
         .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(SubRoutineCleanupGuard::new()))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "engine build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
@@ -505,19 +498,12 @@ fn engine_with_all_std_plugins_runs_user_message() {
 
 #[test]
 fn engine_after_prediction_hooks_fire_on_stream_done() {
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_plugin(Box::new(TokenTracker::new()))
         .with_plugin(Box::new(GcPolicy::default()))
         .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(SubRoutineCleanupGuard::new()))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "engine build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
 

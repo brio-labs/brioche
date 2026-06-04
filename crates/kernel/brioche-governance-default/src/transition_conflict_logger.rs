@@ -11,6 +11,9 @@ use brioche_core::{
 };
 
 /// Archived transition conflict summary.
+///
+/// ## Snapshot strategy
+/// COW: full clone (~40 bytes). Three scalars + one optional short String.
 #[derive(
     Clone,
     Debug,
@@ -67,7 +70,7 @@ impl BriochePlugin for TransitionConflictLogger {
         // Steal entries to avoid double mutable borrow of ext.
         let entries = {
             let log = ext.get_or_insert_default::<SupersededTransitionTraceLog>();
-            std::mem::take(&mut log.entries)
+            log.take_entries()
         };
 
         if entries.is_empty() {

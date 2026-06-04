@@ -10,9 +10,10 @@
 use brioche_core::{
     AgentState, BriocheEngineBuilder, BriocheExtensionType, BriochePlugin, ChatMessage,
     ConsistencyVerifier, CycleRollbackPolicy, DecisionAggregator, Effect, EngineInput, EpochAction,
-    EpochInterceptor, ErrorCode, ExecutionPath, ExtensionStorage, HistoryEdit, PluginCapabilities,
-    PluginResult, PolicyDecision, Session, SessionRegistry, StreamEvent, SubRoutineHandle,
-    SubRoutineLifecycleGuard, ToolCallDescriptor, ToolResultDTO, UnifiedRoutingTable,
+    EpochInterceptor, ErrorCode, ErrorDetail, ExecutionPath, ExtensionStorage, HistoryEdit,
+    PluginCapabilities, PluginResult, PolicyDecision, Session, SessionRegistry, StreamEvent,
+    SubRoutineHandle, SubRoutineLifecycleGuard, ToolCallDescriptor, ToolResultDTO,
+    UnifiedRoutingTable,
 };
 
 // ---------------------------------------------------------------------------
@@ -72,60 +73,16 @@ impl SubRoutineLifecycleGuard for MockSubRoutineLifecycleGuard {
 // Builder tests
 // ---------------------------------------------------------------------------
 
-#[test]
-fn builder_missing_mandatory_traits_fails() {
-    let builder = BriocheEngineBuilder::new();
-    let result = builder.build();
-    assert!(result.is_err());
-    let err = match result {
-        Err(e) => e,
-        Ok(_) => {
-            assert_eq!(1, 0, "expected error");
-            return;
-        }
-    };
-    assert!(err.to_string().contains("DecisionAggregator"));
-
-    let builder =
-        BriocheEngineBuilder::new().with_decision_aggregator(Box::new(MockDecisionAggregator));
-    let result = builder.build();
-    assert!(result.is_err());
-    let err = match result {
-        Err(e) => e,
-        Ok(_) => {
-            assert_eq!(1, 0, "expected error");
-            return;
-        }
-    };
-    assert!(err.to_string().contains("SubRoutineLifecycleGuard"));
-}
-
-#[test]
-fn builder_with_all_mandatory_traits_succeeds() {
-    let result = BriocheEngineBuilder::new()
-        .with_decision_aggregator(Box::new(MockDecisionAggregator))
-        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build();
-    assert!(result.is_ok());
-}
-
 // ---------------------------------------------------------------------------
 // UserMessage dispatch
 // ---------------------------------------------------------------------------
 
 #[test]
 fn transition_user_message_to_predicting() {
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
@@ -145,17 +102,10 @@ fn transition_user_message_to_predicting() {
 
 #[test]
 fn transition_user_message_generates_generation_id() {
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     engine.transition(&mut session, &EngineInput::UserMessage("a".into()));
@@ -193,17 +143,10 @@ fn transition_user_message_generates_generation_id() {
 
 #[test]
 fn transition_llm_stream_in_predicting_routes_plugins() {
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let push_result = session.push_state(AgentState::Predicting { generation_id: 1 });
@@ -221,17 +164,10 @@ fn transition_llm_stream_in_predicting_routes_plugins() {
 
 #[test]
 fn transition_llm_stream_not_predicting_returns_empty() {
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let event = StreamEvent::TextChunk {
@@ -245,17 +181,10 @@ fn transition_llm_stream_not_predicting_returns_empty() {
 
 #[test]
 fn transition_llm_stream_accumulates_assistant_text() {
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let push_result = session.push_state(AgentState::Predicting { generation_id: 1 });
@@ -298,18 +227,11 @@ fn transition_llm_stream_accumulates_assistant_text() {
 
 #[test]
 fn transition_llm_stream_tool_call_done_persists_preceding_text() {
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
         .with_default_tool_timeout_ms(1000)
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let push_result = session.push_state(AgentState::Predicting { generation_id: 1 });
@@ -357,17 +279,10 @@ fn transition_llm_stream_tool_call_done_persists_preceding_text() {
 
 #[test]
 fn transition_tool_calls_result_pops_state() {
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let r1 = session.push_state(AgentState::Predicting { generation_id: 1 });
@@ -405,17 +320,10 @@ fn transition_tool_calls_result_pops_state() {
 
 #[test]
 fn transition_restore_subroutine_registers_in_registry() {
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let handle = SubRoutineHandle::new("sub-1");
@@ -532,18 +440,11 @@ impl BriochePlugin for OverrideInputPlugin {
 
 #[test]
 fn transition_override_input_short_circuits() {
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_plugin(Box::new(OverrideInputPlugin))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
@@ -577,18 +478,11 @@ impl BriochePlugin for BlockInputPlugin {
 
 #[test]
 fn transition_block_input_returns_error_and_idle() {
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_plugin(Box::new(BlockInputPlugin))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
@@ -620,18 +514,11 @@ impl EpochInterceptor for BlockEpochInterceptor {
 
 #[test]
 fn transition_epoch_block_returns_error_idle() {
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_epoch_interceptor(Box::new(BlockEpochInterceptor))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
@@ -648,29 +535,15 @@ fn transition_epoch_block_returns_error_idle() {
 
 #[test]
 fn transition_is_deterministic() {
-    let mut engine_a = match BriocheEngineBuilder::new()
+    let mut engine_a = BriocheEngineBuilder::new()
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
-    let mut engine_b = match BriocheEngineBuilder::new()
+    let mut engine_b = BriocheEngineBuilder::new()
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session_a = Session::new("det");
     let mut session_b = Session::new("det");
@@ -701,17 +574,10 @@ fn transition_exits_subroutine_triggers_lifecycle_guard() {
         }
     }
 
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(CountingLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let r = session.push_state(AgentState::Idle);
@@ -744,18 +610,11 @@ fn transition_consistency_verifier_effects_appended() {
         }
     }
 
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_consistency_verifier(Box::new(ForcingVerifier))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
@@ -789,24 +648,24 @@ fn transition_rebuildroutes_is_last() {
         }
     }
 
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_plugin(Box::new(RebuildPlugin))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
 
     assert!(matches!(effects.last(), Some(Effect::RebuildRoutes)));
-    assert_eq!(effects.len(), 1);
+    assert_eq!(effects.len(), 2);
+    assert!(matches!(
+        effects.first(),
+        Some(Effect::Error {
+            code: ErrorCode::StateInconsistency,
+            ..
+        })
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -837,18 +696,11 @@ fn transition_history_edit_insert_and_truncate() {
         }
     }
 
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_plugin(Box::new(EditPlugin))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
@@ -872,18 +724,11 @@ fn transition_history_edit_insert_and_truncate() {
 
 #[test]
 fn transition_llm_stream_tool_call_materialization() {
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
         .with_default_tool_timeout_ms(5000)
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let push_result = session.push_state(AgentState::Predicting { generation_id: 7 });
@@ -934,18 +779,11 @@ fn transition_llm_stream_tool_call_materialization() {
 
 #[test]
 fn transition_llm_stream_missing_timeout_applies_default() {
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
         .with_default_tool_timeout_ms(3000)
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let push_result = session.push_state(AgentState::Predicting { generation_id: 1 });
@@ -963,14 +801,12 @@ fn transition_llm_stream_missing_timeout_applies_default() {
     };
     let effects = engine.transition(&mut session, &EngineInput::LlmStream(done));
 
-    // Default timeout applied silently (no error). A missing timeout
-    // is now a normal condition: the kernel applies the default and
-    // lets governance plugins (if any) enforce stricter policies.
+    // Default timeout applied.
     assert_eq!(session.active_tools[0].timeout_ms, 3000);
 
-    // No spurious error for missing timeout.
-    assert!(!effects.iter().any(|e| matches!(
-        e, Effect::Error { message, .. } if message.contains("Missing timeout")
+    // Error effect emitted because timeout was missing.
+    assert!(effects.iter().any(|e| matches!(
+        e, Effect::Error { code, detail: ErrorDetail::MissingToolTimeout { .. } } if *code == ErrorCode::StateInconsistency
     )));
 }
 
@@ -996,19 +832,12 @@ fn transition_llm_stream_on_tool_calls_mutates_timeout() {
         }
     }
 
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_plugin(Box::new(TimeoutMutatorPlugin))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
         .with_default_tool_timeout_ms(1000)
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let push_result = session.push_state(AgentState::Predicting { generation_id: 2 });
@@ -1031,7 +860,11 @@ fn transition_llm_stream_on_tool_calls_mutates_timeout() {
 
     // No error effect because timeout was provided by plugin.
     assert!(!effects.iter().any(|e| matches!(
-        e, Effect::Error { message, .. } if message.contains("Missing timeout")
+        e,
+        Effect::Error {
+            detail: ErrorDetail::MissingToolTimeout { .. },
+            ..
+        }
     )));
 }
 
@@ -1043,18 +876,11 @@ fn transition_llm_stream_on_tool_calls_mutates_timeout() {
 fn transition_with_epoch_guard_blocks_stale_generation() {
     use brioche_governance_default::EpochGuard;
 
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_epoch_interceptor(Box::new(EpochGuard))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     // Simulate an advanced epoch
@@ -1080,18 +906,11 @@ fn transition_with_epoch_guard_blocks_stale_generation() {
 fn transition_with_epoch_guard_allows_current_generation() {
     use brioche_governance_default::EpochGuard;
 
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_epoch_interceptor(Box::new(EpochGuard))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     session.extensions.insert(brioche_core::EpochState {
@@ -1121,17 +940,10 @@ fn transition_with_epoch_guard_allows_current_generation() {
 fn transition_with_policy_aggregator_allows() {
     use brioche_governance_default::LexicographicDecisionAggregator;
 
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
@@ -1144,27 +956,18 @@ fn transition_with_policy_aggregator_allows() {
 fn transition_with_subroutine_cleanup_guard_removes_child() {
     use brioche_governance_default::SubRoutineCleanupGuard;
 
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(SubRoutineCleanupGuard::new()))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let r = session.push_state(AgentState::Idle);
     assert!(r.is_ok());
     session.state = AgentState::SubRoutine(SubRoutineHandle::new("sub-1"));
 
-    // Enregistrer la sous-routine dans le registry
-    engine
-        .session_registry_mut()
-        .insert(SubRoutineHandle::new("sub-1"), Session::new("sub-1"));
+    // Register the sub-routine in the registry
+    engine.create_subroutine(SubRoutineHandle::new("sub-1"), Session::new("sub-1"));
 
     let effects = engine.transition(
         &mut session,
@@ -1187,18 +990,11 @@ fn transition_with_subroutine_cleanup_guard_removes_child() {
 fn transition_with_state_consistency_guard_fixes_inconsistent_state() {
     use brioche_governance_default::StateConsistencyGuard;
 
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_consistency_verifier(Box::new(StateConsistencyGuard::new()))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     // Force an inconsistent state: Predicting without stack.
@@ -1227,18 +1023,11 @@ fn transition_with_fast_hook_effect_constraint_blocks_disallowed_effect() {
     masks[0] = EffectBit::ERROR | EffectBit::SYSTEM_IDLE;
     let constraint = FastHookEffectConstraint::new(masks);
 
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_hook_effect_constraint(Box::new(constraint))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
@@ -1274,19 +1063,12 @@ fn transition_with_system_failover_guard_replaces_fault() {
         }
     }
 
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_plugin(Box::new(FaultyPlugin))
         .with_governance_failover_handler(Box::new(SystemFailoverGuard::new()))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
@@ -1441,19 +1223,12 @@ fn engine_with_undo_frame_guard_instruments_hooks() {
         }
     }
 
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_plugin(Box::new(MutatingPlugin))
         .with_cycle_rollback_policy(Box::new(UndoFrameGuard::new()))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     session.extensions.insert(brioche_core::EpochState {

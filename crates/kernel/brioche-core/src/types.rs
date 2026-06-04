@@ -111,7 +111,7 @@ pub enum ChatMessage {
         /// Optional reasoning / chain-of-thought text.
         /// Preserved for reasoning models (Qwen, DeepSeek, Claude
         /// extended thinking) so that tool-calling continuity is
-        /// maintained across turns.  The kernel treats this as
+        /// maintained across turns. The kernel treats this as
         /// opaque metadata.
         ///
         /// Refs: I-Shell-Runtime-OnlyIO
@@ -158,14 +158,6 @@ pub struct ToolCallDescriptor {
     pub timeout_ms: Option<u64>,
 }
 
-/// Sentinel value for `ActiveToolCall.timeout_ms` meaning "no timeout".
-///
-/// When a tool call carries this value, the shell executor waits
-/// indefinitely for completion instead of scheduling a timeout task.
-///
-/// Refs: I-Core-ActiveToolCall
-pub const NO_TOOL_TIMEOUT_MS: u64 = 0;
-
 /// Kernel-internal representation of a tool call after `seal()`.
 ///
 /// This type is **not** constructible by plugins. It is produced exclusively
@@ -178,8 +170,24 @@ pub struct ActiveToolCall {
     pub tool_name: String,
     pub arguments: String,
     /// Materialized by the kernel after `on_tool_calls` hook execution.
-    /// A value of `NO_TOOL_TIMEOUT_MS` means the tool runs without timeout.
     pub timeout_ms: u64,
+}
+
+/// Canonical conversion from a single `ToolCallDescriptor` to `ActiveToolCall`.
+///
+/// Extracted as a pure function so the compiler forces exhaustive field
+/// mapping without `Vec` allocation overhead in hot paths.
+///
+/// Complexity: O(1). No heap allocation.
+///
+/// Refs: I-Core-ActiveToolCall
+pub fn seal_single(descriptor: ToolCallDescriptor) -> ActiveToolCall {
+    ActiveToolCall {
+        tool_id: descriptor.tool_id,
+        tool_name: descriptor.tool_name,
+        arguments: descriptor.arguments,
+        timeout_ms: descriptor.timeout_ms.unwrap_or(0),
+    }
 }
 
 /// Canonical conversion from interface type to mechanical type.
@@ -191,15 +199,27 @@ pub struct ActiveToolCall {
 ///
 /// Refs: I-Core-ActiveToolCall
 pub fn seal(descriptors: Vec<ToolCallDescriptor>) -> Vec<ActiveToolCall> {
-    descriptors
-        .into_iter()
-        .map(|d| ActiveToolCall {
-            tool_id: d.tool_id,
-            tool_name: d.tool_name,
-            arguments: d.arguments,
-            timeout_ms: d.timeout_ms.unwrap_or(0),
-        })
-        .collect()
+    descriptors.into_iter().map(seal_single).collect()
+}
+
+/// Convert a `ToolOutcome` into its string representation for history injection.
+///
+/// This is a pure function extracted from both the kernel's
+/// `dispatch_tool_calls_result` and `SubRoutineOrchestrator` to eliminate
+/// duplication and keep mechanism code minimal.
+///
+/// Complexity: O(1). May clone an inner `String`.
+///
+/// Refs: I-Comp-Pure-Logic
+pub fn tool_outcome_to_string(outcome: &ToolOutcome) -> String {
+    match outcome {
+        ToolOutcome::Success(s) | ToolOutcome::BusinessError(s) | ToolOutcome::SystemError(s) => {
+            s.clone()
+        }
+        ToolOutcome::TimeoutWithPartialData { partial_output } => {
+            partial_output.clone().unwrap_or_default()
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -260,7 +280,9 @@ impl TruncatedToolResult {
     ///
     /// Complexity: O(n) where n = JSON length. One `String` allocation.
     pub fn to_json(&self) -> String {
-        // unwrap is safe: TruncatedToolResult only contains Strings and primitives.
+        // Infallible: TruncatedToolResult only contains Strings and primitives,
+        // so serde_json cannot fail. We use unwrap_or_else (not unwrap) to
+        // satisfy the clippy deny rule while preserving kernel stability.
         serde_json::to_string(self).unwrap_or_else(|_| "{}".into())
     }
 }
@@ -321,9 +343,9 @@ pub struct Session {
     /// Mechanical state: tools currently in execution.
     /// Managed exclusively by the kernel. Not modifiable by plugins.
     pub active_tools: Vec<ActiveToolCall>,
-    /// Temporary buffer to accumulate assistant text fragments
+    /// Temporary buffer for accumulating assistant text fragments
     /// during LLM streaming. Materialized into `ChatMessage::Assistant`
-    /// at `StreamEvent::Done` or `StreamEvent::ToolCallDone`.
+    /// on `StreamEvent::Done` or `StreamEvent::ToolCallDone`.
     ///
     /// This field is mechanical: it belongs to the kernel lifecycle
     /// and is never exposed to plugins via `ExtensionStorage`.
@@ -422,6 +444,66 @@ impl Session {
             current_state: AgentStateTag::from(&self.state),
             state_stack_depth: self.state_stack.len(),
         }
+    }
+
+    /// Persist accumulated assistant text into history, if any.
+    ///
+    /// Moves `pending_assistant_text` into a `ChatMessage::Assistant` and
+    /// clears the buffer. No-op if the buffer is empty.
+    ///
+    /// Complexity: O(1). One `Vec` push if text exists.
+    ///
+    /// Refs: I-Core-ChunkBudget
+    pub fn persist_assistant_text(&mut self) {
+        if !self.pending_assistant_text.is_empty() {
+            self.history.push(ChatMessage::Assistant {
+                content: std::mem::take(&mut self.pending_assistant_text),
+                reasoning: None,
+                tool_calls: Vec::new(),
+            });
+        }
+    }
+
+    /// Apply a sequence of `HistoryEdit`s to the session, validating indices.
+    ///
+    /// Complexity: O(e) where e = number of edits. One `Vec` insert/replace
+    /// per edit, plus one `drain` for `Truncate`.
+    ///
+    /// # Errors
+    /// Returns `BriocheError::InvalidStateTransition` if an index is out of bounds.
+    ///
+    /// Refs: I-Core-NoPanic
+    pub fn apply_history_edits(&mut self, edits: &[HistoryEdit]) -> Result<(), BriocheError> {
+        for edit in edits {
+            match edit {
+                HistoryEdit::Insert { index, message } => {
+                    if *index > self.history.len() {
+                        return Err(BriocheError::InvalidStateTransition(format!(
+                            "history insert index {} out of bounds (len={})",
+                            index,
+                            self.history.len()
+                        )));
+                    }
+                    self.history.insert(*index, message.clone());
+                }
+                HistoryEdit::Replace { index, message } => {
+                    if *index >= self.history.len() {
+                        return Err(BriocheError::InvalidStateTransition(format!(
+                            "history replace index {} out of bounds (len={})",
+                            index,
+                            self.history.len()
+                        )));
+                    }
+                    self.history[*index] = message.clone();
+                }
+                HistoryEdit::Truncate { keep_last } => {
+                    let keep = (*keep_last).min(self.history.len());
+                    let drain_count = self.history.len() - keep;
+                    self.history.drain(..drain_count);
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -552,6 +634,21 @@ pub enum AgentStateTag {
     ExecutingTools,
     SubRoutine,
     Failure,
+}
+
+impl AgentState {
+    /// Extract the generation ID if currently predicting or executing tools.
+    ///
+    /// Returns `None` for states that carry no generation context.
+    ///
+    /// Refs: I-Core-NoPanic
+    pub fn generation_id(&self) -> Option<u64> {
+        match self {
+            AgentState::Predicting { generation_id }
+            | AgentState::ExecutingTools { generation_id } => Some(*generation_id),
+            _ => None,
+        }
+    }
 }
 
 impl From<&AgentState> for AgentStateTag {
@@ -723,6 +820,79 @@ impl UiWidget {
 // Effect
 // ---------------------------------------------------------------------------
 
+/// Structured error payload for `Effect::Error`.
+///
+/// Replaces the previous `message: String` anti-pattern with typed,
+/// exhaustively matchable variants. The shell and projection layer can
+/// inspect specific error scenarios without string parsing.
+///
+/// Refs: I-Comp-Typed-Effects
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ErrorDetail {
+    /// Fallback for errors that do not yet have a structured variant.
+    Generic(String),
+    /// History edit index out of bounds.
+    HistoryIndexOutOfBounds {
+        operation: String,
+        index: usize,
+        len: usize,
+    },
+    /// Tool descriptor missing timeout (default applied).
+    MissingToolTimeout { default_timeout_ms: u64 },
+    /// Effect variant not allowed on the current hook.
+    EffectNotAllowed {
+        hook: String,
+        effect_variant: String,
+    },
+    /// Effects were dropped after `RebuildRoutes`.
+    EffectsDroppedAfterRebuildRoutes { count: usize },
+    /// Sub-routine lifecycle guard failed.
+    SubRoutineLifecycleFailed { guard_name: String },
+    /// State inconsistency detected by a governance plugin or internal check.
+    StateInconsistent { source: String },
+}
+
+impl std::fmt::Display for ErrorDetail {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ErrorDetail::Generic(s) => write!(f, "{}", s),
+            ErrorDetail::HistoryIndexOutOfBounds {
+                operation,
+                index,
+                len,
+            } => {
+                write!(
+                    f,
+                    "history {} index {} out of bounds (len={})",
+                    operation, index, len
+                )
+            }
+            ErrorDetail::MissingToolTimeout { default_timeout_ms } => {
+                write!(
+                    f,
+                    "Missing timeout, applied default {} ms",
+                    default_timeout_ms
+                )
+            }
+            ErrorDetail::EffectNotAllowed {
+                hook,
+                effect_variant,
+            } => {
+                write!(f, "Effect {} not allowed on hook {}", effect_variant, hook)
+            }
+            ErrorDetail::EffectsDroppedAfterRebuildRoutes { count } => {
+                write!(f, "{} effect(s) dropped after RebuildRoutes", count)
+            }
+            ErrorDetail::SubRoutineLifecycleFailed { guard_name } => {
+                write!(f, "Sub-routine lifecycle guard '{}' failed", guard_name)
+            }
+            ErrorDetail::StateInconsistent { source } => {
+                write!(f, "State inconsistent: {}", source)
+            }
+        }
+    }
+}
+
 /// Declarative effect emitted by the kernel. The shell is responsible for
 /// execution.
 ///
@@ -737,7 +907,7 @@ pub enum Effect {
     ForwardToUi(UiWidget),
     Error {
         code: ErrorCode,
-        message: String,
+        detail: ErrorDetail,
     },
     SaveSession,
     SavePluginBlob {
@@ -976,6 +1146,28 @@ pub struct TransitionTraceLog {
     pub entries: Vec<TransitionTrace>,
 }
 
+impl TransitionTraceLog {
+    const CAPACITY: usize = 128;
+
+    /// Push a trace entry, evicting the oldest if at capacity.
+    ///
+    /// Complexity: O(n) in the worst case (vec shift at capacity),
+    /// bounded by `CAPACITY` (128). Never panics.
+    pub fn push(&mut self, entry: TransitionTrace) {
+        if self.entries.len() >= Self::CAPACITY {
+            self.entries.remove(0);
+        }
+        self.entries.push(entry);
+    }
+
+    /// Take all entries, leaving the log empty.
+    ///
+    /// Complexity: O(1).
+    pub fn take_entries(&mut self) -> Vec<TransitionTrace> {
+        std::mem::take(&mut self.entries)
+    }
+}
+
 /// Single entry in the `SupersededTransitionTraceLog` ring buffer.
 ///
 /// Refs: I-Gov-OverrideTrace
@@ -998,6 +1190,28 @@ pub struct SupersededTransitionTrace {
 pub struct SupersededTransitionTraceLog {
     #[brioche(deterministic_order)]
     pub entries: Vec<SupersededTransitionTrace>,
+}
+
+impl SupersededTransitionTraceLog {
+    const CAPACITY: usize = 128;
+
+    /// Push a trace entry, evicting the oldest if at capacity.
+    ///
+    /// Complexity: O(n) in the worst case (vec shift at capacity),
+    /// bounded by `CAPACITY` (128). Never panics.
+    pub fn push(&mut self, entry: SupersededTransitionTrace) {
+        if self.entries.len() >= Self::CAPACITY {
+            self.entries.remove(0);
+        }
+        self.entries.push(entry);
+    }
+
+    /// Take all entries, leaving the log empty.
+    ///
+    /// Complexity: O(1).
+    pub fn take_entries(&mut self) -> Vec<SupersededTransitionTrace> {
+        std::mem::take(&mut self.entries)
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -14,6 +14,9 @@ use brioche_core::{
 };
 
 /// Recovery policy state.
+///
+/// ## Snapshot strategy
+/// COW: full clone (~40 bytes). Three scalars + one optional short String.
 #[derive(
     Clone,
     Debug,

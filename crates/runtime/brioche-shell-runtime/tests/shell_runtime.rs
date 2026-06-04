@@ -11,6 +11,7 @@
 
 use brioche_core::{
     ActiveToolCall, BriocheEngineBuilder, EngineInput, Session, SignalDrainOrder, SystemSignal,
+    ToolResultDTO,
 };
 use brioche_governance_default::{LexicographicDecisionAggregator, SubRoutineCleanupGuard};
 use brioche_shell_runtime::{
@@ -28,12 +29,10 @@ use std::time::Duration;
 // ---------------------------------------------------------------------------
 
 fn build_minimal_engine() -> brioche_core::BriocheEngine {
-    let result = BriocheEngineBuilder::new()
+    BriocheEngineBuilder::new()
         .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(SubRoutineCleanupGuard))
-        .build();
-    assert!(result.is_ok(), "minimal engine should build");
-    result.ok().unwrap_or_else(|| unreachable!())
+        .build()
 }
 
 fn build_shell() -> BriocheShell {
@@ -580,9 +579,7 @@ async fn network_recovery_emits_system_signal_on_exhaustion() {
             ))
         }
 
-        async fn push_tool_results(&self, _results: &[brioche_core::ToolResultDTO]) {
-            // Mock: no history mirror.
-        }
+        async fn push_tool_results(&self, _results: &[ToolResultDTO]) {}
     }
 
     let recovery = ExponentialBackoff {

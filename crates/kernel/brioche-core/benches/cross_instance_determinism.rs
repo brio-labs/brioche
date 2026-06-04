@@ -36,14 +36,10 @@ impl SubRoutineLifecycleGuard for MockSubRoutineLifecycleGuard {
 }
 
 fn build_engine() -> BriocheEngine {
-    match BriocheEngineBuilder::new()
+    BriocheEngineBuilder::new()
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
         .build()
-    {
-        Ok(e) => e,
-        Err(_) => std::process::abort(),
-    }
 }
 
 /// Run a deterministic sequence of transitions.
