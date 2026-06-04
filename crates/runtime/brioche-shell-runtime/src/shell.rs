@@ -111,11 +111,11 @@ impl Default for ShellConfig {
     }
 }
 
-/// Callback invoked on the engine thread after each transition.
+/// Callback invoqué sur le engine thread après chaque transition.
 ///
-/// The callback receives an immutable reference to `Session` (which is
-/// `!Send`). This is the standard mechanism to extract a session
-/// snapshot and push it to the persistence layer.
+/// Le callback reçoit une référence immuable au `Session` (qui est
+/// `!Send`). C'est le mécanisme standard pour extraire un snapshot
+/// de session et le pousser vers la couche de persistence.
 ///
 /// Refs: I-Shell-Session-NoSend
 pub type SessionCallback = Box<dyn Fn(&Session) + Send>;
@@ -130,10 +130,11 @@ struct RebuildCommand {
     done: oneshot::Sender<()>,
 }
 
-/// Tracker for critical async tasks spawned by the shell.
+/// Trackeur de tâches async critiques lancées par le shell.
 ///
-/// Ensures background task `JoinHandle`s are not lost, enabling
-/// diagnosis in case of panic or premature termination.
+/// Garantit que les `JoinHandle` des tâches de fond ne sont pas
+/// perdus, permettant un diagnostic en cas de panique ou de
+/// terminaison prématurée.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO, SCIFI — Connect
 #[derive(Clone)]
@@ -142,14 +143,14 @@ pub struct TaskTracker {
 }
 
 impl TaskTracker {
-    /// Creates a new empty tracker.
+    /// Crée un nouveau trackeur vide.
     pub fn new() -> Self {
         Self {
             handles: Arc::new(std::sync::Mutex::new(Vec::new())),
         }
     }
 
-    /// Spawns a task and keeps its `JoinHandle`.
+    /// Lance une tâche et conserve son `JoinHandle`.
     pub fn spawn<F>(&self, future: F)
     where
         F: std::future::Future<Output = ()> + Send + 'static,
@@ -160,10 +161,10 @@ impl TaskTracker {
         }
     }
 
-    /// Checks the state of tracked tasks.
+    /// Vérifie l'état des tâches trackées.
     ///
-    /// Returns `true` if all tasks are still active.
-    /// For each finished task, emits a `tracing::error`.
+    /// Retourne `true` si toutes les tâches sont encore actives.
+    /// Pour chaque tâche terminée, émet un `tracing::error`.
     pub fn health_check(&self) -> bool {
         let mut all_healthy = true;
         if let Ok(handles) = self.handles.lock() {
@@ -207,7 +208,7 @@ impl Default for TaskTracker {
 /// );
 /// let shell = BriocheShell::new(
 ///     || {
-///         let engine = BriocheEngineBuilder::new().build().unwrap();
+///         let engine = BriocheEngineBuilder::new().build();
 ///         let session = Session::new("main");
 ///         (engine, session)
 ///     },
@@ -648,8 +649,8 @@ where
         Effect::ForwardToUi(widget) => {
             executor.forward_to_ui(widget).await?;
         }
-        Effect::Error { code, message } => {
-            executor.log_error(code, message).await?;
+        Effect::Error { code, detail } => {
+            executor.log_error(code, detail).await?;
         }
         Effect::SaveSession => {
             executor.save_session(&snapshot.session_id).await?;

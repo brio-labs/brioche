@@ -12,14 +12,10 @@ use brioche_governance_default::{LexicographicDecisionAggregator, SubRoutineClea
 use brioche_shell_runtime::transition_journal::{JournalEntry, TransitionJournal};
 
 fn build_engine() -> brioche_core::BriocheEngine {
-    match BriocheEngineBuilder::new()
+    BriocheEngineBuilder::new()
         .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(SubRoutineCleanupGuard::new()))
         .build()
-    {
-        Ok(e) => e,
-        Err(_) => std::process::abort(),
-    }
 }
 
 #[test]

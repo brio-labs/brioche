@@ -101,10 +101,8 @@ fn accumulate_stream_tools(
             if pending.is_empty() {
                 return Ok(None);
             }
-            let active: Vec<ActiveToolCall> = pending
-                .into_iter()
-                .map(|d| brioche_core::seal(vec![d]).remove(0))
-                .collect();
+            let active: Vec<ActiveToolCall> =
+                pending.into_iter().map(brioche_core::seal_single).collect();
             child.active_tools = active.clone();
             let generation = match child.state {
                 AgentState::Predicting { generation_id } => generation_id,
@@ -135,17 +133,9 @@ fn resolve_tool_results(
     child.active_tools.clear();
 
     for result in results {
-        let content = match &result.outcome {
-            brioche_core::ToolOutcome::Success(s)
-            | brioche_core::ToolOutcome::BusinessError(s)
-            | brioche_core::ToolOutcome::SystemError(s) => s.clone(),
-            brioche_core::ToolOutcome::TimeoutWithPartialData { partial_output } => {
-                partial_output.clone().unwrap_or_default()
-            }
-        };
         child.history.push(ChatMessage::ToolResult {
             id: result.tool_id.clone(),
-            content,
+            content: brioche_core::tool_outcome_to_string(&result.outcome),
         });
     }
 

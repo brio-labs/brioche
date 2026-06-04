@@ -161,9 +161,7 @@ mod tests {
             || {
                 let engine = BriocheEngineBuilder::new()
                     .with_profile(GovernanceProfile::Permissive)
-                    .build()
-                    .ok()
-                    .unwrap_or_else(|| unreachable!("engine build failed"));
+                    .build();
                 let session = Session::new("test-session");
                 (engine, session)
             },

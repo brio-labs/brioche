@@ -10,6 +10,9 @@ use brioche_core::{
 };
 
 /// Timeout policy state.
+///
+/// ## Snapshot strategy
+/// COW: full clone (~16 bytes). Two scalar fields.
 #[derive(
     Clone,
     Debug,

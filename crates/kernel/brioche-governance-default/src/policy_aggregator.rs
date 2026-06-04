@@ -8,7 +8,7 @@
 //! 1. `Block`   → returns immediately `Block` with the aggregated reason.
 //! 2. `OverrideTransition` → first encountered wins.
 //! 3. `MutateHistory` → accumulates all edits.
-//! 4. `RequestEffect` → accumule tous les effets.
+//! 4. `RequestEffect` → accumulates all effects.
 //! 5. `Allow`   → ignored unless no other decision.
 //!
 //! Refs: I-Gov-Decision-Required, I-Gov-Decision-Isolation
@@ -22,14 +22,14 @@ use brioche_core::{
 /// This component is **mandatory**: the kernel refuses to start without
 /// a `DecisionAggregator` injected via `BriocheEngineBuilder`.
 ///
-/// # Exemple
+/// # Example
 /// ```
 /// use brioche_governance_default::LexicographicDecisionAggregator;
 /// use brioche_core::BriocheEngineBuilder;
 ///
 /// let engine = BriocheEngineBuilder::new()
 ///     .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
-///     // ... autres traits obligatoires
+///     .with_subroutine_lifecycle_guard(Box::new(brioche_governance_default::SubRoutineCleanupGuard::new()))
 ///     .build();
 /// ```
 pub struct LexicographicDecisionAggregator;
@@ -69,7 +69,7 @@ impl DecisionAggregator for LexicographicDecisionAggregator {
             // Concatenating RequestEffects into a single MutateHistory is
             // not possible (different types). We return the first effect
             // as the aggregated decision; the remaining effects are emitted by the
-            // kernel dans le `Vec<Effect>` global.
+            // kernel in the global `Vec<Effect>`.
             Ok(PolicyDecision::RequestEffect(effects.remove(0)))
         } else {
             Ok(PolicyDecision::Allow)

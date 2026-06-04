@@ -111,16 +111,9 @@ fn minimal_plugin_allows_user_message() {
 
 #[test]
 fn engine_with_macro_plugin_runs_transition() {
-    let mut engine = match PluginBuilder::permissive()
+    let mut engine = PluginBuilder::permissive()
         .with_plugin(Box::new(MinimalPlugin))
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
     let mut session = brioche_plugin_kit::Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
     assert!(
@@ -131,13 +124,7 @@ fn engine_with_macro_plugin_runs_transition() {
 
 #[test]
 fn mock_engine_with_macro_plugin() {
-    let mut mock = match MockEngine::new() {
-        Ok(m) => m,
-        Err(err) => {
-            assert_eq!(1, 0, "mock engine failed: {}", err);
-            return;
-        }
-    };
+    let mut mock = MockEngine::new();
     let _effects = mock.transition(EngineInput::UserMessage("hello".into()));
     // MockEngine uses Permissive profile; transition succeeds without panic.
 }
