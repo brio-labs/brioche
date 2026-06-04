@@ -163,11 +163,10 @@ pub struct ExtensionStorage {
     cold_snapshot: BTreeMap<String, Vec<u8>>,
     registry: BTreeMap<TypeId, ExtVTable>,
     ext_id_to_type_id: BTreeMap<String, TypeId>,
-    /// Raw pointer to the active `CycleRollbackPolicy` for the current hook.
-    /// This is a transient field set/cleared by the engine around each plugin
-    /// hook invocation. The pointer is valid because the engine is single-threaded
-    /// and `!Send`/`!Sync`.
-    cow_observer: Option<*mut dyn CycleRollbackPolicy>,
+    /// Owned `CycleRollbackPolicy` temporarily attached during a monitored hook.
+    /// The engine moves the policy into storage before each hook and retrieves
+    /// it afterward. No raw pointers, no `unsafe`.
+    rollback_policy: Option<Box<dyn CycleRollbackPolicy>>,
     /// Types already snapshotted in the current hook. Prevents duplicate COW
     /// clones when a plugin calls `get_mut` multiple times for the same type.
     snapshotted_this_hook: BTreeSet<TypeId>,
@@ -189,7 +188,7 @@ impl ExtensionStorage {
             cold_snapshot: BTreeMap::new(),
             registry: BTreeMap::new(),
             ext_id_to_type_id: BTreeMap::new(),
-            cow_observer: None,
+            rollback_policy: None,
             snapshotted_this_hook: BTreeSet::new(),
         }
     }
@@ -287,34 +286,14 @@ impl ExtensionStorage {
         }
         // Notify COW observer now that the value is guaranteed to exist.
         self.notify_cow_on_first_mutation(type_id);
-        // Remove the value from the map to verify / fix its type locally,
-        // then re-insert. This avoids borrow checker issues with
-        // downcast_mut on trait objects held across map mutations.
-        let mut value = match self.hot_map.remove(&type_id) {
-            Some(v) => v,
-            None => Box::new(T::default()),
-        };
-        if value.downcast_mut::<T>().is_none() {
-            value = Box::new(T::default());
-        }
-        self.hot_map.insert(type_id, value);
-        // Now the map is guaranteed to contain Box<T>. Retrieve it.
-        // No further map mutations after this point to avoid borrow
-        // checker extending the get_mut borrow across insertions.
-        if let Some(any) = self.hot_map.get_mut(&type_id)
-            && let Some(typed) = any.downcast_mut::<T>()
-        {
-            return typed;
-        }
-        // This path is theoretically unreachable: we verified the type
-        // above by removing the value, checking downcast_mut, and
-        // re-inserting Box<T>. A failure here implies a fundamental
-        // rustc or std library bug.
-        //
-        // We leak a default instance rather than panicking to uphold
-        // I-Core-NoPanic (no panics in Core). The one-time memory cost
-        // is acceptable for preserving kernel stability.
-        Box::leak(Box::new(T::default()))
+        // Infallible: we just ensured (or verified) that hot_map contains
+        // Box<T> for this type_id. If a type mismatch occurs, it indicates
+        // a fundamental invariant violation; we leak rather than panic
+        // to uphold I-Core-NoPanic.
+        self.hot_map
+            .get_mut(&type_id)
+            .and_then(|any| any.downcast_mut::<T>())
+            .unwrap_or_else(|| Box::leak(Box::new(T::default())))
     }
 
     /// Hydrate a plugin from an external raw blob.
@@ -353,35 +332,24 @@ impl ExtensionStorage {
         &self.cold_snapshot
     }
 
-    /// Set the COW rollback observer for the duration of a monitored hook.
-    ///
-    /// # Safety
-    ///
-    /// The observer pointer must remain valid until `clear_cow_observer` is
-    /// called. This is guaranteed by the synchronous engine which sets/clears
-    /// the observer around each plugin invocation.
+    /// Attach a `CycleRollbackPolicy` for the duration of a monitored hook.
     ///
     /// Complexity: O(1). No heap allocation.
     ///
     /// Refs: I-Gov-Rollback-BestEffort
-    pub unsafe fn set_cow_observer(&mut self, observer: Option<*mut dyn CycleRollbackPolicy>) {
-        self.cow_observer = observer;
+    pub fn attach_rollback_policy(&mut self, policy: Box<dyn CycleRollbackPolicy>) {
+        self.rollback_policy = Some(policy);
         self.snapshotted_this_hook.clear();
     }
 
-    /// Clear the COW rollback observer.
-    ///
-    /// # Safety
-    ///
-    /// Must be called after `set_cow_observer` and after the hook
-    /// execution is complete, before any subsequent hook begins.
+    /// Detach the active `CycleRollbackPolicy`, returning it.
     ///
     /// Complexity: O(1). No heap allocation.
     ///
     /// Refs: I-Gov-Rollback-BestEffort
-    pub unsafe fn clear_cow_observer(&mut self) {
-        self.cow_observer = None;
+    pub fn detach_rollback_policy(&mut self) -> Option<Box<dyn CycleRollbackPolicy>> {
         self.snapshotted_this_hook.clear();
+        self.rollback_policy.take()
     }
 
     /// Restore a type-erased value into `hot_map` from a COW snapshot.
@@ -398,7 +366,7 @@ impl ExtensionStorage {
 
     /// Notify the COW observer on first mutation access for a type in this hook.
     fn notify_cow_on_first_mutation(&mut self, type_id: TypeId) {
-        let Some(observer_ptr) = self.cow_observer else {
+        let Some(policy) = self.rollback_policy.as_mut() else {
             return;
         };
         if self.snapshotted_this_hook.contains(&type_id) {
@@ -410,12 +378,7 @@ impl ExtensionStorage {
         let Some(current) = self.hot_map.get(&type_id) else {
             return;
         };
-        // SAFETY: The observer pointer is valid because the synchronous engine
-        // guarantees the policy outlives the hook invocation. The engine is
-        // single-threaded and `!Send`/`!Sync`.
-        unsafe {
-            (*observer_ptr).on_mutation(type_id, vtable, current.as_ref());
-        }
+        policy.on_mutation(type_id, vtable, current.as_ref());
         self.snapshotted_this_hook.insert(type_id);
     }
 

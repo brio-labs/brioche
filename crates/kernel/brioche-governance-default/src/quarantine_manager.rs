@@ -10,11 +10,16 @@ use brioche_core::{
     BriochePlugin, Effect, ExtensionStorage, PluginCapabilities, PluginError, PluginResult,
     PolicyDecision,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// State tracking quarantined plugins.
 ///
-/// Stored in `ExtensionStorage`. Uses `BTreeSet` for deterministic iteration.
+/// ## Snapshot strategy
+/// COW: full clone. Weight scales with number of quarantined plugins
+/// and fault counts (typically 003c 20). One `BTreeSet` + one `BTreeMap`.
+///
+/// Stored in `ExtensionStorage`. Uses `BTreeSet` and `BTreeMap` for
+/// deterministic iteration and O(log n) lookup.
 #[derive(
     Clone,
     Debug,
@@ -28,11 +33,10 @@ use std::collections::BTreeSet;
 #[brioche(critical_state)]
 pub struct QuarantineState {
     /// Set of quarantined plugin names.
-    #[brioche(deterministic_order)]
     pub quarantined: BTreeSet<String>,
     /// Count of faults observed per plugin (for escalation policies).
-    #[brioche(deterministic_order)]
-    pub fault_counts: Vec<(PluginFaultKey, u64)>,
+    /// `BTreeMap` guarantees deterministic iteration and O(log n) lookup.
+    pub fault_counts: BTreeMap<PluginFaultKey, u64>,
 }
 
 /// Deterministic key for fault counting.
@@ -90,22 +94,12 @@ impl BriochePlugin for QuarantineManager {
         if matches!(error, PluginError::Fatal { .. }) {
             state.quarantined.insert(plugin_name.clone());
 
-            // Increment fault count.
+            // Increment fault count via BTreeMap for O(log n) lookup.
             let key = PluginFaultKey {
                 plugin_name: plugin_name.clone(),
                 error_kind: format!("{:?}", std::mem::discriminant(error)),
             };
-            let mut found = false;
-            for (k, count) in &mut state.fault_counts {
-                if *k == key {
-                    *count += 1;
-                    found = true;
-                    break;
-                }
-            }
-            if !found {
-                state.fault_counts.push((key, 1));
-            }
+            *state.fault_counts.entry(key).or_insert(0) += 1;
 
             return Ok(PolicyDecision::RequestEffect(Effect::RebuildRoutes));
         }

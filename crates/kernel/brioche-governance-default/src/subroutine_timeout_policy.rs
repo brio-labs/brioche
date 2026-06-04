@@ -14,6 +14,10 @@ use brioche_core::{
 use std::collections::BTreeMap;
 
 /// Sub-routine timer state.
+///
+/// ## Snapshot strategy
+/// COW: full clone. Weight scales with number of active sub-routines
+/// (typically 003c 5). One `BTreeMap` plus one scalar.
 #[derive(
     Clone,
     Debug,
@@ -26,7 +30,12 @@ use std::collections::BTreeMap;
 )]
 #[brioche(critical_state)]
 pub struct SubRoutineTimerState {
-    /// Map handle -> (timestamp_start_ms, timeout_limit_ms).
+    /// Latest observed tick elapsed_ms from the shell's `TickEmitter`.
+    /// Used as the deterministic clock for timeout checks.
+    pub last_tick_ms: u64,
+    /// Map handle -> (start_tick_ms, timeout_limit_ms).
+    /// `start_tick_ms` must use the same timebase as `TickEmitter`
+    /// (i.e. elapsed milliseconds since the emitter started).
     pub timers: BTreeMap<brioche_core::SubRoutineHandle, (u64, u64)>,
 }
 
@@ -74,6 +83,10 @@ impl BriochePlugin for SubRoutineTimeoutPolicy {
 
     /// Checks active sub-routine timers for expiry.
     ///
+    /// Time is sourced deterministically from `SystemSignal::Tick`
+    /// events stored in `SignalBuffer`, never from direct system time.
+    /// This preserves I-Core-Pure: identical inputs produce identical outputs.
+    ///
     /// # Complexity
     /// O(n) where n = number of tracked timers. Linear scan.
     fn on_input(
@@ -86,25 +99,42 @@ impl BriochePlugin for SubRoutineTimeoutPolicy {
             snapshot.current_state == AgentStateTag::SubRoutine
         };
 
-        let state = ext.get_or_insert_default::<SubRoutineTimerState>();
-
         if !is_subroutine {
+            let state = ext.get_or_insert_default::<SubRoutineTimerState>();
             // Not in a sub-routine: clear stale timers to prevent
             // unbounded growth.
             state.timers.clear();
             return Ok(PolicyDecision::Allow);
         }
 
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        // Deterministic clock: consume the latest Tick signal from
+        // the shell's SignalBuffer. The shell's TickEmitter provides
+        // monotonically increasing elapsed_ms values.
+        let latest_tick = {
+            let signal_buffer = ext.get_or_insert_default::<brioche_core::SignalBuffer>();
+            signal_buffer
+                .system_signals
+                .iter()
+                .filter_map(|s| match s {
+                    brioche_core::SystemSignal::Tick { elapsed_ms } => Some(*elapsed_ms),
+                    _ => None,
+                })
+                .next_back()
+        };
+
+        let state = ext.get_or_insert_default::<SubRoutineTimerState>();
+
+        if let Some(tick) = latest_tick {
+            state.last_tick_ms = tick;
+        }
+
+        let reference_ms = state.last_tick_ms;
 
         // Collect expired handles before mutating the map.
         let expired: Vec<_> = state
             .timers
             .iter()
-            .filter(|(_, (start, limit))| now.saturating_sub(*start) > *limit)
+            .filter(|(_, (start, limit))| reference_ms.saturating_sub(*start) > *limit)
             .map(|(handle, _)| handle.clone())
             .collect();
 

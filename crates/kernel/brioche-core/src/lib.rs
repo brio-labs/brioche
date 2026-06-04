@@ -20,7 +20,7 @@ pub mod extension;
 pub mod plugin;
 pub mod types;
 
-pub use engine::{BriocheEngine, BriocheEngineBuilder, UnifiedRoutingTable};
+pub use engine::{BriocheEngine, BriocheEngineBuilder, Missing, Present, UnifiedRoutingTable};
 pub use extension::{
     BriocheExtensionType, CloneBoxFn, DefaultConstructFn, DeserializeFn, ExtVTable,
     ExtensionStorage, SerializeFn, SnapshotStrategy, WeightFn,
@@ -32,14 +32,14 @@ pub use plugin::{
 };
 pub use types::{
     ActiveToolCall, AgentState, AgentStateTag, AsyncTaskResult, BriocheError, ChatMessage, Effect,
-    EffectBit, EngineInput, EpochAction, EpochState, ErrorCode, ExecutionPath,
-    GovernanceNotification, HistoryEdit, MAX_INLINE_CHUNK, NO_TOOL_TIMEOUT_MS, PluginError,
-    PluginResult, PolicyDecision, RollbackEvent, RollbackEventLog, Session, SessionRegistry,
-    SessionSnapshot, SignalBuffer, SignalDrainBatch, StreamAction, StreamEvent,
-    StreamToolAccumulator, SubRoutineHandle, SupersededTransitionTrace,
-    SupersededTransitionTraceLog, SystemSignal, ToolCallDescriptor, ToolOutcome, ToolResultDTO,
-    ToolStatus, TransitionTrace, TransitionTraceLog, TruncatedToolResult, UiWidget,
-    effect_to_bitmask, seal,
+    EffectBit, EngineInput, EpochAction, EpochState, ErrorCode, ErrorDetail, ExecutionPath,
+    GovernanceNotification, HistoryEdit, MAX_INLINE_CHUNK, PluginError, PluginResult,
+    PolicyDecision, RollbackEvent, RollbackEventLog, Session, SessionRegistry, SessionSnapshot,
+    SignalBuffer, SignalDrainBatch, StreamAction, StreamEvent, StreamToolAccumulator,
+    SubRoutineHandle, SupersededTransitionTrace, SupersededTransitionTraceLog, SystemSignal,
+    ToolCallDescriptor, ToolOutcome, ToolResultDTO, ToolStatus, TransitionTrace,
+    TransitionTraceLog, TruncatedToolResult, UiWidget, effect_to_bitmask, seal, seal_single,
+    tool_outcome_to_string,
 };
 
 // Re-export dependencies so that proc-macro generated code and users

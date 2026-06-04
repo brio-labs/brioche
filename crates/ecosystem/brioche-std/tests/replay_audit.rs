@@ -9,32 +9,21 @@ use brioche_core::{AgentState, BriocheEngineBuilder, EngineInput, Session, Strea
 use brioche_governance_default::{LexicographicDecisionAggregator, SubRoutineCleanupGuard};
 use brioche_std::AuditLogger;
 
-fn ok_or_abort<T, E>(result: Result<T, E>) -> T {
-    match result {
-        Ok(v) => v,
-        Err(_) => std::process::abort(),
-    }
-}
-
 /// Build an engine with the AuditLogger installed.
 fn build_recording_engine() -> brioche_core::BriocheEngine {
-    ok_or_abort(
-        BriocheEngineBuilder::new()
-            .with_plugin(Box::new(AuditLogger::with_batch_size(1000)))
-            .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
-            .with_subroutine_lifecycle_guard(Box::new(SubRoutineCleanupGuard::new()))
-            .build(),
-    )
+    BriocheEngineBuilder::new()
+        .with_plugin(Box::new(AuditLogger::with_batch_size(1000)))
+        .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(SubRoutineCleanupGuard::new()))
+        .build()
 }
 
 /// Build a fresh engine without the AuditLogger for replay.
 fn build_replay_engine() -> brioche_core::BriocheEngine {
-    ok_or_abort(
-        BriocheEngineBuilder::new()
-            .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
-            .with_subroutine_lifecycle_guard(Box::new(SubRoutineCleanupGuard::new()))
-            .build(),
-    )
+    BriocheEngineBuilder::new()
+        .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(SubRoutineCleanupGuard::new()))
+        .build()
 }
 
 #[test]

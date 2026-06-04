@@ -6,9 +6,9 @@
 //! Refs: SPECS.md §Book IV
 
 use brioche_core::{
-    BriocheEngine, BriocheEngineBuilder, BriocheError, BriochePlugin, ConsistencyVerifier,
-    CycleRollbackPolicy, DecisionAggregator, EpochInterceptor, GovernanceFailoverHandler,
-    HookEffectConstraint, Session, SubRoutineHandler, SubRoutineLifecycleGuard,
+    BriocheEngine, BriocheEngineBuilder, BriochePlugin, ConsistencyVerifier, CycleRollbackPolicy,
+    DecisionAggregator, EpochInterceptor, GovernanceFailoverHandler, HookEffectConstraint, Present,
+    Session, SubRoutineHandler, SubRoutineLifecycleGuard,
 };
 use brioche_governance_default::GovernanceProfile;
 
@@ -21,13 +21,12 @@ use brioche_governance_default::GovernanceProfile;
 /// ```ignore
 /// let engine = PluginBuilder::standard()
 ///     .with_plugin(Box::new(MyPlugin))
-///     .build()
-///     .unwrap();
+///     .build();
 /// ```
 ///
 /// Refs: I-Gov-Profile-Agnostic
 pub struct PluginBuilder {
-    inner: BriocheEngineBuilder,
+    inner: BriocheEngineBuilder<Present, Present>,
 }
 
 impl Default for PluginBuilder {
@@ -42,8 +41,8 @@ impl PluginBuilder {
     /// This is the recommended starting point for most use cases.
     /// It injects all mandatory traits and sensible defaults.
     pub fn standard() -> Self {
-        let mut builder = BriocheEngineBuilder::new();
-        builder = GovernanceProfile::Standard.apply(builder);
+        let builder = BriocheEngineBuilder::new();
+        let builder = GovernanceProfile::Standard.apply(builder);
         Self { inner: builder }
     }
 
@@ -52,8 +51,8 @@ impl PluginBuilder {
     /// Use for development, testing, and rapid prototyping.
     /// Minimal policy constraints; all optional traits are no-ops.
     pub fn permissive() -> Self {
-        let mut builder = BriocheEngineBuilder::new();
-        builder = GovernanceProfile::Permissive.apply(builder);
+        let builder = BriocheEngineBuilder::new();
+        let builder = GovernanceProfile::Permissive.apply(builder);
         Self { inner: builder }
     }
 
@@ -62,18 +61,9 @@ impl PluginBuilder {
     /// Use for production deployments requiring maximum safety.
     /// All optional traits are active with conservative thresholds.
     pub fn strict() -> Self {
-        let mut builder = BriocheEngineBuilder::new();
-        builder = GovernanceProfile::Strict.apply(builder);
+        let builder = BriocheEngineBuilder::new();
+        let builder = GovernanceProfile::Strict.apply(builder);
         Self { inner: builder }
-    }
-
-    /// Start a bare builder with no governance traits injected.
-    ///
-    /// You must manually inject all mandatory traits before calling `build()`.
-    pub fn bare() -> Self {
-        Self {
-            inner: BriocheEngineBuilder::new(),
-        }
     }
 
     /// Add a plugin to the engine.
@@ -146,21 +136,16 @@ impl PluginBuilder {
     }
 
     /// Build the `BriocheEngine`.
-    ///
-    /// Returns `Err` if a mandatory trait is missing.
-    pub fn build(self) -> Result<BriocheEngine, BriocheError> {
+    pub fn build(self) -> BriocheEngine {
         self.inner.build()
     }
 
     /// Build the engine and create a new `Session` in one step.
     ///
     /// Returns `(engine, session)` ready for `transition()` calls.
-    pub fn build_with_session(
-        self,
-        session_id: impl Into<String>,
-    ) -> Result<(BriocheEngine, Session), BriocheError> {
-        let engine = self.build()?;
+    pub fn build_with_session(self, session_id: impl Into<String>) -> (BriocheEngine, Session) {
+        let engine = self.build();
         let session = Session::new(session_id);
-        Ok((engine, session))
+        (engine, session)
     }
 }

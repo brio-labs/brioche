@@ -7,7 +7,8 @@
 //! Refs: I-Core-NoPanic, I-Gov-Decision-Required
 
 use brioche_core::{
-    AgentState, AgentStateTag, ConsistencyVerifier, Effect, ErrorCode, PluginResult, Session,
+    AgentState, AgentStateTag, ConsistencyVerifier, Effect, ErrorCode, ErrorDetail, PluginResult,
+    Session,
 };
 
 /// Mechanical state consistency verifier.
@@ -42,7 +43,9 @@ impl ConsistencyVerifier for StateConsistencyGuard {
                     let effects = vec![
                         Effect::Error {
                             code: ErrorCode::StateInconsistency,
-                            message: "inconsistent state: active without stack context".into(),
+                            detail: ErrorDetail::StateInconsistent {
+                                source: "active without stack context".into(),
+                            },
                         },
                         Effect::SaveSession,
                         Effect::SystemIdle,

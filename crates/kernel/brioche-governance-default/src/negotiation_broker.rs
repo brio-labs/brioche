@@ -10,6 +10,10 @@
 use brioche_core::{DecisionAggregator, Effect, ExtensionStorage, PluginResult, PolicyDecision};
 
 /// Ongoing negotiation state.
+///
+/// ## Snapshot strategy
+/// COW: full clone. Weight scales with number of phase decisions
+/// (bounded by `max_phases`, typically 2264 3). One `Vec` + two scalars.
 #[derive(
     Clone,
     Debug,

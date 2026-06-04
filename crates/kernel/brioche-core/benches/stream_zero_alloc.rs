@@ -36,23 +36,14 @@ impl SubRoutineLifecycleGuard for MockSubRoutineLifecycleGuard {
     }
 }
 
-fn ok_or_abort<T, E>(result: Result<T, E>) -> T {
-    match result {
-        Ok(v) => v,
-        Err(_) => std::process::abort(),
-    }
-}
-
 fn bench_stream_zero_alloc(c: &mut Criterion) {
-    let mut engine = ok_or_abort(
-        BriocheEngineBuilder::new()
-            .with_decision_aggregator(Box::new(MockDecisionAggregator))
-            .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-            .build(),
-    );
+    let mut engine = BriocheEngineBuilder::new()
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .build();
 
     let mut session = Session::new("bench");
-    ok_or_abort(session.push_state(AgentState::Predicting { generation_id: 1 }));
+    let _ = session.push_state(AgentState::Predicting { generation_id: 1 });
 
     let event = StreamEvent::TextChunk {
         path: ExecutionPath::default(),
