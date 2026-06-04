@@ -23,41 +23,10 @@ use brioche_governance_default::{
 // ---------------------------------------------------------------------------
 
 #[test]
-fn permissive_profile_builds() {
-    let result = BriocheEngineBuilder::new()
-        .with_profile(GovernanceProfile::Permissive)
-        .build();
-    assert!(result.is_ok(), "permissive profile should build");
-}
-
-#[test]
-fn standard_profile_builds() {
-    let result = BriocheEngineBuilder::new()
-        .with_profile(GovernanceProfile::Standard)
-        .build();
-    assert!(result.is_ok(), "standard profile should build");
-}
-
-#[test]
-fn strict_profile_builds() {
-    let result = BriocheEngineBuilder::new()
-        .with_profile(GovernanceProfile::Strict)
-        .build();
-    assert!(result.is_ok(), "strict profile should build");
-}
-
-#[test]
 fn standard_profile_runs_user_message() {
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_profile(GovernanceProfile::Standard)
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
@@ -72,16 +41,9 @@ fn standard_profile_runs_user_message() {
 
 #[test]
 fn depth_guard_blocks_at_limit() {
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_profile(GovernanceProfile::Standard)
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .build();
 
     let mut session = Session::new("test");
     // Artificially inflate stack depth to exceed limit.

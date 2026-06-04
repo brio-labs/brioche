@@ -99,12 +99,7 @@ CRITICAL RULES: \
     let initial_history_for_factory = initial_history.clone();
     let shell = BriocheShell::new(
         move || {
-            let (engine, mut session) = PluginBuilder::standard()
-                .build_with_session(&session_id)
-                .unwrap_or_else(|e| {
-                    eprintln!("Failed to build engine: {e}");
-                    std::process::exit(1);
-                });
+            let (engine, mut session) = PluginBuilder::standard().build_with_session(&session_id);
             if let Some(head) = initial_head {
                 session = head.to_session(initial_history_for_factory.unwrap_or_default());
             } else if let Some(hist) = initial_history_for_factory {

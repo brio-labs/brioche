@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 183dbdef145f6edd622bcfde557ed32f3c63ce4bb8b8a39e5c3dd17eead049f7 # shrinks to input = LlmStream(Pass)
+cc 6f4ec79a7f707ec3fa041dc0f3ebae72cfcd02a368fa3b39073fd22bbb118202 # shrinks to input = LlmStream(ToolCallStart { path: ExecutionPath { nodes: [] }, id: "0", name: "a" })

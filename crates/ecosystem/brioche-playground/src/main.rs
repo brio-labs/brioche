@@ -112,11 +112,7 @@ async fn main() {
     let (mut engine, mut session) = PluginBuilder::permissive()
         .with_plugin(Box::new(EffectLogger))
         .with_plugin(Box::new(MockLlmBackend))
-        .build_with_session("playground")
-        .unwrap_or_else(|e| {
-            eprintln!("Failed to build engine: {e}");
-            std::process::exit(1);
-        });
+        .build_with_session("playground");
 
     println!("Engine ready. Session id = {}", session.id);
     println!("Sending EngineInput::UserMessage(\"hello\")...\n");

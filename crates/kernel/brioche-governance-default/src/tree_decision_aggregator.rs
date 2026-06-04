@@ -36,6 +36,10 @@ pub enum DecisionCondition {
 }
 
 /// Decision tree state stored in ExtensionStorage.
+///
+/// ## Snapshot strategy
+/// COW: full clone. Weight depends on tree depth and node count
+/// (typically 003c 20 nodes). Recursive `Box` allocations.
 #[derive(
     Clone,
     Debug,

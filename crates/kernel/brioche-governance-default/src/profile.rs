@@ -13,9 +13,9 @@ use crate::{
     PermissiveHookEffectConstraint, QuarantineManager, RecoveryPolicy, RollbackTelemetryEmitter,
     StateConsistencyGuard, SubRoutineCleanupGuard, SubRoutineOrchestrator, SubRoutineTimeoutPolicy,
     SystemFailoverGuard, TieredUndoFrameGuard, ToolCallDetector, ToolExecutionTracker,
-    ToolResultFormatter, TransitionConflictLogger,
+    ToolResultFormatter, ToolTimeoutPolicy, TransitionConflictLogger,
 };
-use brioche_core::BriocheEngineBuilder;
+use brioche_core::{BriocheEngineBuilder, Missing, Present};
 
 /// Extension trait providing `with_profile` on `BriocheEngineBuilder`.
 ///
@@ -23,14 +23,21 @@ use brioche_core::BriocheEngineBuilder;
 /// circular dependency (the kernel cannot depend on its default
 /// implementations crate).
 ///
+/// `with_profile` changes the builder's type from
+/// `BriocheEngineBuilder<Missing, Missing>` to
+/// `BriocheEngineBuilder<Present, Present>` because every profile
+/// injects both mandatory traits.
+///
 /// Refs: I-Gov-Profile-Agnostic
 pub trait BriocheEngineBuilderExt {
+    type Output;
     /// Apply a governance profile to this builder.
-    fn with_profile(self, profile: GovernanceProfile) -> Self;
+    fn with_profile(self, profile: GovernanceProfile) -> Self::Output;
 }
 
-impl BriocheEngineBuilderExt for BriocheEngineBuilder {
-    fn with_profile(self, profile: GovernanceProfile) -> Self {
+impl BriocheEngineBuilderExt for BriocheEngineBuilder<Missing, Missing> {
+    type Output = BriocheEngineBuilder<Present, Present>;
+    fn with_profile(self, profile: GovernanceProfile) -> Self::Output {
         profile.apply(self)
     }
 }
@@ -69,10 +76,12 @@ impl GovernanceProfile {
     ///
     /// let engine = BriocheEngineBuilder::new()
     ///     .with_profile(GovernanceProfile::Standard)
-    ///     .build()
-    ///     .expect("standard profile should always build");
+    ///     .build();
     /// ```
-    pub fn apply(self, builder: BriocheEngineBuilder) -> BriocheEngineBuilder {
+    pub fn apply(
+        self,
+        builder: BriocheEngineBuilder<Missing, Missing>,
+    ) -> BriocheEngineBuilder<Present, Present> {
         match self {
             GovernanceProfile::Permissive => Self::apply_permissive(builder),
             GovernanceProfile::Standard => Self::apply_standard(builder),
@@ -80,92 +89,72 @@ impl GovernanceProfile {
         }
     }
 
-    fn apply_permissive(mut builder: BriocheEngineBuilder) -> BriocheEngineBuilder {
-        // Mandatory traits
-        builder = builder
+    fn apply_permissive(
+        builder: BriocheEngineBuilder<Missing, Missing>,
+    ) -> BriocheEngineBuilder<Present, Present> {
+        builder
             .with_epoch_interceptor(Box::new(EpochGuard))
             .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
             .with_subroutine_lifecycle_guard(Box::new(SubRoutineCleanupGuard::new()))
-            .with_subroutine_handler(Box::new(SubRoutineOrchestrator::new()));
-
-        // Optional traits — permissive uses no-ops or minimal impls
-        builder = builder
+            .with_subroutine_handler(Box::new(SubRoutineOrchestrator::new()))
             .with_consistency_verifier(Box::new(StateConsistencyGuard::new()))
             .with_hook_effect_constraint(Box::new(PermissiveHookEffectConstraint::new()))
             .with_cycle_rollback_policy(Box::new(NoopCycleRollbackPolicy))
-            .with_governance_failover_handler(Box::new(NoopGovernanceFailoverHandler));
-
-        // Plugins — permissive: minimal set
-        builder = builder
+            .with_governance_failover_handler(Box::new(NoopGovernanceFailoverHandler))
             .with_plugin(Box::new(ToolCallDetector::new()))
             .with_plugin(Box::new(ToolResultFormatter::new()))
-            .with_plugin(Box::new(ToolExecutionTracker::new()));
-
-        builder
+            .with_plugin(Box::new(ToolExecutionTracker::new()))
     }
 
-    fn apply_standard(mut builder: BriocheEngineBuilder) -> BriocheEngineBuilder {
-        // Mandatory traits
-        builder = builder
+    fn apply_standard(
+        builder: BriocheEngineBuilder<Missing, Missing>,
+    ) -> BriocheEngineBuilder<Present, Present> {
+        builder
             .with_epoch_interceptor(Box::new(EpochGuard))
             .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
             .with_subroutine_lifecycle_guard(Box::new(SubRoutineCleanupGuard::new()))
-            .with_subroutine_handler(Box::new(SubRoutineOrchestrator::new()));
-
-        // Optional traits — standard: active guards with reasonable defaults
-        builder = builder
+            .with_subroutine_handler(Box::new(SubRoutineOrchestrator::new()))
             .with_consistency_verifier(Box::new(StateConsistencyGuard::new()))
             .with_hook_effect_constraint(Box::new(FastHookEffectConstraint::standard()))
             .with_cycle_rollback_policy(Box::new(AdaptiveUndoFrameGuard::new()))
-            .with_governance_failover_handler(Box::new(SystemFailoverGuard::new()));
-
-        // Plugins — standard: full telemetry + guards
-        builder = builder
+            .with_governance_failover_handler(Box::new(SystemFailoverGuard::new()))
             .with_plugin(Box::new(QuarantineManager::new()))
             .with_plugin(Box::new(RecoveryPolicy::new()))
             .with_plugin(Box::new(DepthGuard::with_max_depth(10)))
             .with_plugin(Box::new(TransitionConflictLogger::new()))
             .with_plugin(Box::new(ToolCallDetector::new()))
             .with_plugin(Box::new(ToolResultFormatter::new()))
+            .with_plugin(Box::new(ToolTimeoutPolicy::with_default_timeout(30000)))
             .with_plugin(Box::new(SubRoutineTimeoutPolicy::with_default_timeout(
                 300000,
             )))
             .with_plugin(Box::new(ToolExecutionTracker::new()))
-            .with_plugin(Box::new(RollbackTelemetryEmitter::new()));
-
-        builder
+            .with_plugin(Box::new(RollbackTelemetryEmitter::new()))
     }
 
-    fn apply_strict(mut builder: BriocheEngineBuilder) -> BriocheEngineBuilder {
-        // Mandatory traits
-        builder = builder
+    fn apply_strict(
+        builder: BriocheEngineBuilder<Missing, Missing>,
+    ) -> BriocheEngineBuilder<Present, Present> {
+        builder
             .with_epoch_interceptor(Box::new(EpochGuard))
             .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
             .with_subroutine_lifecycle_guard(Box::new(SubRoutineCleanupGuard::new()))
-            .with_subroutine_handler(Box::new(SubRoutineOrchestrator::new()));
-
-        // Optional traits — strict: tiered rollback, strict constraints,
-        // historical budget policy
-        builder = builder
+            .with_subroutine_handler(Box::new(SubRoutineOrchestrator::new()))
             .with_consistency_verifier(Box::new(StateConsistencyGuard::new()))
             .with_hook_effect_constraint(Box::new(FastHookEffectConstraint::standard()))
             .with_cycle_rollback_policy(Box::new(TieredUndoFrameGuard::new()))
-            .with_governance_failover_handler(Box::new(SystemFailoverGuard::new()));
-
-        // Plugins — strict: all safeguards at maximum sensitivity
-        builder = builder
+            .with_governance_failover_handler(Box::new(SystemFailoverGuard::new()))
             .with_plugin(Box::new(QuarantineManager::new()))
             .with_plugin(Box::new(RecoveryPolicy::new()))
             .with_plugin(Box::new(DepthGuard::with_max_depth(5)))
             .with_plugin(Box::new(TransitionConflictLogger::new()))
             .with_plugin(Box::new(ToolCallDetector::new()))
             .with_plugin(Box::new(ToolResultFormatter::new()))
+            .with_plugin(Box::new(ToolTimeoutPolicy::with_default_timeout(10000)))
             .with_plugin(Box::new(SubRoutineTimeoutPolicy::with_default_timeout(
                 60000,
             )))
             .with_plugin(Box::new(ToolExecutionTracker::new()))
-            .with_plugin(Box::new(RollbackTelemetryEmitter::new()));
-
-        builder
+            .with_plugin(Box::new(RollbackTelemetryEmitter::new()))
     }
 }

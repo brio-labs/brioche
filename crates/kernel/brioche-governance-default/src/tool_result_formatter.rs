@@ -15,6 +15,9 @@ use brioche_core::{
 };
 
 /// Tool result formatting configuration.
+///
+/// ## Snapshot strategy
+/// COW: full clone (~16 bytes). Two scalars.
 #[derive(
     Clone,
     Debug,
@@ -89,14 +92,7 @@ impl BriochePlugin for ToolResultFormatter {
         state.max_result_bytes = self.max_result_bytes;
 
         for result in results {
-            let content = match &result.outcome {
-                brioche_core::ToolOutcome::Success(s)
-                | brioche_core::ToolOutcome::BusinessError(s)
-                | brioche_core::ToolOutcome::SystemError(s) => s.clone(),
-                brioche_core::ToolOutcome::TimeoutWithPartialData { partial_output } => {
-                    partial_output.clone().unwrap_or_default()
-                }
-            };
+            let content = brioche_core::tool_outcome_to_string(&result.outcome);
 
             if self.max_result_bytes > 0 && content.len() > self.max_result_bytes {
                 let meta = TruncatedToolResult::from_content(&content, self.max_result_bytes);

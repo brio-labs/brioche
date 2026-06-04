@@ -12,7 +12,7 @@
 //!
 //! Refs: I-Eco-ExtensionOverMod
 
-use brioche_core::{BriocheEngine, BriocheError, Effect, EngineInput, Session};
+use brioche_core::{BriocheEngine, Effect, EngineInput, Session};
 
 use crate::PluginBuilder;
 
@@ -26,25 +26,31 @@ pub struct MockEngine {
     session: Session,
 }
 
+impl Default for MockEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MockEngine {
     /// Create a new `MockEngine` with the `Permissive` profile.
     ///
     /// The session id is `"test"`.
-    pub fn new() -> Result<Self, BriocheError> {
-        let (engine, session) = PluginBuilder::permissive().build_with_session("test")?;
-        Ok(Self { engine, session })
+    pub fn new() -> Self {
+        let (engine, session) = PluginBuilder::permissive().build_with_session("test");
+        Self { engine, session }
     }
 
     /// Create a new `MockEngine` with the `Standard` profile.
-    pub fn standard() -> Result<Self, BriocheError> {
-        let (engine, session) = PluginBuilder::standard().build_with_session("test")?;
-        Ok(Self { engine, session })
+    pub fn standard() -> Self {
+        let (engine, session) = PluginBuilder::standard().build_with_session("test");
+        Self { engine, session }
     }
 
     /// Create a new `MockEngine` with the `Strict` profile.
-    pub fn strict() -> Result<Self, BriocheError> {
-        let (engine, session) = PluginBuilder::strict().build_with_session("test")?;
-        Ok(Self { engine, session })
+    pub fn strict() -> Self {
+        let (engine, session) = PluginBuilder::strict().build_with_session("test");
+        Self { engine, session }
     }
 
     /// Execute one transition cycle.

@@ -15,6 +15,10 @@ use brioche_core::{
 use std::collections::BTreeMap;
 
 /// JSON argument accumulation state.
+///
+/// ## Snapshot strategy
+/// No snapshot (`#[brioche(no_snapshot)]`). Fully reconstructed each
+/// stream event; rollback is meaningless for transient accumulation.
 #[derive(
     Clone,
     Debug,
@@ -33,9 +37,9 @@ pub struct JsonArgumentAccumulatorState {
     pub total_fragments: u64,
 }
 
-/// Accumulateur et validateur d'arguments JSON.
+/// JSON argument accumulator and validator.
 ///
-/// Sur `on_stream_event`, accumule les fragments d'arguments pour
+/// On `on_stream_event`, accumulates argument fragments for
 /// validation. Does not modify the mechanical flow (always Pass).
 pub struct JsonArgumentAccumulator;
 
@@ -65,10 +69,10 @@ impl BriochePlugin for JsonArgumentAccumulator {
         20 // After ToolCallDetector, before any Hold/Offload decisions
     }
 
-    /// Accumule les fragments d'arguments pour validation future.
+    /// Accumulates argument fragments for future validation.
     ///
     /// # Complexity
-    /// O(log n). Une insertion `BTreeMap` par fragment.
+    /// O(log n). One `BTreeMap` insertion per fragment.
     fn on_stream_event(
         &self,
         event: &StreamEvent,

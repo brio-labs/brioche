@@ -5,11 +5,14 @@
 //! Refs: I-Gov-Depth-Limit
 
 use brioche_core::{
-    AgentStateTag, BriochePlugin, Effect, EngineInput, ErrorCode, ExtensionStorage,
+    AgentStateTag, BriochePlugin, Effect, EngineInput, ErrorCode, ErrorDetail, ExtensionStorage,
     PluginCapabilities, PluginResult, PolicyDecision, SessionSnapshot,
 };
 
 /// Nesting depth tracking state.
+///
+/// ## Snapshot strategy
+/// COW: full clone (~16 bytes). Two scalar fields.
 #[derive(
     Clone,
     Debug,
@@ -102,10 +105,10 @@ impl BriochePlugin for DepthGuard {
             return Ok(PolicyDecision::OverrideTransition(vec![
                 Effect::Error {
                     code: ErrorCode::StateInconsistency,
-                    message: format!(
+                    detail: ErrorDetail::Generic(format!(
                         "sub-routine depth limit exceeded: {} >= {}",
                         current_depth, self.max_depth
-                    ),
+                    )),
                 },
                 Effect::ForwardToUi(brioche_core::UiWidget::Error {
                     code: "DEPTH_LIMIT_EXCEEDED".into(),
