@@ -47,7 +47,7 @@ impl PluginCapabilities {
     ///
     /// Complexity: O(1). Bitwise AND.
     pub fn contains(self, other: Self) -> bool {
-        self.0 & other.0 != 0
+        self.0 & other.0 == other.0
     }
 
     /// Returns `true` if no capabilities are set.

@@ -271,6 +271,7 @@ impl OpenAiLlmClient {
                 ToolOutcome::TimeoutWithPartialData { partial_output } => {
                     partial_output.clone().unwrap_or_default()
                 }
+                _ => String::new(),
             };
             history.push(ChatMessage::ToolResult {
                 id: result.tool_id.clone(),

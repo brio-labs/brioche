@@ -252,6 +252,7 @@ fn classify_widget(widget: &UiWidget) -> EffectPriority {
         UiWidget::Test { .. } => EffectPriority::Cosmetic,
         // Everything else defaults to cosmetic (lowest priority).
         UiWidget::Custom { .. } => EffectPriority::Cosmetic,
+        _ => EffectPriority::Cosmetic,
     }
 }
 
