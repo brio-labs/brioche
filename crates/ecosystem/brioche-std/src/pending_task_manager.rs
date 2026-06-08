@@ -142,6 +142,7 @@ impl BriochePlugin for PendingTaskManager {
                                 brioche_core::ToolOutcome::TimeoutWithPartialData {
                                     partial_output,
                                 } => partial_output.clone().unwrap_or_default(),
+                                _ => String::new(),
                             };
                             PendingTaskStatus::Completed(msg)
                         }

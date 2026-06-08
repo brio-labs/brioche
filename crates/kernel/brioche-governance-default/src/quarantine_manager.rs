@@ -88,6 +88,7 @@ impl BriochePlugin for QuarantineManager {
         let plugin_name = match error {
             PluginError::Soft { plugin_name, .. } => plugin_name.clone(),
             PluginError::Fatal { plugin_name, .. } => plugin_name.clone(),
+            _ => String::new(),
         };
 
         // Only quarantine on fatal errors.

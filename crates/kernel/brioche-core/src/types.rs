@@ -29,6 +29,28 @@ use std::collections::BTreeMap;
 /// absence of heap allocation in the synchronous hot path for plugins
 /// in `Pass` or `Hold` mode.
 ///
+/// Default tool timeout applied when a descriptor omits `timeout_ms`.
+///
+/// Refs: I-Core-ActiveToolCall
+pub const DEFAULT_TOOL_TIMEOUT_MS: u64 = 30_000;
+
+/// Initial generation ID for predictions.
+///
+/// Refs: I-Core-AgentState
+pub const INITIAL_GENERATION_ID: u64 = 1;
+
+/// Maximum number of entries retained in transition trace ring buffers.
+///
+/// Refs: I-Gov-OverrideTrace
+pub const TRACE_LOG_CAPACITY: usize = 128;
+
+/// Maximum size of an inline streaming chunk in bytes.
+///
+/// SSE payloads exceeding this size are segmented into independent
+/// 4 KB fragments before injection into the kernel, guaranteeing the
+/// absence of heap allocation in the synchronous hot path for plugins
+/// in `Pass` or `Hold` mode.
+///
 /// Refs: I-Core-ChunkBudget
 pub const MAX_INLINE_CHUNK: usize = 4096;
 
@@ -75,6 +97,7 @@ impl SubRoutineHandle {
 ///
 /// Refs: I-Core-AgentState
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[non_exhaustive]
 pub enum AgentState {
     /// Waiting for user input.
     #[default]
@@ -99,6 +122,7 @@ pub enum AgentState {
 ///
 /// Refs: I-Core-Pure
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum ChatMessage {
     System {
         content: String,
@@ -233,6 +257,7 @@ pub fn tool_outcome_to_string(outcome: &ToolOutcome) -> String {
 ///
 /// Refs: SPECS.md §1.5
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum ToolOutcome {
     Success(String),
     BusinessError(String),
@@ -279,11 +304,12 @@ impl TruncatedToolResult {
     /// Serializes to a JSON string for injection into `ToolOutcome::Success`.
     ///
     /// Complexity: O(n) where n = JSON length. One `String` allocation.
-    pub fn to_json(&self) -> String {
-        // Infallible: TruncatedToolResult only contains Strings and primitives,
-        // so serde_json cannot fail. We use unwrap_or_else (not unwrap) to
-        // satisfy the clippy deny rule while preserving kernel stability.
-        serde_json::to_string(self).unwrap_or_else(|_| "{}".into())
+    ///
+    /// # Errors
+    /// Returns `BriocheError::Serialization` if JSON serialization fails.
+    pub fn to_json(&self) -> Result<String, BriocheError> {
+        serde_json::to_string(self)
+            .map_err(|e| BriocheError::Serialization(format!("TruncatedToolResult: {e}")))
     }
 }
 
@@ -690,6 +716,7 @@ pub struct SessionSnapshot {
 ///
 /// Refs: I-Core-EngineInput
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum EngineInput {
     /// User message. Triggers `Idle -> Predicting` transition.
     UserMessage(String),
@@ -715,6 +742,7 @@ pub enum EngineInput {
 ///
 /// Refs: I-Gov-Decision-Required, I-Gov-OverrideTrace
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum PolicyDecision {
     /// Allow the current operation to proceed.
     Allow,
@@ -736,6 +764,7 @@ pub enum PolicyDecision {
 ///
 /// Refs: I-Gov-Decision-Isolation
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum HistoryEdit {
     Insert { index: usize, message: ChatMessage },
     Replace { index: usize, message: ChatMessage },
@@ -758,6 +787,7 @@ pub enum HistoryEdit {
 ///
 /// Refs: I-Comp-Typed-Effects
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum UiWidget {
     /// Text fragment from LLM streaming.
     TextChunk { trace_id: String, text: String },
@@ -901,6 +931,7 @@ impl std::fmt::Display for ErrorDetail {
 ///
 /// Refs: I-Core-EffectPure, I-Core-RetVecEffect
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum Effect {
     CallLlmNetwork,
     ExecuteTools(Vec<ActiveToolCall>),
@@ -967,6 +998,7 @@ pub struct ExecutionPath {
 ///
 /// Refs: I-Core-ChunkBudget, I-Core-StreamNoBranch
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum StreamEvent {
     TextChunk {
         path: ExecutionPath,
@@ -995,6 +1027,7 @@ pub enum StreamEvent {
 ///
 /// Refs: I-Core-StreamNoBranch
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum StreamAction {
     /// Let the chunk pass through.
     Pass,
@@ -1015,6 +1048,7 @@ pub enum StreamAction {
 ///
 /// Refs: SPECS.md §1.5
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
+#[non_exhaustive]
 pub enum PluginError {
     #[error("soft error in plugin {plugin_name}: {message}")]
     Soft {
@@ -1062,6 +1096,7 @@ pub type PluginResult<T> = Result<T, PluginError>;
 ///
 /// Refs: I-Gov-Epoch-Reject
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum EpochAction {
     /// Input is valid for the current epoch; proceed with standard dispatch.
     Proceed,
