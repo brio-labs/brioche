@@ -45,6 +45,7 @@ impl DecisionAggregator for MockDecisionAggregator {
                     return Ok(PolicyDecision::RequestEffect(eff));
                 }
                 PolicyDecision::Allow => {}
+                _ => {}
             }
         }
         if edits.is_empty() {

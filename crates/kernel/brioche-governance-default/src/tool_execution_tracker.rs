@@ -106,6 +106,7 @@ impl BriochePlugin for ToolExecutionTracker {
                 brioche_core::ToolOutcome::TimeoutWithPartialData { .. } => {
                     state.failed_count += 1;
                 }
+                _ => {}
             }
             // Remove the start timestamp; duration is 0 in this
             // deterministic model (the shell may enrich via effect).
