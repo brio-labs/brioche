@@ -63,68 +63,69 @@ impl DecisionAggregator for NegotiationBroker {
         decisions: Vec<PolicyDecision>,
         ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
-        let state = ext.get_or_insert_default::<NegotiationState>();
+        ext.with_or_insert_default::<NegotiationState, _>(|state| {
+            // Accumulate this phase's decisions.
+            for d in &decisions {
+                state.phase_decisions.push(d.clone());
+            }
 
-        // Accumulate this phase's decisions.
-        for d in &decisions {
-            state.phase_decisions.push(d.clone());
-        }
+            state.current_phase += 1;
 
-        state.current_phase += 1;
+            // If we've reached max phases or all decisions agree, settle.
+            let all_allow = decisions.iter().all(|d| matches!(d, PolicyDecision::Allow));
+            let any_block = decisions
+                .iter()
+                .any(|d| matches!(d, PolicyDecision::Block { .. }));
+            let any_override = decisions
+                .iter()
+                .any(|d| matches!(d, PolicyDecision::OverrideTransition(_)));
 
-        // If we've reached max phases or all decisions agree, settle.
-        let all_allow = decisions.iter().all(|d| matches!(d, PolicyDecision::Allow));
-        let any_block = decisions
-            .iter()
-            .any(|d| matches!(d, PolicyDecision::Block { .. }));
-        let any_override = decisions
-            .iter()
-            .any(|d| matches!(d, PolicyDecision::OverrideTransition(_)));
+            if state.current_phase >= self.max_phases || all_allow || any_block || any_override {
+                state.settled = true;
+            }
 
-        if state.current_phase >= self.max_phases || all_allow || any_block || any_override {
-            state.settled = true;
-        }
+            if state.settled {
+                // Final aggregation using lexicographic rules.
+                let mut edits = Vec::new();
+                let mut effects = Vec::new();
 
-        if state.settled {
-            // Final aggregation using lexicographic rules.
-            let mut edits = Vec::new();
-            let mut effects = Vec::new();
-
-            for decision in &state.phase_decisions {
-                match decision {
-                    PolicyDecision::Allow => {}
-                    PolicyDecision::Block { reason } => {
-                        return Ok(PolicyDecision::Block {
-                            reason: reason.clone(),
-                        });
-                    }
-                    PolicyDecision::MutateHistory(e) => {
-                        edits.extend(e.clone());
-                    }
-                    PolicyDecision::RequestEffect(eff) => {
-                        effects.push(eff.clone());
-                    }
-                    PolicyDecision::OverrideTransition(ov) => {
-                        return Ok(PolicyDecision::OverrideTransition(ov.clone()));
+                for decision in &state.phase_decisions {
+                    match decision {
+                        PolicyDecision::Allow => {}
+                        PolicyDecision::Block { reason } => {
+                            return Ok(PolicyDecision::Block {
+                                reason: reason.clone(),
+                            });
+                        }
+                        PolicyDecision::MutateHistory(e) => {
+                            edits.extend(e.clone());
+                        }
+                        PolicyDecision::RequestEffect(eff) => {
+                            effects.push(eff.clone());
+                        }
+                        PolicyDecision::OverrideTransition(ov) => {
+                            return Ok(PolicyDecision::OverrideTransition(ov.clone()));
+                        }
+                        _ => {}
                     }
                 }
-            }
 
-            // Reset state for next negotiation cycle.
-            state.current_phase = 0;
-            state.phase_decisions.clear();
-            state.settled = false;
+                // Reset state for next negotiation cycle.
+                state.current_phase = 0;
+                state.phase_decisions.clear();
+                state.settled = false;
 
-            if !edits.is_empty() {
-                Ok(PolicyDecision::MutateHistory(edits))
-            } else if !effects.is_empty() {
-                Ok(PolicyDecision::RequestEffect(effects.remove(0)))
+                if !edits.is_empty() {
+                    Ok(PolicyDecision::MutateHistory(edits))
+                } else if !effects.is_empty() {
+                    Ok(PolicyDecision::RequestEffect(effects.remove(0)))
+                } else {
+                    Ok(PolicyDecision::Allow)
+                }
             } else {
-                Ok(PolicyDecision::Allow)
+                // Not settled yet — request another prediction round.
+                Ok(PolicyDecision::RequestEffect(Effect::CallLlmNetwork))
             }
-        } else {
-            // Not settled yet — request another prediction round.
-            Ok(PolicyDecision::RequestEffect(Effect::CallLlmNetwork))
-        }
+        })
     }
 }

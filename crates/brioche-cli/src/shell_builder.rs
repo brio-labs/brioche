@@ -53,6 +53,7 @@ impl<T: ToolExecutor> ToolExecutor for HistorySyncDecorator<T> {
             brioche_core::ToolOutcome::TimeoutWithPartialData { partial_output } => {
                 format!("(timeout: {})", partial_output.clone().unwrap_or_default())
             }
+            _ => String::new(),
         };
         self.llm.emit_tool_result(&call.tool_name, &output);
         self.llm
@@ -134,10 +135,10 @@ pub fn build_shell(
             let head = brioche_shell_persistence::SessionHeadDTO::from_session(session);
             let entry = SessionStoreEntry {
                 head,
-                messages: session.history.clone(),
+                messages: session.history().to_vec(),
             };
             if let Ok(mut store) = store_for_callback.try_write() {
-                store.insert(session.id.clone(), entry);
+                store.insert(session.id().to_string(), entry);
             }
         });
 
@@ -153,9 +154,14 @@ pub fn build_shell(
                     std::process::exit(1);
                 });
             if let Some(head) = initial_head {
-                session = head.to_session(initial_history_for_factory.unwrap_or_default());
+                session = head
+                    .to_session(initial_history_for_factory.unwrap_or_default())
+                    .unwrap_or_else(|e| {
+                        eprintln!("Failed to restore session from head: {e}");
+                        std::process::exit(1);
+                    });
             } else if let Some(hist) = initial_history_for_factory {
-                session.history = hist;
+                session.set_history(hist);
             }
             (engine, session)
         },

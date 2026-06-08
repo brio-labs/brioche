@@ -66,12 +66,13 @@ fn replay_journal_user_message_sequence() {
         "effect sequences diverged after journal replay"
     );
     assert_eq!(
-        session.state, recovered_session.state,
+        session.state(),
+        recovered_session.state(),
         "final states diverged after journal replay"
     );
     assert_eq!(
-        session.history.len(),
-        recovered_session.history.len(),
+        session.history_len(),
+        recovered_session.history_len(),
         "history lengths diverged after journal replay"
     );
 }

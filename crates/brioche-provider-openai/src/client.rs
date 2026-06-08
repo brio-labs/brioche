@@ -17,7 +17,7 @@
 //! Refs: SPECS.md §Book III-A, I-Core-ChunkBudget
 
 use crate::{config::OpenAiConfig, request::build_request_body, sse::SseParser};
-use brioche_core::{ChatMessage, MAX_INLINE_CHUNK, StreamEvent, ToolOutcome, ToolResultDTO};
+use brioche_core::{ChatMessage, MAX_INLINE_CHUNK, StreamEvent, ToolResultDTO};
 use brioche_shell_runtime::{BriocheShell, EngineInput, LlmClient, ShellError, SystemSignal};
 use bytes::Bytes;
 use futures_util::StreamExt;
@@ -246,17 +246,10 @@ impl OpenAiLlmClient {
     pub async fn push_tool_results(&self, results: &[ToolResultDTO]) {
         let mut history = self.history.write().await;
         for result in results {
-            let content = match &result.outcome {
-                ToolOutcome::Success(s)
-                | ToolOutcome::BusinessError(s)
-                | ToolOutcome::SystemError(s) => s.clone(),
-                ToolOutcome::TimeoutWithPartialData { partial_output } => {
-                    partial_output.clone().unwrap_or_default()
-                }
-            };
             history.push(ChatMessage::ToolResult {
                 id: result.tool_id.clone(),
-                content,
+                tool_name: result.tool_name.clone(),
+                outcome: result.outcome.clone(),
             });
         }
     }

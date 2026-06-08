@@ -74,22 +74,24 @@ impl BriochePlugin for JsonArgumentAccumulator {
         event: &StreamEvent,
         ext: &mut ExtensionStorage,
     ) -> PluginResult<StreamAction> {
-        let state = ext.get_or_insert_default::<JsonArgumentAccumulatorState>();
-
         match event {
             StreamEvent::ToolArgumentChunk { id, chunk, .. } => {
                 let fragment = String::from_utf8_lossy(chunk);
-                state
-                    .accumulated
-                    .entry(id.clone())
-                    .or_default()
-                    .push_str(&fragment);
-                state.total_fragments += 1;
+                ext.with_or_insert_default::<JsonArgumentAccumulatorState, _>(|state| {
+                    state
+                        .accumulated
+                        .entry(id.clone())
+                        .or_default()
+                        .push_str(&fragment);
+                    state.total_fragments += 1;
+                });
             }
             StreamEvent::ToolCallDone { .. } => {
                 // Optional: validate JSON syntax here.
                 // For Sprint 8, we just clear the transient accumulator.
-                state.accumulated.clear();
+                ext.with_or_insert_default::<JsonArgumentAccumulatorState, _>(|state| {
+                    state.accumulated.clear();
+                });
             }
             _ => {}
         }

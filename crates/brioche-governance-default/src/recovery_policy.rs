@@ -90,31 +90,35 @@ impl BriochePlugin for RecoveryPolicy {
         input: &EngineInput,
         ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
-        let snapshot = ext.get_or_insert_default::<SessionSnapshot>();
-        let is_failure = snapshot.current_state == AgentStateTag::Failure;
-        let was_failure = {
-            let state = ext.get_or_insert_default::<RecoveryState>();
+        let is_failure = ext.with_or_insert_default::<SessionSnapshot, _>(|snapshot| {
+            snapshot.current_state == AgentStateTag::Failure
+        });
+        let was_failure = ext.with_or_insert_default::<RecoveryState, _>(|state| {
             state.consecutive_recoveries >= self.max_consecutive_recoveries
-        };
+        });
 
         if is_failure {
-            let state = ext.get_or_insert_default::<RecoveryState>();
-            state.consecutive_recoveries += 1;
-            state.last_error = Some(format!("{:?}", input));
+            ext.with_or_insert_default::<RecoveryState, _>(|state| {
+                state.consecutive_recoveries += 1;
+                state.last_error = Some(format!("{:?}", input));
 
-            if state.consecutive_recoveries >= self.max_consecutive_recoveries {
-                state.inputs_blocked += 1;
+                if state.consecutive_recoveries >= self.max_consecutive_recoveries {
+                    state.inputs_blocked += 1;
+                }
+            });
+            if was_failure {
                 return Ok(PolicyDecision::Block {
                     reason: "recovery: max consecutive failures exceeded".into(),
                 });
             }
         } else if !was_failure {
             // Healthy state — reset the counter.
-            let state = ext.get_or_insert_default::<RecoveryState>();
-            if state.consecutive_recoveries > 0 {
-                state.consecutive_recoveries = 0;
-                state.last_error = None;
-            }
+            ext.with_or_insert_default::<RecoveryState, _>(|state| {
+                if state.consecutive_recoveries > 0 {
+                    state.consecutive_recoveries = 0;
+                    state.last_error = None;
+                }
+            });
         }
 
         Ok(PolicyDecision::Allow)

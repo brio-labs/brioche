@@ -1,3 +1,5 @@
+#![allow(clippy::panic)]
+
 //! Integration tests for `brioche-plugin-kit` macros.
 //!
 //! Verifies that `#[brioche_plugin]`, `#[hook]`, and `#[brioche_offload_task]`
@@ -99,28 +101,18 @@ fn multi_cap_plugin_priority() {
 fn minimal_plugin_allows_user_message() {
     let plugin = MinimalPlugin;
     let mut ext = ExtensionStorage::new();
-    let decision = match plugin.on_input(&EngineInput::UserMessage("hello".into()), &mut ext) {
-        Ok(d) => d,
-        Err(err) => {
-            assert_eq!(1, 0, "plugin error: {}", err);
-            return;
-        }
-    };
+    let decision = plugin
+        .on_input(&EngineInput::UserMessage("hello".into()), &mut ext)
+        .unwrap_or_else(|err| panic!("plugin error: {}", err));
     assert_eq!(decision, PolicyDecision::Allow);
 }
 
 #[test]
 fn engine_with_macro_plugin_runs_transition() {
-    let mut engine = match PluginBuilder::permissive()
+    let mut engine = PluginBuilder::permissive()
         .with_plugin(Box::new(MinimalPlugin))
         .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .unwrap_or_else(|err| panic!("build failed: {}", err));
     let mut session = brioche_plugin_kit::Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
     assert!(
@@ -131,13 +123,7 @@ fn engine_with_macro_plugin_runs_transition() {
 
 #[test]
 fn mock_engine_with_macro_plugin() {
-    let mut mock = match MockEngine::new() {
-        Ok(m) => m,
-        Err(err) => {
-            assert_eq!(1, 0, "mock engine failed: {}", err);
-            return;
-        }
-    };
+    let mut mock = MockEngine::new().unwrap_or_else(|err| panic!("mock engine failed: {}", err));
     let _effects = mock.transition(EngineInput::UserMessage("hello".into()));
     // MockEngine uses Permissive profile; transition succeeds without panic.
 }
@@ -145,22 +131,20 @@ fn mock_engine_with_macro_plugin() {
 #[test]
 fn offload_task_generates_effect() {
     let input = vec![1, 2, 3];
-    let effect = __brioche_offload_double_payload::effect("task-1", &input);
-    match effect {
-        Effect::ExecuteCpuTask { task_id, payload } => {
-            assert_eq!(task_id, "task-1");
-            assert!(!payload.is_empty());
-        }
-        other => {
-            assert_eq!(1, 0, "expected ExecuteCpuTask, got {other:?}");
-        }
-    }
+    let effect = __brioche_offload_double_payload::effect("task-1", &input)
+        .unwrap_or_else(|err| panic!("effect build failed: {}", err));
+    let Effect::ExecuteCpuTask { task_id, payload } = effect else {
+        panic!("expected ExecuteCpuTask, got {effect:?}");
+    };
+    assert_eq!(task_id, "task-1");
+    assert!(!payload.is_empty());
 }
 
 #[test]
 fn offload_task_serialize_roundtrip() {
     let input = vec![5, 6, 7];
-    let bytes = __brioche_offload_double_payload::serialize_input(&input);
+    let bytes = __brioche_offload_double_payload::serialize_input(&input)
+        .unwrap_or_else(|err| panic!("serialize failed: {}", err));
     // For Vec<u8>, postcard serializes directly.
     assert!(!bytes.is_empty());
 }

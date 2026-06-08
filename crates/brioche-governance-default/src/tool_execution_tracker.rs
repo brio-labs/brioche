@@ -74,11 +74,12 @@ impl BriochePlugin for ToolExecutionTracker {
         calls: &mut Vec<ToolCallDescriptor>,
         ext: &mut ExtensionStorage,
     ) -> PluginResult<()> {
-        let state = ext.get_or_insert_default::<ToolExecutionTelemetry>();
         let now = 0u64; // Deterministic: the shell will provide real timestamps via ExtensionStorage if needed.
-        for call in calls {
-            state.start_timestamps.insert(call.tool_id.clone(), now);
-        }
+        ext.with_or_insert_default::<ToolExecutionTelemetry, _>(|state| {
+            for call in calls.iter_mut() {
+                state.start_timestamps.insert(call.tool_id.clone(), now);
+            }
+        });
         Ok(())
     }
 
@@ -87,26 +88,28 @@ impl BriochePlugin for ToolExecutionTracker {
         results: &mut Vec<ToolResultDTO>,
         ext: &mut ExtensionStorage,
     ) -> PluginResult<()> {
-        let state = ext.get_or_insert_default::<ToolExecutionTelemetry>();
-        for result in results {
-            match &result.outcome {
-                brioche_core::ToolOutcome::Success(_) => {
-                    state.completed_count += 1;
+        ext.with_or_insert_default::<ToolExecutionTelemetry, _>(|state| {
+            for result in results.iter_mut() {
+                match &result.outcome {
+                    brioche_core::ToolOutcome::Success(_) => {
+                        state.completed_count += 1;
+                    }
+                    brioche_core::ToolOutcome::BusinessError(_) => {
+                        state.failed_count += 1;
+                    }
+                    brioche_core::ToolOutcome::SystemError(_) => {
+                        state.failed_count += 1;
+                    }
+                    brioche_core::ToolOutcome::TimeoutWithPartialData { .. } => {
+                        state.failed_count += 1;
+                    }
+                    _ => {}
                 }
-                brioche_core::ToolOutcome::BusinessError(_) => {
-                    state.failed_count += 1;
-                }
-                brioche_core::ToolOutcome::SystemError(_) => {
-                    state.failed_count += 1;
-                }
-                brioche_core::ToolOutcome::TimeoutWithPartialData { .. } => {
-                    state.failed_count += 1;
-                }
+                // Remove the start timestamp; duration is 0 in this
+                // deterministic model (the shell may enrich via effect).
+                state.start_timestamps.remove(&result.tool_id);
             }
-            // Remove the start timestamp; duration is 0 in this
-            // deterministic model (the shell may enrich via effect).
-            state.start_timestamps.remove(&result.tool_id);
-        }
+        });
         Ok(())
     }
 }

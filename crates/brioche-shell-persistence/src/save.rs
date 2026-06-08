@@ -28,7 +28,7 @@ const FLAG_COMPRESSED: u8 = 0x01;
 ///
 /// Refs: SPECS.md §Book III-B Ch 3.1
 pub fn extract_delta(session: &Session) -> &[ChatMessage] {
-    &session.history[session.persisted_msg_count..]
+    &session.history()[session.persisted_msg_count()..]
 }
 
 /// Serialize a `SessionHeadDTO` to MessagePack.

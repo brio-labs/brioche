@@ -114,13 +114,14 @@ impl CycleRollbackPolicy for TieredUndoFrameGuard {
     }
 
     fn commit_hook(&mut self, ext: &mut ExtensionStorage) {
-        let log = ext.get_or_insert_default::<brioche_core::RollbackEventLog>();
-        log.events.push(brioche_core::RollbackEvent {
-            hook_name: String::new(),
-            was_rollback: false,
-            frame_weight: self.current_standard_weight + self.current_best_effort_weight,
-            budget_exceeded: self.current_standard_weight >= self.max_standard_bytes
-                || self.current_best_effort_weight >= self.max_best_effort_bytes,
+        ext.with_or_insert_default::<brioche_core::RollbackEventLog, _>(|log| {
+            log.events.push(brioche_core::RollbackEvent {
+                hook_name: String::new(),
+                was_rollback: false,
+                frame_weight: self.current_standard_weight + self.current_best_effort_weight,
+                budget_exceeded: self.current_standard_weight >= self.max_standard_bytes
+                    || self.current_best_effort_weight >= self.max_best_effort_bytes,
+            });
         });
         self.active_frame = None;
         self.current_standard_weight = 0;
@@ -137,12 +138,13 @@ impl CycleRollbackPolicy for TieredUndoFrameGuard {
                 ext.restore_boxed(type_id, backup);
             }
         }
-        let log = ext.get_or_insert_default::<brioche_core::RollbackEventLog>();
-        log.events.push(brioche_core::RollbackEvent {
-            hook_name: String::new(),
-            was_rollback: true,
-            frame_weight: self.current_standard_weight + self.current_best_effort_weight,
-            budget_exceeded: !can_restore,
+        ext.with_or_insert_default::<brioche_core::RollbackEventLog, _>(|log| {
+            log.events.push(brioche_core::RollbackEvent {
+                hook_name: String::new(),
+                was_rollback: true,
+                frame_weight: self.current_standard_weight + self.current_best_effort_weight,
+                budget_exceeded: !can_restore,
+            });
         });
         self.active_frame = None;
         self.current_standard_weight = 0;

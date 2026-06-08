@@ -42,14 +42,13 @@ fn delegate_user_message(
     child: &mut Session,
     content: &str,
 ) -> Result<Vec<Effect>, brioche_core::BriocheError> {
-    child.history.push(ChatMessage::User {
+    child.push_history(ChatMessage::User {
         content: content.into(),
     });
 
     let generation = child
-        .extensions
-        .get_or_insert_default::<brioche_core::EpochState>()
-        .current_generation;
+        .extensions_mut()
+        .with_or_insert_default::<brioche_core::EpochState, _>(|state| state.current_generation);
     child.push_state(AgentState::Predicting {
         generation_id: generation,
     })?;
@@ -64,51 +63,55 @@ fn accumulate_stream_tools(
     child: &mut Session,
     event: &StreamEvent,
 ) -> Result<Option<Vec<Effect>>, brioche_core::BriocheError> {
-    if !matches!(child.state, AgentState::Predicting { .. }) {
+    if !matches!(child.state(), AgentState::Predicting { .. }) {
         return Ok(None);
     }
 
     match event {
         StreamEvent::ToolCallStart { id, name, .. } => {
-            let acc = child
-                .extensions
-                .get_or_insert_default::<brioche_core::StreamToolAccumulator>();
-            acc.pending.insert(
-                id.clone(),
-                brioche_core::ToolCallDescriptor {
-                    tool_id: id.clone(),
-                    tool_name: name.clone(),
-                    arguments: String::new(),
-                    timeout_ms: None,
-                },
-            );
+            child
+                .extensions_mut()
+                .with_or_insert_default::<brioche_core::StreamToolAccumulator, _>(|acc| {
+                    acc.pending.insert(
+                        id.clone(),
+                        brioche_core::ToolCallDescriptor {
+                            tool_id: id.clone(),
+                            tool_name: name.clone(),
+                            arguments: String::new(),
+                            timeout_ms: None,
+                        },
+                    );
+                });
             Ok(None)
         }
         StreamEvent::ToolArgumentChunk { id, chunk, .. } => {
-            let acc = child
-                .extensions
-                .get_or_insert_default::<brioche_core::StreamToolAccumulator>();
-            if let Some(desc) = acc.pending.get_mut(id) {
-                desc.arguments.push_str(&String::from_utf8_lossy(chunk));
-            }
+            child
+                .extensions_mut()
+                .with_or_insert_default::<brioche_core::StreamToolAccumulator, _>(|acc| {
+                    if let Some(desc) = acc.pending.get_mut(id) {
+                        desc.arguments.push_str(&String::from_utf8_lossy(chunk));
+                    }
+                });
             Ok(None)
         }
         StreamEvent::ToolCallDone { .. } => {
-            let acc = child
-                .extensions
-                .get_or_insert_default::<brioche_core::StreamToolAccumulator>();
-            let pending: Vec<_> = std::mem::take(&mut acc.pending).into_values().collect();
+            let pending: Vec<_> = child
+                .extensions_mut()
+                .with_or_insert_default::<brioche_core::StreamToolAccumulator, _>(|acc| {
+                    std::mem::take(&mut acc.pending).into_values().collect()
+                });
             if pending.is_empty() {
                 return Ok(None);
             }
             let active: Vec<ActiveToolCall> = pending
                 .into_iter()
-                .map(|d| brioche_core::seal(vec![d]).remove(0))
+                .map(|d| brioche_core::seal(vec![d], 0).remove(0))
                 .collect();
-            child.active_tools = active.clone();
-            let generation = match child.state {
-                AgentState::Predicting { generation_id } => generation_id,
-                _ => 0,
+            child.set_active_tools(active.clone());
+            let generation = if let AgentState::Predicting { generation_id } = child.state() {
+                *generation_id
+            } else {
+                0
             };
             child.push_state(AgentState::ExecutingTools {
                 generation_id: generation,
@@ -128,24 +131,17 @@ fn resolve_tool_results(
     generation_id: u64,
     results: &[ToolResultDTO],
 ) -> Result<(), brioche_core::BriocheError> {
-    if !matches!(child.state, AgentState::ExecutingTools { .. }) {
+    if !matches!(child.state(), AgentState::ExecutingTools { .. }) {
         return Ok(());
     }
     child.pop_state()?;
-    child.active_tools.clear();
+    child.clear_active_tools();
 
     for result in results {
-        let content = match &result.outcome {
-            brioche_core::ToolOutcome::Success(s)
-            | brioche_core::ToolOutcome::BusinessError(s)
-            | brioche_core::ToolOutcome::SystemError(s) => s.clone(),
-            brioche_core::ToolOutcome::TimeoutWithPartialData { partial_output } => {
-                partial_output.clone().unwrap_or_default()
-            }
-        };
-        child.history.push(ChatMessage::ToolResult {
+        child.push_history(ChatMessage::ToolResult {
             id: result.tool_id.clone(),
-            content,
+            tool_name: result.tool_name.clone(),
+            outcome: result.outcome.clone(),
         });
     }
 
@@ -158,16 +154,16 @@ fn detect_subroutine_termination(
     parent: &mut Session,
     child: &mut Session,
 ) -> Result<Option<Vec<Effect>>, brioche_core::BriocheError> {
-    match &child.state {
+    match child.state() {
         AgentState::Idle => {
-            if let Some(last) = child.history.last() {
-                parent.history.push(last.clone());
+            if let Some(last) = child.history().last() {
+                parent.push_history(last.clone());
             }
             parent.pop_state()?;
             Ok(Some(vec![Effect::SaveSession, Effect::CallLlmNetwork]))
         }
         AgentState::Failure => {
-            parent.history.push(ChatMessage::System {
+            parent.push_history(ChatMessage::System {
                 content: "sub-routine failed".into(),
             });
             parent.pop_state()?;
@@ -212,6 +208,7 @@ impl SubRoutineHandler for SubRoutineOrchestrator {
                 // Should not happen on an already active sub-routine.
                 Ok(None)
             }
+            _ => Ok(None),
         }
     }
 }

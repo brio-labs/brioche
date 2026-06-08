@@ -118,7 +118,7 @@ async fn main() {
             std::process::exit(1);
         });
 
-    println!("Engine ready. Session id = {}", session.id);
+    println!("Engine ready. Session id = {}", session.id());
     println!("Sending EngineInput::UserMessage(\"hello\")...\n");
 
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".to_string()));

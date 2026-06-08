@@ -94,21 +94,22 @@ impl BriochePlugin for PendingTaskManager {
         results: &mut Vec<ToolResultDTO>,
         ext: &mut ExtensionStorage,
     ) -> PluginResult<()> {
-        let state = ext.get_or_insert_default::<PendingTaskState>();
-        state.default_check_after_ms = self.default_check_after_ms;
+        ext.with_or_insert_default::<PendingTaskState, _>(|state| {
+            state.default_check_after_ms = self.default_check_after_ms;
 
-        for result in results {
-            if let brioche_core::ToolOutcome::Success(content) = &result.outcome
-                && content.contains("__PENDING__")
-            {
-                let info = PendingTaskInfo {
-                    task_id: result.tool_id.clone(),
-                    check_after_ms: self.default_check_after_ms,
-                    status: PendingTaskStatus::Pending,
-                };
-                state.pending.insert(result.tool_id.clone(), info);
+            for result in results.iter_mut() {
+                if let brioche_core::ToolOutcome::Success(content) = &result.outcome
+                    && content.contains("__PENDING__")
+                {
+                    let info = PendingTaskInfo {
+                        task_id: result.tool_id.clone(),
+                        check_after_ms: self.default_check_after_ms,
+                        status: PendingTaskStatus::Pending,
+                    };
+                    state.pending.insert(result.tool_id.clone(), info);
+                }
             }
-        }
+        });
 
         Ok(())
     }
@@ -124,41 +125,44 @@ impl BriochePlugin for PendingTaskManager {
         _input: &brioche_core::EngineInput,
         ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
-        let buffer = ext.get_or_insert_default::<SignalBuffer>();
-
-        // Collect status updates without holding a mutable borrow across updates.
-        let updates: Vec<(String, PendingTaskStatus)> = buffer
-            .async_task_results
-            .iter()
-            .filter_map(|ar| match ar {
-                AsyncTaskResult::ToolStatusCheck { task_id, status } => {
-                    let new_status = match status {
-                        brioche_core::ToolStatus::Running => PendingTaskStatus::Running,
-                        brioche_core::ToolStatus::Completed(outcome) => {
-                            let msg = match outcome {
-                                brioche_core::ToolOutcome::Success(s)
-                                | brioche_core::ToolOutcome::BusinessError(s)
-                                | brioche_core::ToolOutcome::SystemError(s) => s.clone(),
-                                brioche_core::ToolOutcome::TimeoutWithPartialData {
-                                    partial_output,
-                                } => partial_output.clone().unwrap_or_default(),
+        let updates: Vec<(String, PendingTaskStatus)> = ext
+            .with_or_insert_default::<SignalBuffer, _>(|buffer| {
+                buffer
+                    .async_task_results
+                    .iter()
+                    .filter_map(|ar| match ar {
+                        AsyncTaskResult::ToolStatusCheck { task_id, status } => {
+                            let new_status = match status {
+                                brioche_core::ToolStatus::Running => PendingTaskStatus::Running,
+                                brioche_core::ToolStatus::Completed(outcome) => {
+                                    let msg = match outcome {
+                                        brioche_core::ToolOutcome::Success(s)
+                                        | brioche_core::ToolOutcome::BusinessError(s)
+                                        | brioche_core::ToolOutcome::SystemError(s) => s.clone(),
+                                        brioche_core::ToolOutcome::TimeoutWithPartialData {
+                                            partial_output,
+                                        } => partial_output.clone().unwrap_or_default(),
+                                        _ => String::new(),
+                                    };
+                                    PendingTaskStatus::Completed(msg)
+                                }
+                                _ => return None,
                             };
-                            PendingTaskStatus::Completed(msg)
+                            Some((task_id.clone(), new_status))
                         }
-                    };
-                    Some((task_id.clone(), new_status))
-                }
-                _ => None,
-            })
-            .collect();
+                        _ => None,
+                    })
+                    .collect()
+            });
 
         if !updates.is_empty() {
-            let state = ext.get_or_insert_default::<PendingTaskState>();
-            for (task_id, status) in updates {
-                if let Some(info) = state.pending.get_mut(&task_id) {
-                    info.status = status;
+            ext.with_or_insert_default::<PendingTaskState, _>(|state| {
+                for (task_id, status) in &updates {
+                    if let Some(info) = state.pending.get_mut(task_id) {
+                        info.status = status.clone();
+                    }
                 }
-            }
+            });
         }
 
         Ok(PolicyDecision::Allow)

@@ -55,13 +55,21 @@ pub fn build_messages(history: &[ChatMessage]) -> Vec<serde_json::Value> {
                 );
                 serde_json::Value::Object(m)
             }
-            ChatMessage::ToolResult { id, content } => {
+            ChatMessage::ToolResult {
+                id,
+                tool_name: _,
+                outcome,
+            } => {
                 let mut m = serde_json::Map::new();
                 m.insert("role".into(), serde_json::Value::String("tool".into()));
                 m.insert("tool_call_id".into(), serde_json::Value::String(id.clone()));
-                m.insert("content".into(), serde_json::Value::String(content.clone()));
+                m.insert(
+                    "content".into(),
+                    serde_json::Value::String(outcome.content().to_string()),
+                );
                 serde_json::Value::Object(m)
             }
+            _ => simple_msg("user", ""),
         })
         .collect()
 }

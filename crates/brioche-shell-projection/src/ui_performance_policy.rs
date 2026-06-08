@@ -99,8 +99,9 @@ impl UiPerformancePolicy {
     ///
     /// Complexity: O(log n) where n = registered extension types.
     pub fn sync_from_storage(&mut self, ext: &mut ExtensionStorage) {
-        let state: &UiPerformanceState = ext.get_or_insert_default();
-        self.composer.set_frame_budget(state.frame_budget_ms);
+        let budget =
+            ext.with_or_insert_default::<UiPerformanceState, _>(|state| state.frame_budget_ms);
+        self.composer.set_frame_budget(budget);
     }
 
     /// Enqueue a batch of effects and compose the next frame.

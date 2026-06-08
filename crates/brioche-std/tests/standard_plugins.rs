@@ -7,6 +7,8 @@
 //!
 //! Refs: SPECS.md §Book IV
 
+#![allow(clippy::expect_used, clippy::panic)]
+
 use brioche_core::{
     AgentState, BriocheEngineBuilder, BriochePlugin, ChatMessage, Effect, EngineInput,
     ExtensionStorage, PolicyDecision, Session, StreamEvent, ToolCallDescriptor, ToolOutcome,
@@ -85,8 +87,9 @@ fn circuit_breaker_blocks_at_threshold() {
         "circuit breaker should block when threshold exceeded"
     );
 
-    let state = ext.get_or_insert_default::<CircuitBreakerState>();
-    assert_eq!(state.loops_broken, 1);
+    ext.with_or_insert_default::<CircuitBreakerState, _>(|state| {
+        assert_eq!(state.loops_broken, 1);
+    });
 }
 
 #[test]
@@ -147,11 +150,12 @@ fn token_tracker_estimates_from_history() {
     };
     assert!(matches!(decision, PolicyDecision::Allow));
 
-    let state = ext.get_or_insert_default::<TokenTrackerState>();
-    // "hello world" = 11 chars => ceil(11/4) = 3 tokens (input)
-    // "hi there" = 8 chars => ceil(8/4) = 2 tokens (output)
-    assert!(state.total_input_tokens >= 3);
-    assert!(state.total_output_tokens >= 2);
+    ext.with_or_insert_default::<TokenTrackerState, _>(|state| {
+        // "hello world" = 11 chars => ceil(11/4) = 3 tokens (input)
+        // "hi there" = 8 chars => ceil(8/4) = 2 tokens (output)
+        assert!(state.total_input_tokens >= 3);
+        assert!(state.total_output_tokens >= 2);
+    });
 }
 
 #[test]
@@ -168,8 +172,9 @@ fn token_tracker_increments_cycles() {
         "after_prediction should succeed"
     );
 
-    let state = ext.get_or_insert_default::<TokenTrackerState>();
-    assert_eq!(state.prediction_cycles, 2);
+    ext.with_or_insert_default::<TokenTrackerState, _>(|state| {
+        assert_eq!(state.prediction_cycles, 2);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -202,8 +207,9 @@ fn context_optimizer_triggers_at_threshold() {
         "should trigger summarization at 80% of 10 messages (threshold=8, history=9)"
     );
 
-    let state = ext.get_or_insert_default::<ContextOptimizerState>();
-    assert_eq!(state.summarizations_triggered, 1);
+    ext.with_or_insert_default::<ContextOptimizerState, _>(|state| {
+        assert_eq!(state.summarizations_triggered, 1);
+    });
 }
 
 #[test]
@@ -285,8 +291,9 @@ fn tool_result_formatter_truncates_oversized() {
         "on_tool_result should succeed"
     );
 
-    let state = ext.get_or_insert_default::<ToolResultFormatterState>();
-    assert_eq!(state.formatted_count, 1);
+    ext.with_or_insert_default::<ToolResultFormatterState, _>(|state| {
+        assert_eq!(state.formatted_count, 1);
+    });
 
     if let ToolOutcome::Success(content) = &results[0].outcome {
         assert!(content.contains("truncated"));
@@ -311,8 +318,9 @@ fn tool_result_formatter_passes_small_results() {
         "on_tool_result should succeed"
     );
 
-    let state = ext.get_or_insert_default::<ToolResultFormatterState>();
-    assert_eq!(state.formatted_count, 1);
+    ext.with_or_insert_default::<ToolResultFormatterState, _>(|state| {
+        assert_eq!(state.formatted_count, 1);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -334,9 +342,10 @@ fn pending_task_manager_detects_pending_marker() {
         "on_tool_result should succeed"
     );
 
-    let state = ext.get_or_insert_default::<PendingTaskState>();
-    assert!(state.pending.contains_key("task_1"));
-    assert_eq!(state.pending["task_1"].check_after_ms, 3000);
+    ext.with_or_insert_default::<PendingTaskState, _>(|state| {
+        assert!(state.pending.contains_key("task_1"));
+        assert_eq!(state.pending["task_1"].check_after_ms, 3000);
+    });
 }
 
 #[test]
@@ -354,8 +363,9 @@ fn pending_task_manager_ignores_non_pending() {
         "on_tool_result should succeed"
     );
 
-    let state = ext.get_or_insert_default::<PendingTaskState>();
-    assert!(state.pending.is_empty());
+    ext.with_or_insert_default::<PendingTaskState, _>(|state| {
+        assert!(state.pending.is_empty());
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -372,16 +382,18 @@ fn gc_policy_counts_cycles() {
         ext.insert(brioche_core::SessionSnapshot {
             current_state: brioche_core::AgentStateTag::Predicting,
             state_stack_depth: 0,
-        });
+        })
+        .expect("SessionSnapshot insert should succeed");
         assert!(
             policy.after_prediction(&mut ext).is_ok(),
             "after_prediction should succeed"
         );
     }
 
-    let state = ext.get_or_insert_default::<GcPolicyState>();
-    assert_eq!(state.cycles_since_gc, 5);
-    assert_eq!(state.gcs_triggered, 0);
+    ext.with_or_insert_default::<GcPolicyState, _>(|state| {
+        assert_eq!(state.cycles_since_gc, 5);
+        assert_eq!(state.gcs_triggered, 0);
+    });
 }
 
 #[test]
@@ -394,21 +406,24 @@ fn gc_policy_respects_idle_flag() {
         policy.after_prediction(&mut ext).is_ok(),
         "after_prediction should succeed"
     );
-    let state = ext.get_or_insert_default::<GcPolicyState>();
-    assert_eq!(state.gcs_triggered, 0);
+    ext.with_or_insert_default::<GcPolicyState, _>(|state| {
+        assert_eq!(state.gcs_triggered, 0);
+    });
 
     // Second cycle: simulate idle by injecting SessionSnapshot.
     ext.insert(brioche_core::SessionSnapshot {
         current_state: brioche_core::AgentStateTag::Idle,
         state_stack_depth: 0,
-    });
+    })
+    .expect("SessionSnapshot insert should succeed");
     assert!(
         policy.after_prediction(&mut ext).is_ok(),
         "after_prediction should succeed"
     );
-    let state = ext.get_or_insert_default::<GcPolicyState>();
-    assert_eq!(state.gcs_triggered, 1);
-    assert_eq!(state.cycles_since_gc, 0);
+    ext.with_or_insert_default::<GcPolicyState, _>(|state| {
+        assert_eq!(state.gcs_triggered, 1);
+        assert_eq!(state.cycles_since_gc, 0);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -446,9 +461,10 @@ fn audit_logger_batches_entries() {
         "audit logger should request SavePluginBlob when batch is full"
     );
 
-    let state = ext.get_or_insert_default::<AuditLoggerState>();
-    assert_eq!(state.total_logged, 2);
-    assert!(state.pending.is_empty());
+    ext.with_or_insert_default::<AuditLoggerState, _>(|state| {
+        assert_eq!(state.total_logged, 2);
+        assert!(state.pending.is_empty());
+    });
 }
 
 #[test]
@@ -461,11 +477,12 @@ fn audit_logger_sequences_entries() {
         assert!(result.is_ok(), "on_input should succeed for msg{}", i);
     }
 
-    let state = ext.get_or_insert_default::<AuditLoggerState>();
-    assert_eq!(state.pending.len(), 5);
-    for (i, entry) in state.pending.iter().enumerate() {
-        assert_eq!(entry.sequence as usize, i);
-    }
+    ext.with_or_insert_default::<AuditLoggerState, _>(|state| {
+        assert_eq!(state.pending.len(), 5);
+        for (i, entry) in state.pending.iter().enumerate() {
+            assert_eq!(entry.sequence as usize, i);
+        }
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -497,7 +514,7 @@ fn engine_with_all_std_plugins_runs_user_message() {
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
 
-    assert!(matches!(session.state, AgentState::Predicting { .. }));
+    assert!(matches!(session.state(), AgentState::Predicting { .. }));
     assert!(effects.iter().any(|e| matches!(e, Effect::CallLlmNetwork)));
 }
 
@@ -521,21 +538,25 @@ fn engine_after_prediction_hooks_fire_on_stream_done() {
 
     // Enter Predicting state.
     let _ = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
-    assert!(matches!(session.state, AgentState::Predicting { .. }));
+    assert!(matches!(session.state(), AgentState::Predicting { .. }));
 
     // Send stream done.
     let effects = engine.transition(&mut session, &EngineInput::LlmStream(StreamEvent::Done));
 
     // Should return to Idle and emit SystemIdle.
-    assert!(matches!(session.state, AgentState::Idle));
+    assert!(matches!(session.state(), AgentState::Idle));
     assert!(effects.iter().any(|e| matches!(e, Effect::SystemIdle)));
 
     // TokenTracker and GcPolicy should have incremented their counters.
-    let tracker_state = session
-        .extensions
-        .get_or_insert_default::<TokenTrackerState>();
-    assert_eq!(tracker_state.prediction_cycles, 1);
+    session
+        .extensions_mut()
+        .with_or_insert_default::<TokenTrackerState, _>(|tracker_state| {
+            assert_eq!(tracker_state.prediction_cycles, 1);
+        });
 
-    let gc_state = session.extensions.get_or_insert_default::<GcPolicyState>();
-    assert_eq!(gc_state.cycles_since_gc, 1);
+    session
+        .extensions_mut()
+        .with_or_insert_default::<GcPolicyState, _>(|gc_state| {
+            assert_eq!(gc_state.cycles_since_gc, 1);
+        });
 }

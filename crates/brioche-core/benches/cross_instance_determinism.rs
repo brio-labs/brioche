@@ -36,14 +36,12 @@ impl SubRoutineLifecycleGuard for MockSubRoutineLifecycleGuard {
 }
 
 fn build_engine() -> BriocheEngine {
-    match BriocheEngineBuilder::new()
+    let result = BriocheEngineBuilder::new()
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .build()
-    {
-        Ok(e) => e,
-        Err(_) => std::process::abort(),
-    }
+        .build();
+    assert!(result.is_ok(), "build engine failed: {:?}", result.err());
+    result.unwrap_or_else(|_| std::process::abort())
 }
 
 /// Run a deterministic sequence of transitions.
@@ -55,9 +53,8 @@ fn run_sequence(engine: &mut BriocheEngine, session: &mut Session) -> Vec<Vec<Ef
     all_effects.push(engine.transition(session, &EngineInput::LlmStream(StreamEvent::Done)));
 
     // Enter predicting and simulate tool call
-    session.state = AgentState::Idle;
-    session.state_stack.clear();
-    session.history.clear();
+    session.restore_state(AgentState::Idle, vec![]);
+    session.truncate_history(0);
     all_effects.push(engine.transition(session, &EngineInput::UserMessage("tool".into())));
 
     all_effects
@@ -75,7 +72,7 @@ fn bench_cross_instance_determinism(c: &mut Criterion) {
             let effects_b = run_sequence(&mut engine_b, &mut session_b);
 
             assert_eq!(effects_a, effects_b, "divergence detected");
-            assert_eq!(session_a.state, session_b.state);
+            assert_eq!(session_a.state(), session_b.state());
         });
     });
 }

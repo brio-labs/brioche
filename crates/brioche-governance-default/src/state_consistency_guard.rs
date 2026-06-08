@@ -7,7 +7,8 @@
 //! Refs: I-Core-NoPanic, I-Gov-Decision-Required
 
 use brioche_core::{
-    AgentState, AgentStateTag, ConsistencyVerifier, Effect, ErrorCode, PluginResult, Session,
+    AgentState, AgentStateTag, ConsistencyReport, ConsistencyVerifier, Effect, ErrorCode,
+    PluginResult, Session,
 };
 
 /// Mechanical state consistency verifier.
@@ -31,36 +32,33 @@ impl Default for StateConsistencyGuard {
 }
 
 impl ConsistencyVerifier for StateConsistencyGuard {
-    fn verify_consistency(&self, session: &mut Session) -> PluginResult<Option<Vec<Effect>>> {
-        let tag = AgentStateTag::from(&session.state);
+    fn verify_consistency(&self, session: &Session) -> PluginResult<ConsistencyReport> {
+        let tag = AgentStateTag::from(session.state());
 
         match tag {
             AgentStateTag::Predicting | AgentStateTag::ExecutingTools => {
                 // An active state without a context stack is inconsistent:
                 // there is no previous state to restore.
-                if session.state_stack.is_empty() {
-                    let effects = vec![
-                        Effect::Error {
-                            code: ErrorCode::StateInconsistency,
-                            message: "inconsistent state: active without stack context".into(),
-                        },
-                        Effect::SaveSession,
-                        Effect::SystemIdle,
-                    ];
-
-                    // Mechanical forcing to Idle with cleanup.
-                    session.state = AgentState::Idle;
-                    session.state_stack.clear();
-                    session.active_tools.clear();
-
-                    return Ok(Some(effects));
+                if session.state_stack().is_empty() {
+                    return Ok(ConsistencyReport {
+                        suggested_state: Some(AgentState::Idle),
+                        clear_stack: true,
+                        effects: vec![
+                            Effect::Error {
+                                code: ErrorCode::StateInconsistency,
+                                message: "inconsistent state: active without stack context".into(),
+                            },
+                            Effect::SaveSession,
+                            Effect::SystemIdle,
+                        ],
+                    });
                 }
 
                 // ExecutingTools without active tools is also suspicious,
                 // but the kernel already handles this case via `active_tools`.
-                Ok(None)
+                Ok(ConsistencyReport::ok())
             }
-            _ => Ok(None),
+            _ => Ok(ConsistencyReport::ok()),
         }
     }
 }

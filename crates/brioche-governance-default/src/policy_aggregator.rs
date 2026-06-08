@@ -60,6 +60,7 @@ impl DecisionAggregator for LexicographicDecisionAggregator {
                     // The first OverrideTransition wins.
                     return Ok(PolicyDecision::OverrideTransition(ov));
                 }
+                _ => {}
             }
         }
 

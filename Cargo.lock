@@ -207,7 +207,6 @@ dependencies = [
  "brioche-macro",
  "bytes",
  "criterion",
- "parking_lot",
  "postcard",
  "proptest",
  "serde",

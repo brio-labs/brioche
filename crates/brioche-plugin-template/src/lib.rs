@@ -42,9 +42,7 @@ impl BriochePlugin for {{ProjectName}} {
         input: &EngineInput,
         ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
-        let state = ext.get_or_insert_default::<{{ProjectName}}State>();
-        state.counter += 1;
-
+        ext.with_or_insert_default::<{{ProjectName}}State, _>(|state|.counter += 1;);
         match input {
             EngineInput::UserMessage(msg) => {
                 println!("[{{project-name}}] received user message: {msg}");
@@ -61,21 +59,17 @@ mod tests {
     use super::*;
     use brioche_plugin_kit::MockEngine;
 
+    use std::error::Error;
+
     #[test]
-    fn plugin_counts_inputs() {
-        let mut mock = match MockEngine::new() {
-            Ok(m) => m,
-            Err(err) => {
-                assert_eq!(1, 0, "mock engine failed: {}", err);
-                return;
-            }
-        };
+    fn plugin_counts_inputs() -> Result<(), Box<dyn Error>> {
+        let mut mock = MockEngine::new()?;
         let _effects = mock.transition(EngineInput::UserMessage("hello".into()));
 
-        let state = mock
-            .session()
-            .extensions
-            .get_or_insert_default::<{{ProjectName}}State>();
-        assert_eq!(state.counter, 1);
+        mock.session()
+            .extensions_mut()
+            .with_or_insert_default::<{{ProjectName}}State, _>(|state| {
+                assert_eq!(state.counter, 1);
+            });
     }
 }

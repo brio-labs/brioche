@@ -90,31 +90,35 @@ impl BriochePlugin for AuditLogger {
         ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
         // Read epoch first so the mutable borrow ends before state access.
-        let epoch = {
-            let es = ext.get_or_insert_default::<brioche_core::EpochState>();
-            es.current_generation
-        };
+        let epoch =
+            ext.with_or_insert_default::<brioche_core::EpochState, _>(|es| es.current_generation);
 
-        let state = ext.get_or_insert_default::<AuditLoggerState>();
-        state.batch_size = self.batch_size;
+        let should_flush = ext.with_or_insert_default::<AuditLoggerState, _>(|state| {
+            state.batch_size = self.batch_size;
 
-        let input_json = match serde_json::to_string(input) {
-            Ok(s) => s,
-            Err(e) => format!("{{\"serialization_error\":\"{}\"}}", e),
-        };
+            let input_json = match serde_json::to_string(input) {
+                Ok(s) => s,
+                Err(e) => format!("{{\"serialization_error\":\"{}\"}}", e),
+            };
 
-        let entry = AuditEntry {
-            sequence: state.next_sequence,
-            input_json,
-            epoch,
-        };
-        state.next_sequence += 1;
-        state.total_logged += 1;
-        state.pending.push(entry);
+            let entry = AuditEntry {
+                sequence: state.next_sequence,
+                input_json,
+                epoch,
+            };
+            state.next_sequence += 1;
+            state.total_logged += 1;
+            state.pending.push(entry);
 
-        if state.pending.len() >= self.batch_size {
-            let blob = brioche_core::postcard::to_allocvec(&state.pending).unwrap_or_default();
-            state.pending.clear();
+            state.pending.len() >= self.batch_size
+        });
+
+        if should_flush {
+            let blob = ext.with_or_insert_default::<AuditLoggerState, _>(|state| {
+                let blob = brioche_core::postcard::to_allocvec(&state.pending).unwrap_or_default();
+                state.pending.clear();
+                blob
+            });
             return Ok(PolicyDecision::RequestEffect(Effect::SavePluginBlob {
                 plugin_id: "audit_logger".into(),
                 data: blob,

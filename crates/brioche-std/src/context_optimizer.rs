@@ -78,13 +78,20 @@ impl BriochePlugin for ContextOptimizer {
         history: &[ChatMessage],
         ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
-        let state = ext.get_or_insert_default::<ContextOptimizerState>();
-        state.max_messages = self.max_messages;
-        state.threshold_percent = self.threshold_percent;
+        let should_trigger = ext.with_or_insert_default::<ContextOptimizerState, _>(|state| {
+            state.max_messages = self.max_messages;
+            state.threshold_percent = self.threshold_percent;
 
-        let threshold = (self.max_messages * self.threshold_percent as usize) / 100;
-        if threshold > 0 && history.len() >= threshold {
-            state.summarizations_triggered += 1;
+            let threshold = (self.max_messages * self.threshold_percent as usize) / 100;
+            if threshold > 0 && history.len() >= threshold {
+                state.summarizations_triggered += 1;
+                true
+            } else {
+                false
+            }
+        });
+
+        if should_trigger {
             return Ok(PolicyDecision::RequestEffect(Effect::TriggerSummarization));
         }
 

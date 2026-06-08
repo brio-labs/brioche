@@ -233,38 +233,42 @@ impl SubRoutineManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     #[test]
-    fn manager_begin_load_inserts_loading() {
+    fn manager_begin_load_inserts_loading() -> Result<(), Box<dyn Error>> {
         let mut mgr = SubRoutineManager::new();
-        let handle = SubRoutineHandle::new("sub-1");
+        let handle = SubRoutineHandle::new("sub-1")?;
         let state = mgr.begin_load(handle.clone());
         assert_eq!(state.accordion, SubRoutineAccordionState::Loading);
         assert_eq!(mgr.len(), 1);
+        Ok(())
     }
 
     #[test]
-    fn manager_mark_loaded_transitions_state() {
+    fn manager_mark_loaded_transitions_state() -> Result<(), Box<dyn Error>> {
         let mut mgr = SubRoutineManager::new();
-        let handle = SubRoutineHandle::new("sub-1");
+        let handle = SubRoutineHandle::new("sub-1")?;
         mgr.begin_load(handle.clone());
         let state = mgr.mark_loaded(handle.clone());
         assert_eq!(state.accordion, SubRoutineAccordionState::Loaded);
+        Ok(())
     }
 
     #[test]
-    fn manager_mark_loaded_creates_unknown_handle() {
+    fn manager_mark_loaded_creates_unknown_handle() -> Result<(), Box<dyn Error>> {
         let mut mgr = SubRoutineManager::new();
-        let handle = SubRoutineHandle::new("sub-1");
+        let handle = SubRoutineHandle::new("sub-1")?;
         let state = mgr.mark_loaded(handle.clone());
         assert_eq!(state.accordion, SubRoutineAccordionState::Loaded);
         assert_eq!(mgr.len(), 1);
+        Ok(())
     }
 
     #[test]
-    fn manager_mark_error_and_timeout() {
+    fn manager_mark_error_and_timeout() -> Result<(), Box<dyn Error>> {
         let mut mgr = SubRoutineManager::new();
-        let handle = SubRoutineHandle::new("sub-1");
+        let handle = SubRoutineHandle::new("sub-1")?;
         mgr.begin_load(handle.clone());
 
         let state = mgr
@@ -276,25 +280,27 @@ mod tests {
             .mark_timeout(&handle)
             .unwrap_or_else(|| unreachable!("handle must exist"));
         assert_eq!(state.accordion, SubRoutineAccordionState::Timeout);
+        Ok(())
     }
 
     #[test]
-    fn manager_remove_clears_entry() {
+    fn manager_remove_clears_entry() -> Result<(), Box<dyn Error>> {
         let mut mgr = SubRoutineManager::new();
-        let handle = SubRoutineHandle::new("sub-1");
+        let handle = SubRoutineHandle::new("sub-1")?;
         mgr.begin_load(handle.clone());
         let removed = mgr
             .remove(&handle)
             .unwrap_or_else(|| unreachable!("handle must exist"));
         assert_eq!(removed.accordion, SubRoutineAccordionState::Loading);
         assert!(mgr.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn manager_isolated_renderers() {
+    fn manager_isolated_renderers() -> Result<(), Box<dyn Error>> {
         let mut mgr = SubRoutineManager::new();
-        let h1 = SubRoutineHandle::new("sub-1");
-        let h2 = SubRoutineHandle::new("sub-2");
+        let h1 = SubRoutineHandle::new("sub-1")?;
+        let h2 = SubRoutineHandle::new("sub-2")?;
 
         mgr.begin_load(h1.clone());
         mgr.begin_load(h2.clone());
@@ -311,16 +317,18 @@ mod tests {
             .unwrap_or_else(|| unreachable!("h2 must exist"))
             .renderer;
         assert!(r2.buffer().is_empty());
+        Ok(())
     }
 
     #[test]
-    fn manager_iter_deterministic() {
+    fn manager_iter_deterministic() -> Result<(), Box<dyn Error>> {
         let mut mgr = SubRoutineManager::new();
-        mgr.begin_load(SubRoutineHandle::new("z"));
-        mgr.begin_load(SubRoutineHandle::new("a"));
-        mgr.begin_load(SubRoutineHandle::new("m"));
+        mgr.begin_load(SubRoutineHandle::new("z")?);
+        mgr.begin_load(SubRoutineHandle::new("a")?);
+        mgr.begin_load(SubRoutineHandle::new("m")?);
 
         let keys: Vec<String> = mgr.iter().map(|(h, _)| h.as_str().to_string()).collect();
         assert_eq!(keys, vec!["a", "m", "z"]);
+        Ok(())
     }
 }

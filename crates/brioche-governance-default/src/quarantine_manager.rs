@@ -79,33 +79,34 @@ impl BriochePlugin for QuarantineManager {
         error: &PluginError,
         ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
-        let state = ext.get_or_insert_default::<QuarantineState>();
-
         let plugin_name = match error {
             PluginError::Soft { plugin_name, .. } => plugin_name.clone(),
             PluginError::Fatal { plugin_name, .. } => plugin_name.clone(),
+            _ => return Ok(PolicyDecision::Allow),
         };
 
         // Only quarantine on fatal errors.
         if matches!(error, PluginError::Fatal { .. }) {
-            state.quarantined.insert(plugin_name.clone());
+            ext.with_or_insert_default::<QuarantineState, _>(|state| {
+                state.quarantined.insert(plugin_name.clone());
 
-            // Increment fault count.
-            let key = PluginFaultKey {
-                plugin_name: plugin_name.clone(),
-                error_kind: format!("{:?}", std::mem::discriminant(error)),
-            };
-            let mut found = false;
-            for (k, count) in &mut state.fault_counts {
-                if *k == key {
-                    *count += 1;
-                    found = true;
-                    break;
+                // Increment fault count.
+                let key = PluginFaultKey {
+                    plugin_name: plugin_name.clone(),
+                    error_kind: format!("{:?}", std::mem::discriminant(error)),
+                };
+                let mut found = false;
+                for (k, count) in &mut state.fault_counts {
+                    if *k == key {
+                        *count += 1;
+                        found = true;
+                        break;
+                    }
                 }
-            }
-            if !found {
-                state.fault_counts.push((key, 1));
-            }
+                if !found {
+                    state.fault_counts.push((key, 1));
+                }
+            });
 
             return Ok(PolicyDecision::RequestEffect(Effect::RebuildRoutes));
         }

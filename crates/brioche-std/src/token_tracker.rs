@@ -64,9 +64,10 @@ impl TokenTracker {
             ChatMessage::ToolRequest { arguments, .. } => {
                 (Self::estimate_tokens(arguments), "tool_request")
             }
-            ChatMessage::ToolResult { content, .. } => {
-                (Self::estimate_tokens(content), "tool_result")
+            ChatMessage::ToolResult { outcome, .. } => {
+                (Self::estimate_tokens(outcome.content()), "tool_result")
             }
+            _ => (0, "unknown"),
         }
     }
 }
@@ -101,35 +102,36 @@ impl BriochePlugin for TokenTracker {
         history: &[ChatMessage],
         ext: &mut ExtensionStorage,
     ) -> PluginResult<brioche_core::PolicyDecision> {
-        let state = ext.get_or_insert_default::<TokenTrackerState>();
+        ext.with_or_insert_default::<TokenTrackerState, _>(|state| {
+            // Reset buffered output from previous cycle.
+            state.buffered_output_tokens = 0;
 
-        // Reset buffered output from previous cycle.
-        state.buffered_output_tokens = 0;
+            for msg in history {
+                let (tokens, role) = Self::estimate_message_tokens(msg);
+                *state.tokens_by_role.entry(role.to_string()).or_insert(0) += tokens;
 
-        for msg in history {
-            let (tokens, role) = Self::estimate_message_tokens(msg);
-            *state.tokens_by_role.entry(role.to_string()).or_insert(0) += tokens;
-
-            match msg {
-                ChatMessage::Assistant { .. } | ChatMessage::ToolRequest { .. } => {
-                    state.total_output_tokens += tokens;
-                    state.buffered_output_tokens += tokens;
-                }
-                _ => {
-                    state.total_input_tokens += tokens;
+                match msg {
+                    ChatMessage::Assistant { .. } | ChatMessage::ToolRequest { .. } => {
+                        state.total_output_tokens += tokens;
+                        state.buffered_output_tokens += tokens;
+                    }
+                    _ => {
+                        state.total_input_tokens += tokens;
+                    }
                 }
             }
-        }
 
-        Ok(brioche_core::PolicyDecision::Allow)
+            Ok(brioche_core::PolicyDecision::Allow)
+        })
     }
 
     /// Finalizes cycle count after prediction completes.
     ///
     /// Refs: I-Eco-ExtensionOverMod
     fn after_prediction(&self, ext: &mut ExtensionStorage) -> PluginResult<()> {
-        let state = ext.get_or_insert_default::<TokenTrackerState>();
-        state.prediction_cycles += 1;
+        ext.with_or_insert_default::<TokenTrackerState, _>(|state| {
+            state.prediction_cycles += 1;
+        });
         Ok(())
     }
 }

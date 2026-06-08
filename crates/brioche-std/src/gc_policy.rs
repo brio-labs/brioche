@@ -88,30 +88,30 @@ impl BriochePlugin for GcPolicy {
     /// Refs: I-Eco-ExtensionOverMod
     fn after_prediction(&self, ext: &mut ExtensionStorage) -> PluginResult<()> {
         // Read snapshot first so the mutable borrow ends before state access.
-        let is_idle = {
-            let snapshot = ext.get_or_insert_default::<SessionSnapshot>();
+        let is_idle = ext.with_or_insert_default::<SessionSnapshot, _>(|snapshot| {
             snapshot.current_state == AgentStateTag::Idle
-        };
+        });
 
-        let state = ext.get_or_insert_default::<GcPolicyState>();
-        state.cycle_interval = self.cycle_interval;
-        state.only_when_idle = self.only_when_idle;
-        state.cycles_since_gc += 1;
+        ext.with_or_insert_default::<GcPolicyState, _>(|state| {
+            state.cycle_interval = self.cycle_interval;
+            state.only_when_idle = self.only_when_idle;
+            state.cycles_since_gc += 1;
 
-        if self.cycle_interval == 0 {
-            return Ok(());
-        }
+            if self.cycle_interval == 0 {
+                return;
+            }
 
-        if state.cycles_since_gc >= self.cycle_interval && (!self.only_when_idle || is_idle) {
-            state.cycles_since_gc = 0;
-            state.gcs_triggered += 1;
-            // GC is requested as a side-effect via a mechanism not directly
-            // available in after_prediction (which returns PluginResult<()>).
-            // In a full shell integration, the plugin would emit a telemetry
-            // event or the shell would poll GcPolicyState.
-            // For Sprint 16, we update state only; the shell checks
-            // GcPolicyState.gcs_triggered to decide when to emit TriggerGc.
-        }
+            if state.cycles_since_gc >= self.cycle_interval && (!self.only_when_idle || is_idle) {
+                state.cycles_since_gc = 0;
+                state.gcs_triggered += 1;
+                // GC is requested as a side-effect via a mechanism not directly
+                // available in after_prediction (which returns PluginResult<()>).
+                // In a full shell integration, the plugin would emit a telemetry
+                // event or the shell would poll GcPolicyState.
+                // For Sprint 16, we update state only; the shell checks
+                // GcPolicyState.gcs_triggered to decide when to emit TriggerGc.
+            }
+        });
 
         Ok(())
     }

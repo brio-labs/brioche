@@ -78,9 +78,6 @@ impl BriochePlugin for CircuitBreaker {
         history: &[ChatMessage],
         ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
-        let state = ext.get_or_insert_default::<CircuitBreakerState>();
-        state.max_repetitions = self.max_repetitions;
-
         // Extract tool request signatures from history.
         let mut signatures: Vec<String> = Vec::new();
         for msg in history {
@@ -92,36 +89,40 @@ impl BriochePlugin for CircuitBreaker {
             }
         }
 
-        if signatures.is_empty() {
-            state.current_repetitions = 0;
-            state.last_signature.clear();
-            return Ok(PolicyDecision::Allow);
-        }
+        ext.with_or_insert_default::<CircuitBreakerState, _>(|state| {
+            state.max_repetitions = self.max_repetitions;
 
-        // Count consecutive identical signatures from the end.
-        let last = signatures.last().cloned().unwrap_or_default();
-        let mut consecutive = 1u64;
-        for i in (0..signatures.len() - 1).rev() {
-            if signatures[i] == last {
-                consecutive += 1;
-            } else {
-                break;
+            if signatures.is_empty() {
+                state.current_repetitions = 0;
+                state.last_signature.clear();
+                return Ok(PolicyDecision::Allow);
             }
-        }
 
-        state.current_repetitions = consecutive;
-        state.last_signature = last.clone();
+            // Count consecutive identical signatures from the end.
+            let last = signatures.last().cloned().unwrap_or_default();
+            let mut consecutive = 1u64;
+            for i in (0..signatures.len() - 1).rev() {
+                if signatures[i] == last {
+                    consecutive += 1;
+                } else {
+                    break;
+                }
+            }
 
-        if consecutive > self.max_repetitions {
-            state.loops_broken += 1;
-            return Ok(PolicyDecision::Block {
-                reason: format!(
-                    "circuit breaker: tool call loop detected ({} consecutive repetitions of {})",
-                    consecutive, last
-                ),
-            });
-        }
+            state.current_repetitions = consecutive;
+            state.last_signature = last.clone();
 
-        Ok(PolicyDecision::Allow)
+            if consecutive > self.max_repetitions {
+                state.loops_broken += 1;
+                return Ok(PolicyDecision::Block {
+                    reason: format!(
+                        "circuit breaker: tool call loop detected ({} consecutive repetitions of {})",
+                        consecutive, last
+                    ),
+                });
+            }
+
+            Ok(PolicyDecision::Allow)
+        })
     }
 }

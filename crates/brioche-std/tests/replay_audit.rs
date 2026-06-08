@@ -70,12 +70,13 @@ fn replay_audit_user_message_sequence() {
         "effect sequences diverged between record and replay"
     );
     assert_eq!(
-        record_session.state, replay_session.state,
+        record_session.state(),
+        replay_session.state(),
         "final states diverged"
     );
     assert_eq!(
-        record_session.history.len(),
-        replay_session.history.len(),
+        record_session.history_len(),
+        replay_session.history_len(),
         "history lengths diverged"
     );
 }
@@ -96,9 +97,8 @@ fn replay_audit_tool_result_sequence() {
     );
 
     // Reset to Idle for a clean tool execution sequence.
-    record_session.state = AgentState::Idle;
-    record_session.state_stack.clear();
-    record_session.history.clear();
+    record_session.restore_state(AgentState::Idle, vec![]);
+    record_session.truncate_history(0);
 
     let inputs = vec![EngineInput::UserMessage("calc".into())];
 
@@ -110,7 +110,7 @@ fn replay_audit_tool_result_sequence() {
     // Replay.
     let mut replay_engine = build_replay_engine();
     let mut replay_session = Session::new("replay");
-    replay_session.state = AgentState::Idle;
+    replay_session.restore_state(AgentState::Idle, vec![]);
 
     let mut replayed_effects = Vec::new();
     for input in &inputs {

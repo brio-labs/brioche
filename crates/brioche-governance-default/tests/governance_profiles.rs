@@ -7,6 +7,10 @@
 //! - I-Gov-Timeout-Bound: ToolTimeoutPolicy bounds tool timeouts.
 //! - I-Gov-Tiered-Rollback: TieredUndoFrameGuard respects critical types.
 
+#![allow(clippy::expect_used, clippy::panic)]
+
+use std::error::Error;
+
 use brioche_core::{
     AgentState, BriocheEngineBuilder, BriocheExtensionType, BriochePlugin, CycleRollbackPolicy,
     DecisionAggregator, Effect, EngineInput, ErrorCode, ExtensionStorage, PluginError,
@@ -48,21 +52,15 @@ fn strict_profile_builds() {
 
 #[test]
 fn standard_profile_runs_user_message() {
-    let mut engine = match BriocheEngineBuilder::new()
+    let mut engine = BriocheEngineBuilder::new()
         .with_profile(GovernanceProfile::Standard)
         .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .expect("build failed");
 
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
 
-    assert!(matches!(session.state, AgentState::Predicting { .. }));
+    assert!(matches!(session.state(), AgentState::Predicting { .. }));
     assert!(effects.iter().any(|e| matches!(e, Effect::CallLlmNetwork)));
 }
 
@@ -71,25 +69,20 @@ fn standard_profile_runs_user_message() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn depth_guard_blocks_at_limit() {
-    let mut engine = match BriocheEngineBuilder::new()
+fn depth_guard_blocks_at_limit() -> Result<(), Box<dyn Error>> {
+    let mut engine = BriocheEngineBuilder::new()
         .with_profile(GovernanceProfile::Standard)
         .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            assert_eq!(1, 0, "build failed: {}", err);
-            return;
-        }
-    };
+        .expect("build failed");
 
     let mut session = Session::new("test");
     // Artificially inflate stack depth to exceed limit.
     // Standard profile max_depth = 10. SubRoutine state adds +1.
     for _ in 0..9 {
-        session.state_stack.push(AgentState::Idle);
+        assert!(session.push_state(AgentState::Idle).is_ok());
     }
-    session.state = AgentState::SubRoutine(SubRoutineHandle::new("sub"));
+    let sub_handle = SubRoutineHandle::new("sub")?;
+    session.restore_state(AgentState::SubRoutine(sub_handle), vec![]);
 
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("deep".into()));
 
@@ -100,6 +93,7 @@ fn depth_guard_blocks_at_limit() {
         ),
         "depth guard should block when limit exceeded"
     );
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -118,13 +112,9 @@ fn quarantine_manager_rebuilds_on_fatal() {
         message: "simulated fatal".into(),
     };
 
-    let decision = match manager.on_error(&error, &mut ext) {
-        Ok(d) => d,
-        Err(err) => {
-            assert_eq!(1, 0, "on_error failed: {}", err);
-            return;
-        }
-    };
+    let decision = manager
+        .on_error(&error, &mut ext)
+        .expect("on_error should succeed");
 
     assert!(
         matches!(
@@ -134,8 +124,9 @@ fn quarantine_manager_rebuilds_on_fatal() {
         "quarantine manager should request RebuildRoutes on fatal error"
     );
 
-    let state = ext.get_or_insert_default::<QuarantineState>();
-    assert!(state.quarantined.contains("bad_plugin"));
+    ext.with_or_insert_default::<QuarantineState, _>(|state| {
+        assert!(state.quarantined.contains("bad_plugin"));
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -193,9 +184,10 @@ fn tool_call_detector_counts_events() {
     };
     assert!(detector.on_stream_event(&done, &mut ext).is_ok());
 
-    let state = ext.get_or_insert_default::<ToolCallDetectorState>();
-    assert_eq!(state.total_detected, 1);
-    assert_eq!(state.total_completed, 1);
+    ext.with_or_insert_default::<ToolCallDetectorState, _>(|state| {
+        assert_eq!(state.total_detected, 1);
+        assert_eq!(state.total_completed, 1);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -219,21 +211,23 @@ fn tiered_undo_frame_guard_restores_critical_type() {
     let mut ext = ExtensionStorage::new();
     ext.insert(brioche_core::EpochState {
         current_generation: 42,
-    });
+    })
+    .expect("EpochState insert should succeed");
 
     guard.begin_hook();
 
     let type_id = std::any::TypeId::of::<brioche_core::EpochState>();
     let vtable = brioche_core::EpochState::build_vtable();
-    let current = ext.get_or_insert_default::<brioche_core::EpochState>();
-    guard.on_mutation(type_id, &vtable, current);
-
-    current.current_generation = 999;
+    ext.with_or_insert_default::<brioche_core::EpochState, _>(|current| {
+        guard.on_mutation(type_id, &vtable, current);
+        current.current_generation = 999;
+    });
 
     guard.rollback_hook(&mut ext);
 
-    let restored = ext.get_or_insert_default::<brioche_core::EpochState>();
-    assert_eq!(restored.current_generation, 42);
+    ext.with_or_insert_default::<brioche_core::EpochState, _>(|restored| {
+        assert_eq!(restored.current_generation, 42);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -252,13 +246,9 @@ fn tree_decision_aggregator_blocks_when_any_block() {
         },
     ];
 
-    let result = match aggregator.aggregate_decisions(decisions, &mut ext) {
-        Ok(r) => r,
-        Err(err) => {
-            assert_eq!(1, 0, "aggregation failed: {}", err);
-            return;
-        }
-    };
+    let result = aggregator
+        .aggregate_decisions(decisions, &mut ext)
+        .expect("aggregation should succeed");
 
     assert!(
         matches!(result, PolicyDecision::Block { .. }),
@@ -300,19 +290,21 @@ fn adaptive_undo_frame_guard_restores_on_budget() {
     let mut ext = ExtensionStorage::new();
     ext.insert(brioche_core::EpochState {
         current_generation: 7,
-    });
+    })
+    .expect("EpochState insert should succeed");
 
     guard.begin_hook();
 
     let type_id = std::any::TypeId::of::<brioche_core::EpochState>();
     let vtable = brioche_core::EpochState::build_vtable();
-    let current = ext.get_or_insert_default::<brioche_core::EpochState>();
-    guard.on_mutation(type_id, &vtable, current);
-
-    current.current_generation = 77;
+    ext.with_or_insert_default::<brioche_core::EpochState, _>(|current| {
+        guard.on_mutation(type_id, &vtable, current);
+        current.current_generation = 77;
+    });
 
     guard.rollback_hook(&mut ext);
 
-    let restored = ext.get_or_insert_default::<brioche_core::EpochState>();
-    assert_eq!(restored.current_generation, 7);
+    ext.with_or_insert_default::<brioche_core::EpochState, _>(|restored| {
+        assert_eq!(restored.current_generation, 7);
+    });
 }

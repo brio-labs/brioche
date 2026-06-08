@@ -1,4 +1,4 @@
-#![deny(clippy::unwrap_used, clippy::expect_used)]
+#![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
 //! Book I — The Core Book: Synchronous kernel and pure mechanisms.
 //!
@@ -26,19 +26,21 @@ pub use extension::{
     ExtensionStorage, SerializeFn, SnapshotStrategy, WeightFn,
 };
 pub use plugin::{
-    BriochePlugin, ConsistencyVerifier, CowBudgetPolicy, CycleRollbackPolicy, DecisionAggregator,
-    EpochInterceptor, GovernanceFailoverHandler, HookEffectConstraint, PluginCapabilities,
-    SignalDrainOrder, SubRoutineHandler, SubRoutineLifecycleGuard,
+    BriochePersistable, BriochePlugin, ConsistencyReport, ConsistencyVerifier, CowBudgetPolicy,
+    CycleRollbackPolicy, DEFAULT_PLUGIN_PRIORITY, DecisionAggregator, EpochInterceptor,
+    GovernanceFailoverHandler, HookEffectConstraint, PluginCapabilities, SignalDrainOrder,
+    SubRoutineHandler, SubRoutineLifecycleGuard,
 };
 pub use types::{
-    ActiveToolCall, AgentState, AgentStateTag, AsyncTaskResult, BriocheError, ChatMessage, Effect,
-    EffectBit, EngineInput, EpochAction, EpochState, ErrorCode, ExecutionPath,
-    GovernanceNotification, HistoryEdit, MAX_INLINE_CHUNK, PluginError, PluginResult,
-    PolicyDecision, RollbackEvent, RollbackEventLog, Session, SessionRegistry, SessionSnapshot,
-    SignalBuffer, SignalDrainBatch, StreamAction, StreamEvent, StreamToolAccumulator,
-    SubRoutineHandle, SupersededTransitionTrace, SupersededTransitionTraceLog, SystemSignal,
-    ToolCallDescriptor, ToolOutcome, ToolResultDTO, ToolStatus, TransitionTrace,
-    TransitionTraceLog, TruncatedToolResult, UiWidget, effect_to_bitmask, seal,
+    ActiveToolCall, AgentState, AgentStateTag, AsyncTaskResult, BriocheError, ChatMessage,
+    DEFAULT_TOOL_TIMEOUT_MS, Effect, EffectBit, EngineInput, EpochAction, EpochState, ErrorCode,
+    ExecutionPath, GovernanceNotification, HistoryEdit, INITIAL_GENERATION_ID, MAX_INLINE_CHUNK,
+    PluginError, PluginResult, PolicyDecision, RollbackEvent, RollbackEventLog, Session,
+    SessionRegistry, SessionSnapshot, SignalBuffer, SignalDrainBatch, StreamAction, StreamEvent,
+    StreamToolAccumulator, SubRoutineHandle, SupersededTransitionTrace,
+    SupersededTransitionTraceLog, SystemSignal, TRACE_LOG_CAPACITY, ToolCallDescriptor,
+    ToolOutcome, ToolResultDTO, ToolStatus, TransitionTrace, TransitionTraceLog,
+    TruncatedToolResult, UiWidget, effect_to_bitmask, seal,
 };
 
 // Re-export dependencies so that proc-macro generated code and users

@@ -85,8 +85,9 @@ impl BriochePlugin for ToolResultFormatter {
         results: &mut Vec<ToolResultDTO>,
         ext: &mut ExtensionStorage,
     ) -> PluginResult<()> {
-        let state = ext.get_or_insert_default::<ToolResultFormatterState>();
-        state.max_result_bytes = self.max_result_bytes;
+        ext.with_or_insert_default::<ToolResultFormatterState, _>(|state| {
+            state.max_result_bytes = self.max_result_bytes;
+        });
 
         for result in results {
             let content = match &result.outcome {
@@ -96,14 +97,23 @@ impl BriochePlugin for ToolResultFormatter {
                 brioche_core::ToolOutcome::TimeoutWithPartialData { partial_output } => {
                     partial_output.clone().unwrap_or_default()
                 }
+                _ => continue,
             };
 
             if self.max_result_bytes > 0 && content.len() > self.max_result_bytes {
                 let meta = TruncatedToolResult::from_content(&content, self.max_result_bytes);
-                result.outcome = brioche_core::ToolOutcome::Success(meta.to_json());
+                let json = meta
+                    .to_json()
+                    .map_err(|e| brioche_core::PluginError::Soft {
+                        plugin_name: "tool_result_formatter".into(),
+                        message: format!("JSON serialization failed: {e}"),
+                    })?;
+                result.outcome = brioche_core::ToolOutcome::Success(json);
             }
 
-            state.formatted_count += 1;
+            ext.with_or_insert_default::<ToolResultFormatterState, _>(|state| {
+                state.formatted_count += 1;
+            });
         }
 
         Ok(())

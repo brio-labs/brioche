@@ -115,12 +115,13 @@ impl CycleRollbackPolicy for AdaptiveUndoFrameGuard {
     }
 
     fn commit_hook(&mut self, ext: &mut ExtensionStorage) {
-        let log = ext.get_or_insert_default::<brioche_core::RollbackEventLog>();
-        log.events.push(brioche_core::RollbackEvent {
-            hook_name: self.current_hook.clone(),
-            was_rollback: false,
-            frame_weight: self.current_frame_weight,
-            budget_exceeded: self.current_frame_weight >= self.effective_max(),
+        ext.with_or_insert_default::<brioche_core::RollbackEventLog, _>(|log| {
+            log.events.push(brioche_core::RollbackEvent {
+                hook_name: self.current_hook.clone(),
+                was_rollback: false,
+                frame_weight: self.current_frame_weight,
+                budget_exceeded: self.current_frame_weight >= self.effective_max(),
+            });
         });
         self.active_frame = None;
         self.current_frame_weight = 0;
@@ -137,12 +138,13 @@ impl CycleRollbackPolicy for AdaptiveUndoFrameGuard {
                 ext.restore_boxed(type_id, backup);
             }
         }
-        let log = ext.get_or_insert_default::<brioche_core::RollbackEventLog>();
-        log.events.push(brioche_core::RollbackEvent {
-            hook_name: self.current_hook.clone(),
-            was_rollback: true,
-            frame_weight: self.current_frame_weight,
-            budget_exceeded,
+        ext.with_or_insert_default::<brioche_core::RollbackEventLog, _>(|log| {
+            log.events.push(brioche_core::RollbackEvent {
+                hook_name: self.current_hook.clone(),
+                was_rollback: true,
+                frame_weight: self.current_frame_weight,
+                budget_exceeded,
+            });
         });
         self.active_frame = None;
         self.current_frame_weight = 0;

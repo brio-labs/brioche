@@ -53,16 +53,16 @@ pub struct StateSnapshot {
 
 impl StateSnapshot {
     fn from_session(session: &Session) -> Self {
-        let generation_id = match &session.state {
+        let generation_id = match session.state() {
             AgentState::Predicting { generation_id }
             | AgentState::ExecutingTools { generation_id } => Some(*generation_id),
             _ => None,
         };
         Self {
-            state_tag: AgentStateTag::from(&session.state),
+            state_tag: AgentStateTag::from(session.state()),
             generation_id,
-            stack_depth: session.state_stack.len(),
-            session_id: session.id.clone(),
+            stack_depth: session.state_stack_depth(),
+            session_id: session.id().to_string(),
         }
     }
 }
@@ -536,17 +536,21 @@ fn engine_thread_loop(
         // Drain separate channels in canonical order and inject into
         // ExtensionStorage as SignalBuffer.
         let batch = signal_drain.drain();
-        session.extensions.insert(SignalBuffer {
-            system_signals: batch.system_signals,
-            governance_notifications: batch.governance_notifications,
-            async_task_results: batch.async_task_results,
-        });
+        assert!(
+            session
+                .extensions_mut()
+                .insert(SignalBuffer {
+                    system_signals: batch.system_signals,
+                    governance_notifications: batch.governance_notifications,
+                    async_task_results: batch.async_task_results,
+                })
+                .is_ok()
+        );
 
         // Respond to watchdog ping if one is pending.
         let last_epoch = session
-            .extensions
-            .get_or_insert_default::<EpochState>()
-            .current_generation;
+            .extensions_mut()
+            .with_or_insert_default::<EpochState, _>(|state| state.current_generation);
         watchdog_handle.respond_if_pinged(last_epoch);
 
         // Execute the synchronous transition.
@@ -698,6 +702,7 @@ where
         Effect::SubRoutineRestored { handle } => {
             executor.sub_routine_restored(handle).await?;
         }
+        _ => {}
     }
     Ok(())
 }

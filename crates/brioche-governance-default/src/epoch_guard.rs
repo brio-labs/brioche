@@ -27,18 +27,18 @@ impl EpochInterceptor for EpochGuard {
         input: &EngineInput,
         ext: &mut ExtensionStorage,
     ) -> PluginResult<EpochAction> {
-        let epoch_state = ext.get_or_insert_default::<EpochState>();
-
         match input {
             // Only ToolCallsResults carry a verifiable generation_id
             // at this stage. Other inputs (UserMessage, LlmStream) are
             // always treated as belonging to the current epoch.
             EngineInput::ToolCallsResult { generation_id, .. } => {
-                if *generation_id != epoch_state.current_generation {
+                let current =
+                    ext.with_or_insert_default::<EpochState, _>(|state| state.current_generation);
+                if *generation_id != current {
                     return Ok(EpochAction::Block {
                         reason: format!(
                             "epoch mismatch: expected {}, got {}",
-                            epoch_state.current_generation, generation_id
+                            current, generation_id
                         ),
                     });
                 }

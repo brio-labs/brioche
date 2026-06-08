@@ -10,13 +10,29 @@
 
 use crate::{
     ActiveToolCall, AgentState, BriocheError, BriochePlugin, ChatMessage, ConsistencyVerifier,
-    CycleRollbackPolicy, DecisionAggregator, Effect, EngineInput, EpochAction, EpochInterceptor,
-    EpochState, ErrorCode, GovernanceFailoverHandler, HistoryEdit, HookEffectConstraint,
-    PluginCapabilities, PluginError, PolicyDecision, Session, SessionRegistry, StreamAction,
-    StreamEvent, StreamToolAccumulator, SubRoutineHandle, SubRoutineHandler,
-    SubRoutineLifecycleGuard, SupersededTransitionTrace, SupersededTransitionTraceLog,
-    ToolCallDescriptor, ToolResultDTO, TransitionTrace, TransitionTraceLog, effect_to_bitmask,
+    CowBudgetPolicy, CycleRollbackPolicy, DecisionAggregator, Effect, EngineInput, EpochAction,
+    EpochInterceptor, EpochState, ErrorCode, GovernanceFailoverHandler, HistoryEdit,
+    HookEffectConstraint, PluginCapabilities, PluginError, PolicyDecision, Session,
+    SessionRegistry, SignalDrainOrder, StreamAction, StreamEvent, StreamToolAccumulator,
+    SubRoutineHandle, SubRoutineHandler, SubRoutineLifecycleGuard, SupersededTransitionTrace,
+    SupersededTransitionTraceLog, TRACE_LOG_CAPACITY, ToolCallDescriptor, ToolResultDTO,
+    TransitionTrace, TransitionTraceLog, effect_to_bitmask,
 };
+
+// ---------------------------------------------------------------------------
+// Helper trait for with_rollback
+// ---------------------------------------------------------------------------
+
+/// Trait used by `with_rollback` to decide between `commit_hook` and `rollback_hook`.
+trait IsResultErr {
+    fn is_err(&self) -> bool;
+}
+
+impl<T, E> IsResultErr for Result<T, E> {
+    fn is_err(&self) -> bool {
+        Result::is_err(self)
+    }
+}
 
 // ---------------------------------------------------------------------------
 // UnifiedRoutingTable
@@ -114,11 +130,18 @@ pub struct BriocheEngine {
     epoch_interceptor: Option<Box<dyn EpochInterceptor>>,
     subroutine_handler: Option<Box<dyn SubRoutineHandler>>,
     consistency_verifier: Option<Box<dyn ConsistencyVerifier>>,
-    decision_aggregator: Option<Box<dyn DecisionAggregator>>,
+    // Mandatory: validated at build time and therefore non-optional.
+    decision_aggregator: Box<dyn DecisionAggregator>,
     hook_effect_constraint: Option<Box<dyn HookEffectConstraint>>,
     cycle_rollback_policy: Option<Box<dyn CycleRollbackPolicy>>,
-    subroutine_lifecycle_guard: Option<Box<dyn SubRoutineLifecycleGuard>>,
+    // Mandatory: validated at build time and therefore non-optional.
+    subroutine_lifecycle_guard: Box<dyn SubRoutineLifecycleGuard>,
     governance_failover_handler: Option<Box<dyn GovernanceFailoverHandler>>,
+    // Optional drain adapter for separate signal channels.
+    signal_drain_order: Option<Box<dyn SignalDrainOrder>>,
+    // Optional per-hook COW budget policy (reserved for Sprint 5+).
+    #[allow(dead_code)]
+    cow_budget_policy: Option<Box<dyn CowBudgetPolicy>>,
 
     // Sub-routine registry
     session_registry: SessionRegistry,
@@ -164,20 +187,39 @@ impl BriocheEngine {
     ///
     /// Refs: I-Core-NoPanic, I-Core-RetVecEffect
     pub fn transition(&mut self, session: &mut Session, input: &EngineInput) -> Vec<Effect> {
-        let prev_was_subroutine = matches!(session.state, AgentState::SubRoutine(_));
-        let prev_handle = match &session.state {
+        // Terminal state: no further effects are emitted.
+        if matches!(session.state(), AgentState::Failure) {
+            return vec![];
+        }
+
+        let prev_was_subroutine = matches!(session.state(), AgentState::SubRoutine(_));
+        let prev_handle = match session.state() {
             AgentState::SubRoutine(h) => Some(h.clone()),
             _ => None,
         };
 
+        // Step 0: Drain separate signal channels if a drain adapter is wired.
+        // This preserves the canonical order mandated by SPECS.md §1.4.
+        if let Some(ref drain) = self.signal_drain_order {
+            let batch = drain.drain();
+            let buffer = crate::SignalBuffer {
+                system_signals: batch.system_signals,
+                governance_notifications: batch.governance_notifications,
+                async_task_results: batch.async_task_results,
+            };
+            session.extensions_mut().insert_hot(buffer);
+        }
+
         // Step 1: Inject SessionSnapshot before each transition cycle.
-        session.extensions.insert(session.snapshot());
+        // `update_hot` reuses the pre-warmed slot to avoid per-hook allocations.
+        let snapshot = session.snapshot();
+        session.extensions_mut().update_hot(snapshot);
 
         let mut effects = Vec::new();
 
-        // Step 3: EpochInterceptor (optional, but evaluated first if present).
+        // Step 2: EpochInterceptor (optional, but evaluated first if present).
         if let Some(ref interceptor) = self.epoch_interceptor {
-            match interceptor.intercept_epoch(input, &mut session.extensions) {
+            match interceptor.intercept_epoch(input, session.extensions_mut()) {
                 Ok(EpochAction::Block { reason }) => {
                     return vec![
                         Effect::Error {
@@ -194,32 +236,61 @@ impl BriocheEngine {
             }
         }
 
-        // Step 4: SubRoutineHandler (optional).
+        // Step 3: SubRoutineHandler (optional).
         if let Some(ref handler) = self.subroutine_handler
-            && let AgentState::SubRoutine(ref handle) = session.state
-            && let Some(child) = self.session_registry.get_mut(handle)
+            && let AgentState::SubRoutine(handle) = session.state()
         {
-            match handler.handle_subroutine(session, child, input) {
-                Ok(Some(sub_effects)) => {
-                    effects.extend(sub_effects);
+            match self.session_registry.get_mut(handle) {
+                Some(child) => {
+                    match handler.handle_subroutine(session, child, input) {
+                        Ok(Some(sub_effects)) => {
+                            effects.extend(sub_effects);
+                            return self.finalize_transition(
+                                session,
+                                prev_was_subroutine,
+                                prev_handle,
+                                effects,
+                            );
+                        }
+                        Ok(None) => {
+                            // Sub-routine is still active; do not fall through to parent dispatch.
+                            return self.finalize_transition(
+                                session,
+                                prev_was_subroutine,
+                                prev_handle,
+                                effects,
+                            );
+                        }
+                        Err(err) => {
+                            effects.push(self.plugin_fault("subroutine_handler", err));
+                        }
+                    }
+                }
+                None => {
+                    // Defensive: child missing from registry is an isolation breach.
+                    // Do not fall through to parent dispatch.
                     return self.finalize_transition(
                         session,
                         prev_was_subroutine,
                         prev_handle,
-                        effects,
+                        vec![
+                            Effect::Error {
+                                code: ErrorCode::StateInconsistency,
+                                message: format!(
+                                    "sub-routine {} missing from registry",
+                                    handle.as_str()
+                                ),
+                            },
+                            Effect::SystemIdle,
+                        ],
                     );
-                }
-                Ok(None) => {}
-                Err(err) => {
-                    effects.push(self.plugin_fault("subroutine_handler", err));
                 }
             }
         }
 
-        // Step 5: on_input hook (routed).
+        // Step 4: on_input hook (routed).
         match self.eval_on_input(session, input) {
-            InputResult::OverrideTransition(ov_effects, source_plugin) => {
-                self.log_override_transition(session, &source_plugin);
+            InputResult::OverrideTransition(ov_effects, _source_plugin) => {
                 effects.extend(ov_effects);
                 return self.finalize_transition(
                     session,
@@ -247,7 +318,7 @@ impl BriocheEngine {
             InputResult::Allow => {}
         }
 
-        // Step 6: Main dispatch on EngineInput.
+        // Step 5: Main dispatch on EngineInput.
         match self.dispatch_input(session, input) {
             Ok(dispatch_effects) => effects.extend(dispatch_effects),
             Err(err) => {
@@ -258,7 +329,7 @@ impl BriocheEngine {
             }
         }
 
-        // Steps 7-12: Finalize.
+        // Steps 6-11: Finalize.
         self.finalize_transition(session, prev_was_subroutine, prev_handle, effects)
     }
 
@@ -281,13 +352,14 @@ impl BriocheEngine {
     /// Refs: I-Core-PluginOrder, I-Core-StreamNoBranch
     fn eval_after_prediction(&mut self, session: &mut Session) -> Vec<Effect> {
         let mut effects = Vec::new();
-        let route = self.routing_table.route_after_prediction.clone();
-        for &idx in &route {
+        for i in 0..self.routing_table.route_after_prediction.len() {
+            let idx = self.routing_table.route_after_prediction[i];
             let name = self.plugins[idx].name();
-            session.extensions.insert(session.snapshot());
+            let snapshot = session.snapshot();
+            session.extensions_mut().update_hot(snapshot);
             let result = self.with_rollback(session, name, |engine, session| {
                 let plugin = &engine.plugins[idx];
-                plugin.after_prediction(&mut session.extensions)
+                plugin.after_prediction(session.extensions_mut())
             });
             if let Err(err) = result {
                 effects.push(self.plugin_fault(name, err));
@@ -321,7 +393,7 @@ impl BriocheEngine {
         // We don't remove plugins from `self.plugins`; we just rebuild
         // the routing table considering only active indices.
         let active_indices: Vec<usize> = (0..self.plugins.len())
-            .filter(|i| active_mask.get(*i).copied().unwrap_or(true))
+            .filter(|i| active_mask.get(*i).copied().unwrap_or(false))
             .collect();
 
         let mut indexed: Vec<(usize, i16, &'static str)> = active_indices
@@ -384,10 +456,17 @@ impl BriocheEngine {
 
     /// Wrap a single plugin hook invocation with COW rollback.
     ///
-    /// The `cycle_rollback_policy` is temporarily removed from `self`,
-    /// passed to the closure via `ExtensionStorage`'s mutation observer,
-    /// then restored after the hook. On plugin error, `rollback_hook()`
-    /// is called to restore mutated extensions to their pre-hook state.
+    /// The `cycle_rollback_policy` is moved into `ExtensionStorage` for the
+    /// duration of the hook. `ExtensionStorage` calls `on_mutation` on first
+    /// write, then `with_rollback` drives `commit_hook` or `rollback_hook`
+    /// after the plugin returns. On panic, `catch_unwind` ensures the
+    /// policy is restored to the engine before `resume_unwind` re-raises
+    /// the panic.
+    ///
+    /// **Panic safety:** `catch_unwind` + `resume_unwind` is the Rust
+    /// idiom for cleanup on panic. The panic is never swallowed; it is
+    /// intercepted only to prevent `ExtensionStorage` from being left
+    /// without its rollback policy. See PHILOSOPHY.md §2.4 (amended).
     ///
     /// **Note on time instrumentation:** per-hook wall-clock timing is
     /// intentionally **not** performed in Core. `Instant::now()` is
@@ -400,81 +479,118 @@ impl BriocheEngine {
         session: &mut Session,
         _plugin_name: &'static str,
         f: impl FnOnce(&mut Self, &mut Session) -> R,
-    ) -> R {
-        let mut rollback = self.cycle_rollback_policy.take();
-        if let Some(r) = rollback.as_mut() {
-            r.begin_hook();
-        }
-        let observer_ptr: Option<*mut dyn CycleRollbackPolicy> = rollback
-            .as_mut()
-            .map(|r| r.as_mut() as *mut dyn CycleRollbackPolicy);
-        unsafe {
-            session.extensions.set_cow_observer(observer_ptr);
-        }
+    ) -> R
+    where
+        R: IsResultErr,
+    {
+        let rollback = self.cycle_rollback_policy.take();
+        session.extensions_mut().set_rollback_policy(rollback);
+        session.extensions_mut().begin_hook();
 
-        let result = f(self, session);
+        // Plugins are external code; they must not panic, but if they do
+        // we must still restore the rollback policy before propagating.
+        // AssertUnwindSafe is required because Session contains
+        // PhantomData<*mut ()> which is !UnwindSafe by default.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self, session)));
 
-        unsafe {
-            session.extensions.clear_cow_observer();
+        match result {
+            Ok(r) => {
+                if r.is_err() {
+                    session.extensions_mut().rollback_hook();
+                } else {
+                    session.extensions_mut().commit_hook();
+                }
+                let rollback = session.extensions_mut().take_rollback_policy();
+                self.cycle_rollback_policy = rollback;
+                r
+            }
+            Err(panic_payload) => {
+                session.extensions_mut().rollback_hook();
+                let rollback = session.extensions_mut().take_rollback_policy();
+                self.cycle_rollback_policy = rollback;
+                std::panic::resume_unwind(panic_payload);
+            }
         }
-
-        if let Some(r) = rollback.as_mut() {
-            r.commit_hook(&mut session.extensions);
-        }
-
-        self.cycle_rollback_policy = rollback;
-        result
     }
 
     /// Evaluate the `on_input` route.
     ///
     /// `OverrideTransition` from the first plugin wins; subsequent ones are
     /// logged as superseded. `Block` short-circuits immediately.
+    ///
+    /// History edits are applied incrementally after each plugin so that
+    /// subsequent plugins observe the mutated history. If an edit is
+    /// invalid, evaluation stops and the error is surfaced as an
+    /// `Effect::Error(StateInconsistency)`.
     fn eval_on_input(&mut self, session: &mut Session, input: &EngineInput) -> InputResult {
         let mut accumulated = Vec::new();
         let mut override_transition: Option<(Vec<Effect>, String)> = None;
+        let mut superseded_traces: Vec<(String, PolicyDecision, String)> = Vec::new();
 
-        let route = self.routing_table.route_on_input.clone();
-        for &idx in &route {
+        for i in 0..self.routing_table.route_on_input.len() {
+            let idx = self.routing_table.route_on_input[i];
             let name = self.plugins[idx].name();
-            session.extensions.insert(session.snapshot());
+            let snapshot = session.snapshot();
+            session.extensions_mut().update_hot(snapshot);
 
             let decision = self.with_rollback(session, name, |engine, session| {
                 let plugin = &engine.plugins[idx];
-                plugin.on_input(input, &mut session.extensions)
+                plugin.on_input(input, session.extensions_mut())
             });
 
             match decision {
                 Ok(PolicyDecision::Allow) => {}
                 Ok(PolicyDecision::Block { reason }) => {
+                    // Flush accumulated traces before short-circuiting so
+                    // that audit logs are not lost (I-Gov-OverrideTrace).
+                    for (source, decision, preempted_by) in &superseded_traces {
+                        self.log_superseded_transition(session, source, decision, preempted_by);
+                    }
+                    if let Some((ref effects, ref source)) = override_transition {
+                        self.log_override_transition(session, source, effects);
+                    }
                     return InputResult::Block { reason };
                 }
                 Ok(PolicyDecision::MutateHistory(edits)) => {
+                    // Apply incrementally so the next plugin sees the
+                    // mutated history. I-Gov-Decision-Isolation.
                     if let Err(err) = Self::apply_history_edits(session, &edits) {
                         accumulated.push(Effect::Error {
                             code: ErrorCode::StateInconsistency,
                             message: err.to_string(),
                         });
+                        // Stop evaluating further plugins: history is in
+                        // an inconsistent state.
+                        break;
                     }
                 }
                 Ok(PolicyDecision::RequestEffect(eff)) => {
                     accumulated.push(eff);
                 }
                 Ok(PolicyDecision::OverrideTransition(effects)) => {
-                    if override_transition.is_none() {
-                        override_transition = Some((effects, name.to_string()));
+                    if let Some((_, ref winner)) = override_transition {
+                        let winner = winner.clone();
+                        superseded_traces.push((
+                            name.to_string(),
+                            PolicyDecision::OverrideTransition(effects),
+                            winner,
+                        ));
                     } else {
-                        self.log_superseded_transition(
-                            session,
-                            name,
-                            &PolicyDecision::OverrideTransition(effects),
-                        );
+                        override_transition = Some((effects, name.to_string()));
                     }
                 }
                 Err(err) => {
                     accumulated.push(self.plugin_fault(name, err));
                 }
             }
+        }
+
+        // Flush trace logs after rollback windows are closed.
+        for (source, decision, preempted_by) in superseded_traces {
+            self.log_superseded_transition(session, &source, &decision, &preempted_by);
+        }
+        if let Some((ref effects, ref source)) = override_transition {
+            self.log_override_transition(session, source, effects);
         }
 
         if let Some((effects, source)) = override_transition {
@@ -499,8 +615,8 @@ impl BriocheEngine {
                 generation_id,
                 results,
             } => self.dispatch_tool_calls_result(session, *generation_id, results),
-            EngineInput::RestoreSubRoutine { handle, head_blob } => {
-                self.dispatch_restore_subroutine(session, handle, head_blob)
+            EngineInput::RestoreSubRoutine { handle } => {
+                self.dispatch_restore_subroutine(session, handle)
             }
         }
     }
@@ -513,24 +629,26 @@ impl BriocheEngine {
     ) -> Result<Vec<Effect>, BriocheError> {
         let mut effects = Vec::new();
 
-        session.history.push(ChatMessage::User {
+        session.push_history(ChatMessage::User {
             content: content.to_string(),
         });
 
         let generation_id = self.next_generation_id;
         self.next_generation_id += 1;
 
-        session.push_state(AgentState::Predicting { generation_id })?;
-
         // before_prediction hook: collect decisions.
+        // History is cloned once outside the loop so that N plugins do
+        // not perform N allocations (I-Core-ChunkBudget).
+        let history = session.history().to_vec();
         let mut decisions = Vec::new();
-        let route = self.routing_table.route_before_prediction.clone();
-        for &idx in &route {
+        for i in 0..self.routing_table.route_before_prediction.len() {
+            let idx = self.routing_table.route_before_prediction[i];
             let name = self.plugins[idx].name();
-            session.extensions.insert(session.snapshot());
+            let snapshot = session.snapshot();
+            session.extensions_mut().update_hot(snapshot);
             let decision = self.with_rollback(session, name, |engine, session| {
                 let plugin = &engine.plugins[idx];
-                plugin.before_prediction(&session.history, &mut session.extensions)
+                plugin.before_prediction(&history, session.extensions_mut())
             });
             match decision {
                 Ok(decision) => decisions.push(decision),
@@ -541,35 +659,39 @@ impl BriocheEngine {
         }
 
         // DecisionAggregator (mandatory).
-        if let Some(ref aggregator) = self.decision_aggregator {
-            match aggregator.aggregate_decisions(decisions, &mut session.extensions) {
-                Ok(decision) => match decision {
-                    PolicyDecision::Allow => {}
-                    PolicyDecision::Block { reason } => {
-                        effects.push(Effect::Error {
-                            code: ErrorCode::StateInconsistency,
-                            message: reason,
-                        });
-                        effects.push(Effect::SystemIdle);
-                        return Ok(effects);
-                    }
-                    PolicyDecision::MutateHistory(edits) => {
-                        Self::apply_history_edits(session, &edits)?;
-                    }
-                    PolicyDecision::RequestEffect(eff) => {
-                        effects.push(eff);
-                    }
-                    PolicyDecision::OverrideTransition(ov) => {
-                        effects.extend(ov);
-                        return Ok(effects);
-                    }
-                },
-                Err(err) => {
-                    effects.push(self.plugin_fault("decision_aggregator", err));
+        match self
+            .decision_aggregator
+            .aggregate_decisions(decisions, session.extensions_mut())
+        {
+            Ok(decision) => match decision {
+                PolicyDecision::Allow => {}
+                PolicyDecision::Block { reason } => {
+                    session.pop_history();
+                    effects.push(Effect::Error {
+                        code: ErrorCode::StateInconsistency,
+                        message: reason,
+                    });
+                    effects.push(Effect::SystemIdle);
+                    return Ok(effects);
                 }
+                PolicyDecision::MutateHistory(edits) => {
+                    Self::apply_history_edits(session, &edits)?;
+                }
+                PolicyDecision::RequestEffect(eff) => {
+                    effects.push(eff);
+                }
+                PolicyDecision::OverrideTransition(ov) => {
+                    session.pop_history();
+                    effects.extend(ov);
+                    return Ok(effects);
+                }
+            },
+            Err(err) => {
+                effects.push(self.plugin_fault("decision_aggregator", err));
             }
         }
 
+        session.push_state(AgentState::Predicting { generation_id })?;
         effects.push(Effect::CallLlmNetwork);
         effects.push(Effect::SaveSession);
 
@@ -588,10 +710,15 @@ impl BriocheEngine {
     /// are accumulated incrementally to avoid allocation spikes on single
     /// large chunks. Descriptors are sealed before storage.
     ///
+    /// UTF-8 safety: tool argument chunks and assistant text are accumulated
+    /// as raw bytes. Conversion to `String` happens only at materialization
+    /// boundaries (`Done` / `ToolCallDone`), using `String::from_utf8` so
+    /// that split multi-byte characters are not replaced with U+FFFD.
+    ///
     /// # Complexity
     /// O(p + t) where p = plugins on `route_on_stream_event`, t = pending
     /// tool descriptors. One `BTreeMap` insertion per `ToolCallStart`.
-    /// No heap allocation on `Pass` or `Hold`.
+    /// No heap allocation on `Hold`.
     ///
     /// Refs: I-Core-StreamNoBranch, I-Core-ChunkBudget, I-Core-ActiveToolCall
     fn dispatch_llm_stream(
@@ -601,17 +728,18 @@ impl BriocheEngine {
     ) -> Result<Vec<Effect>, BriocheError> {
         let mut effects = Vec::new();
 
-        if !matches!(session.state, AgentState::Predicting { .. }) {
+        if !matches!(session.state(), AgentState::Predicting { .. }) {
             return Ok(effects);
         }
 
-        let route = self.routing_table.route_on_stream_event.clone();
-        for &idx in &route {
+        for i in 0..self.routing_table.route_on_stream_event.len() {
+            let idx = self.routing_table.route_on_stream_event[i];
             let name = self.plugins[idx].name();
-            session.extensions.insert(session.snapshot());
+            let snapshot = session.snapshot();
+            session.extensions_mut().update_hot(snapshot);
             let action = self.with_rollback(session, name, |engine, session| {
                 let plugin = &engine.plugins[idx];
-                plugin.on_stream_event(event, &mut session.extensions)
+                plugin.on_stream_event(event, session.extensions_mut())
             });
             match action {
                 Ok(StreamAction::Pass) => {}
@@ -631,66 +759,88 @@ impl BriocheEngine {
         // in the stream.
         match event {
             StreamEvent::TextChunk { chunk, .. } => {
-                session
-                    .pending_assistant_text
-                    .push_str(&String::from_utf8_lossy(chunk));
+                session.append_assistant_bytes(chunk);
             }
             StreamEvent::ToolCallStart { id, name, .. } => {
-                let accumulator = session
-                    .extensions
-                    .get_or_insert_default::<StreamToolAccumulator>();
-                accumulator.pending.insert(
-                    id.clone(),
-                    ToolCallDescriptor {
-                        tool_id: id.clone(),
-                        tool_name: name.clone(),
-                        arguments: String::new(),
-                        timeout_ms: None,
-                    },
-                );
+                session
+                    .extensions_mut()
+                    .with_or_insert_default::<StreamToolAccumulator, _>(|accumulator| {
+                        accumulator.pending.insert(
+                            id.clone(),
+                            ToolCallDescriptor {
+                                tool_id: id.clone(),
+                                tool_name: name.clone(),
+                                arguments: String::new(),
+                                timeout_ms: None,
+                            },
+                        );
+                        accumulator
+                            .pending_args_bytes
+                            .insert(id.clone(), Vec::new());
+                    });
             }
             StreamEvent::ToolArgumentChunk { id, chunk, .. } => {
-                let accumulator = session
-                    .extensions
-                    .get_or_insert_default::<StreamToolAccumulator>();
-                if let Some(descriptor) = accumulator.pending.get_mut(id) {
-                    descriptor
-                        .arguments
-                        .push_str(&String::from_utf8_lossy(chunk));
-                }
+                session
+                    .extensions_mut()
+                    .with_or_insert_default::<StreamToolAccumulator, _>(|accumulator| {
+                        if let Some(bytes) = accumulator.pending_args_bytes.get_mut(id) {
+                            // Accumulate raw bytes; conversion to String happens
+                            // only at the ToolCallDone materialization boundary.
+                            bytes.extend_from_slice(chunk);
+                        }
+                    });
             }
             StreamEvent::ToolCallDone { .. } => {
                 // Persist any assistant text that preceded the tool calls.
-                if !session.pending_assistant_text.is_empty() {
-                    session.history.push(ChatMessage::Assistant {
-                        content: std::mem::take(&mut session.pending_assistant_text),
-                    });
+                if !session.is_pending_assistant_empty() {
+                    let text = Self::materialize_assistant_text(session)?;
+                    session.push_history(ChatMessage::Assistant { content: text });
+                    session.clear_assistant_bytes();
                 }
 
                 // Prediction completes before tool execution.
                 effects.extend(self.eval_after_prediction(session));
 
-                // Drain all pending descriptors and materialize them.
-                let pending: Vec<ToolCallDescriptor> = {
-                    let accumulator = session
-                        .extensions
-                        .get_or_insert_default::<StreamToolAccumulator>();
-                    std::mem::take(&mut accumulator.pending)
-                        .into_values()
-                        .collect()
-                };
+                // Drain all pending descriptors, convert accumulated
+                // bytes to String, and materialize them.
+                let mut pending: Vec<ToolCallDescriptor> = session
+                    .extensions_mut()
+                    .with_or_insert_default::<StreamToolAccumulator, _>(
+                    |accumulator| -> Result<Vec<ToolCallDescriptor>, BriocheError> {
+                        // Convert raw bytes to String at the materialization
+                        // boundary so split multi-byte UTF-8 chars are preserved.
+                        for (tool_id, bytes) in &accumulator.pending_args_bytes {
+                            if let Some(descriptor) = accumulator.pending.get_mut(tool_id) {
+                                descriptor.arguments =
+                                    String::from_utf8(bytes.clone()).map_err(|e| {
+                                        BriocheError::InvalidStateTransition(format!(
+                                            "tool {} argument bytes are invalid UTF-8: {e}",
+                                            tool_id
+                                        ))
+                                    })?;
+                            }
+                        }
+                        accumulator.pending_args_bytes.clear();
+                        Ok(std::mem::take(&mut accumulator.pending)
+                            .into_values()
+                            .collect())
+                    },
+                )?;
                 if !pending.is_empty() {
-                    let mut descriptors = pending;
-                    self.handle_tool_calls(session, &mut descriptors, &mut effects)?;
-                    let (active, err_effect) = self.materialize_tool_calls(descriptors);
+                    self.handle_tool_calls(session, &mut pending, &mut effects)?;
+                    let (active, err_effect) = self.materialize_tool_calls(pending);
                     if let Some(err) = err_effect {
                         effects.push(err);
                     }
-                    session.active_tools = active.clone();
-                    let generation_id = match session.state {
-                        AgentState::Predicting { generation_id } => generation_id,
-                        _ => 0,
-                    };
+                    session.set_active_tools(active.clone());
+                    let generation_id =
+                        if let AgentState::Predicting { generation_id } = session.state() {
+                            *generation_id
+                        } else {
+                            return Err(BriocheError::InvalidStateTransition(
+                                "expected Predicting state when materializing tool calls".into(),
+                            ));
+                        };
                     session.push_state(AgentState::ExecutingTools { generation_id })?;
                     effects.push(Effect::ExecuteTools(active));
                     effects.push(Effect::SaveSession);
@@ -698,25 +848,39 @@ impl BriocheEngine {
             }
             StreamEvent::Done => {
                 // Persist accumulated assistant text before returning to Idle.
-                if !session.pending_assistant_text.is_empty() {
-                    session.history.push(ChatMessage::Assistant {
-                        content: std::mem::take(&mut session.pending_assistant_text),
-                    });
+                if !session.is_pending_assistant_empty() {
+                    let text = Self::materialize_assistant_text(session)?;
+                    session.push_history(ChatMessage::Assistant { content: text });
+                    session.clear_assistant_bytes();
                 }
 
                 // Prediction completes without tool calls.
                 effects.extend(self.eval_after_prediction(session));
 
-                if matches!(session.state, AgentState::Predicting { .. }) {
+                if matches!(session.state(), AgentState::Predicting { .. }) {
                     session.pop_state()?;
                     effects.push(Effect::SystemIdle);
                     effects.push(Effect::SaveSession);
                 }
             }
-            _ => {}
         }
 
         Ok(effects)
+    }
+
+    /// Convert accumulated assistant bytes to a `String` at a safe
+    /// materialization boundary, returning an error if the bytes are not
+    /// valid UTF-8.
+    ///
+    /// Using `String::from_utf8` instead of `from_utf8_lossy` prevents
+    /// silent replacement of split multi-byte characters with U+FFFD.
+    fn materialize_assistant_text(session: &mut Session) -> Result<String, BriocheError> {
+        let bytes = std::mem::take(session.pending_assistant_bytes_mut());
+        String::from_utf8(bytes).map_err(|e| {
+            BriocheError::InvalidStateTransition(format!(
+                "assistant stream contained invalid UTF-8: {e}"
+            ))
+        })
     }
 
     /// Invoke the `on_tool_calls` hook on all pre-routed plugins.
@@ -737,13 +901,14 @@ impl BriocheEngine {
         descriptors: &mut Vec<ToolCallDescriptor>,
         effects: &mut Vec<Effect>,
     ) -> Result<(), BriocheError> {
-        let route = self.routing_table.route_on_tool_calls.clone();
-        for &idx in &route {
+        for i in 0..self.routing_table.route_on_tool_calls.len() {
+            let idx = self.routing_table.route_on_tool_calls[i];
             let name = self.plugins[idx].name();
-            session.extensions.insert(session.snapshot());
+            let snapshot = session.snapshot();
+            session.extensions_mut().update_hot(snapshot);
             let result = self.with_rollback(session, name, |engine, session| {
                 let plugin = &engine.plugins[idx];
-                plugin.on_tool_calls(descriptors, &mut session.extensions)
+                plugin.on_tool_calls(descriptors, session.extensions_mut())
             });
             if let Err(err) = result {
                 effects.push(self.plugin_fault(name, err));
@@ -797,6 +962,10 @@ impl BriocheEngine {
     }
 
     /// Dispatch `ToolCallsResult` input.
+    ///
+    /// The state stack is modified only after the aggregator confirms `Allow`.
+    /// This prevents the double-pop bug that previously occurred when the
+    /// aggregator returned `Block` or `OverrideTransition`.
     fn dispatch_tool_calls_result(
         &mut self,
         session: &mut Session,
@@ -805,18 +974,53 @@ impl BriocheEngine {
     ) -> Result<Vec<Effect>, BriocheError> {
         let mut effects = Vec::new();
 
-        session.pop_state()?;
-        session.active_tools.clear();
+        // State validation: ToolCallsResult should only arrive while the
+        // session is in ExecutingTools (or SubRoutine for backward-compat
+        // paths without a registered handler).
+        // Validate generation_id to prevent stale async responses from corrupting
+        // the current prediction cycle. I-Core-Pure, I-Gov-Epoch-Reject.
+        let expected_generation = match session.state() {
+            AgentState::ExecutingTools { generation_id } => *generation_id,
+            AgentState::SubRoutine(_) => {
+                // Sub-routine path: generation validation is delegated to the
+                // SubRoutineHandler if present; otherwise we accept any generation
+                // to preserve backward-compat.
+                generation_id
+            }
+            _ => {
+                return Ok(vec![Effect::Error {
+                    code: ErrorCode::StateInconsistency,
+                    message: format!(
+                        "ToolCallsResult received in {:?} state; expected ExecutingTools",
+                        session.state()
+                    ),
+                }]);
+            }
+        };
+
+        if generation_id != expected_generation {
+            return Ok(vec![
+                Effect::Error {
+                    code: ErrorCode::EpochMismatch,
+                    message: format!(
+                        "ToolCallsResult generation_id {} does not match expected {}",
+                        generation_id, expected_generation
+                    ),
+                },
+                Effect::SystemIdle,
+            ]);
+        }
 
         // on_tool_result hook: in-place mutation.
         let mut mutable_results = results.to_vec();
-        let route = self.routing_table.route_on_tool_result.clone();
-        for &idx in &route {
+        for i in 0..self.routing_table.route_on_tool_result.len() {
+            let idx = self.routing_table.route_on_tool_result[i];
             let name = self.plugins[idx].name();
-            session.extensions.insert(session.snapshot());
+            let snapshot = session.snapshot();
+            session.extensions_mut().update_hot(snapshot);
             let result = self.with_rollback(session, name, |engine, session| {
                 let plugin = &engine.plugins[idx];
-                plugin.on_tool_result(&mut mutable_results, &mut session.extensions)
+                plugin.on_tool_result(&mut mutable_results, session.extensions_mut())
             });
             if let Err(err) = result {
                 effects.push(self.plugin_fault(name, err));
@@ -825,21 +1029,77 @@ impl BriocheEngine {
 
         // Push results into history.
         for result in &mutable_results {
-            let content = match &result.outcome {
-                crate::ToolOutcome::Success(s)
-                | crate::ToolOutcome::BusinessError(s)
-                | crate::ToolOutcome::SystemError(s) => s.clone(),
-                crate::ToolOutcome::TimeoutWithPartialData { partial_output } => {
-                    partial_output.clone().unwrap_or_default()
-                }
-            };
-            session.history.push(ChatMessage::ToolResult {
+            session.push_history(ChatMessage::ToolResult {
                 id: result.tool_id.clone(),
-                content,
+                tool_name: result.tool_name.clone(),
+                outcome: result.outcome.clone(),
             });
         }
 
-        session.push_state(AgentState::Predicting { generation_id })?;
+        // before_prediction hook: collect decisions (re-prediction path).
+        // History cloned once outside the loop to avoid O(n×p) allocations.
+        let history = session.history().to_vec();
+        let mut decisions = Vec::new();
+        for i in 0..self.routing_table.route_before_prediction.len() {
+            let idx = self.routing_table.route_before_prediction[i];
+            let name = self.plugins[idx].name();
+            let snapshot = session.snapshot();
+            session.extensions_mut().update_hot(snapshot);
+            let decision = self.with_rollback(session, name, |engine, session| {
+                let plugin = &engine.plugins[idx];
+                plugin.before_prediction(&history, session.extensions_mut())
+            });
+            match decision {
+                Ok(decision) => decisions.push(decision),
+                Err(err) => {
+                    effects.push(self.plugin_fault(name, err));
+                }
+            }
+        }
+
+        // DecisionAggregator (mandatory). Do NOT mutate state until Allow.
+        match self
+            .decision_aggregator
+            .aggregate_decisions(decisions, session.extensions_mut())
+        {
+            Ok(decision) => match decision {
+                PolicyDecision::Allow => {}
+                PolicyDecision::Block { reason } => {
+                    // Roll back history insertions; leave stack intact.
+                    for _ in results {
+                        session.pop_history();
+                    }
+                    effects.push(Effect::Error {
+                        code: ErrorCode::StateInconsistency,
+                        message: reason,
+                    });
+                    effects.push(Effect::SystemIdle);
+                    return Ok(effects);
+                }
+                PolicyDecision::MutateHistory(edits) => {
+                    Self::apply_history_edits(session, &edits)?;
+                }
+                PolicyDecision::RequestEffect(eff) => {
+                    effects.push(eff);
+                }
+                PolicyDecision::OverrideTransition(ov) => {
+                    // Roll back history insertions; leave stack intact.
+                    for _ in results {
+                        session.pop_history();
+                    }
+                    effects.extend(ov);
+                    return Ok(effects);
+                }
+            },
+            Err(err) => {
+                effects.push(self.plugin_fault("decision_aggregator", err));
+            }
+        }
+
+        // Now safe to transition: pop ExecutingTools. The stack already
+        // contains Predicting underneath, so we do NOT push it again.
+        session.pop_state()?;
+        session.clear_active_tools();
 
         effects.push(Effect::CallLlmNetwork);
         effects.push(Effect::SaveSession);
@@ -850,14 +1110,16 @@ impl BriocheEngine {
     /// Dispatch `RestoreSubRoutine` input.
     fn dispatch_restore_subroutine(
         &mut self,
-        _session: &mut Session,
+        session: &mut Session,
         handle: &SubRoutineHandle,
-        _head_blob: &[u8],
     ) -> Result<Vec<Effect>, BriocheError> {
-        // Sprint 4 placeholder: create a default session.
-        // Full SessionHeadDTO deserialization will be implemented in Sprint 5+.
+        if matches!(session.state(), AgentState::Failure) {
+            return Err(BriocheError::InvalidStateTransition(
+                "cannot restore sub-routine while in Failure state".into(),
+            ));
+        }
         let child = Session::new(handle.as_str());
-        self.session_registry.insert(handle.clone(), child);
+        let _previous = self.session_registry.insert(handle.clone(), child);
 
         let effects = vec![
             Effect::SubRoutineRestored {
@@ -878,13 +1140,16 @@ impl BriocheEngine {
         prev_handle: Option<SubRoutineHandle>,
         mut effects: Vec<Effect>,
     ) -> Vec<Effect> {
-        // Step 7: SubRoutineLifecycleGuard (mandatory if exiting SubRoutine).
+        // Step 6: SubRoutineLifecycleGuard (mandatory if exiting SubRoutine).
         if prev_was_subroutine
-            && let Some(ref guard) = self.subroutine_lifecycle_guard
             && let Some(handle) = prev_handle
-            && !matches!(session.state, AgentState::SubRoutine(_))
+            && !matches!(session.state(), AgentState::SubRoutine(_))
         {
-            match guard.on_exit(handle, session, &mut self.session_registry) {
+            match self.subroutine_lifecycle_guard.on_exit(
+                handle,
+                session,
+                &mut self.session_registry,
+            ) {
                 Ok(guard_effects) => effects.extend(guard_effects),
                 Err(err) => {
                     effects.push(self.plugin_fault("subroutine_lifecycle_guard", err));
@@ -892,7 +1157,7 @@ impl BriocheEngine {
             }
         }
 
-        // Step 8: Hook effect validation (optional).
+        // Step 7: Hook effect validation (optional).
         if let Some(ref constraint) = self.hook_effect_constraint {
             // Sprint 4: basic validation for RequestEffect decisions.
             // Full per-hook bitmask mapping will be refined in Sprint 5+.
@@ -907,8 +1172,8 @@ impl BriocheEngine {
                 let mask = effect_to_bitmask(effect);
                 if !constraint.is_allowed_fast(0, mask) {
                     // Fallback validation
-                    let variant = format!("{:?}", std::mem::discriminant(effect));
-                    if !constraint.is_allowed_fallback("transition", &variant) {
+                    let variant = Self::effect_variant_name(effect);
+                    if !constraint.is_allowed_fallback("transition", variant) {
                         *effect = Effect::Error {
                             code: ErrorCode::StateInconsistency,
                             message: "Effect not allowed on this hook".into(),
@@ -918,50 +1183,99 @@ impl BriocheEngine {
             }
         }
 
-        // Step 9: RebuildRoutes last position guarantee.
-        Self::ensure_rebuildroutes_last(&mut effects);
-
-        // Step 10: ConsistencyVerifier (optional).
-        if let Some(ref verifier) = self.consistency_verifier {
-            // If RebuildRoutes is present, consistency effects are ignored.
-            if !effects.iter().any(|e| matches!(e, Effect::RebuildRoutes)) {
-                match verifier.verify_consistency(session) {
-                    Ok(Some(verifier_effects)) => {
-                        effects.extend(verifier_effects);
-                    }
-                    Ok(None) => {}
-                    Err(err) => {
-                        effects.push(self.plugin_fault("consistency_verifier", err));
+        // Step 8: on_error hook for PluginFault effects (optional).
+        let mut error_hook_effects = Vec::new();
+        for effect in &effects {
+            if let Effect::PluginFault { error, .. } = effect {
+                for i in 0..self.routing_table.route_on_error.len() {
+                    let idx = self.routing_table.route_on_error[i];
+                    let name = self.plugins[idx].name();
+                    let snapshot = session.snapshot();
+                    session.extensions_mut().update_hot(snapshot);
+                    let decision = self.with_rollback(session, name, |engine, session| {
+                        let plugin = &engine.plugins[idx];
+                        plugin.on_error(error, session.extensions_mut())
+                    });
+                    match decision {
+                        Ok(PolicyDecision::Allow) => {}
+                        Ok(PolicyDecision::Block { reason }) => {
+                            error_hook_effects.push(Effect::Error {
+                                code: ErrorCode::StateInconsistency,
+                                message: format!("on_error block from {}: {}", name, reason),
+                            });
+                        }
+                        Ok(PolicyDecision::OverrideTransition(ov)) => {
+                            error_hook_effects.extend(ov);
+                        }
+                        Ok(PolicyDecision::RequestEffect(eff)) => {
+                            error_hook_effects.push(eff);
+                        }
+                        Ok(PolicyDecision::MutateHistory(edits)) => {
+                            if let Err(err) = Self::apply_history_edits(session, &edits) {
+                                error_hook_effects.push(Effect::Error {
+                                    code: ErrorCode::StateInconsistency,
+                                    message: err.to_string(),
+                                });
+                            }
+                        }
+                        Err(err) => {
+                            error_hook_effects.push(self.plugin_fault(name, err));
+                        }
                     }
                 }
             }
         }
+        effects.extend(error_hook_effects);
 
-        // Step 10.5: GovernanceFailoverHandler (optional).
-        if let Some(ref handler) = self.governance_failover_handler
-            && !effects.iter().any(|e| matches!(e, Effect::RebuildRoutes))
-        {
-            let mut replacement_effects = Vec::new();
+        // Step 9: ConsistencyVerifier (optional).
+        if let Some(ref verifier) = self.consistency_verifier {
+            match verifier.verify_consistency(session) {
+                Ok(report) => {
+                    if let Some(new_state) = report.suggested_state {
+                        session.set_state(new_state);
+                        if report.clear_stack {
+                            session.clear_state_stack();
+                        }
+                    }
+                    effects.extend(report.effects);
+                }
+                Err(err) => {
+                    effects.push(self.plugin_fault("consistency_verifier", err));
+                }
+            }
+        }
+
+        // Step 10: GovernanceFailoverHandler (optional).
+        // Preserve the original PluginFault for audit; append failover
+        // effects rather than replacing them.
+        if let Some(ref handler) = self.governance_failover_handler {
+            let mut augmented_effects = Vec::new();
             let mut has_fault = false;
             for effect in &effects {
                 if let Effect::PluginFault { .. } = effect {
                     has_fault = true;
                     match handler.handle_failure(session, effect) {
                         Ok(Some(failover)) => {
-                            replacement_effects.extend(failover);
+                            // Keep the original fault so telemetry retains
+                            // the plugin name and error message.
+                            augmented_effects.push(effect.clone());
+                            augmented_effects.extend(failover);
                         }
                         _ => {
-                            replacement_effects.push(effect.clone());
+                            augmented_effects.push(effect.clone());
                         }
                     }
                 } else {
-                    replacement_effects.push(effect.clone());
+                    augmented_effects.push(effect.clone());
                 }
             }
             if has_fault {
-                effects = replacement_effects;
+                effects = augmented_effects;
             }
         }
+
+        // Step 11: RebuildRoutes last position guarantee — MUST be final.
+        Self::ensure_rebuildroutes_last(&mut effects);
 
         effects
     }
@@ -970,37 +1284,52 @@ impl BriocheEngine {
     // Static helpers
     // -----------------------------------------------------------------------
 
-    /// Apply a sequence of `HistoryEdit`s to the session, validating indices.
+    /// Apply a sequence of `HistoryEdit`s to the session atomically.
+    ///
+    /// All edits are validated before any mutation occurs. If any edit
+    /// is invalid, the session history is left unchanged.
     fn apply_history_edits(
         session: &mut Session,
         edits: &[HistoryEdit],
     ) -> Result<(), BriocheError> {
+        // First pass: validate all edits.
         for edit in edits {
             match edit {
-                HistoryEdit::Insert { index, message } => {
-                    if *index > session.history.len() {
+                HistoryEdit::Insert { index, .. } => {
+                    if *index > session.history_len() {
                         return Err(BriocheError::InvalidStateTransition(format!(
                             "history insert index {} out of bounds (len={})",
                             index,
-                            session.history.len()
+                            session.history_len()
                         )));
                     }
-                    session.history.insert(*index, message.clone());
                 }
-                HistoryEdit::Replace { index, message } => {
-                    if *index >= session.history.len() {
+                HistoryEdit::Replace { index, .. } => {
+                    if *index >= session.history_len() {
                         return Err(BriocheError::InvalidStateTransition(format!(
                             "history replace index {} out of bounds (len={})",
                             index,
-                            session.history.len()
+                            session.history_len()
                         )));
                     }
-                    session.history[*index] = message.clone();
+                }
+                HistoryEdit::Truncate { .. } => {}
+            }
+        }
+        // Second pass: apply edits using unchecked methods because
+        // bounds were already validated in the first pass.
+        for edit in edits {
+            match edit {
+                HistoryEdit::Insert { index, message } => {
+                    // SAFETY: validated in first pass above.
+                    unsafe { session.insert_history_unchecked(*index, message.clone()) };
+                }
+                HistoryEdit::Replace { index, message } => {
+                    // SAFETY: validated in first pass above.
+                    unsafe { session.replace_history_unchecked(*index, message.clone()) };
                 }
                 HistoryEdit::Truncate { keep_last } => {
-                    let keep = (*keep_last).min(session.history.len());
-                    let drain_count = session.history.len() - keep;
-                    session.history.drain(..drain_count);
+                    session.truncate_history(*keep_last);
                 }
             }
         }
@@ -1008,6 +1337,11 @@ impl BriocheEngine {
     }
 
     /// Guarantee that `RebuildRoutes` occupies the last position in effects.
+    ///
+    /// If multiple `RebuildRoutes` are present, all but one are removed
+    /// and the survivor is placed at the end. Any effects that appear after
+    /// the last `RebuildRoutes` are truncated — by contract `RebuildRoutes`
+    /// must be the final effect in the returned vector.
     fn ensure_rebuildroutes_last(effects: &mut Vec<Effect>) {
         if let Some(pos) = effects
             .iter()
@@ -1025,26 +1359,54 @@ impl BriocheEngine {
         }
     }
 
+    /// Returns the canonical variant name of an `Effect`.
+    ///
+    /// **Keep in sync with `effect_to_bitmask`** in `types.rs`. Both
+    /// functions perform exhaustive matching; adding a new `Effect`
+    /// variant requires updating both.
+    fn effect_variant_name(effect: &Effect) -> &'static str {
+        match effect {
+            Effect::CallLlmNetwork => "CallLlmNetwork",
+            Effect::ExecuteTools(_) => "ExecuteTools",
+            Effect::ForwardToUi(_) => "ForwardToUi",
+            Effect::Error { .. } => "Error",
+            Effect::SaveSession => "SaveSession",
+            Effect::SavePluginBlob { .. } => "SavePluginBlob",
+            Effect::TriggerSummarization => "TriggerSummarization",
+            Effect::ExecuteCpuTask { .. } => "ExecuteCpuTask",
+            Effect::TriggerGc => "TriggerGc",
+            Effect::SystemIdle => "SystemIdle",
+            Effect::PluginFault { .. } => "PluginFault",
+            Effect::RebuildRoutes => "RebuildRoutes",
+            Effect::SubRoutineRestored { .. } => "SubRoutineRestored",
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Trace logging
     // -----------------------------------------------------------------------
 
-    fn log_override_transition(&self, session: &mut Session, source_plugin: &str) {
+    fn log_override_transition(
+        &self,
+        session: &mut Session,
+        source_plugin: &str,
+        effects: &[Effect],
+    ) {
         let epoch = session
-            .extensions
-            .get_or_insert_default::<EpochState>()
-            .current_generation;
-        let log = session
-            .extensions
-            .get_or_insert_default::<TransitionTraceLog>();
-        if log.entries.len() >= 128 {
-            log.entries.remove(0);
-        }
-        log.entries.push(TransitionTrace {
-            source_plugin: source_plugin.to_string(),
-            decision: PolicyDecision::OverrideTransition(vec![]),
-            epoch,
-        });
+            .extensions_mut()
+            .with_or_insert_default::<EpochState, _>(|state| state.current_generation);
+        session
+            .extensions_mut()
+            .with_or_insert_default::<TransitionTraceLog, _>(|log| {
+                if log.entries.len() >= TRACE_LOG_CAPACITY {
+                    log.entries.pop_front();
+                }
+                log.entries.push_back(TransitionTrace {
+                    source_plugin: source_plugin.to_string(),
+                    decision: PolicyDecision::OverrideTransition(effects.to_vec()),
+                    epoch,
+                });
+            });
     }
 
     fn log_superseded_transition(
@@ -1052,23 +1414,24 @@ impl BriocheEngine {
         session: &mut Session,
         source_plugin: &str,
         attempted_decision: &PolicyDecision,
+        preempted_by: &str,
     ) {
         let epoch = session
-            .extensions
-            .get_or_insert_default::<EpochState>()
-            .current_generation;
-        let log = session
-            .extensions
-            .get_or_insert_default::<SupersededTransitionTraceLog>();
-        if log.entries.len() >= 128 {
-            log.entries.remove(0);
-        }
-        log.entries.push(SupersededTransitionTrace {
-            source_plugin: source_plugin.to_string(),
-            attempted_decision: attempted_decision.clone(),
-            preempted_by: "prior_plugin".to_string(),
-            epoch,
-        });
+            .extensions_mut()
+            .with_or_insert_default::<EpochState, _>(|state| state.current_generation);
+        session
+            .extensions_mut()
+            .with_or_insert_default::<SupersededTransitionTraceLog, _>(|log| {
+                if log.entries.len() >= TRACE_LOG_CAPACITY {
+                    log.entries.pop_front();
+                }
+                log.entries.push_back(SupersededTransitionTrace {
+                    source_plugin: source_plugin.to_string(),
+                    attempted_decision: attempted_decision.clone(),
+                    preempted_by: preempted_by.to_string(),
+                    epoch,
+                });
+            });
     }
 }
 
@@ -1092,6 +1455,8 @@ pub struct BriocheEngineBuilder {
     cycle_rollback_policy: Option<Box<dyn CycleRollbackPolicy>>,
     subroutine_lifecycle_guard: Option<Box<dyn SubRoutineLifecycleGuard>>,
     governance_failover_handler: Option<Box<dyn GovernanceFailoverHandler>>,
+    signal_drain_order: Option<Box<dyn SignalDrainOrder>>,
+    cow_budget_policy: Option<Box<dyn CowBudgetPolicy>>,
     default_tool_timeout_ms: u64,
 }
 
@@ -1114,7 +1479,9 @@ impl BriocheEngineBuilder {
             cycle_rollback_policy: None,
             subroutine_lifecycle_guard: None,
             governance_failover_handler: None,
-            default_tool_timeout_ms: 0,
+            signal_drain_order: None,
+            cow_budget_policy: None,
+            default_tool_timeout_ms: crate::DEFAULT_TOOL_TIMEOUT_MS,
         }
     }
 
@@ -1181,6 +1548,24 @@ impl BriocheEngineBuilder {
         self
     }
 
+    /// Inject a `SignalDrainOrder` adapter so `transition()` automatically
+    /// drains separate signal channels before each cycle.
+    ///
+    /// Refs: SPECS.md §1.4, I-Shell-Drain-Atomic
+    pub fn with_signal_drain_order(mut self, drain: Box<dyn SignalDrainOrder>) -> Self {
+        self.signal_drain_order = Some(drain);
+        self
+    }
+
+    /// Inject a `CowBudgetPolicy` to provide per-hook COW budgets to
+    /// `CycleRollbackPolicy` implementations.
+    ///
+    /// Refs: SPECS.md §2.11
+    pub fn with_cow_budget_policy(mut self, policy: Box<dyn CowBudgetPolicy>) -> Self {
+        self.cow_budget_policy = Some(policy);
+        self
+    }
+
     /// Set the default tool timeout applied when a descriptor omits
     /// `timeout_ms`.
     ///
@@ -1195,7 +1580,8 @@ impl BriocheEngineBuilder {
 
     /// Build the `BriocheEngine`.
     ///
-    /// Returns `Err` if a mandatory trait is missing.
+    /// Returns `Err` if a mandatory trait is missing, if plugin names are
+    /// not unique, or if any plugin name is empty.
     pub fn build(self) -> Result<BriocheEngine, BriocheError> {
         let decision_aggregator = self.decision_aggregator.ok_or_else(|| {
             BriocheError::Other(
@@ -1210,6 +1596,27 @@ impl BriocheEngineBuilder {
             )
         })?;
 
+        // Enforce unique plugin names for deterministic routing.
+        let mut seen_names = std::collections::BTreeSet::new();
+        for plugin in &self.plugins {
+            let name = plugin.name();
+            if name.is_empty() {
+                return Err(BriocheError::Other("plugin name must not be empty".into()));
+            }
+            if !seen_names.insert(name) {
+                return Err(BriocheError::Other(format!(
+                    "duplicate plugin name: {}",
+                    name
+                )));
+            }
+        }
+
+        if self.default_tool_timeout_ms == 0 {
+            return Err(BriocheError::Other(
+                "default_tool_timeout_ms must be > 0".into(),
+            ));
+        }
+
         let routing_table = UnifiedRoutingTable::from_plugins(&self.plugins);
 
         Ok(BriocheEngine {
@@ -1218,13 +1625,15 @@ impl BriocheEngineBuilder {
             epoch_interceptor: self.epoch_interceptor,
             subroutine_handler: self.subroutine_handler,
             consistency_verifier: self.consistency_verifier,
-            decision_aggregator: Some(decision_aggregator),
+            decision_aggregator,
             hook_effect_constraint: self.hook_effect_constraint,
             cycle_rollback_policy: self.cycle_rollback_policy,
-            subroutine_lifecycle_guard: Some(subroutine_lifecycle_guard),
+            subroutine_lifecycle_guard,
             governance_failover_handler: self.governance_failover_handler,
+            signal_drain_order: self.signal_drain_order,
+            cow_budget_policy: self.cow_budget_policy,
             session_registry: SessionRegistry::new(),
-            next_generation_id: 1,
+            next_generation_id: crate::INITIAL_GENERATION_ID,
             default_tool_timeout_ms: self.default_tool_timeout_ms,
             _not_send_sync: std::marker::PhantomData,
         })

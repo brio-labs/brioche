@@ -4,11 +4,13 @@
 //! - I-Core-ExtensionType: Compile-time verified extension types via `BriocheExtensionType`.
 //! - I-Core-VTableClone: VTable provides `clone_box`, `serialize`, `deserialize` for COW rollback.
 //! - I-Core-ExtO1: O(log n) typed access by `TypeId` (n = registered types, typically < 20).
+//! - I-Core-NoUnsafe: `ExtensionStorage` contains no `unsafe` code.
 //!
 //! Refs: SPECS.md §3.1, §3.2
 
 use crate::CycleRollbackPolicy;
 use std::any::{Any, TypeId};
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Snapshot strategy for COW rollback.
@@ -25,7 +27,7 @@ pub enum SnapshotStrategy {
 }
 
 /// Serialize a type-erased instance to a binary blob.
-pub type SerializeFn = fn(&dyn Any) -> Vec<u8>;
+pub type SerializeFn = fn(&dyn Any) -> Result<Vec<u8>, String>;
 
 /// Deserialize a binary blob into a type-erased instance.
 pub type DeserializeFn = fn(&[u8]) -> Result<Box<dyn Any + Send + Sync>, String>;
@@ -150,24 +152,27 @@ pub trait BriocheExtensionType:
 /// - `hot_map`: in-memory `BTreeMap` for typed access. Not persisted.
 /// - `cold_snapshot`: binary blobs indexed by `EXT_ID`, persisted on `insert`.
 /// - `registry`: `ExtVTable` instances populated at initialization.
+/// - `rollback_policy`: owned `CycleRollbackPolicy` stored in a `Cell` so it
+///   can be temporarily removed during COW snapshot callbacks without raw
+///   pointers or borrow conflicts.
 ///
 /// # Invariants
 ///
 /// - All maps use `BTreeMap` for determinism; no `HashMap` in Core.
-/// - Typed extension access is O(log n) by `TypeId` and infallible after
-///   `get_or_insert_default`.
+/// - Typed extension access is O(log n) by `TypeId`.
+/// - **Zero `unsafe` in this module.** The previous `NonNull` observer
+///   pattern is replaced by `Cell` ownership.
 ///
-/// Refs: I-Core-ExtO1, I-Core-VTableClone
+/// Refs: I-Core-ExtO1, I-Core-VTableClone, I-Core-NoUnsafe
 pub struct ExtensionStorage {
     hot_map: BTreeMap<TypeId, Box<dyn Any + Send + Sync>>,
-    cold_snapshot: BTreeMap<String, Vec<u8>>,
+    cold_snapshot: BTreeMap<&'static str, Vec<u8>>,
     registry: BTreeMap<TypeId, ExtVTable>,
-    ext_id_to_type_id: BTreeMap<String, TypeId>,
-    /// Raw pointer to the active `CycleRollbackPolicy` for the current hook.
-    /// This is a transient field set/cleared by the engine around each plugin
-    /// hook invocation. The pointer is valid because the engine is single-threaded
-    /// and `!Send`/`!Sync`.
-    cow_observer: Option<*mut dyn CycleRollbackPolicy>,
+    ext_id_to_type_id: BTreeMap<&'static str, TypeId>,
+    /// Owned rollback policy during a monitored hook. `None` when no hook
+    /// is active. Stored in `Cell` so it can be taken/restored around
+    /// `on_mutation` calls without borrow conflicts or raw pointers.
+    rollback_policy: Cell<Option<Box<dyn CycleRollbackPolicy>>>,
     /// Types already snapshotted in the current hook. Prevents duplicate COW
     /// clones when a plugin calls `get_mut` multiple times for the same type.
     snapshotted_this_hook: BTreeSet<TypeId>,
@@ -189,7 +194,7 @@ impl ExtensionStorage {
             cold_snapshot: BTreeMap::new(),
             registry: BTreeMap::new(),
             ext_id_to_type_id: BTreeMap::new(),
-            cow_observer: None,
+            rollback_policy: Cell::new(None),
             snapshotted_this_hook: BTreeSet::new(),
         }
     }
@@ -206,8 +211,7 @@ impl ExtensionStorage {
     {
         let vtable = T::build_vtable();
         let type_id = TypeId::of::<T>();
-        self.ext_id_to_type_id
-            .insert(vtable.ext_id.to_string(), type_id);
+        self.ext_id_to_type_id.insert(vtable.ext_id, type_id);
         self.registry.insert(type_id, vtable);
     }
 
@@ -217,8 +221,13 @@ impl ExtensionStorage {
     /// and stored in `cold_snapshot`, then placed in `hot_map` for fast
     /// access.
     ///
+    /// # Errors
+    ///
+    /// Returns `BriocheError::Serialization` if postcard serialization fails.
+    /// This indicates a contract violation in the `BriocheExtensionType` impl.
+    ///
     /// Complexity: O(serialization cost). Two `BTreeMap` insertions.
-    pub fn insert<T>(&mut self, value: T)
+    pub fn insert<T>(&mut self, value: T) -> Result<(), crate::BriocheError>
     where
         T: BriocheExtensionType + 'static,
     {
@@ -226,13 +235,18 @@ impl ExtensionStorage {
         if !self.registry.contains_key(&type_id) {
             self.register::<T>();
         }
-        if let Some(vtable) = self.registry.get(&type_id) {
-            let blob = (vtable.serialize)(&value);
-            self.cold_snapshot.insert(vtable.ext_id.to_string(), blob);
-            self.hot_map.insert(type_id, Box::new(value));
-        }
-        // Defensive: if vtable is missing, value is silently dropped.
-        // This should never happen because register was called above.
+        let Some(vtable) = self.registry.get(&type_id) else {
+            return Err(crate::BriocheError::StorageAccess(
+                "missing vtable after registration".into(),
+            ));
+        };
+        let blob = (vtable.serialize)(&value).map_err(crate::BriocheError::Serialization)?;
+        self.cold_snapshot.insert(vtable.ext_id, blob);
+        // Snapshot the OLD value (if any) BEFORE replacing it, so rollback
+        // restores the pre-mutation state. I-Gov-Rollback-BestEffort.
+        self.notify_cow_on_first_mutation(type_id);
+        self.hot_map.insert(type_id, Box::new(value));
+        Ok(())
     }
 
     /// Get a mutable reference to a typed extension, if present.
@@ -251,20 +265,47 @@ impl ExtensionStorage {
             .and_then(|any| any.downcast_mut::<T>())
     }
 
-    /// Get a mutable reference to a typed extension, inserting the default
-    /// if absent.
+    /// Get an immutable reference to a typed extension, if present.
+    ///
+    /// Complexity: O(log n). One `BTreeMap` lookup plus `downcast_ref`.
+    /// No COW snapshot is triggered.
+    ///
+    /// Refs: I-Core-ExtO1
+    pub fn get<T>(&self) -> Option<&T>
+    where
+        T: BriocheExtensionType + 'static,
+    {
+        let type_id = TypeId::of::<T>();
+        self.hot_map
+            .get(&type_id)
+            .and_then(|any| any.downcast_ref::<T>())
+    }
+
+    /// Run a closure with a mutable reference to a typed extension,
+    /// inserting the default if absent.
     ///
     /// If the type is not in `hot_map`, attempts to restore from
     /// `cold_snapshot` via `ExtVTable::deserialize`. On deserialization
     /// failure, falls back to `ExtVTable::default_construct`.
     ///
-    /// This method is infallible: it always returns a valid `&mut T`.
+    /// This method is infallible: it always invokes `f` with a valid
+    /// `&mut T`. It uses a closure instead of returning `&mut T` directly
+    /// because `Any::downcast_mut`'s `Option<&mut T>` forces the borrow
+    /// checker to extend the `BTreeMap` borrow to the end of the caller's
+    /// scope, which caused either `unsafe`, `Box::leak`, or double-borrow
+    /// workarounds in previous designs. The closure form is fully safe,
+    /// fully deterministic, and matches PHILOSOPHY.md §2.3
+    /// (borrow-checker-friendly APIs).
+    ///
+    /// The closure is `FnMut` so it can be retried if a defensive loop
+    /// iteration is ever needed. In correct operation the loop exits on
+    /// the first iteration.
     ///
     /// Complexity: O(log n) amortized. One `BTreeMap` lookup plus optional
     /// deserialization.
     ///
     /// Refs: I-Core-ExtO1
-    pub fn get_or_insert_default<T>(&mut self) -> &mut T
+    pub fn with_or_insert_default<T, R>(&mut self, mut f: impl FnMut(&mut T) -> R) -> R
     where
         T: BriocheExtensionType + 'static,
     {
@@ -287,34 +328,31 @@ impl ExtensionStorage {
         }
         // Notify COW observer now that the value is guaranteed to exist.
         self.notify_cow_on_first_mutation(type_id);
-        // Remove the value from the map to verify / fix its type locally,
-        // then re-insert. This avoids borrow checker issues with
-        // downcast_mut on trait objects held across map mutations.
-        let mut value = match self.hot_map.remove(&type_id) {
-            Some(v) => v,
-            None => Box::new(T::default()),
-        };
-        if value.downcast_mut::<T>().is_none() {
-            value = Box::new(T::default());
+
+        // Defensive: type-check the entry and correct it if a previous bug
+        // or memory corruption left the wrong type at this TypeId. We use a
+        // loop rather than recursion so the closure (`FnMut`) can be retried;
+        // in correct operation the loop exits on the first iteration.
+        loop {
+            let mut value = match self.hot_map.remove(&type_id) {
+                Some(v) => v,
+                None => Box::new(T::default()),
+            };
+            if value.downcast_ref::<T>().is_none() {
+                value = Box::new(T::default());
+            }
+            self.hot_map.insert(type_id, value);
+
+            let mut result: Option<R> = None;
+            if let Some(entry) = self.hot_map.get_mut(&type_id)
+                && let Some(typed) = entry.downcast_mut::<T>()
+            {
+                result = Some(f(typed));
+            }
+            if let Some(r) = result {
+                return r;
+            }
         }
-        self.hot_map.insert(type_id, value);
-        // Now the map is guaranteed to contain Box<T>. Retrieve it.
-        // No further map mutations after this point to avoid borrow
-        // checker extending the get_mut borrow across insertions.
-        if let Some(any) = self.hot_map.get_mut(&type_id)
-            && let Some(typed) = any.downcast_mut::<T>()
-        {
-            return typed;
-        }
-        // This path is theoretically unreachable: we verified the type
-        // above by removing the value, checking downcast_mut, and
-        // re-inserting Box<T>. A failure here implies a fundamental
-        // rustc or std library bug.
-        //
-        // We leak a default instance rather than panicking to uphold
-        // I-Core-NoPanic (no panics in Core). The one-time memory cost
-        // is acceptable for preserving kernel stability.
-        Box::leak(Box::new(T::default()))
     }
 
     /// Hydrate a plugin from an external raw blob.
@@ -340,7 +378,7 @@ impl ExtensionStorage {
             Err(_) => (vtable.default_construct)(),
         };
         self.hot_map.insert(type_id, value);
-        self.cold_snapshot.insert(ext_id.to_string(), blob.to_vec());
+        self.cold_snapshot.insert(vtable.ext_id, blob.to_vec());
         true
     }
 
@@ -349,39 +387,120 @@ impl ExtensionStorage {
     /// Used by persistence layers to extract binary blobs for disk write.
     ///
     /// Complexity: O(1). Returns a reference; no allocation.
-    pub fn cold_snapshot(&self) -> &BTreeMap<String, Vec<u8>> {
+    pub fn cold_snapshot(&self) -> &BTreeMap<&'static str, Vec<u8>> {
         &self.cold_snapshot
     }
 
-    /// Set the COW rollback observer for the duration of a monitored hook.
+    /// Insert a value into `hot_map` only, bypassing `cold_snapshot` serialization.
     ///
-    /// # Safety
+    /// Used by the kernel for transient per-cycle metadata such as
+    /// `SessionSnapshot` that is fully reconstructed on every transition.
     ///
-    /// The observer pointer must remain valid until `clear_cow_observer` is
-    /// called. This is guaranteed by the synchronous engine which sets/clears
-    /// the observer around each plugin invocation.
+    /// Complexity: O(log n). One `BTreeMap` insertion; no serialization.
+    ///
+    /// Refs: I-Core-ExtO1
+    pub fn insert_hot<T>(&mut self, value: T)
+    where
+        T: BriocheExtensionType + 'static,
+    {
+        let type_id = TypeId::of::<T>();
+        if !self.registry.contains_key(&type_id) {
+            self.register::<T>();
+        }
+        // Hot-only mutations are also observable to plugins; snapshot old
+        // state so rollback can restore it. I-Gov-Rollback-BestEffort.
+        self.notify_cow_on_first_mutation(type_id);
+        self.hot_map.insert(type_id, Box::new(value));
+    }
+
+    /// Set the owned COW rollback policy for the duration of a monitored hook.
+    ///
+    /// The engine transfers ownership to `ExtensionStorage`, retrieves it
+    /// via `take_rollback_policy` after the hook, and drives the hook
+    /// lifecycle through `begin_hook` / `commit_hook` / `rollback_hook`.
+    /// This replaces the previous unsafe raw-pointer observer pattern.
     ///
     /// Complexity: O(1). No heap allocation.
     ///
     /// Refs: I-Gov-Rollback-BestEffort
-    pub unsafe fn set_cow_observer(&mut self, observer: Option<*mut dyn CycleRollbackPolicy>) {
-        self.cow_observer = observer;
+    pub fn set_rollback_policy(&mut self, policy: Option<Box<dyn CycleRollbackPolicy>>) {
+        self.rollback_policy.set(policy);
         self.snapshotted_this_hook.clear();
     }
 
-    /// Clear the COW rollback observer.
+    /// Take back the owned COW rollback policy.
     ///
-    /// # Safety
-    ///
-    /// Must be called after `set_cow_observer` and after the hook
-    /// execution is complete, before any subsequent hook begins.
+    /// Returns `None` if no policy was set.
     ///
     /// Complexity: O(1). No heap allocation.
+    pub fn take_rollback_policy(&mut self) -> Option<Box<dyn CycleRollbackPolicy>> {
+        self.rollback_policy.take()
+    }
+
+    /// Begin a monitored hook: calls `begin_hook` on the policy and resets
+    /// the per-hook snapshot tracking.
     ///
-    /// Refs: I-Gov-Rollback-BestEffort
-    pub unsafe fn clear_cow_observer(&mut self) {
-        self.cow_observer = None;
+    /// Complexity: O(1) + policy cost.
+    pub fn begin_hook(&mut self) {
+        let policy = self.rollback_policy.take();
+        if let Some(mut p) = policy {
+            p.begin_hook();
+            self.rollback_policy.set(Some(p));
+        }
         self.snapshotted_this_hook.clear();
+    }
+
+    /// Commit the current hook: calls `commit_hook` on the policy.
+    ///
+    /// Complexity: O(1) + policy cost.
+    pub fn commit_hook(&mut self) {
+        let policy = self.rollback_policy.take();
+        if let Some(mut p) = policy {
+            p.commit_hook(self);
+            self.rollback_policy.set(Some(p));
+        }
+    }
+
+    /// Rollback the current hook: calls `rollback_hook` on the policy.
+    ///
+    /// Complexity: O(1) + policy cost.
+    pub fn rollback_hook(&mut self) {
+        let policy = self.rollback_policy.take();
+        if let Some(mut p) = policy {
+            p.rollback_hook(self);
+            self.rollback_policy.set(Some(p));
+        }
+    }
+
+    /// Update an existing `hot_map` entry in-place, avoiding allocation if
+    /// the slot is already warm. Falls back to `insert_hot` on first use.
+    ///
+    /// Used by the kernel for `SessionSnapshot` injection to eliminate
+    /// per-hook heap allocations after the initial warm-up.
+    ///
+    /// Complexity: O(log n). Zero allocation on the warm path.
+    ///
+    /// Refs: I-Core-ExtO1, I-Core-ChunkBudget
+    pub fn update_hot<T>(&mut self, value: T)
+    where
+        T: BriocheExtensionType + 'static,
+    {
+        let type_id = TypeId::of::<T>();
+        if !self.registry.contains_key(&type_id) {
+            self.register::<T>();
+        }
+        // Snapshot the existing value before in-place mutation so rollback
+        // can restore the previous snapshot. I-Gov-Rollback-BestEffort.
+        self.notify_cow_on_first_mutation(type_id);
+        if let Some(existing) = self
+            .hot_map
+            .get_mut(&type_id)
+            .and_then(|any| any.downcast_mut::<T>())
+        {
+            *existing = value;
+        } else {
+            self.hot_map.insert(type_id, Box::new(value));
+        }
     }
 
     /// Restore a type-erased value into `hot_map` from a COW snapshot.
@@ -396,25 +515,32 @@ impl ExtensionStorage {
         self.hot_map.insert(type_id, value);
     }
 
-    /// Notify the COW observer on first mutation access for a type in this hook.
+    /// Notify the COW policy on first mutation access for a type in this hook.
+    ///
+    /// Uses `Cell::take` to temporarily remove the policy, avoiding both
+    /// raw pointers and borrow conflicts with `self.hot_map`. The policy
+    /// is restored immediately after the callback.
+    ///
+    /// This method contains **no unsafe code**.
     fn notify_cow_on_first_mutation(&mut self, type_id: TypeId) {
-        let Some(observer_ptr) = self.cow_observer else {
-            return;
-        };
         if self.snapshotted_this_hook.contains(&type_id) {
             return;
         }
         let Some(vtable) = self.registry.get(&type_id) else {
             return;
         };
-        let Some(current) = self.hot_map.get(&type_id) else {
-            return;
-        };
-        // SAFETY: The observer pointer is valid because the synchronous engine
-        // guarantees the policy outlives the hook invocation. The engine is
-        // single-threaded and `!Send`/`!Sync`.
-        unsafe {
-            (*observer_ptr).on_mutation(type_id, vtable, current.as_ref());
+
+        // Scoped block limits the immutable borrow of `self.hot_map` so
+        // `self.snapshotted_this_hook.insert` can run afterwards.
+        {
+            let Some(current) = self.hot_map.get(&type_id) else {
+                return;
+            };
+            let policy = self.rollback_policy.take();
+            if let Some(mut p) = policy {
+                p.on_mutation(type_id, vtable, current.as_ref());
+                self.rollback_policy.set(Some(p));
+            }
         }
         self.snapshotted_this_hook.insert(type_id);
     }

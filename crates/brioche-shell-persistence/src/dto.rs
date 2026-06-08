@@ -56,22 +56,27 @@ impl From<&AgentState> for FlattenedAgentState {
             },
             AgentState::SubRoutine(handle) => Self::SubRoutine(handle.as_str().to_string()),
             AgentState::Failure => Self::Failure,
+            _ => Self::Idle,
         }
     }
 }
 
-impl From<FlattenedAgentState> for AgentState {
-    fn from(state: FlattenedAgentState) -> Self {
+impl TryFrom<FlattenedAgentState> for AgentState {
+    type Error = brioche_core::BriocheError;
+
+    fn try_from(state: FlattenedAgentState) -> Result<Self, Self::Error> {
         match state {
-            FlattenedAgentState::Idle => Self::Idle,
-            FlattenedAgentState::Predicting { generation_id } => Self::Predicting { generation_id },
+            FlattenedAgentState::Idle => Ok(Self::Idle),
+            FlattenedAgentState::Predicting { generation_id } => {
+                Ok(Self::Predicting { generation_id })
+            }
             FlattenedAgentState::ExecutingTools { generation_id } => {
-                Self::ExecutingTools { generation_id }
+                Ok(Self::ExecutingTools { generation_id })
             }
-            FlattenedAgentState::SubRoutine(handle) => {
-                Self::SubRoutine(brioche_core::SubRoutineHandle::new(handle))
-            }
-            FlattenedAgentState::Failure => Self::Failure,
+            FlattenedAgentState::SubRoutine(handle) => Ok(Self::SubRoutine(
+                brioche_core::SubRoutineHandle::new(handle)?,
+            )),
+            FlattenedAgentState::Failure => Ok(Self::Failure),
         }
     }
 }
@@ -120,16 +125,21 @@ impl SessionHeadDTO {
     pub fn from_session(session: &Session) -> Self {
         Self {
             version: SessionSchemaVersion::V1,
-            id: session.id.clone(),
+            id: session.id().to_string(),
             parent_id: None,
-            state: FlattenedAgentState::from(&session.state),
+            state: FlattenedAgentState::from(session.state()),
             state_stack: session
-                .state_stack
+                .state_stack()
                 .iter()
                 .map(FlattenedAgentState::from)
                 .collect(),
-            extensions: session.extensions.cold_snapshot().clone(),
-            persisted_msg_count: session.persisted_msg_count,
+            extensions: session
+                .extensions()
+                .cold_snapshot()
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
+            persisted_msg_count: session.persisted_msg_count(),
             compaction_index: 0,
         }
     }
@@ -139,14 +149,27 @@ impl SessionHeadDTO {
     /// The session is created in memory and can be passed to
     /// `BriocheEngine::transition()` directly.
     ///
+    /// # Errors
+    /// Returns `BriocheError::InvalidStateTransition` if the DTO contains
+    /// an invalid sub-routine handle.
+    ///
     /// Refs: I-Persist-Idempotence
-    pub fn to_session(&self, history: Vec<brioche_core::ChatMessage>) -> brioche_core::Session {
+    pub fn to_session(
+        &self,
+        history: Vec<brioche_core::ChatMessage>,
+    ) -> Result<brioche_core::Session, brioche_core::BriocheError> {
         use brioche_core::Session;
         let mut session = Session::new(&self.id);
-        session.history = history;
-        session.persisted_msg_count = self.persisted_msg_count;
-        session.state = self.state.clone().into();
-        session.state_stack = self.state_stack.iter().cloned().map(Into::into).collect();
-        session
+        session.set_history(history);
+        session.set_persisted_msg_count(self.persisted_msg_count);
+        session.restore_state(
+            self.state.clone().try_into()?,
+            self.state_stack
+                .iter()
+                .cloned()
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+        Ok(session)
     }
 }

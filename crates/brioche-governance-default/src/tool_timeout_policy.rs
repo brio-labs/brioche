@@ -83,10 +83,10 @@ impl BriochePlugin for ToolTimeoutPolicy {
         calls: &mut Vec<ToolCallDescriptor>,
         ext: &mut ExtensionStorage,
     ) -> PluginResult<()> {
-        let state = ext.get_or_insert_default::<ToolTimeoutState>();
+        ext.with_or_insert_default::<ToolTimeoutState, _>(|state| {
         state.default_timeout_ms = self.default_timeout_ms;
         state.max_timeout_ms = self.max_timeout_ms;
-
+        });
         for call in calls {
             let mut timeout = call.timeout_ms.unwrap_or(self.default_timeout_ms);
 

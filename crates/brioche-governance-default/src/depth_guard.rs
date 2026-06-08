@@ -91,12 +91,14 @@ impl BriochePlugin for DepthGuard {
             return Ok(PolicyDecision::Allow);
         }
 
-        let snapshot = ext.get_or_insert_default::<SessionSnapshot>();
-        let current_depth = calculate_depth(snapshot.state_stack_depth, snapshot.current_state);
+        let current_depth = ext.with_or_insert_default::<SessionSnapshot, _>(|snapshot| {
+            calculate_depth(snapshot.state_stack_depth, snapshot.current_state)
+        });
 
-        let state = ext.get_or_insert_default::<DepthState>();
-        state.max_depth = self.max_depth;
-        state.current_depth = current_depth;
+        ext.with_or_insert_default::<DepthState, _>(|state| {
+            state.max_depth = self.max_depth;
+            state.current_depth = current_depth;
+        });
 
         if current_depth >= self.max_depth {
             return Ok(PolicyDecision::OverrideTransition(vec![

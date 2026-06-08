@@ -6,6 +6,8 @@
 //! - I-Core-NoPanic: invalid transitions produce `BriocheError`, never panics.
 //! - I-Core-ActiveToolCall: `seal()` maps `ToolCallDescriptor` exhaustively.
 
+use std::error::Error;
+
 use brioche_core::{
     AgentState, AgentStateTag, BriocheError, ExtensionStorage, Session, SessionRegistry,
     SessionSnapshot, SubRoutineHandle, ToolCallDescriptor, seal,
@@ -18,19 +20,19 @@ use brioche_core::{
 #[test]
 fn session_new_starts_idle() {
     let session = Session::new("test-1");
-    assert_eq!(session.id, "test-1");
-    assert!(matches!(session.state, AgentState::Idle));
-    assert!(session.history.is_empty());
-    assert_eq!(session.persisted_msg_count, 0);
-    assert!(session.state_stack.is_empty());
-    assert!(session.active_tools.is_empty());
+    assert_eq!(session.id(), "test-1");
+    assert!(matches!(session.state(), AgentState::Idle));
+    assert!(session.history().is_empty());
+    assert_eq!(session.persisted_msg_count(), 0);
+    assert!(session.state_stack().is_empty());
+    assert!(session.active_tools().is_empty());
 }
 
 #[test]
 fn session_default_is_idle() {
     let session = Session::default();
-    assert!(matches!(session.state, AgentState::Idle));
-    assert_eq!(session.id, "");
+    assert!(matches!(session.state(), AgentState::Idle));
+    assert_eq!(session.id(), "");
 }
 
 // ---------------------------------------------------------------------------
@@ -43,30 +45,28 @@ fn push_state_transitions_and_stacks() {
     let result = session.push_state(AgentState::Predicting { generation_id: 1 });
     assert!(result.is_ok());
     assert!(matches!(
-        session.state,
+        session.state(),
         AgentState::Predicting { generation_id: 1 }
     ));
-    assert_eq!(session.state_stack.len(), 1);
-    assert!(matches!(session.state_stack[0], AgentState::Idle));
+    assert_eq!(session.state_stack_depth(), 1);
+    assert!(matches!(session.state_stack()[0], AgentState::Idle));
 }
 
 #[test]
-fn pop_state_restores_previous() {
+fn pop_state_restores_previous() -> Result<(), Box<dyn Error>> {
     let mut session = Session::new("s");
     let push = session.push_state(AgentState::Predicting { generation_id: 2 });
     assert!(push.is_ok());
     let popped = session.pop_state();
     assert!(popped.is_ok());
-    if let Ok(popped_state) = popped {
-        assert!(matches!(
-            popped_state,
-            AgentState::Predicting { generation_id: 2 }
-        ));
-    } else {
-        assert_eq!(1, 0, "pop_state should succeed");
-    }
-    assert!(matches!(session.state, AgentState::Idle));
-    assert!(session.state_stack.is_empty());
+    let popped_state = popped?;
+    assert!(matches!(
+        popped_state,
+        AgentState::Predicting { generation_id: 2 }
+    ));
+    assert!(matches!(session.state(), AgentState::Idle));
+    assert!(session.state_stack().is_empty());
+    Ok(())
 }
 
 #[test]
@@ -92,54 +92,59 @@ fn pop_empty_stack_is_rejected() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn registry_insert_and_get_mut() {
+fn registry_insert_and_get_mut() -> Result<(), Box<dyn Error>> {
     let mut registry = SessionRegistry::new();
-    let handle = SubRoutineHandle::new("sub-1");
+    let handle = SubRoutineHandle::new("sub-1")?;
     let session = Session::new("sub-1");
     registry.insert(handle.clone(), session);
     assert!(registry.contains(&handle));
     assert!(registry.get_mut(&handle).is_some());
+    Ok(())
 }
 
 #[test]
-fn registry_remove_returns_session() {
+fn registry_remove_returns_session() -> Result<(), Box<dyn Error>> {
     let mut registry = SessionRegistry::new();
-    let handle = SubRoutineHandle::new("sub-2");
+    let handle = SubRoutineHandle::new("sub-2")?;
     registry.insert(handle.clone(), Session::new("sub-2"));
     let removed = registry.remove(&handle);
     assert!(removed.is_some());
     assert!(!registry.contains(&handle));
+    Ok(())
 }
 
 #[test]
-fn registry_remove_unknown_returns_none() {
+fn registry_remove_unknown_returns_none() -> Result<(), Box<dyn Error>> {
     let mut registry = SessionRegistry::new();
-    let handle = SubRoutineHandle::new("sub-3");
+    let handle = SubRoutineHandle::new("sub-3")?;
     assert!(registry.remove(&handle).is_none());
+    Ok(())
 }
 
 #[test]
-fn registry_exit_count_increments() {
+fn registry_exit_count_increments() -> Result<(), Box<dyn Error>> {
     let mut registry = SessionRegistry::new();
-    let handle = SubRoutineHandle::new("sub-4");
+    let handle = SubRoutineHandle::new("sub-4")?;
     assert_eq!(registry.get_exit_count(&handle), 0);
     registry.increment_exit_count(&handle);
     assert_eq!(registry.get_exit_count(&handle), 1);
     registry.increment_exit_count(&handle);
     assert_eq!(registry.get_exit_count(&handle), 2);
+    Ok(())
 }
 
 #[test]
-fn registry_handles_iterates_keys() {
+fn registry_handles_iterates_keys() -> Result<(), Box<dyn Error>> {
     let mut registry = SessionRegistry::new();
-    let h1 = SubRoutineHandle::new("a");
-    let h2 = SubRoutineHandle::new("b");
+    let h1 = SubRoutineHandle::new("a")?;
+    let h2 = SubRoutineHandle::new("b")?;
     registry.insert(h1.clone(), Session::new("a"));
     registry.insert(h2.clone(), Session::new("b"));
     let keys: Vec<_> = registry.handles().cloned().collect();
     assert_eq!(keys.len(), 2);
     assert!(keys.contains(&h1));
     assert!(keys.contains(&h2));
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -154,7 +159,7 @@ fn seal_maps_descriptor_to_active() {
         arguments: "{\"x\":1}".into(),
         timeout_ms: Some(5000),
     }];
-    let active = seal(descriptors);
+    let active = seal(descriptors, 0);
     assert_eq!(active.len(), 1);
     assert_eq!(active[0].tool_id, "t1");
     assert_eq!(active[0].tool_name, "calc");
@@ -170,13 +175,13 @@ fn seal_none_timeout_defaults_to_zero() {
         arguments: "pattern".into(),
         timeout_ms: None,
     }];
-    let active = seal(descriptors);
+    let active = seal(descriptors, 0);
     assert_eq!(active[0].timeout_ms, 0);
 }
 
 #[test]
 fn seal_empty_vec() {
-    let active = seal(vec![]);
+    let active = seal(vec![], 0);
     assert!(active.is_empty());
 }
 
@@ -200,27 +205,26 @@ fn snapshot_reflects_current_state() {
 }
 
 #[test]
-fn snapshot_as_extension_type_roundtrip() {
+fn snapshot_as_extension_type_roundtrip() -> Result<(), Box<dyn Error>> {
     let mut storage = ExtensionStorage::new();
     let snap = SessionSnapshot {
         current_state: AgentStateTag::ExecutingTools,
         state_stack_depth: 3,
     };
-    storage.insert(snap.clone());
+    assert!(storage.insert(snap.clone()).is_ok());
 
     let retrieved = storage.get_mut::<SessionSnapshot>();
-    if let Some(snap) = retrieved {
-        assert_eq!(snap.current_state, AgentStateTag::ExecutingTools);
-        assert_eq!(snap.state_stack_depth, 3);
-    } else {
-        assert_eq!(1, 0, "SessionSnapshot should be in storage");
-    }
+    let snap = retrieved.ok_or("SessionSnapshot should be in storage")?;
+    assert_eq!(snap.current_state, AgentStateTag::ExecutingTools);
+    assert_eq!(snap.state_stack_depth, 3);
+    Ok(())
 }
 
 #[test]
-fn agent_state_tag_from_subroutine() {
-    let state = AgentState::SubRoutine(SubRoutineHandle::new("x"));
+fn agent_state_tag_from_subroutine() -> Result<(), Box<dyn Error>> {
+    let state = AgentState::SubRoutine(SubRoutineHandle::new("x")?);
     assert_eq!(AgentStateTag::from(&state), AgentStateTag::SubRoutine);
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -249,6 +253,6 @@ fn deterministic_state_machine_sequence() {
     );
     assert!(session.pop_state().is_ok());
     assert!(session.pop_state().is_ok());
-    assert!(matches!(session.state, AgentState::Idle));
-    assert!(session.state_stack.is_empty());
+    assert!(matches!(session.state(), AgentState::Idle));
+    assert!(session.state_stack().is_empty());
 }

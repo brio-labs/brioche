@@ -11,9 +11,12 @@ use criterion::{Criterion, criterion_group, criterion_main};
 fn bench_cow_rollback(c: &mut Criterion) {
     let mut guard = UndoFrameGuard::new();
     let mut ext = ExtensionStorage::new();
-    ext.insert(EpochState {
-        current_generation: 42,
-    });
+    assert!(
+        ext.insert(EpochState {
+            current_generation: 42,
+        })
+        .is_ok()
+    );
 
     c.bench_function("cow_rollback", |b| {
         b.iter(|| {
@@ -21,15 +24,16 @@ fn bench_cow_rollback(c: &mut Criterion) {
 
             let type_id = std::any::TypeId::of::<EpochState>();
             let vtable = EpochState::build_vtable();
-            let current = ext.get_or_insert_default::<EpochState>();
-            guard.on_mutation(type_id, &vtable, current);
-
-            current.current_generation = 999;
+            ext.with_or_insert_default::<EpochState, _>(|current| {
+                guard.on_mutation(type_id, &vtable, current);
+                current.current_generation = 999;
+            });
 
             guard.rollback_hook(&mut ext);
 
-            let restored = ext.get_or_insert_default::<EpochState>();
-            assert_eq!(restored.current_generation, 42);
+            ext.with_or_insert_default::<EpochState, _>(|restored| {
+                assert_eq!(restored.current_generation, 42);
+            });
         });
     });
 }

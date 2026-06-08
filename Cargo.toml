@@ -4,7 +4,15 @@ members = [
   "crates/cargo-brioche-lint-invariants",
   "crates/cargo-brioche-lint",
 ]
-exclude = ["crates/brioche-plugin-template"]
+exclude = [
+  "crates/brioche-plugin-template",
+  "crates/apps",
+  "crates/ecosystem",
+  "crates/infra",
+  "crates/kernel",
+  "crates/providers",
+  "crates/runtime",
+]
 resolver = "2"
 
 [workspace.package]

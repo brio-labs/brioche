@@ -13,15 +13,20 @@
 //! Refs: SPECS.md §4, §Book II
 
 use crate::{
-    ChatMessage, Effect, EngineInput, ExtVTable, ExtensionStorage, PluginError, PluginResult,
-    PolicyDecision, Session, SessionRegistry, StreamAction, StreamEvent, SubRoutineHandle,
-    ToolCallDescriptor, ToolResultDTO,
+    AgentState, ChatMessage, Effect, EngineInput, ExtVTable, ExtensionStorage, PluginError,
+    PluginResult, PolicyDecision, Session, SessionRegistry, StreamAction, StreamEvent,
+    SubRoutineHandle, ToolCallDescriptor, ToolResultDTO,
 };
 use std::any::{Any, TypeId};
 
 // ---------------------------------------------------------------------------
 // PluginCapabilities
 // ---------------------------------------------------------------------------
+
+/// Default plugin priority. Lower values are evaluated first.
+///
+/// Refs: I-Core-PluginOrder
+pub const DEFAULT_PLUGIN_PRIORITY: i16 = 0;
 
 /// Bitmask of plugin hook subscriptions.
 ///
@@ -31,7 +36,7 @@ use std::any::{Any, TypeId};
 ///
 /// Refs: I-Core-StreamNoBranch, I-Core-PluginOrder
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct PluginCapabilities(pub u16);
+pub struct PluginCapabilities(pub u64);
 
 impl PluginCapabilities {
     pub const NONE: Self = Self(0);
@@ -46,12 +51,12 @@ impl PluginCapabilities {
     /// Returns `true` if this capability set includes `other`.
     ///
     /// Complexity: O(1). Bitwise AND.
-    pub fn contains(self, other: Self) -> bool {
-        self.0 & other.0 != 0
+    pub fn contains(&self, other: Self) -> bool {
+        self.0 & other.0 == other.0
     }
 
     /// Returns `true` if no capabilities are set.
-    pub fn is_empty(self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.0 == 0
     }
 }
@@ -67,6 +72,33 @@ impl std::ops::BitOr for PluginCapabilities {
     fn bitor(self, rhs: Self) -> Self::Output {
         Self(self.0 | rhs.0)
     }
+}
+
+// ---------------------------------------------------------------------------
+// BriochePlugin
+// ---------------------------------------------------------------------------
+
+/// Persistence interface for plugins that own durable state.
+///
+/// Separated from `BriochePlugin` to uphold the one-concern-per-plugin
+/// rule (PHILOSOPHY.md §7.5). The engine never invokes these methods
+/// during `transition()`; they are consumed by the shell persistence layer.
+///
+/// Refs: I-Eco-ExtensionOverMod
+pub trait BriochePersistable: Send + Sync {
+    /// Reserved keys in `ExtensionStorage`. Format: `"plugin_name::state_name"`.
+    fn owned_state_keys(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    /// Serializes the default state into a binary blob for resilient storage.
+    fn default_state_blob(&self) -> Vec<u8> {
+        vec![]
+    }
+
+    /// Attempts to deserialize a blob. On failure, the shell falls back to
+    /// `default_state_blob`.
+    fn deserialize_state(&self, _raw: &[u8]) -> Result<Box<dyn Any + Send + Sync>, String>;
 }
 
 // ---------------------------------------------------------------------------
@@ -93,23 +125,7 @@ pub trait BriochePlugin: Send + Sync {
     /// Deterministic evaluation order. Lower priority = evaluated first.
     /// Ties are broken by `name` lexicographically.
     fn priority(&self) -> i16 {
-        0
-    }
-
-    /// Reserved keys in `ExtensionStorage`. Format: `"plugin_name::state_name"`.
-    fn owned_state_keys(&self) -> &'static [&'static str] {
-        &[]
-    }
-
-    /// Serializes the default state into a binary blob for resilient storage.
-    fn default_state_blob(&self) -> Vec<u8> {
-        vec![]
-    }
-
-    /// Attempts to deserialize a blob. On failure, the engine calls
-    /// `default_state_blob`.
-    fn deserialize_state(&self, _raw: &[u8]) -> Result<Box<dyn Any + Send + Sync>, String> {
-        Err("Not implemented".into())
+        DEFAULT_PLUGIN_PRIORITY
     }
 
     /// Input interceptor hook. Allows a governance plugin to entirely
@@ -210,14 +226,48 @@ pub trait SubRoutineHandler: Send + Sync {
     ) -> PluginResult<Option<Vec<Effect>>>;
 }
 
+/// Report from a consistency verifier, containing optional mechanical fixes.
+///
+/// The verifier observes `Session` immutably and returns structural
+/// recommendations. The engine — never the verifier — applies any state
+/// mutation. This upholds PHILOSOPHY.md §2.1 (mechanism vs policy).
+///
+/// Refs: I-Core-NoPanic, I-Gov-Decision-Required
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ConsistencyReport {
+    /// If `Some`, the engine will replace the current state with this value.
+    pub suggested_state: Option<AgentState>,
+    /// If `true` and `suggested_state` is set, the state stack is cleared.
+    pub clear_stack: bool,
+    /// Additional effects to emit (e.g. `SystemIdle`, `SaveSession`).
+    pub effects: Vec<Effect>,
+}
+
+impl ConsistencyReport {
+    /// No fixes needed.
+    pub fn ok() -> Self {
+        Self::default()
+    }
+
+    /// Suggest a state replacement with stack cleanup.
+    pub fn with_state(state: AgentState) -> Self {
+        Self {
+            suggested_state: Some(state),
+            clear_stack: true,
+            effects: Vec::new(),
+        }
+    }
+}
+
 /// Post-transition mechanical consistency check.
 ///
-/// Called last in the transition cycle. If `Some(effects)`, the kernel
-/// applies mechanical forcing (typically `OverrideTransition` to `Idle`).
+/// Called last in the transition cycle. The verifier observes the session
+/// immutably and returns a `ConsistencyReport`. The engine applies any
+/// suggested state fix and appends the reported effects.
 ///
 /// Refs: I-Core-NoPanic
 pub trait ConsistencyVerifier: Send + Sync {
-    fn verify_consistency(&self, session: &mut Session) -> PluginResult<Option<Vec<Effect>>>;
+    fn verify_consistency(&self, session: &Session) -> PluginResult<ConsistencyReport>;
 }
 
 /// Mandatory. Aggregates `before_prediction` decisions from multiple plugins.

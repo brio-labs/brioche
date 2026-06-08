@@ -51,6 +51,7 @@ Every contributor must internalize these. They override "clean code" aesthetics.
 - A panic in Core is a kernel crash. It is never caught.
 - Use `Result` for recoverable errors. Use `enum` variants for expected failure modes (`Failure` state).
 - `unwrap()`, `expect()`, `unreachable!()` are forbidden by `clippy` (deny level).
+- **Amendment — `catch_unwind` / `resume_unwind`:** The `std::panic::catch_unwind` + `std::panic::resume_unwind` idiom is permitted **only** when its sole purpose is to restore an invariant-critical resource (e.g. the `CycleRollbackPolicy` in `ExtensionStorage`) before re-raising the panic. The panic must **never** be swallowed. This exception is scoped to `BriocheEngine::with_rollback` and similar mechanical cleanup boundaries.
 
 ### 2.5 Explicit > Clever > Concise
 - Prefer `match` over combinators when branching logic is complex.

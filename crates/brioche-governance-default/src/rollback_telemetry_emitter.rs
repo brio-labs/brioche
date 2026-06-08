@@ -71,51 +71,49 @@ impl BriochePlugin for RollbackTelemetryEmitter {
 
     fn after_prediction(&self, ext: &mut ExtensionStorage) -> PluginResult<()> {
         // Steal events to avoid double mutable borrow of ext.
-        let events = {
-            let log = ext.get_or_insert_default::<RollbackEventLog>();
-            std::mem::take(&mut log.events)
-        };
+        let events = ext
+            .with_or_insert_default::<RollbackEventLog, _>(|log| std::mem::take(&mut log.events));
 
-        let state = ext.get_or_insert_default::<RollbackTelemetryState>();
-
-        for event in &events {
-            if event.was_rollback {
-                if event.budget_exceeded {
-                    state.abandoned_count += 1;
-                    state.abandoned_weight_total += event.frame_weight as u64;
-                } else {
-                    state.restored_count += 1;
+        ext.with_or_insert_default::<RollbackTelemetryState, _>(|state| {
+            for event in &events {
+                if event.was_rollback {
+                    if event.budget_exceeded {
+                        state.abandoned_count += 1;
+                        state.abandoned_weight_total += event.frame_weight as u64;
+                    } else {
+                        state.restored_count += 1;
+                    }
                 }
-            }
 
-            // Update per-hook stats using linear scan (n < 20).
-            let hook_name = event.hook_name.clone();
-            if let Some(entry) = state
-                .per_hook_stats
-                .iter_mut()
-                .find(|(name, _, _)| *name == hook_name)
-            {
-                if event.was_rollback && event.budget_exceeded {
-                    entry.1 += 1;
-                } else if event.was_rollback {
-                    entry.2 += 1;
-                }
-            } else {
-                let abandonments = if event.was_rollback && event.budget_exceeded {
-                    1
-                } else {
-                    0
-                };
-                let restorations = if event.was_rollback && !event.budget_exceeded {
-                    1
-                } else {
-                    0
-                };
-                state
+                // Update per-hook stats using linear scan (n < 20).
+                let hook_name = event.hook_name.clone();
+                if let Some(entry) = state
                     .per_hook_stats
-                    .push((hook_name, abandonments, restorations));
+                    .iter_mut()
+                    .find(|(name, _, _)| *name == hook_name)
+                {
+                    if event.was_rollback && event.budget_exceeded {
+                        entry.1 += 1;
+                    } else if event.was_rollback {
+                        entry.2 += 1;
+                    }
+                } else {
+                    let abandonments = if event.was_rollback && event.budget_exceeded {
+                        1
+                    } else {
+                        0
+                    };
+                    let restorations = if event.was_rollback && !event.budget_exceeded {
+                        1
+                    } else {
+                        0
+                    };
+                    state
+                        .per_hook_stats
+                        .push((hook_name, abandonments, restorations));
+                }
             }
-        }
+        });
 
         Ok(())
     }

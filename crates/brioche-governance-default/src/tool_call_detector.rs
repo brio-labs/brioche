@@ -68,14 +68,16 @@ impl BriochePlugin for ToolCallDetector {
         event: &StreamEvent,
         ext: &mut ExtensionStorage,
     ) -> PluginResult<StreamAction> {
-        let state = ext.get_or_insert_default::<ToolCallDetectorState>();
-
         match event {
             StreamEvent::ToolCallStart { .. } => {
-                state.total_detected += 1;
+                ext.with_or_insert_default::<ToolCallDetectorState, _>(|state| {
+                    state.total_detected += 1;
+                });
             }
             StreamEvent::ToolCallDone { .. } => {
-                state.total_completed += 1;
+                ext.with_or_insert_default::<ToolCallDetectorState, _>(|state| {
+                    state.total_completed += 1;
+                });
             }
             _ => {}
         }

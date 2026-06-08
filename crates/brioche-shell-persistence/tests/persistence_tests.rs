@@ -5,6 +5,8 @@
 //!
 //! Refs: SPECS.md §Book III-B, I-Persist-Idempotence, I-Persist-GC-Interrupt
 
+use std::error::Error;
+
 use brioche_core::{AgentState, ChatMessage, Session};
 use brioche_shell_persistence::{
     COMPRESSION_THRESHOLD, FlattenedAgentState, GcRunner, LazySessionLoader, RedbStorage,
@@ -57,9 +59,12 @@ fn session_head_dto_flattened_state_stack() {
 }
 
 #[test]
-fn session_head_dto_subroutine_handle() {
+fn session_head_dto_subroutine_handle() -> Result<(), Box<dyn Error>> {
     let mut session = Session::new("test-3");
-    session.state = AgentState::SubRoutine(brioche_core::SubRoutineHandle::new("child-42"));
+    session.restore_state(
+        AgentState::SubRoutine(brioche_core::SubRoutineHandle::new("child-42")?),
+        vec![],
+    );
 
     let dto = SessionHeadDTO::from_session(&session);
 
@@ -67,6 +72,7 @@ fn session_head_dto_subroutine_handle() {
         dto.state,
         FlattenedAgentState::SubRoutine(ref s) if s == "child-42"
     ));
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -124,10 +130,10 @@ fn session_head_serialization_roundtrip() {
 #[test]
 fn idempotence_two_serializations_bit_for_bit() {
     let mut session = Session::new("idempotent");
-    session.history.push(ChatMessage::User {
+    session.push_history(ChatMessage::User {
         content: "hello".into(),
     });
-    session.history.push(ChatMessage::Assistant {
+    session.push_history(ChatMessage::Assistant {
         content: "world".into(),
     });
     session
@@ -157,13 +163,13 @@ fn extract_delta_empty() {
 #[test]
 fn extract_delta_non_empty() {
     let mut session = Session::new("delta-non-empty");
-    session.history.push(ChatMessage::User {
+    session.push_history(ChatMessage::User {
         content: "hello".into(),
     });
-    session.history.push(ChatMessage::Assistant {
+    session.push_history(ChatMessage::Assistant {
         content: "world".into(),
     });
-    session.persisted_msg_count = 1;
+    session.set_persisted_msg_count(1);
 
     let delta = extract_delta(&session);
     assert_eq!(delta.len(), 1);
@@ -325,16 +331,16 @@ async fn persistence_trait_save_session_with_delta() {
         RedbStorage::new(tmp.path(), store.clone()).unwrap_or_else(|e| unreachable!("{:?}", e));
 
     let mut session = Session::new("trait-test");
-    session.history.push(ChatMessage::User {
+    session.push_history(ChatMessage::User {
         content: "msg-0".into(),
     });
-    session.history.push(ChatMessage::Assistant {
+    session.push_history(ChatMessage::Assistant {
         content: "msg-1".into(),
     });
 
     let entry = SessionStoreEntry {
         head: SessionHeadDTO::from_session(&session),
-        messages: session.history.clone(),
+        messages: session.history().to_vec(),
     };
     storage.update_session(entry).await;
 
@@ -345,7 +351,7 @@ async fn persistence_trait_save_session_with_delta() {
         .unwrap_or_else(|e| unreachable!("{:?}", e));
 
     // Add a third message, update store.
-    session.history.push(ChatMessage::User {
+    session.push_history(ChatMessage::User {
         content: "msg-2".into(),
     });
     let entry2 = SessionStoreEntry {
@@ -354,7 +360,7 @@ async fn persistence_trait_save_session_with_delta() {
             h.persisted_msg_count = 2; // simulate prior save watermark
             h
         },
-        messages: session.history.clone(),
+        messages: session.history().to_vec(),
     };
     storage.update_session(entry2).await;
 
@@ -459,11 +465,12 @@ async fn lazy_session_load_with_children() {
     // Create a parent session whose state stack references the child.
     let mut parent_session = Session::new("parent-1");
     parent_session
-        .push_state(AgentState::SubRoutine(brioche_core::SubRoutineHandle::new(
-            "child-1",
-        )))
+        .push_state(AgentState::SubRoutine(
+            brioche_core::SubRoutineHandle::new("child-1")
+                .unwrap_or_else(|e| unreachable!("{:?}", e)),
+        ))
         .unwrap_or_else(|e| unreachable!("{:?}", e));
-    parent_session.history.push(ChatMessage::User {
+    parent_session.push_history(ChatMessage::User {
         content: "hello parent".into(),
     });
 
@@ -473,7 +480,7 @@ async fn lazy_session_load_with_children() {
         .await
         .unwrap_or_else(|e| unreachable!("{:?}", e));
     storage
-        .save_messages("parent-1", &parent_session.history, 0)
+        .save_messages("parent-1", parent_session.history(), 0)
         .await
         .unwrap_or_else(|e| unreachable!("{:?}", e));
 
@@ -563,13 +570,13 @@ async fn persistence_roundtrip_save_load_replay() {
     let storage = RedbStorage::new(tmp.path(), store).unwrap_or_else(|e| unreachable!("{:?}", e));
 
     let mut session = Session::new("roundtrip-full");
-    session.history.push(ChatMessage::System {
+    session.push_history(ChatMessage::System {
         content: "system prompt".into(),
     });
-    session.history.push(ChatMessage::User {
+    session.push_history(ChatMessage::User {
         content: "user message".into(),
     });
-    session.history.push(ChatMessage::Assistant {
+    session.push_history(ChatMessage::Assistant {
         content: "assistant reply".into(),
     });
     session
@@ -583,7 +590,7 @@ async fn persistence_roundtrip_save_load_replay() {
         .await
         .unwrap_or_else(|e| unreachable!("{:?}", e));
     storage
-        .save_messages("roundtrip-full", &session.history, 0)
+        .save_messages("roundtrip-full", session.history(), 0)
         .await
         .unwrap_or_else(|e| unreachable!("{:?}", e));
 
@@ -607,8 +614,8 @@ async fn persistence_roundtrip_save_load_replay() {
     assert_eq!(loaded_head.persisted_msg_count, head.persisted_msg_count);
 
     // Messages must match exactly in order.
-    assert_eq!(loaded_messages.len(), session.history.len());
-    for (expected, actual) in session.history.iter().zip(loaded_messages.iter()) {
+    assert_eq!(loaded_messages.len(), session.history_len());
+    for (expected, actual) in session.history().iter().zip(loaded_messages.iter()) {
         assert_eq!(expected, actual);
     }
 }

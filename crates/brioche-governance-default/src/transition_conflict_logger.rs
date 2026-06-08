@@ -65,24 +65,24 @@ impl BriochePlugin for TransitionConflictLogger {
 
     fn after_prediction(&self, ext: &mut ExtensionStorage) -> PluginResult<()> {
         // Steal entries to avoid double mutable borrow of ext.
-        let entries = {
-            let log = ext.get_or_insert_default::<SupersededTransitionTraceLog>();
+        let entries = ext.with_or_insert_default::<SupersededTransitionTraceLog, _>(|log| {
             std::mem::take(&mut log.entries)
-        };
+        });
 
         if entries.is_empty() {
             return Ok(());
         }
 
-        let state = ext.get_or_insert_default::<TransitionConflictState>();
-        state.total_conflicts += entries.len() as u64;
+        ext.with_or_insert_default::<TransitionConflictState, _>(|state| {
+            state.total_conflicts += entries.len() as u64;
 
-        let mut seen = std::collections::BTreeSet::new();
-        for entry in &entries {
-            seen.insert(entry.preempted_by.clone());
-            state.last_preempted_plugin = Some(entry.preempted_by.clone());
-        }
-        state.unique_preempted_plugins = seen.len() as u64;
+            let mut seen = std::collections::BTreeSet::new();
+            for entry in &entries {
+                seen.insert(entry.preempted_by.clone());
+                state.last_preempted_plugin = Some(entry.preempted_by.clone());
+            }
+            state.unique_preempted_plugins = seen.len() as u64;
+        });
 
         Ok(())
     }

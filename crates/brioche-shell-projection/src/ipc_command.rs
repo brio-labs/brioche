@@ -122,21 +122,17 @@ impl IpcCommandService {
             .ok_or_else(|| ShellError::EffectExecution("load_subroutine requires cache".into()))?;
 
         let mut cache_guard = cache.lock().await;
-        let dto = load_subroutine(storage, &mut cache_guard, handle.as_str())
+        let _dto = load_subroutine(storage, &mut cache_guard, handle.as_str())
             .await
             .map_err(|e| ShellError::EffectExecution(format!("persistence error: {}", e)))?
             .ok_or_else(|| {
                 ShellError::EffectExecution(format!("sub-routine {} not found", handle.as_str()))
             })?;
 
-        // Serialize the DTO to MessagePack for the kernel.
-        let head_blob = rmp_serde::to_vec(&dto)
-            .map_err(|e| ShellError::EffectExecution(format!("serialize error: {}", e)))?;
-
         drop(cache_guard);
 
         self.shell
-            .send_input(EngineInput::RestoreSubRoutine { handle, head_blob })
+            .send_input(EngineInput::RestoreSubRoutine { handle })
             .await
     }
 }
@@ -194,7 +190,9 @@ mod tests {
         let shell = test_shell();
         let service = IpcCommandService::new(shell);
         let result = service
-            .load_subroutine(SubRoutineHandle::new("missing"))
+            .load_subroutine(
+                SubRoutineHandle::new("missing").unwrap_or_else(|e| unreachable!("{e}")),
+            )
             .await;
         assert!(result.is_err());
     }

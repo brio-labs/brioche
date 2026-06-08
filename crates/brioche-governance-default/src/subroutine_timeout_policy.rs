@@ -81,17 +81,16 @@ impl BriochePlugin for SubRoutineTimeoutPolicy {
         _input: &EngineInput,
         ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
-        let is_subroutine = {
-            let snapshot = ext.get_or_insert_default::<SessionSnapshot>();
+        let is_subroutine = ext.with_or_insert_default::<SessionSnapshot, _>(|snapshot| {
             snapshot.current_state == AgentStateTag::SubRoutine
-        };
-
-        let state = ext.get_or_insert_default::<SubRoutineTimerState>();
+        });
 
         if !is_subroutine {
             // Not in a sub-routine: clear stale timers to prevent
             // unbounded growth.
-            state.timers.clear();
+            ext.with_or_insert_default::<SubRoutineTimerState, _>(|state| {
+                state.timers.clear();
+            });
             return Ok(PolicyDecision::Allow);
         }
 
@@ -100,21 +99,23 @@ impl BriochePlugin for SubRoutineTimeoutPolicy {
             .unwrap_or_default()
             .as_millis() as u64;
 
-        // Collect expired handles before mutating the map.
-        let expired: Vec<_> = state
-            .timers
-            .iter()
-            .filter(|(_, (start, limit))| now.saturating_sub(*start) > *limit)
-            .map(|(handle, _)| handle.clone())
-            .collect();
+        ext.with_or_insert_default::<SubRoutineTimerState, _>(|state| {
+            // Collect expired handles before mutating the map.
+            let expired: Vec<_> = state
+                .timers
+                .iter()
+                .filter(|(_, (start, limit))| now.saturating_sub(*start) > *limit)
+                .map(|(handle, _)| handle.clone())
+                .collect();
 
-        if let Some(handle) = expired.into_iter().next() {
-            state.timers.remove(&handle);
-            return Ok(PolicyDecision::Block {
-                reason: format!("sub-routine {:?} exceeded timeout", handle),
-            });
-        }
+            if let Some(handle) = expired.into_iter().next() {
+                state.timers.remove(&handle);
+                return Ok(PolicyDecision::Block {
+                    reason: format!("sub-routine {:?} exceeded timeout", handle),
+                });
+            }
 
-        Ok(PolicyDecision::Allow)
+            Ok(PolicyDecision::Allow)
+        })
     }
 }

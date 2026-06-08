@@ -405,14 +405,12 @@ pub fn derive_brioche_extension_type(input: TokenStream) -> TokenStream {
             where
                 Self: Sized,
             {
-                fn serialize(any: &dyn ::core::any::Any) -> ::std::vec::Vec<u8> {
+                fn serialize(any: &dyn ::core::any::Any) -> ::core::result::Result<::std::vec::Vec<u8>, ::std::string::String> {
                     if let Some(this) = any.downcast_ref::<#name>() {
-                        match ::brioche_core::postcard::to_stdvec(this) {
-                            Ok(v) => v,
-                            Err(_) => ::std::vec::Vec::new(),
-                        }
+                        ::brioche_core::postcard::to_stdvec(this)
+                            .map_err(|e| ::std::format!("serialize {}: {}", ::std::stringify!(#name), e))
                     } else {
-                        ::std::vec::Vec::new()
+                        Err(::std::format!("serialize {}: type mismatch", ::std::stringify!(#name)))
                     }
                 }
                 fn deserialize(bytes: &[u8]) -> ::core::result::Result<::std::boxed::Box<dyn ::core::any::Any + Send + Sync>, ::std::string::String> {
@@ -557,6 +555,21 @@ pub fn brioche_plugin(args: TokenStream, input: TokenStream) -> TokenStream {
     let args = parse_macro_input!(args as PluginArgs);
     let mut item_impl = parse_macro_input!(input as ItemImpl);
 
+    // Validate: #[brioche_plugin] may only be applied to `impl BriochePlugin for ...` blocks.
+    let is_brioche_plugin_impl = item_impl.trait_.as_ref().is_some_and(|(_, path, _)| {
+        path.segments
+            .last()
+            .is_some_and(|seg| seg.ident == "BriochePlugin")
+    });
+    if !is_brioche_plugin_impl {
+        return syn::Error::new_spanned(
+            item_impl,
+            "#[brioche_plugin] must be applied to an `impl BriochePlugin for ...` block",
+        )
+        .to_compile_error()
+        .into();
+    }
+
     let name_lit = &args.name;
     let _name_str = name_lit.value();
 
@@ -604,16 +617,6 @@ pub fn brioche_plugin(args: TokenStream, input: TokenStream) -> TokenStream {
             #priority_expr
         }
     };
-
-    // Prepend injected methods so they appear first.
-    item_impl.items.insert(
-        0,
-        syn::parse_quote!(
-            fn __plugin_marker(&self) {}
-        ),
-    );
-    // Remove the dummy marker we just inserted (it was just to satisfy type check).
-    item_impl.items.remove(0);
 
     // We need to be careful: if the impl already contains `name()`, `capabilities()`,
     // or `priority()`, we must not duplicate them. Check for existing.
@@ -729,31 +732,24 @@ pub fn brioche_offload_task(_args: TokenStream, input: TokenStream) -> TokenStre
             use super::*;
 
             /// Serialize the input payload for CPU task offloading.
-            pub fn serialize_input(input: &#arg_ty) -> ::std::vec::Vec<u8> {
-                match ::brioche_core::postcard::to_stdvec(input) {
-                    Ok(v) => v,
-                    Err(_) => ::std::vec::Vec::new(),
-                }
+            pub fn serialize_input(input: &#arg_ty) -> ::core::result::Result<::std::vec::Vec<u8>, ::std::string::String> {
+                ::brioche_core::postcard::to_stdvec(input)
+                    .map_err(|e| ::std::format!("serialize_input: {}", e))
             }
 
             /// Deserialize the result payload after CPU task completion.
-            pub fn deserialize_output(bytes: &[u8]) -> #output_ty {
-                match ::brioche_core::postcard::from_bytes(bytes) {
-                    Ok(v) => v,
-                    Err(_) => {
-                        // Fallback: return a default value.
-                        // This path is best-effort; the caller should validate.
-                        ::core::default::Default::default()
-                    }
-                }
+            pub fn deserialize_output(bytes: &[u8]) -> ::core::result::Result<#output_ty, ::std::string::String> {
+                ::brioche_core::postcard::from_bytes(bytes)
+                    .map_err(|e| ::std::format!("deserialize_output: {}", e))
             }
 
             /// Build an `Effect::ExecuteCpuTask` from a task id and input.
-            pub fn effect(task_id: impl Into<::std::string::String>, input: &#arg_ty) -> ::brioche_core::Effect {
-                ::brioche_core::Effect::ExecuteCpuTask {
+            pub fn effect(task_id: impl Into<::std::string::String>, input: &#arg_ty) -> ::core::result::Result<::brioche_core::Effect, ::std::string::String> {
+                let payload = serialize_input(input)?;
+                Ok(::brioche_core::Effect::ExecuteCpuTask {
                     task_id: task_id.into(),
-                    payload: serialize_input(input),
-                }
+                    payload,
+                })
             }
         }
     };
