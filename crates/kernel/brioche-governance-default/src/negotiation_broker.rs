@@ -111,6 +111,7 @@ impl DecisionAggregator for NegotiationBroker {
                     PolicyDecision::OverrideTransition(ov) => {
                         return Ok(PolicyDecision::OverrideTransition(ov.clone()));
                     }
+                    _ => {}
                 }
             }
 

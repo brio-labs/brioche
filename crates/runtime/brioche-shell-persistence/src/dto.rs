@@ -56,6 +56,7 @@ impl From<&AgentState> for FlattenedAgentState {
             },
             AgentState::SubRoutine(handle) => Self::SubRoutine(handle.as_str().to_string()),
             AgentState::Failure => Self::Failure,
+            _ => Self::Idle,
         }
     }
 }

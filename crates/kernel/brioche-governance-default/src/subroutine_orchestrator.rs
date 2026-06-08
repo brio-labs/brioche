@@ -202,6 +202,7 @@ impl SubRoutineHandler for SubRoutineOrchestrator {
                 // Should not happen on an already active sub-routine.
                 Ok(None)
             }
+            _ => Ok(None),
         }
     }
 }

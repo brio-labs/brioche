@@ -144,6 +144,7 @@ pub fn build_messages(history: &[ChatMessage]) -> Vec<serde_json::Value> {
                 m.insert("content".into(), serde_json::Value::String(trimmed));
                 result.push(serde_json::Value::Object(m));
             }
+            _ => {}
         }
     }
     result

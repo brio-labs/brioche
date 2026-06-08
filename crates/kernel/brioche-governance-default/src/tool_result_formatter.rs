@@ -96,7 +96,13 @@ impl BriochePlugin for ToolResultFormatter {
 
             if self.max_result_bytes > 0 && content.len() > self.max_result_bytes {
                 let meta = TruncatedToolResult::from_content(&content, self.max_result_bytes);
-                result.outcome = brioche_core::ToolOutcome::Success(meta.to_json());
+                let json = meta
+                    .to_json()
+                    .map_err(|e| brioche_core::PluginError::Soft {
+                        plugin_name: "tool_result_formatter".into(),
+                        message: format!("JSON serialization failed: {e}"),
+                    })?;
+                result.outcome = brioche_core::ToolOutcome::Success(json);
             }
 
             state.formatted_count += 1;

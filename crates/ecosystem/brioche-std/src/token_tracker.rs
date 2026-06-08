@@ -67,6 +67,7 @@ impl TokenTracker {
             ChatMessage::ToolResult { content, .. } => {
                 (Self::estimate_tokens(content), "tool_result")
             }
+            _ => (0, "unknown"),
         }
     }
 }

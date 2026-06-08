@@ -698,6 +698,10 @@ where
         Effect::SubRoutineRestored { handle } => {
             executor.sub_routine_restored(handle).await?;
         }
+        _ => {
+            // Unknown effect variant (forward compatibility for #[non_exhaustive]).
+            tracing::warn!("unknown effect variant received");
+        }
     }
     Ok(())
 }
