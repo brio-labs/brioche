@@ -1,7 +1,18 @@
-use crate::{Effect, ErrorCode, ErrorDetail, Session, effect_to_bitmask};
+//! Book I — The Core Book: Transition finalization.
+//!
+//! The last phase of every `transition()` call. Applies lifecycle guards,
+//! effect validation, consistency checks, and position guarantees.
+//!
+//! ## Invariants upheld
+//! - I-Core-NoPanic: Anomalies produce `Effect::Error`, not panics.
+//! - I-Gov-SubRoutineLifecycle-Guard: Cleanup on sub-routine exit.
+//! - I-Gov-Rebuild-Barrier: `RebuildRoutes` is always last.
+//!
+//! Refs: SPECS.md §4.4
 
 use super::BriocheEngine;
 use super::types::PreTransitionState;
+use crate::{Effect, ErrorCode, ErrorDetail, Session, effect_to_bitmask};
 
 impl BriocheEngine {
     /// Finalize a transition: apply lifecycle guards, consistency checks,

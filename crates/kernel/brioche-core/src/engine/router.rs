@@ -25,6 +25,10 @@ impl UnifiedRoutingTable {
     /// Build a routing table from all plugins.
     ///
     /// Convenience wrapper over `from_plugins_filtered` with all indices active.
+    ///
+    /// Complexity: O(p log p) where p = number of plugins.
+    ///
+    /// Refs: I-Core-Pure
     pub fn from_plugins(plugins: &[Box<dyn BriochePlugin>]) -> Self {
         let all_indices: Vec<usize> = (0..plugins.len()).collect();
         Self::from_plugins_filtered(plugins, &all_indices)

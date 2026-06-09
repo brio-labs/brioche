@@ -42,6 +42,8 @@ pub struct ToolTimeoutPolicy {
 
 impl ToolTimeoutPolicy {
     /// Creates a policy with a default timeout.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn with_default_timeout(default_timeout_ms: u64) -> Self {
         Self {
             default_timeout_ms,
@@ -50,6 +52,8 @@ impl ToolTimeoutPolicy {
     }
 
     /// Creates a policy with a default timeout and a max cap.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn with_bounds(default_timeout_ms: u64, max_timeout_ms: u64) -> Self {
         Self {
             default_timeout_ms,

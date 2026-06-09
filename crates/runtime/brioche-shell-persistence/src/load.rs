@@ -5,8 +5,10 @@
 //!
 //! Refs: SPECS.md §Book III-B Ch 4, I-Shell-Load-Batch
 
-use crate::{RedbStorage, SessionHeadDTO, SubRoutineCache, error::PersistenceError};
 use brioche_core::ChatMessage;
+
+use crate::error::PersistenceError;
+use crate::{RedbStorage, SessionHeadDTO, SubRoutineCache};
 
 /// Load a complete session (head + all messages) from Redb.
 ///

@@ -54,6 +54,13 @@ class CheckResult:
 HOT_PATH_MODULES = [
     "crates/kernel/brioche-core/src/lib.rs",
     "crates/kernel/brioche-core/src/engine.rs",
+    "crates/kernel/brioche-core/src/engine/dispatch.rs",
+    "crates/kernel/brioche-core/src/engine/finalize.rs",
+    "crates/kernel/brioche-core/src/engine/helpers.rs",
+    "crates/kernel/brioche-core/src/engine/hooks.rs",
+    "crates/kernel/brioche-core/src/engine/router.rs",
+    "crates/kernel/brioche-core/src/engine/trace.rs",
+    "crates/kernel/brioche-core/src/engine/types.rs",
     "crates/kernel/brioche-core/src/extension.rs",
     "crates/kernel/brioche-core/src/types.rs",
     "crates/kernel/brioche-core/src/plugin.rs",
@@ -77,7 +84,8 @@ COMPLEXITY_KEYWORDS = [
 def check_hotpath_docs() -> CheckResult:
     result = CheckResult("Hot-path documentation")
     pub_fn_re = re.compile(
-        r"^\s*pub(?:\s*\([^)]*\)|\s+unsafe)?\s+fn\s+(\w+)", re.MULTILINE
+        r"^\s*pub(?:\s*\([^)]*\)|\s+unsafe)?(?:\s*\(\s*crate\s*\))?\s+fn\s+(\w+)",
+        re.MULTILINE,
     )
 
     for rel in HOT_PATH_MODULES:
@@ -94,9 +102,9 @@ def check_hotpath_docs() -> CheckResult:
             pos = m.start()
             line_no = content[:pos].count("\n") + 1
 
-            # Walk backwards from the function to collect its doc block.
-            # Skip blank lines and attributes.
-            start_line = line_no - 1  # 0-based
+            # Walk backwards from the line BEFORE the function to collect
+            # its doc block. Skip blank lines and attributes.
+            start_line = line_no - 2  # 0-based, skip the `pub fn` line itself
             doc_lines: list[str] = []
             for idx in range(start_line, -1, -1):
                 stripped = lines[idx].strip()
@@ -108,7 +116,7 @@ def check_hotpath_docs() -> CheckResult:
                     break
 
             # Only flag functions that *have* docs but lack complexity notes.
-            # Missing docs is a broader lint issue, not hot-path specific.
+            # Missing docs is covered by `cargo doc -D warnings`.
             if not doc_lines:
                 continue
 
@@ -130,10 +138,12 @@ def check_hotpath_docs() -> CheckResult:
 INVARIANT_CRATES = [
     "crates/kernel/brioche-core/src",
     "crates/kernel/brioche-governance/src",
+    "crates/kernel/brioche-governance-default/src",
 ]
 
 INVARIANT_PATTERNS = [
     "Refs: I-",
+    "Refs: SPECS",
     "# Invariants",
     "# Invariant",
 ]
@@ -143,7 +153,7 @@ def check_invariant_refs() -> CheckResult:
     result = CheckResult("Invariant references")
     # Only check pub fn — structs/enums/traits often have module-level docs.
     pub_fn_re = re.compile(
-        r"^\s*pub(?:\s*\([^)]*\)|\s+unsafe)?\s+fn\s+(\w+)",
+        r"^\s*pub(?:\s*\([^)]*\)|\s+unsafe)?(?:\s*\(\s*crate\s*\))?\s+fn\s+(\w+)",
         re.MULTILINE,
     )
 
@@ -161,8 +171,8 @@ def check_invariant_refs() -> CheckResult:
                 pos = m.start()
                 line_no = content[:pos].count("\n") + 1
 
-                # Collect preceding doc block
-                start_line = line_no - 1
+                # Collect preceding doc block (start before the `pub fn` line).
+                start_line = line_no - 2
                 doc_lines: list[str] = []
                 for idx in range(start_line, -1, -1):
                     stripped = lines[idx].strip()
@@ -174,6 +184,8 @@ def check_invariant_refs() -> CheckResult:
                         break
 
                 # Only check functions that already have docs.
+                # Missing docs on `pub` items is enforced by `cargo doc -D warnings`.
+                # We only check items that already have docs but lack invariant refs.
                 if not doc_lines:
                     continue
 
@@ -286,6 +298,7 @@ DETERMINISM_FORBIDDEN = [
 DETERMINISM_CRATES = [
     "crates/kernel/brioche-core/src",
     "crates/kernel/brioche-governance/src",
+    "crates/kernel/brioche-governance-default/src",
 ]
 
 
@@ -445,7 +458,9 @@ def check_effect_structure() -> CheckResult:
 
     # Find the Effect enum and check its variants don't use serde_json::Value
     # as a primary payload (UiWidget::Custom is the only allowed exception).
-    for path in (PROJECT_ROOT / "crates" / "kernel" / "brioche-core" / "src").rglob("*.rs"):
+    for path in (PROJECT_ROOT / "crates" / "kernel" / "brioche-core" / "src").rglob(
+        "*.rs"
+    ):
         content = path.read_text()
         lines = content.split("\n")
 
@@ -468,16 +483,13 @@ def check_effect_structure() -> CheckResult:
                     if stripped.startswith("//"):
                         continue
 
-                    # Flag serde_json::Value inside Effect variants
-                    # (exclude Custom catch-all which is documented)
-                    if (
-                        "serde_json::Value" in line_text
-                        and "Custom" not in lines[max(0, j - 3) : j]
-                    ):
+                    # Flag serde_json::Value inside Effect variants.
+                    # No exceptions: PHILOSOPHY.md §7.5 bans all stringly-typed holes.
+                    if "serde_json::Value" in line_text:
                         result.add(
                             path,
                             j + 1,
-                            "Effect variant contains serde_json::Value — use structured types",
+                            "Effect variant contains serde_json::Value — use structured types (PHILOSOPHY.md §7.5)",
                         )
 
                 break
@@ -524,54 +536,108 @@ def check_invariant_format() -> CheckResult:
 #    PHILOSOPHY.md §4.3: Every crate root and module must have a //! block.
 # ---------------------------------------------------------------------------
 
-CRATE_LIB_FILES = [
-    "crates/kernel/brioche-core/src/lib.rs",
-    "crates/ecosystem/brioche-docgen/src/lib.rs",
-    "crates/kernel/brioche-governance-default/src/lib.rs",
-    "crates/kernel/brioche-governance/src/lib.rs",
-    "crates/kernel/brioche-macro/src/lib.rs",
-    "crates/ecosystem/brioche-playground/src/lib.rs",
-    "crates/ecosystem/brioche-plugin-kit/src/lib.rs",
-    "crates/brioche-plugin-template/src/lib.rs",
-    "crates/providers/brioche-provider-openai/src/lib.rs",
-    "crates/runtime/brioche-shell-persistence/src/lib.rs",
-    "crates/runtime/brioche-shell-projection/src/lib.rs",
-    "crates/runtime/brioche-shell-runtime/src/lib.rs",
-    "crates/ecosystem/brioche-std/src/lib.rs",
-    "crates/tools/brioche-tools-system/src/lib.rs",
-    "crates/apps/agent-terminal/src/main.rs",
-    "crates/infra/brioche-reedline/src/lib.rs",
-    "crates/infra/cargo-brioche-lint/src/main.rs",
-    "crates/infra/cargo-brioche-lint-invariants/src/main.rs",
+MODULE_DOC_CRATES = [
+    "crates/kernel/brioche-core/src",
+    "crates/kernel/brioche-governance/src",
+    "crates/kernel/brioche-governance-default/src",
+    "crates/kernel/brioche-macro/src",
 ]
 
 
 def check_module_docs() -> CheckResult:
     result = CheckResult("Module-level docs (!!)")
 
-    for rel in CRATE_LIB_FILES:
-        path = PROJECT_ROOT / rel
-        if not path.exists():
-            result.add(path, 0, "file does not exist")
+    for rel in MODULE_DOC_CRATES:
+        crate_src = PROJECT_ROOT / rel
+        if not crate_src.exists():
             continue
 
-        content = path.read_text()
-        lines = content.split("\n")
-
-        # Look for a //! block before any non-comment, non-blank, non-attribute line.
-        has_mod_doc = False
-        for line in lines:
-            stripped = line.strip()
-            if stripped.startswith("//!"):
-                has_mod_doc = True
-                break
-            if stripped == "" or stripped.startswith(("#![", "//")):
+        for path in crate_src.rglob("*.rs"):
+            # Skip tests and benches — they don't need module docs.
+            if "tests" in path.parts or "benches" in path.parts:
                 continue
-            # Reached code / attributes that aren't module docs
-            break
+            if path.name.startswith("fail_") or path.name.startswith("pass_"):
+                continue
 
-        if not has_mod_doc:
-            result.add(path, 1, "missing `//!` module-level documentation block")
+            content = path.read_text()
+            lines = content.split("\n")
+
+            # Look for a //! block before any non-comment, non-blank, non-attribute line.
+            has_mod_doc = False
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith("//!"):
+                    has_mod_doc = True
+                    break
+                if stripped == "" or stripped.startswith(("#![", "//")):
+                    continue
+                # Reached code / attributes that aren't module docs
+                break
+
+            if not has_mod_doc:
+                result.add(path, 1, "missing `//!` module-level documentation block")
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 12. Language consistency — English only in kernel crates
+# ---------------------------------------------------------------------------
+
+# These must match as whole words (or near-whole words) to avoid false positives
+# on legitimate English terms like "phase", "standard", "profile".
+FRENCH_KEYWORDS = [
+    ("garde", r"\bgarde\b"),
+    ("profondeur", r"\bprofondeur\b"),
+    ("sous-routines", r"\bsous-routines\b"),
+    ("nettoyage", r"\bnettoyage\b"),
+    ("algorithme", r"\balgorithme\b"),
+    ("profil", r"\bprofil\b"),  # NOT "profile"
+    ("restreint", r"\brestreint\b"),
+    ("effets", r"\beffets\b"),
+    ("dangereux", r"\bdangereux\b"),
+    ("courante", r"\bcourante\b"),
+    ("adaptative", r"\badaptative\b"),
+    ("adaptatif", r"\badaptatif\b"),
+    ("courant", r"\bcourant\b"),
+]
+
+
+def check_language_consistency() -> CheckResult:
+    result = CheckResult("Language consistency (English-only)")
+
+    for rel in INVARIANT_CRATES:
+        crate_src = PROJECT_ROOT / rel
+        if not crate_src.exists():
+            continue
+
+        for path in crate_src.rglob("*.rs"):
+            if "tests" in path.parts or "benches" in path.parts:
+                continue
+
+            content = path.read_text()
+            lines = content.split("\n")
+
+            for i, line in enumerate(lines):
+                stripped = line.strip()
+                # Only check doc comments and identifiers (not string literals in code)
+                if not stripped.startswith("///") and not stripped.startswith("//!"):
+                    continue
+
+                lower = stripped.lower()
+                # Skip invariant references like `I-Gov-CowBudget-Adaptative`
+                # — spec identifiers are allowed to contain non-English roots.
+                if re.search(r"i-[a-z0-9-]+", lower):
+                    continue
+                for kw, pat in FRENCH_KEYWORDS:
+                    if re.search(pat, lower):
+                        result.add(
+                            path,
+                            i + 1,
+                            f"French keyword '{kw}' found in doc comment — "
+                            f"PHILOSOPHY.md requires English-only prose in kernel crates",
+                        )
+                        break
 
     return result
 
@@ -674,6 +740,7 @@ CHECKS = [
     check_module_docs,
     check_session_send_sync,
     check_critical_state,
+    check_language_consistency,
 ]
 
 

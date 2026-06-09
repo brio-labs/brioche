@@ -11,10 +11,11 @@
 //!
 //! Refs: SPECS.md §Book V
 
-use clap::{Parser, Subcommand};
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
+
+use clap::{Parser, Subcommand};
 
 /// CLI arguments.
 #[derive(Parser)]

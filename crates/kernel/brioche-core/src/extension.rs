@@ -7,9 +7,10 @@
 //!
 //! Refs: SPECS.md §3.1, §3.2
 
-use crate::CycleRollbackPolicy;
 use std::any::{Any, TypeId};
 use std::collections::{BTreeMap, BTreeSet};
+
+use crate::CycleRollbackPolicy;
 
 /// Snapshot strategy for COW rollback.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -182,6 +183,8 @@ impl ExtensionStorage {
     /// Create an empty `ExtensionStorage`.
     ///
     /// Complexity: O(1). Allocates empty maps.
+    ///
+    /// Refs: I-Core-Pure
     pub fn new() -> Self {
         Self {
             hot_map: BTreeMap::new(),
@@ -199,6 +202,8 @@ impl ExtensionStorage {
     /// `get_or_insert_default`) before the type can be used.
     ///
     /// Complexity: O(log n). Two `BTreeMap` insertions.
+    ///
+    /// Refs: I-Core-Pure
     pub fn register<T>(&mut self)
     where
         T: BriocheExtensionType + 'static,
@@ -217,6 +222,8 @@ impl ExtensionStorage {
     /// access.
     ///
     /// Complexity: O(serialization cost). Two `BTreeMap` insertions.
+    ///
+    /// Refs: I-Core-Pure
     pub fn insert<T>(&mut self, value: T)
     where
         T: BriocheExtensionType + 'static,
@@ -307,6 +314,8 @@ impl ExtensionStorage {
     /// from disk.
     ///
     /// Complexity: O(deserialization cost). Two `BTreeMap` insertions.
+    ///
+    /// Refs: I-Core-Pure
     pub fn hydrate_plugin(&mut self, ext_id: &str, blob: &[u8]) -> bool {
         let Some(&type_id) = self.ext_id_to_type_id.get(ext_id) else {
             return false;
@@ -328,6 +337,8 @@ impl ExtensionStorage {
     /// Used by persistence layers to extract binary blobs for disk write.
     ///
     /// Complexity: O(1). Returns a reference; no allocation.
+    ///
+    /// Refs: I-Core-Pure
     pub fn cold_snapshot(&self) -> &BTreeMap<String, Vec<u8>> {
         &self.cold_snapshot
     }
@@ -388,6 +399,8 @@ impl ExtensionStorage {
     /// persisted blob intact.
     ///
     /// Complexity: O(log n). One `BTreeMap` removal.
+    ///
+    /// Refs: I-Core-Pure
     pub fn evict_from_hot<T>(&mut self) -> bool
     where
         T: BriocheExtensionType + 'static,

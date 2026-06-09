@@ -5,8 +5,9 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
-use brioche_shell_runtime::BriocheShell;
 use std::collections::BTreeMap;
+
+use brioche_shell_runtime::BriocheShell;
 
 /// Manages multiple CLI sessions.
 ///

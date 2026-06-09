@@ -461,7 +461,8 @@ pub fn derive_brioche_extension_type(input: TokenStream) -> TokenStream {
 // Plugin authoring macros — Sprint 17
 // ---------------------------------------------------------------------------
 
-use syn::{ImplItem, ItemImpl, LitStr, Token, parse::Parse, parse::ParseStream};
+use syn::parse::{Parse, ParseStream};
+use syn::{ImplItem, ItemImpl, LitStr, Token};
 
 /// Parsed arguments for `#[brioche_plugin(...)]`.
 struct PluginArgs {

@@ -9,6 +9,10 @@
 //!
 //! Refs: SPECS.md §Book III-A
 
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::time::Duration;
+
 use brioche_core::{
     ActiveToolCall, BriocheEngineBuilder, EngineInput, Session, SignalDrainOrder, SystemSignal,
     ToolResultDTO,
@@ -20,9 +24,6 @@ use brioche_shell_runtime::{
     MockLlmClient, NoopPersistence, RecoveryProcedure, ShellConfig, SignalMultiplexer,
     SystemSignalAdapter, TelemetryChannel, TickEmitter, ToolExecutor, UnifiedEventBus,
 };
-use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
-use std::time::Duration;
 
 // ---------------------------------------------------------------------------
 // Helpers

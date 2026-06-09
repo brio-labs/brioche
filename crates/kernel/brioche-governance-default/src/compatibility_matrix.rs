@@ -39,6 +39,8 @@ pub struct GovernanceCompatibilityMatrix;
 
 impl GovernanceCompatibilityMatrix {
     /// Returns the full matrix of known compatibilities.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn entries() -> Vec<CompatibilityEntry> {
         vec![
             // EpochGuard combinations
@@ -121,6 +123,8 @@ impl GovernanceCompatibilityMatrix {
     }
 
     /// Returns the compatibility level for a given pair.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn lookup(
         trait_a: &str,
         impl_a: &str,

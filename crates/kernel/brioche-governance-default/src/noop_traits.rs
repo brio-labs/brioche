@@ -6,11 +6,12 @@
 //!
 //! Refs: I-Gov-Profile-Agnostic
 
+use std::any::{Any, TypeId};
+
 use brioche_core::{
     CowBudgetPolicy, CycleRollbackPolicy, Effect, ExtensionStorage, GovernanceFailoverHandler,
     HookEffectConstraint, PluginResult, Session,
 };
-use std::any::{Any, TypeId};
 
 // ---------------------------------------------------------------------------
 // NoopEpochInterceptor — not needed because EpochGuard is always injected.
@@ -92,6 +93,8 @@ pub struct PermissiveHookEffectConstraint {
 
 impl PermissiveHookEffectConstraint {
     /// Creates a fully permissive constraint (all effects allowed).
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn new() -> Self {
         Self {
             masks: [u64::MAX; 8],

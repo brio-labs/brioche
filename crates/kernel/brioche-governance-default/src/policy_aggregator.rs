@@ -24,12 +24,14 @@ use brioche_core::{
 ///
 /// # Example
 /// ```
-/// use brioche_governance_default::LexicographicDecisionAggregator;
 /// use brioche_core::BriocheEngineBuilder;
+/// use brioche_governance_default::LexicographicDecisionAggregator;
 ///
 /// let engine = BriocheEngineBuilder::new()
 ///     .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
-///     .with_subroutine_lifecycle_guard(Box::new(brioche_governance_default::SubRoutineCleanupGuard::new()))
+///     .with_subroutine_lifecycle_guard(Box::new(
+///         brioche_governance_default::SubRoutineCleanupGuard::new(),
+///     ))
 ///     .build();
 /// ```
 pub struct LexicographicDecisionAggregator;

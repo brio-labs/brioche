@@ -4,9 +4,10 @@
 
 use std::sync::Arc;
 
+use tokio_util::sync::CancellationToken;
+
 use crate::registry::{SystemTool, ToolError};
 use crate::sandbox::{AllowList, ConfirmHandler, SandboxPolicy};
-use tokio_util::sync::CancellationToken;
 
 /// Executes a shell command with a sandbox policy.
 pub struct ExecuteCommandTool {

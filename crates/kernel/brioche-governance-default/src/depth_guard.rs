@@ -31,7 +31,7 @@ pub struct DepthState {
     pub current_depth: u64,
 }
 
-/// Garde de profondeur de sous-routines.
+/// Sub-routine depth guard.
 ///
 /// On `on_input`, verifies that the stack depth does not exceed
 /// `max_depth`. If so, emits an `OverrideTransition` to
@@ -42,6 +42,8 @@ pub struct DepthGuard {
 
 impl DepthGuard {
     /// Creates a guard with a maximum depth.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn with_max_depth(max_depth: u64) -> Self {
         Self { max_depth }
     }

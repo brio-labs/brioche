@@ -7,9 +7,10 @@
 //!
 //! Refs: I-Gov-Tiered-Rollback, I-Gov-Rollback-Critical
 
-use brioche_core::{CycleRollbackPolicy, ExtVTable, ExtensionStorage, SnapshotStrategy};
 use std::any::{Any, TypeId};
 use std::collections::BTreeSet;
+
+use brioche_core::{CycleRollbackPolicy, ExtVTable, ExtensionStorage, SnapshotStrategy};
 
 /// COW frame guard with three criticality tiers.
 ///
@@ -29,6 +30,8 @@ impl TieredUndoFrameGuard {
     /// Creates a guard with the default thresholds:
     /// - Standard : 64 KB
     /// - BestEffort : 16 KB (25%)
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn new() -> Self {
         Self {
             max_standard_bytes: 65536,
@@ -41,6 +44,8 @@ impl TieredUndoFrameGuard {
     }
 
     /// Creates a guard with custom thresholds.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn with_thresholds(max_standard_bytes: usize, max_best_effort_bytes: usize) -> Self {
         Self {
             max_standard_bytes,

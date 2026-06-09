@@ -5,6 +5,8 @@
 //!
 //! Refs: SPECS.md §Book III-B, I-Persist-Idempotence, I-Persist-GC-Interrupt
 
+use std::num::NonZeroUsize;
+
 use brioche_core::{AgentState, ChatMessage, Session};
 use brioche_shell_persistence::{
     COMPRESSION_THRESHOLD, FlattenedAgentState, GcRunner, LazySessionLoader, RedbStorage,
@@ -13,7 +15,6 @@ use brioche_shell_persistence::{
     new_session_store, serialize_head,
 };
 use redb::ReadableDatabase;
-use std::num::NonZeroUsize;
 
 // ---------------------------------------------------------------------------
 // DTO conversion
@@ -751,9 +752,10 @@ async fn gc_interruptible_by_cancellation_token() {
 
 #[test]
 fn hydrate_plugin_corrupted_blob_fallback() {
+    use std::collections::BTreeMap;
+
     use brioche_core::{BriocheExtensionType, ExtensionStorage};
     use serde::{Deserialize, Serialize};
-    use std::collections::BTreeMap;
 
     #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, BriocheExtensionType)]
     pub struct RecoverableState {

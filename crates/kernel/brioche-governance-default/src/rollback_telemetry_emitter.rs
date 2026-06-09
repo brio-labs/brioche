@@ -45,6 +45,8 @@ pub struct RollbackTelemetryEmitter;
 
 impl RollbackTelemetryEmitter {
     /// Creates a new instance.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn new() -> Self {
         Self
     }

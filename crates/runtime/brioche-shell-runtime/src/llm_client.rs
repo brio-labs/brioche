@@ -3,12 +3,13 @@
 //! The [`LlmClient`] trait abstracts the SSE streaming connection to an
 //! LLM provider. The shell segments payloads according to
 //! [`MAX_INLINE_CHUNK`](brioche_core::MAX_INLINE_CHUNK) before injecting
+use brioche_core::{EngineInput, StreamEvent, ToolResultDTO};
+use bytes::Bytes;
+
 /// them as `EngineInput::LlmStream`.
 ///
 /// Refs: I-Core-ChunkBudget, I-Shell-Network-Signal
 use crate::BriocheShell;
-use brioche_core::{EngineInput, StreamEvent, ToolResultDTO};
-use bytes::Bytes;
 
 /// Chunk broadcast to the projection (CLI, GUI…). The kernel never sees it.
 ///

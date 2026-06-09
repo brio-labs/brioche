@@ -7,9 +7,10 @@
 //!
 //! Refs: I-Gov-Rollback-BestEffort
 
-use brioche_core::{CycleRollbackPolicy, ExtVTable, ExtensionStorage, SnapshotStrategy};
 use std::any::{Any, TypeId};
 use std::collections::BTreeSet;
+
+use brioche_core::{CycleRollbackPolicy, ExtVTable, ExtensionStorage, SnapshotStrategy};
 
 /// COW frame guard with granular snapshot.
 ///
@@ -31,6 +32,8 @@ pub struct UndoFrameGuard {
 
 impl UndoFrameGuard {
     /// Creates a guard with the default threshold of 64 KB.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn new() -> Self {
         Self {
             max_cow_bytes_per_hook: 65536,
@@ -41,6 +44,8 @@ impl UndoFrameGuard {
     }
 
     /// Creates a guard with a custom threshold (in bytes).
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn with_max_cow_bytes(max_cow_bytes_per_hook: usize) -> Self {
         Self {
             max_cow_bytes_per_hook,

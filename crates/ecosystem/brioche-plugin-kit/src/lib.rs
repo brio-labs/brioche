@@ -19,12 +19,6 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 // Re-export proc macros from brioche-macro.
-pub use brioche_macro::brioche_offload_task;
-pub use brioche_macro::brioche_plugin;
-pub use brioche_macro::hook;
-// Also re-export BriocheExtensionType derive for convenience.
-pub use brioche_macro::BriocheExtensionType;
-
 // Re-export core types (stable interface).
 pub use brioche_core::{
     ActiveToolCall, AgentState, AgentStateTag, AsyncTaskResult, BriocheError, BriochePlugin,
@@ -38,7 +32,6 @@ pub use brioche_core::{
     SystemSignal, ToolCallDescriptor, ToolOutcome, ToolResultDTO, ToolStatus, TransitionTrace,
     TransitionTraceLog, effect_to_bitmask, seal,
 };
-
 // Re-export governance default implementations.
 pub use brioche_governance_default::{
     AdaptiveUndoFrameGuard, BriocheEngineBuilderExt, CompatibilityEntry, CompatibilityLevel,
@@ -55,7 +48,9 @@ pub use brioche_governance_default::{
     ToolResultFormatterState, ToolTimeoutPolicy, ToolTimeoutState, TransitionConflictLogger,
     TreeDecisionAggregator, UndoFrameGuard,
 };
-
+// Also re-export BriocheExtensionType derive for convenience.
+pub use brioche_macro::BriocheExtensionType;
+pub use brioche_macro::{brioche_offload_task, brioche_plugin, hook};
 // Re-export standard plugins.
 pub use brioche_std::{
     AuditEntry, AuditLogger, AuditLoggerState, CircuitBreaker, CircuitBreakerState,

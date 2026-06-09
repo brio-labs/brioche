@@ -4,11 +4,12 @@
 //!
 //! Refs: I-Persist-Cache
 
+use std::num::NonZeroUsize;
+
 use brioche_shell_persistence::{
     FlattenedAgentState, SessionHeadDTO, SessionSchemaVersion, SubRoutineCache,
 };
 use criterion::{Criterion, criterion_group, criterion_main};
-use std::num::NonZeroUsize;
 
 fn make_dto(id: &str) -> SessionHeadDTO {
     SessionHeadDTO {
