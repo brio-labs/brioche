@@ -1,10 +1,21 @@
+//! Book I — The Core Book: Plugin hook evaluation.
+//!
+//! Canonical implementation of plugin route iteration with snapshot injection,
+//! COW rollback, and uniform error collection.
+//!
+//! ## Invariants upheld
+//! - I-Core-StreamNoBranch: Iterates pre-routed indices directly.
+//! - I-Gov-Rollback-BestEffort: Rollback per plugin via `CycleRollbackPolicy`.
+//! - I-Core-PluginOrder: Total order via `(priority, name)`.
+//!
+//! Refs: SPECS.md §4.2
+
+use super::BriocheEngine;
+use super::types::InputResult;
 use crate::{
     BriocheError, BriochePlugin, Effect, EngineInput, ErrorCode, ErrorDetail, PluginError,
     PluginResult, PolicyDecision, Session,
 };
-
-use super::BriocheEngine;
-use super::types::InputResult;
 
 impl BriocheEngine {
     /// Evaluate a pre-routed plugin hook with snapshot injection, rollback,
@@ -54,6 +65,7 @@ impl BriocheEngine {
     /// plugin errors but does not short-circuit.
     ///
     /// Refs: I-Core-PluginOrder, I-Core-StreamNoBranch
+    /// Complexity: O(p) where p = plugins on route_after_prediction.
     pub(crate) fn eval_after_prediction(
         &mut self,
         session: &mut Session,
@@ -77,6 +89,7 @@ impl BriocheEngine {
     /// logged as superseded. `Block` short-circuits immediately.
     ///
     /// Refs: I-Core-PluginOrder, I-Gov-Decision-Required
+    /// Complexity: O(p) where p = plugins on route_on_input.
     pub(crate) fn eval_on_input(
         &mut self,
         session: &mut Session,
@@ -143,6 +156,7 @@ impl BriocheEngine {
     /// Plugins mutate `timeout_ms` and other fields in place.
     ///
     /// Refs: I-Core-PluginOrder, I-Core-ActiveToolCall
+    /// Complexity: O(p) where p = plugins on route_on_tool_calls.
     pub(crate) fn handle_tool_calls(
         &mut self,
         session: &mut Session,

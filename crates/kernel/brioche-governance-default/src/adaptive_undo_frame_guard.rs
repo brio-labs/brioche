@@ -6,13 +6,14 @@
 //!
 //! Refs: I-Gov-CowBudget-Adaptative, I-Gov-Rollback-BestEffort
 
-use brioche_core::{
-    CowBudgetPolicy, CycleRollbackPolicy, ExtVTable, ExtensionStorage, SnapshotStrategy,
-};
 use std::any::{Any, TypeId};
 use std::collections::BTreeSet;
 
-/// Garde de frame COW adaptative.
+use brioche_core::{
+    CowBudgetPolicy, CycleRollbackPolicy, ExtVTable, ExtensionStorage, SnapshotStrategy,
+};
+
+/// Adaptive COW frame guard.
 ///
 /// Like `UndoFrameGuard`, but the threshold is determined dynamically
 /// by consulting a `CowBudgetPolicy` if available.
@@ -27,6 +28,8 @@ pub struct AdaptiveUndoFrameGuard {
 
 impl AdaptiveUndoFrameGuard {
     /// Creates a guard with the default fallback threshold of 64 KB.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn new() -> Self {
         Self {
             fallback_max_cow_bytes: 65536,
@@ -39,6 +42,8 @@ impl AdaptiveUndoFrameGuard {
     }
 
     /// Creates a guard with a custom fallback threshold.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn with_fallback_max(fallback_max_cow_bytes: usize) -> Self {
         Self {
             fallback_max_cow_bytes,
@@ -51,6 +56,8 @@ impl AdaptiveUndoFrameGuard {
     }
 
     /// Attaches a dynamic `CowBudgetPolicy` for per-hook budget queries.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn with_budget_policy(mut self, policy: Box<dyn CowBudgetPolicy>) -> Self {
         self.budget_policy = Some(policy);
         self

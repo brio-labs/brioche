@@ -78,6 +78,7 @@ impl BriochePlugin for PurePluginA {
     fn name(&self) -> &'static str {
         "pure_a"
     }
+
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities::ON_INPUT
             | PluginCapabilities::BEFORE_PREDICTION
@@ -86,9 +87,11 @@ impl BriochePlugin for PurePluginA {
             | PluginCapabilities::ON_TOOL_CALLS
             | PluginCapabilities::ON_TOOL_RESULT
     }
+
     fn priority(&self) -> i16 {
         0
     }
+
     fn on_input(
         &self,
         _input: &EngineInput,
@@ -96,6 +99,7 @@ impl BriochePlugin for PurePluginA {
     ) -> PluginResult<PolicyDecision> {
         Ok(PolicyDecision::Allow)
     }
+
     fn before_prediction(
         &self,
         _history: &[ChatMessage],
@@ -103,6 +107,7 @@ impl BriochePlugin for PurePluginA {
     ) -> PluginResult<PolicyDecision> {
         Ok(PolicyDecision::Allow)
     }
+
     fn on_stream_event(
         &self,
         _event: &StreamEvent,
@@ -110,9 +115,11 @@ impl BriochePlugin for PurePluginA {
     ) -> PluginResult<StreamAction> {
         Ok(StreamAction::Pass)
     }
+
     fn after_prediction(&self, _ext: &mut ExtensionStorage) -> PluginResult<()> {
         Ok(())
     }
+
     fn on_tool_calls(
         &self,
         _calls: &mut Vec<ToolCallDescriptor>,
@@ -120,6 +127,7 @@ impl BriochePlugin for PurePluginA {
     ) -> PluginResult<()> {
         Ok(())
     }
+
     fn on_tool_result(
         &self,
         _results: &mut Vec<ToolResultDTO>,
@@ -136,6 +144,7 @@ impl BriochePlugin for PurePluginB {
     fn name(&self) -> &'static str {
         "pure_b"
     }
+
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities::ON_INPUT
             | PluginCapabilities::BEFORE_PREDICTION
@@ -144,9 +153,11 @@ impl BriochePlugin for PurePluginB {
             | PluginCapabilities::ON_TOOL_CALLS
             | PluginCapabilities::ON_TOOL_RESULT
     }
+
     fn priority(&self) -> i16 {
         0
     }
+
     fn on_input(
         &self,
         _input: &EngineInput,
@@ -154,6 +165,7 @@ impl BriochePlugin for PurePluginB {
     ) -> PluginResult<PolicyDecision> {
         Ok(PolicyDecision::Allow)
     }
+
     fn before_prediction(
         &self,
         _history: &[ChatMessage],
@@ -161,6 +173,7 @@ impl BriochePlugin for PurePluginB {
     ) -> PluginResult<PolicyDecision> {
         Ok(PolicyDecision::Allow)
     }
+
     fn on_stream_event(
         &self,
         _event: &StreamEvent,
@@ -168,9 +181,11 @@ impl BriochePlugin for PurePluginB {
     ) -> PluginResult<StreamAction> {
         Ok(StreamAction::Pass)
     }
+
     fn after_prediction(&self, _ext: &mut ExtensionStorage) -> PluginResult<()> {
         Ok(())
     }
+
     fn on_tool_calls(
         &self,
         _calls: &mut Vec<ToolCallDescriptor>,
@@ -178,6 +193,7 @@ impl BriochePlugin for PurePluginB {
     ) -> PluginResult<()> {
         Ok(())
     }
+
     fn on_tool_result(
         &self,
         _results: &mut Vec<ToolResultDTO>,

@@ -19,17 +19,19 @@
 //!
 //! Refs: I-Shell-Session-NoSend, I-Shell-Runtime-OnlyIO
 
-use crate::{
-    EffectExecutor, EngineWatchdog, EngineWatchdogHandle, PersistenceMode, TelemetryChannel,
-    TickEmitter, TransitionJournal,
-};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
 use brioche_core::{
     AgentState, AgentStateTag, BriocheEngine, Effect, EngineInput, EpochState,
     GovernanceNotification, Session, SignalBuffer, SignalDrainOrder, SystemSignal,
 };
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::sync::{mpsc, oneshot};
+
+use crate::{
+    EffectExecutor, EngineWatchdog, EngineWatchdogHandle, PersistenceMode, TelemetryChannel,
+    TickEmitter, TransitionJournal,
+};
 
 /// Lightweight snapshot of session mechanical state sent from the
 /// engine thread after each transition.

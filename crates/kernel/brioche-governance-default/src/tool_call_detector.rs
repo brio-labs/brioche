@@ -35,6 +35,8 @@ pub struct ToolCallDetector;
 
 impl ToolCallDetector {
     /// Creates a new instance.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn new() -> Self {
         Self
     }

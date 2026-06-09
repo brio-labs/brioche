@@ -12,8 +12,10 @@ use brioche_core::{
     ExtensionStorage, PolicyDecision, Session, StreamEvent, ToolCallDescriptor, ToolOutcome,
     ToolResultDTO,
 };
-use brioche_governance_default::{LexicographicDecisionAggregator, SubRoutineCleanupGuard};
-use brioche_governance_default::{ToolResultFormatter, ToolResultFormatterState};
+use brioche_governance_default::{
+    LexicographicDecisionAggregator, SubRoutineCleanupGuard, ToolResultFormatter,
+    ToolResultFormatterState,
+};
 use brioche_std::{
     AuditLogger, AuditLoggerState, CircuitBreaker, CircuitBreakerState, ContextOptimizer,
     ContextOptimizerState, GcPolicy, GcPolicyState, PendingTaskManager, PendingTaskState,

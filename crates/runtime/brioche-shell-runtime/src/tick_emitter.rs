@@ -11,9 +11,9 @@ use tokio::time::{Duration, Instant, interval};
 ///
 /// ```no_run
 /// # async fn example() {
+/// use brioche_core::SystemSignal;
 /// use brioche_shell_runtime::TickEmitter;
 /// use tokio::sync::mpsc;
-/// use brioche_core::SystemSignal;
 ///
 /// let (tx, _rx) = mpsc::channel(64);
 /// let emitter = TickEmitter::new(tx, 1000);

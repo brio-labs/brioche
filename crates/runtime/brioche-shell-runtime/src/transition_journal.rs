@@ -17,9 +17,10 @@
 //!
 //! Refs: SPECS.md §Book III-A Ch 1, §Book III-A Ch 4
 
-use brioche_core::EngineInput;
 use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+use brioche_core::EngineInput;
 
 /// Capacity of the ring buffer in bytes.
 ///
@@ -287,8 +288,9 @@ impl Default for TransitionJournal {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use brioche_core::EngineInput;
+
+    use super::*;
 
     #[test]
     fn journal_roundtrip_single_entry() {

@@ -9,12 +9,12 @@ use brioche_core::{
     Effect, PluginResult, Session, SessionRegistry, SubRoutineHandle, SubRoutineLifecycleGuard,
 };
 
-/// Garde de nettoyage des sous-routines.
+/// Sub-routine cleanup guard.
 ///
 /// At instantiation, use `SubRoutineCleanupGuard::new()` to obtain
 /// the default SDK reference.
 ///
-/// # Algorithme
+/// # Algorithm
 /// 1. Increments `registry.exit_counts[handle]` (defense in depth).
 /// 2. Retire la session enfant de `SessionRegistry`.
 /// 3. Emits `Effect::SaveSession` if the removal succeeds.
@@ -22,6 +22,8 @@ pub struct SubRoutineCleanupGuard;
 
 impl SubRoutineCleanupGuard {
     /// Creates a new instance of the cleanup guard.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn new() -> Self {
         Self
     }

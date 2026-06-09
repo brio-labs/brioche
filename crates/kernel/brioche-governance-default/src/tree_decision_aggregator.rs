@@ -65,6 +65,8 @@ pub struct TreeDecisionAggregator;
 
 impl TreeDecisionAggregator {
     /// Creates a new instance.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn new() -> Self {
         Self
     }

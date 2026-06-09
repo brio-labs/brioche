@@ -6,11 +6,12 @@
 //!
 //! Refs: I-Eco-ExtensionOverMod, I-Eco-OrderedCollections
 
+use std::collections::BTreeMap;
+
 use brioche_core::{
     AsyncTaskResult, BriocheExtensionType, BriochePlugin, ExtensionStorage, PluginCapabilities,
     PluginResult, PolicyDecision, SignalBuffer, ToolResultDTO,
 };
-use std::collections::BTreeMap;
 
 /// Information about a pending task.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

@@ -9,10 +9,11 @@
 //!
 //! Refs: I-Core-ChunkBudget
 
+use std::collections::BTreeMap;
+
 use brioche_core::{
     BriochePlugin, ExtensionStorage, PluginCapabilities, PluginResult, StreamAction, StreamEvent,
 };
-use std::collections::BTreeMap;
 
 /// JSON argument accumulation state.
 ///
@@ -45,6 +46,8 @@ pub struct JsonArgumentAccumulator;
 
 impl JsonArgumentAccumulator {
     /// Creates a new instance.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn new() -> Self {
         Self
     }

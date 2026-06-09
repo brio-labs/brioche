@@ -36,6 +36,8 @@ impl ToolCallAccumulator {
     /// If the same `id` is started twice, the second overwrites the first.
     ///
     /// Complexity: O(log t) where t = pending descriptors.
+    ///
+    /// Refs: I-Core-ActiveToolCall
     pub fn on_start(ext: &mut crate::ExtensionStorage, id: String, name: String) {
         let acc = ext.get_or_insert_default::<StreamToolAccumulator>();
         acc.pending.insert(
@@ -56,6 +58,8 @@ impl ToolCallAccumulator {
     ///
     /// Complexity: O(log t) for the map lookup + O(k) for the string append,
     /// where k = chunk length.
+    ///
+    /// Refs: I-Core-ActiveToolCall
     pub fn on_argument_chunk(ext: &mut crate::ExtensionStorage, id: &str, chunk: &[u8]) {
         let acc = ext.get_or_insert_default::<StreamToolAccumulator>();
         if let Some(descriptor) = acc.pending.get_mut(id) {
@@ -71,6 +75,8 @@ impl ToolCallAccumulator {
     /// `Vec` until new `ToolCallStart` events arrive.
     ///
     /// Complexity: O(t) where t = number of pending descriptors.
+    ///
+    /// Refs: I-Core-ActiveToolCall
     pub fn drain(ext: &mut crate::ExtensionStorage) -> Vec<ToolCallDescriptor> {
         let acc = ext.get_or_insert_default::<StreamToolAccumulator>();
         std::mem::take(&mut acc.pending).into_values().collect()
@@ -131,6 +137,7 @@ impl BriocheEngine {
     /// Log an `OverrideTransition` to the in-memory trace log.
     ///
     /// Refs: I-Gov-Trace-Log
+    /// Complexity: O(1). One Vec push (amortized).
     pub(crate) fn log_override_transition(&self, session: &mut Session, source_plugin: &str) {
         let epoch = session
             .extensions
@@ -149,6 +156,7 @@ impl BriocheEngine {
     /// Log a superseded `OverrideTransition` to the in-memory trace log.
     ///
     /// Refs: I-Gov-Trace-Log
+    /// Complexity: O(1). One Vec push (amortized).
     pub(crate) fn log_superseded_transition(
         &self,
         session: &mut Session,

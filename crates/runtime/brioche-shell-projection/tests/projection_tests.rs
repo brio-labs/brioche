@@ -24,8 +24,8 @@ use brioche_shell_projection::{
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn empty_payload() -> serde_json::Value {
-    serde_json::Value::Object(serde_json::Map::new())
+fn empty_payload() -> Vec<u8> {
+    vec![]
 }
 
 fn make_text_chunk_effect(trace_id: &str, text: &str) -> Effect {
@@ -263,7 +263,7 @@ fn ui_composer_cosmetic_dropped_after_3_frames() {
     for _ in 0..4 {
         composer.enqueue(Effect::ForwardToUi(brioche_core::UiWidget::Custom {
             widget_type: "animation".to_string(),
-            payload: empty_payload(),
+            payload_json: empty_payload(),
         }));
     }
 
@@ -291,7 +291,7 @@ fn ui_composer_priority_ordering() {
     let mut composer = UiComposer::with_budget(10);
     composer.enqueue(Effect::ForwardToUi(brioche_core::UiWidget::Custom {
         widget_type: "animation".to_string(),
-        payload: empty_payload(),
+        payload_json: empty_payload(),
     }));
     composer.enqueue(Effect::ForwardToUi(brioche_core::UiWidget::TextChunk {
         trace_id: "default".to_string(),
@@ -299,7 +299,7 @@ fn ui_composer_priority_ordering() {
     }));
     composer.enqueue(Effect::ForwardToUi(brioche_core::UiWidget::Custom {
         widget_type: "focus".to_string(),
-        payload: empty_payload(),
+        payload_json: empty_payload(),
     }));
 
     let frame = composer.compose_frame();
@@ -408,7 +408,7 @@ fn ui_performance_policy_has_pending_tracks_composer() {
     assert!(!policy.has_pending());
     policy.process_effects(vec![Effect::ForwardToUi(brioche_core::UiWidget::Custom {
         widget_type: "animation".to_string(),
-        payload: empty_payload(),
+        payload_json: empty_payload(),
     })]);
     assert!(policy.has_pending());
 }
@@ -451,7 +451,7 @@ fn special_widget_maps_to_semantic_priority() {
     ));
     composer.enqueue(Effect::ForwardToUi(brioche_core::UiWidget::Custom {
         widget_type: "animation".to_string(),
-        payload: empty_payload(),
+        payload_json: empty_payload(),
     }));
 
     let frame = composer.compose_frame();

@@ -20,6 +20,8 @@ pub struct StateConsistencyGuard;
 
 impl StateConsistencyGuard {
     /// Creates a new instance.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn new() -> Self {
         Self
     }

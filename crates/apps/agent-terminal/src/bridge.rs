@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use brioche_core::{ChatMessage, EngineInput};
 use brioche_provider_openai::OpenAiLlmClient;
+use brioche_reedline::session::SessionManager;
 use brioche_shell_persistence::{RedbStorage, SessionStore};
 use nu_ansi_term::{Color, Style};
 use reedline::ExternalPrinter;
@@ -19,7 +20,6 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::CliConfig;
 use crate::shell_builder::build_shell;
-use brioche_reedline::session::SessionManager;
 
 /// Dependencies needed to create new shells (shared between
 /// `run`, `handle_slash_command`, and `handle_session_command`).

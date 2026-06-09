@@ -11,10 +11,11 @@
 //!
 //! Refs: SPECS.md §Book V
 
-use clap::{Parser, Subcommand};
-use regex::Regex;
 use std::fs;
 use std::path::PathBuf;
+
+use clap::{Parser, Subcommand};
+use regex::Regex;
 use walkdir::WalkDir;
 
 /// Known invariant categories and their prefixes.

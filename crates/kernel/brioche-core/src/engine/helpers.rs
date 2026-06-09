@@ -1,10 +1,20 @@
+//! Book I — The Core Book: `BriocheEngine` helper methods.
+//!
+//! Small, focused helpers used by `transition()` and dispatch.
+//! Each function is a pure mechanism with a documented complexity contract.
+//!
+//! ## Invariants upheld
+//! - I-Core-NoPanic: All helpers return `Result` or `Option`, never panic.
+//! - I-Core-Pure: No side effects; effects are appended to the buffer.
+//!
+//! Refs: SPECS.md §4
+
+use super::BriocheEngine;
+use super::types::PreTransitionState;
 use crate::{
     ActiveToolCall, AgentState, Effect, EngineInput, EpochAction, ErrorCode, ErrorDetail,
     PluginError, Session,
 };
-
-use super::BriocheEngine;
-use super::types::PreTransitionState;
 
 impl BriocheEngine {
     /// Capture pre-transition sub-routine state.
@@ -13,6 +23,7 @@ impl BriocheEngine {
     /// lifecycle guards can detect whether the transition exits a sub-routine.
     ///
     /// Refs: I-Gov-SubRoutineLifecycle-Guard
+    /// Complexity: O(1). Two pattern matches.
     pub(crate) fn capture_pre_transition_state(&self, session: &Session) -> PreTransitionState {
         let was_subroutine = matches!(session.state, AgentState::SubRoutine(_));
         let handle = match &session.state {
@@ -32,6 +43,7 @@ impl BriocheEngine {
     /// should return early.
     ///
     /// Refs: I-Comp-Epoch-First
+    /// Complexity: O(1). One optional lookup + one trait call.
     pub(crate) fn apply_epoch_interceptor(
         &mut self,
         session: &mut Session,
@@ -63,6 +75,7 @@ impl BriocheEngine {
     /// in which case the caller should return early.
     ///
     /// Refs: I-Comp-Epoch-Subroutine
+    /// Complexity: O(log n). One optional lookup + registry get_mut.
     pub(crate) fn apply_subroutine_handler(
         &mut self,
         session: &mut Session,
@@ -100,6 +113,7 @@ impl BriocheEngine {
     /// Time-based safety is provided by the Shell Runtime (`EngineWatchdog`).
     ///
     /// Refs: I-Gov-Rollback-BestEffort
+    /// Complexity: O(1) for the wrapper. Closure cost depends on hook.
     pub(crate) fn with_rollback<R>(
         &mut self,
         session: &mut Session,
@@ -130,6 +144,7 @@ impl BriocheEngine {
     /// Build a `PluginFault` effect.
     ///
     /// Refs: I-Core-NoPanic
+    /// Complexity: O(1). Two String clones.
     pub(crate) fn plugin_fault(name: &str, error: PluginError) -> Effect {
         Effect::PluginFault {
             plugin_name: name.to_string(),
@@ -144,6 +159,7 @@ impl BriocheEngine {
     /// sealed calls.
     ///
     /// Refs: I-Core-ActiveToolCall, I-Core-NoPanic
+    /// Complexity: O(n) where n = descriptors. One Vec allocation.
     pub(crate) fn materialize_tool_calls(
         &self,
         descriptors: Vec<crate::ToolCallDescriptor>,
@@ -157,6 +173,7 @@ impl BriocheEngine {
     /// follow-up effects.
     ///
     /// Refs: I-Core-RetVecEffect, I-Core-ActiveToolCall
+    /// Complexity: O(1). One Vec push + clone of active_tools.
     pub(crate) fn append_state_effects(&self, session: &Session, effects: &mut Vec<Effect>) {
         effects.push(Effect::SaveSession);
         match session.state {
@@ -181,6 +198,7 @@ impl BriocheEngine {
     /// `Effect::Error` is inserted to record the anomaly.
     ///
     /// Refs: I-Gov-Rebuild-Barrier
+    /// Complexity: O(e) where e = effects. One rposition scan.
     pub(crate) fn ensure_rebuildroutes_last(effects: &mut Vec<Effect>) {
         let Some(pos) = effects
             .iter()

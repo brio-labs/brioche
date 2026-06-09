@@ -12,9 +12,10 @@
 //!
 //! Refs: SPECS.md §Book V
 
-use clap::Parser;
 use std::fs;
 use std::path::PathBuf;
+
+use clap::Parser;
 use walkdir::WalkDir;
 
 /// CLI arguments.

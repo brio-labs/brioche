@@ -26,12 +26,14 @@ pub enum DropPolicy {
 /// # Example
 ///
 /// ```
-/// use brioche_shell_runtime::{BackpressureRegulator, DropPolicy};
 /// use brioche_core::EngineInput;
+/// use brioche_shell_runtime::{BackpressureRegulator, DropPolicy};
 ///
 /// # async fn example() {
 /// let (tx, mut rx) = BackpressureRegulator::new(128, DropPolicy::Conservative);
-/// tx.send(EngineInput::UserMessage("hello".into())).await.unwrap();
+/// tx.send(EngineInput::UserMessage("hello".into()))
+///     .await
+///     .unwrap();
 /// # }
 /// ```
 ///
