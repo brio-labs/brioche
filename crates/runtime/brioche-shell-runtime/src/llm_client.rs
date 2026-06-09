@@ -19,28 +19,42 @@ use crate::BriocheShell;
 /// Refs: I-Shell-Projection-Independent
 #[derive(Clone, Debug)]
 pub enum LlmChunk {
+    /// Plain text fragment from the LLM response.
     Text(String),
     /// Reasoning / chain-of-thought fragment from the LLM.
     ///
     /// Separate from `Text` so consumers can choose whether
     /// to display reasoning inline, in a sidebar, or not at all.
     Reasoning(String),
+    /// Beginning of a tool call declaration.
     ToolCallStart {
+        /// Stable identifier for the tool call or result.
         id: String,
+        /// Name of the tool being invoked.
         name: String,
     },
+    /// Fragment of tool call arguments (JSON).
     ToolArgument {
+        /// Stable identifier for the tool call or result.
         id: String,
+        /// JSON-encoded argument fragment.
         fragment: String,
     },
+    /// End of a tool call declaration.
     ToolCallDone {
+        /// Stable identifier for the tool call or result.
         id: String,
     },
+    /// Result of a tool execution.
     ToolResult {
+        /// Name of the tool that was executed.
         name: String,
+        /// Serialized output of the tool.
         output: String,
     },
+    /// End-of-stream marker.
     Done,
+    /// Error from the LLM provider or transport layer.
     Error(String),
     /// Warning message from the provider or runtime.
     Warning(String),
@@ -86,6 +100,7 @@ pub trait LlmClient: Send + Sync {
 /// A mock LLM client that yields a fixed sequence of text chunks.
 #[derive(Clone, Debug)]
 pub struct MockLlmClient {
+    /// Fixed sequence of text chunks yielded by the mock client.
     pub chunks: Vec<String>,
 }
 

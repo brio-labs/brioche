@@ -1,3 +1,10 @@
+//! Compile tests for `brioche-macro` procedural macros.
+//!
+//! Uses `trybuild` to verify that `BriocheExtensionType` derive rejects
+//! invalid input (HashMap, HashSet, missing Clone) and accepts valid input.
+//!
+//! Refs: I-Core-ExtensionType
+
 #[test]
 fn ui_tests() {
     let t = trybuild::TestCases::new();

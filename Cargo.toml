@@ -52,6 +52,9 @@ unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
 
+[workspace.lints.rust]
+missing_docs = "warn"
+
 # ---------------------------------------------------------------------------
 # Compilation profiles — Book V §Ch 11
 # ---------------------------------------------------------------------------

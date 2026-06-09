@@ -7,8 +7,8 @@
 //! - I-Core-ActiveToolCall: `seal()` maps `ToolCallDescriptor` exhaustively.
 
 use brioche_core::{
-    AgentState, AgentStateTag, BriocheError, ExtensionStorage, Session, SessionRegistry,
-    SessionSnapshot, SubRoutineHandle, ToolCallDescriptor, seal,
+    AgentState, AgentStateTag, BriocheError, DEFAULT_TOOL_TIMEOUT_MS, ExtensionStorage, Session,
+    SessionRegistry, SessionSnapshot, SubRoutineHandle, ToolCallDescriptor, seal,
 };
 
 // ---------------------------------------------------------------------------
@@ -154,7 +154,7 @@ fn seal_maps_descriptor_to_active() {
         arguments: "{\"x\":1}".into(),
         timeout_ms: Some(5000),
     }];
-    let active = seal(descriptors);
+    let active = seal(descriptors, DEFAULT_TOOL_TIMEOUT_MS);
     assert_eq!(active.len(), 1);
     assert_eq!(active[0].tool_id, "t1");
     assert_eq!(active[0].tool_name, "calc");
@@ -163,20 +163,20 @@ fn seal_maps_descriptor_to_active() {
 }
 
 #[test]
-fn seal_none_timeout_defaults_to_zero() {
+fn seal_none_timeout_defaults_to_kernel_default() {
     let descriptors = vec![ToolCallDescriptor {
         tool_id: "t2".into(),
         tool_name: "grep".into(),
         arguments: "pattern".into(),
         timeout_ms: None,
     }];
-    let active = seal(descriptors);
-    assert_eq!(active[0].timeout_ms, 0);
+    let active = seal(descriptors, DEFAULT_TOOL_TIMEOUT_MS);
+    assert_eq!(active[0].timeout_ms, DEFAULT_TOOL_TIMEOUT_MS);
 }
 
 #[test]
 fn seal_empty_vec() {
-    let active = seal(vec![]);
+    let active = seal(vec![], DEFAULT_TOOL_TIMEOUT_MS);
     assert!(active.is_empty());
 }
 

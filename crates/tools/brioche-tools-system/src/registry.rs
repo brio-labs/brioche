@@ -14,12 +14,16 @@ use tokio_util::sync::CancellationToken;
 /// Error emitted by a system tool.
 #[derive(Debug, thiserror::Error)]
 pub enum ToolError {
+    /// Sandbox policy denied this command.
     #[error("sandbox denied: {0}")]
     SandboxDenied(String),
+    /// I/O error during tool execution.
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    /// Tool arguments failed validation.
     #[error("invalid arguments: {0}")]
     InvalidArgs(String),
+    /// Requested tool is not registered.
     #[error("tool not found: {0}")]
     NotFound(String),
 }
@@ -32,9 +36,13 @@ pub enum ToolError {
 /// Refs: I-Shell-ToolResult-PassThrough
 #[async_trait::async_trait]
 pub trait SystemTool: Send + Sync {
+    /// Canonical tool name (unique identifier).
     fn name(&self) -> &'static str;
+    /// Human-readable description for the LLM.
     fn description(&self) -> &'static str;
+    /// JSON Schema of the tool's parameters.
     fn parameters_schema(&self) -> serde_json::Value;
+    /// Execute the tool with the given arguments.
     async fn run(
         &self,
         args: serde_json::Value,
@@ -53,12 +61,14 @@ pub struct SystemToolExecutor {
 }
 
 impl SystemToolExecutor {
+    /// Creates an empty tool registry.
     pub fn new() -> Self {
         Self {
             tools: BTreeMap::new(),
         }
     }
 
+    /// Registers a tool, replacing any existing tool with the same name.
     pub fn with_tool(mut self, tool: impl SystemTool + 'static) -> Self {
         let name = tool.name().to_string();
         self.tools.insert(name, Box::new(tool));

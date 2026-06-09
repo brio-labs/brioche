@@ -12,8 +12,11 @@ use brioche_core::CowBudgetPolicy;
 /// History of rollback decisions per frame.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RollbackFrameRecord {
+    /// Name of the hook during which the rollback occurred.
     pub hook_name: String,
+    /// Whether the rollback succeeded (true) or was abandoned (false).
     pub succeeded: bool,
+    /// Byte weight of the frame at the time of rollback.
     pub weight: usize,
 }
 

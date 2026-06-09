@@ -18,6 +18,7 @@
 /// Refs: I-Shell-Runtime-OnlyIO
 #[derive(Clone, Debug)]
 pub struct ExtractedText {
+    /// Extracted text fragment.
     pub text: String,
     /// When `true`, this text came from `delta.reasoning` or
     /// `delta.reasoning_content` and should not be added to the

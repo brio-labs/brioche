@@ -74,12 +74,16 @@ impl StateSnapshot {
 /// Refs: I-Core-NoPanic
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ShellError {
+    /// Engine thread has disconnected.
     #[error("engine thread disconnected")]
     EngineDisconnected,
+    /// Failed to send a message through an internal channel.
     #[error("channel send failed")]
     ChannelSend,
+    /// Effect handler returned an error.
     #[error("effect execution failed: {0}")]
     EffectExecution(String),
+    /// Route rebuild is in progress; inputs are temporarily blocked.
     #[error("rebuild routes in progress")]
     RebuildInProgress,
 }

@@ -16,8 +16,11 @@ pub enum DecisionNode {
     Leaf(PolicyDecision),
     /// Conditional branch — evaluates the condition, then chooses the node.
     Branch {
+        /// Condition to evaluate for this branch.
         condition: DecisionCondition,
+        /// Subtree to evaluate when the condition is true.
         if_true: Box<DecisionNode>,
+        /// Subtree to evaluate when the condition is false.
         if_false: Box<DecisionNode>,
     },
 }

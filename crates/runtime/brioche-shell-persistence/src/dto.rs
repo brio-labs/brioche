@@ -36,9 +36,15 @@ pub enum FlattenedAgentState {
     /// Waiting for user input.
     Idle,
     /// LLM prediction in progress.
-    Predicting { generation_id: u64 },
+    Predicting {
+        /// Generation ID correlating async responses.
+        generation_id: u64,
+    },
     /// Tools are being executed by the shell.
-    ExecutingTools { generation_id: u64 },
+    ExecutingTools {
+        /// Generation ID matching the triggering prediction.
+        generation_id: u64,
+    },
     /// Delegated to a sub-routine; stores the opaque handle only.
     SubRoutine(String),
     /// Terminal failure state.
