@@ -12,9 +12,13 @@ use tokio::sync::broadcast;
 /// Severity level for a telemetry event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TelemetryLevel {
+    /// Detailed diagnostic information.
     Debug,
+    /// General operational information.
     Info,
+    /// Warning condition that may require attention.
     Warn,
+    /// Error condition that prevented normal operation.
     Error,
 }
 

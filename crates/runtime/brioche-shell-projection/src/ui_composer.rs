@@ -38,7 +38,9 @@ pub enum EffectPriority {
 /// Used internally by [`UiComposer`] to sort the pending frame.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScheduledEffect {
+    /// The effect to schedule.
     pub effect: Effect,
+    /// Priority tier for frame scheduling.
     pub priority: EffectPriority,
     /// Number of frames this effect has been waiting.
     pub age_frames: u8,

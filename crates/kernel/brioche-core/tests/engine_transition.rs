@@ -1109,7 +1109,9 @@ fn transition_with_system_failover_guard_replaces_fault() {
     serde::Deserialize,
     brioche_core::BriocheExtensionType,
 )]
+/// Non-critical test type to validate the COW threshold.
 pub struct TestCowState {
+    /// Scalar value for COW weight tests.
     pub value: u64,
 }
 

@@ -13,5 +13,10 @@ brioche-core = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 
-[lints]
-workspace = true
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+[lints.rust]
+missing_docs = "deny"

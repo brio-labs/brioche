@@ -16,18 +16,25 @@ use brioche_core::{
 /// Information about a pending task.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PendingTaskInfo {
+    /// Identifier of the pending task.
     pub task_id: String,
+    /// How long to wait before the next status check (milliseconds).
     pub check_after_ms: u64,
+    /// Current status of the task.
     pub status: PendingTaskStatus,
 }
 
 /// Status of a pending task.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum PendingTaskStatus {
+    /// Task is queued but not yet started.
     #[default]
     Pending,
+    /// Task is currently executing.
     Running,
+    /// Task completed successfully.
     Completed(String),
+    /// Task failed with an error message.
     Failed(String),
 }
 

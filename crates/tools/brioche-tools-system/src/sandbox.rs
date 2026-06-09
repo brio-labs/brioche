@@ -42,17 +42,20 @@ pub struct AllowList {
 }
 
 impl AllowList {
+    /// Creates an empty allow-list.
     pub fn new() -> Self {
         Self {
             commands: std::collections::BTreeSet::new(),
         }
     }
 
+    /// Adds a command to the allow-list.
     pub fn with_command(mut self, cmd: &str) -> Self {
         self.commands.insert(cmd.to_string());
         self
     }
 
+    /// Checks whether a command is in the allow-list.
     pub fn is_allowed(&self, command: &str) -> bool {
         let first_word = command.split_whitespace().next().unwrap_or("").trim();
         self.commands.contains(first_word)

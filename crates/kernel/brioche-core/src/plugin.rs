@@ -35,13 +35,21 @@ use crate::{
 pub struct PluginCapabilities(pub u16);
 
 impl PluginCapabilities {
+    /// Capability bit for the `after_prediction` hook.
     pub const AFTER_PREDICTION: Self = Self(1 << 3);
+    /// Capability bit for the `before_prediction` hook.
     pub const BEFORE_PREDICTION: Self = Self(1 << 1);
+    /// No hooks subscribed.
     pub const NONE: Self = Self(0);
+    /// Capability bit for the `on_error` hook.
     pub const ON_ERROR: Self = Self(1 << 6);
+    /// Capability bit for the `on_input` hook.
     pub const ON_INPUT: Self = Self(1 << 0);
+    /// Capability bit for the `on_stream_event` hook.
     pub const ON_STREAM_EVENT: Self = Self(1 << 2);
+    /// Capability bit for the `on_tool_calls` hook.
     pub const ON_TOOL_CALLS: Self = Self(1 << 4);
+    /// Capability bit for the `on_tool_result` hook.
     pub const ON_TOOL_RESULT: Self = Self(1 << 5);
 
     /// Returns `true` if this capability set includes `other`.
@@ -195,6 +203,7 @@ pub trait BriochePlugin: Send + Sync {
 ///
 /// Refs: I-Comp-Epoch-First, I-Gov-Epoch-Reject
 pub trait EpochInterceptor: Send + Sync {
+    /// Intercept epoch.
     fn intercept_epoch(
         &self,
         input: &EngineInput,
@@ -209,6 +218,7 @@ pub trait EpochInterceptor: Send + Sync {
 ///
 /// Refs: I-Comp-Epoch-Subroutine
 pub trait SubRoutineHandler: Send + Sync {
+    /// Handle subroutine.
     fn handle_subroutine(
         &self,
         parent: &mut Session,
@@ -224,6 +234,7 @@ pub trait SubRoutineHandler: Send + Sync {
 ///
 /// Refs: I-Core-NoPanic
 pub trait ConsistencyVerifier: Send + Sync {
+    /// Verify consistency.
     fn verify_consistency(&self, session: &mut Session) -> PluginResult<Option<Vec<Effect>>>;
 }
 
@@ -233,6 +244,7 @@ pub trait ConsistencyVerifier: Send + Sync {
 ///
 /// Refs: I-Gov-Decision-Required
 pub trait DecisionAggregator: Send + Sync {
+    /// Aggregate decisions.
     fn aggregate_decisions(
         &self,
         decisions: Vec<PolicyDecision>,
@@ -251,6 +263,7 @@ pub trait DecisionAggregator: Send + Sync {
 ///
 /// Refs: SPECS.md §1.4, I-Shell-Drain-Atomic
 pub trait SignalDrainOrder: Send + Sync {
+    /// Drain.
     fn drain(&self) -> crate::SignalDrainBatch;
 }
 
@@ -296,6 +309,7 @@ pub trait CycleRollbackPolicy: Send + Sync {
 ///
 /// Refs: I-Gov-SubRoutineLifecycle-Guard
 pub trait SubRoutineLifecycleGuard: Send + Sync {
+    /// On exit.
     fn on_exit(
         &self,
         handle: SubRoutineHandle,
@@ -310,6 +324,7 @@ pub trait SubRoutineLifecycleGuard: Send + Sync {
 ///
 /// Refs: SPECS.md §2.10
 pub trait GovernanceFailoverHandler: Send + Sync {
+    /// Handle failure.
     fn handle_failure(
         &self,
         session: &mut Session,
@@ -323,5 +338,6 @@ pub trait GovernanceFailoverHandler: Send + Sync {
 ///
 /// Refs: SPECS.md §2.11
 pub trait CowBudgetPolicy: Send + Sync {
+    /// Max cow bytes.
     fn max_cow_bytes(&self, hook_name: &str) -> usize;
 }

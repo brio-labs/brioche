@@ -16,10 +16,15 @@
 /// Refs: I-Shell-Runtime-OnlyIO
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpenAiConfig {
+    /// API key for authentication.
     pub api_key: String,
+    /// Model identifier (e.g. `gpt-4o-mini`).
     pub model: String,
+    /// Base URL of the OpenAI-compatible endpoint.
     pub base_url: String,
+    /// Maximum tokens per generation.
     pub max_tokens: u32,
+    /// Request timeout in milliseconds.
     pub timeout_ms: u64,
     /// Reasoning effort level sent to the provider.
     ///
