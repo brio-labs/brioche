@@ -1269,7 +1269,7 @@ pub enum PluginError {
     Soft {
         /// Plugin name.
         plugin_name: String,
-        /// The `ChatMessage` to insert or replace.
+        /// Human-readable error message.
         message: String,
     },
     #[error("fatal error in plugin {plugin_name}: {message}")]
@@ -1277,7 +1277,7 @@ pub enum PluginError {
     Fatal {
         /// Plugin name.
         plugin_name: String,
-        /// The `ChatMessage` to insert or replace.
+        /// Human-readable error message.
         message: String,
     },
 }
@@ -1610,7 +1610,6 @@ pub enum AsyncTaskResult {
 /// Refs: SPECS.md §1.4
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ToolStatus {
-    /// Tool is still executing.
     /// Tool is still executing.
     Running,
     /// Tool finished (success or failure in `ToolOutcome`).
