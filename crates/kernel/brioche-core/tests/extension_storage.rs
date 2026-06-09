@@ -1,3 +1,7 @@
+//! Integration tests for `ExtensionStorage` and `BriocheExtensionType`.
+//!
+//! Refs: I-Core-ExtensionType
+
 use std::collections::BTreeMap;
 
 use brioche_core::{BriocheExtensionType, ExtensionStorage};
@@ -5,14 +9,19 @@ use proptest::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, BriocheExtensionType)]
+/// Test extension state for storage roundtrips.
 pub struct TestState {
+    /// Simple counter field.
     pub counter: u64,
+    /// Ordered map for deterministic serialization tests.
     pub tags: BTreeMap<String, u64>,
 }
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, BriocheExtensionType)]
 #[brioche(critical_state)]
+/// Epoch extension state for COW rollback tests.
 pub struct EpochState {
+    /// Current generation ID for epoch tracking.
     pub current_generation: u64,
 }
 

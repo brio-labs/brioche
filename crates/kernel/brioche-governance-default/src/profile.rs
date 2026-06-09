@@ -31,6 +31,7 @@ use crate::{
 ///
 /// Refs: I-Gov-Profile-Agnostic
 pub trait BriocheEngineBuilderExt {
+    /// Builder type after applying the profile.
     type Output;
     /// Apply a governance profile to this builder.
     fn with_profile(self, profile: GovernanceProfile) -> Self::Output;
@@ -59,9 +60,12 @@ impl BriocheEngineBuilderExt for BriocheEngineBuilder<Missing, Missing> {
 /// Refs: I-Gov-Profile-Agnostic
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum GovernanceProfile {
+    /// Minimal policy: all effects allowed, no COW rollback.
     Permissive,
+    /// Balanced policy with COW rollback, standard guards, and telemetry.
     #[default]
     Standard,
+    /// Maximum safeguards, tiered rollback, strict effect constraints.
     Strict,
 }
 

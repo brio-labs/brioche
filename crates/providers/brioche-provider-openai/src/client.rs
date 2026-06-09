@@ -49,6 +49,12 @@ use crate::sse::SseParser;
 /// ```
 pub type SharedHistory = Arc<RwLock<Vec<ChatMessage>>>;
 
+/// OpenAI-compatible LLM client implementation.
+///
+/// Handles SSE streaming, tool-call parsing, and payload segmentation.
+/// Broadcasts chunks to the projection layer via `broadcast::Sender<LlmChunk>`.
+///
+/// Refs: SPECS.md §Book III-A, I-Core-ChunkBudget
 pub struct OpenAiLlmClient {
     config: OpenAiConfig,
     http: reqwest::Client,

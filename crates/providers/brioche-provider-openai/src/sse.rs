@@ -16,6 +16,7 @@ pub struct SseParser {
 }
 
 impl SseParser {
+    /// Creates a new empty SSE parser.
     pub fn new() -> Self {
         Self {
             buffer: String::new(),

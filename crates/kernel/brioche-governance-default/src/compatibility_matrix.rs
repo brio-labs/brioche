@@ -23,11 +23,17 @@ pub enum CompatibilityLevel {
 /// Compatibility matrix entry.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompatibilityEntry {
+    /// Name of the first governance trait.
     pub trait_a: &'static str,
+    /// Name of the first trait implementation.
     pub impl_a: &'static str,
+    /// Name of the second governance trait.
     pub trait_b: &'static str,
+    /// Name of the second trait implementation.
     pub impl_b: &'static str,
+    /// Compatibility level between the two implementations.
     pub level: CompatibilityLevel,
+    /// Optional human-readable note explaining the compatibility.
     pub note: Option<&'static str>,
 }
 

@@ -14,6 +14,7 @@ use brioche_plugin_kit::{
 // Minimal plugin using #[brioche_plugin]
 // ---------------------------------------------------------------------------
 
+/// Minimal plugin for macro expansion testing.
 pub struct MinimalPlugin;
 
 #[brioche_plugin_kit::brioche_plugin(name = "minimal", capabilities = "ON_INPUT")]
@@ -31,6 +32,7 @@ impl BriochePlugin for MinimalPlugin {
 // Plugin with multiple capabilities using #[brioche_plugin]
 // ---------------------------------------------------------------------------
 
+/// Plugin with multiple capabilities for macro expansion testing.
 pub struct MultiCapPlugin;
 
 #[brioche_plugin_kit::brioche_plugin(

@@ -53,5 +53,10 @@ harness = false
 name = "tiered_rollback_critical"
 harness = false
 
-[lints]
-workspace = true
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+[lints.rust]
+missing_docs = "deny"

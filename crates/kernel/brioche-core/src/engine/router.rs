@@ -12,12 +12,19 @@ use crate::{BriochePlugin, PluginCapabilities};
 ///
 /// Refs: I-Core-StreamNoBranch, I-Core-PluginOrder
 pub struct UnifiedRoutingTable {
+    /// Route on input.
     pub route_on_input: Vec<usize>,
+    /// Route before prediction.
     pub route_before_prediction: Vec<usize>,
+    /// Route on stream event.
     pub route_on_stream_event: Vec<usize>,
+    /// Route after prediction.
     pub route_after_prediction: Vec<usize>,
+    /// Route on tool calls.
     pub route_on_tool_calls: Vec<usize>,
+    /// Route on tool result.
     pub route_on_tool_result: Vec<usize>,
+    /// Route on error.
     pub route_on_error: Vec<usize>,
 }
 

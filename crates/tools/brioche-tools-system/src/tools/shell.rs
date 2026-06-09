@@ -16,6 +16,7 @@ pub struct ExecuteCommandTool {
 }
 
 impl ExecuteCommandTool {
+    /// Creates a new shell command tool with default sandbox policy.
     pub fn new() -> Self {
         Self {
             policy: SandboxPolicy::default(),
@@ -23,11 +24,13 @@ impl ExecuteCommandTool {
         }
     }
 
+    /// Sets the sandbox policy explicitly.
     pub fn with_policy(mut self, policy: SandboxPolicy) -> Self {
         self.policy = policy;
         self
     }
 
+    /// Creates the tool with an explicit allow-list.
     pub fn with_allow_list(list: AllowList) -> Self {
         Self {
             policy: SandboxPolicy::AllowList(list),
