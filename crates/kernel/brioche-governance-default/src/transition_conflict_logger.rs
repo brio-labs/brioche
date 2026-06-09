@@ -42,6 +42,8 @@ pub struct TransitionConflictLogger;
 
 impl TransitionConflictLogger {
     /// Creates a new instance.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn new() -> Self {
         Self
     }

@@ -22,6 +22,8 @@ pub struct SubRoutineOrchestrator;
 
 impl SubRoutineOrchestrator {
     /// Creates a new instance.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn new() -> Self {
         Self
     }

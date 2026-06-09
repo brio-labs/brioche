@@ -1,9 +1,20 @@
+//! Book I — The Core Book: `EngineInput` dispatch mechanics.
+//!
+//! Routes each `EngineInput` variant to its handler. No policy decisions
+//! are made here; all routing is pure mechanism.
+//!
+//! ## Invariants upheld
+//! - I-Core-StreamNoBranch: Pre-routed dispatch via `UnifiedRoutingTable`.
+//! - I-Core-RetVecEffect: Effects are appended to a mutable `Vec`.
+//! - I-Core-ActiveToolCall: Tool descriptors are sealed before storage.
+//!
+//! Refs: SPECS.md §4, §5
+
+use super::BriocheEngine;
 use crate::{
     AgentState, BriocheError, ChatMessage, Effect, EngineInput, ErrorCode, ErrorDetail,
     PolicyDecision, Session, StreamAction, StreamEvent, SubRoutineHandle, ToolResultDTO,
 };
-
-use super::BriocheEngine;
 
 impl BriocheEngine {
     /// Main dispatch — routes `EngineInput` to the appropriate handler.
@@ -12,6 +23,7 @@ impl BriocheEngine {
     /// `Vec`, eliminating per-transition allocations.
     ///
     /// Refs: I-Core-StreamNoBranch, I-Core-RetVecEffect
+    /// Complexity: O(1) dispatch + O(handler cost).
     pub(crate) fn dispatch_input(
         &mut self,
         session: &mut Session,

@@ -52,6 +52,8 @@ pub struct ToolResultFormatter {
 
 impl ToolResultFormatter {
     /// Creates a new instance with default values.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn new() -> Self {
         Self {
             max_result_bytes: 65536,
@@ -59,6 +61,8 @@ impl ToolResultFormatter {
     }
 
     /// Creates an instance with a custom size limit.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn with_max_result_bytes(max_result_bytes: usize) -> Self {
         Self { max_result_bytes }
     }

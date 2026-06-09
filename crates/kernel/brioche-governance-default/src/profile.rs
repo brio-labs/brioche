@@ -7,6 +7,8 @@
 //!
 //! Refs: I-Gov-Profile-Agnostic
 
+use brioche_core::{BriocheEngineBuilder, Missing, Present};
+
 use crate::{
     AdaptiveUndoFrameGuard, DepthGuard, EpochGuard, FastHookEffectConstraint,
     LexicographicDecisionAggregator, NoopCycleRollbackPolicy, NoopGovernanceFailoverHandler,
@@ -15,7 +17,6 @@ use crate::{
     SystemFailoverGuard, TieredUndoFrameGuard, ToolCallDetector, ToolExecutionTracker,
     ToolResultFormatter, ToolTimeoutPolicy, TransitionConflictLogger,
 };
-use brioche_core::{BriocheEngineBuilder, Missing, Present};
 
 /// Extension trait providing `with_profile` on `BriocheEngineBuilder`.
 ///
@@ -37,6 +38,7 @@ pub trait BriocheEngineBuilderExt {
 
 impl BriocheEngineBuilderExt for BriocheEngineBuilder<Missing, Missing> {
     type Output = BriocheEngineBuilder<Present, Present>;
+
     fn with_profile(self, profile: GovernanceProfile) -> Self::Output {
         profile.apply(self)
     }
@@ -71,13 +73,15 @@ impl GovernanceProfile {
     ///
     /// # Example
     /// ```
-    /// use brioche_governance_default::{GovernanceProfile, BriocheEngineBuilderExt};
     /// use brioche_core::BriocheEngineBuilder;
+    /// use brioche_governance_default::{BriocheEngineBuilderExt, GovernanceProfile};
     ///
     /// let engine = BriocheEngineBuilder::new()
     ///     .with_profile(GovernanceProfile::Standard)
     ///     .build();
     /// ```
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn apply(
         self,
         builder: BriocheEngineBuilder<Missing, Missing>,

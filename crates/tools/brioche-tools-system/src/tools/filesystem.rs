@@ -2,9 +2,10 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
-use crate::registry::{SystemTool, ToolError};
 use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
+
+use crate::registry::{SystemTool, ToolError};
 
 /// Expand a leading `~` to the user's home directory.
 ///

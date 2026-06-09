@@ -357,9 +357,11 @@ impl BriochePlugin for PriorityTestPlugin {
     fn name(&self) -> &'static str {
         self.name
     }
+
     fn capabilities(&self) -> PluginCapabilities {
         self.cap
     }
+
     fn priority(&self) -> i16 {
         self.priority
     }
@@ -423,9 +425,11 @@ impl BriochePlugin for OverrideInputPlugin {
     fn name(&self) -> &'static str {
         "override_input"
     }
+
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities::ON_INPUT
     }
+
     fn on_input(
         &self,
         _input: &EngineInput,
@@ -463,9 +467,11 @@ impl BriochePlugin for BlockInputPlugin {
     fn name(&self) -> &'static str {
         "block_input"
     }
+
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities::ON_INPUT
     }
+
     fn on_input(
         &self,
         _input: &EngineInput,
@@ -634,9 +640,11 @@ fn transition_rebuildroutes_is_last() {
         fn name(&self) -> &'static str {
             "rebuild"
         }
+
         fn capabilities(&self) -> PluginCapabilities {
             PluginCapabilities::ON_INPUT
         }
+
         fn on_input(
             &self,
             _input: &EngineInput,
@@ -680,9 +688,11 @@ fn transition_history_edit_insert_and_truncate() {
         fn name(&self) -> &'static str {
             "edit"
         }
+
         fn capabilities(&self) -> PluginCapabilities {
             PluginCapabilities::BEFORE_PREDICTION
         }
+
         fn before_prediction(
             &self,
             _history: &[ChatMessage],
@@ -818,9 +828,11 @@ fn transition_llm_stream_on_tool_calls_mutates_timeout() {
         fn name(&self) -> &'static str {
             "timeout_mutator"
         }
+
         fn capabilities(&self) -> PluginCapabilities {
             PluginCapabilities::ON_TOOL_CALLS
         }
+
         fn on_tool_calls(
             &self,
             calls: &mut Vec<ToolCallDescriptor>,
@@ -1049,9 +1061,11 @@ fn transition_with_system_failover_guard_replaces_fault() {
         fn name(&self) -> &'static str {
             "faulty"
         }
+
         fn capabilities(&self) -> PluginCapabilities {
             PluginCapabilities::ON_INPUT
         }
+
         fn on_input(
             &self,
             _input: &EngineInput,
@@ -1210,9 +1224,11 @@ fn engine_with_undo_frame_guard_instruments_hooks() {
         fn name(&self) -> &'static str {
             "mutating"
         }
+
         fn capabilities(&self) -> PluginCapabilities {
             PluginCapabilities::ON_INPUT
         }
+
         fn on_input(
             &self,
             _input: &EngineInput,

@@ -20,6 +20,9 @@ pub mod extension;
 pub mod plugin;
 pub mod types;
 
+// Re-export the derive macro so users can `use brioche_core::BriocheExtensionType;`
+// and apply `#[derive(BriocheExtensionType)]` with a single import.
+pub use brioche_macro::BriocheExtensionType;
 pub use engine::{BriocheEngine, BriocheEngineBuilder, Missing, Present, UnifiedRoutingTable};
 pub use extension::{
     BriocheExtensionType, CloneBoxFn, DefaultConstructFn, DeserializeFn, ExtVTable,
@@ -30,6 +33,11 @@ pub use plugin::{
     EpochInterceptor, GovernanceFailoverHandler, HookEffectConstraint, PluginCapabilities,
     SignalDrainOrder, SubRoutineHandler, SubRoutineLifecycleGuard,
 };
+// Re-export dependencies so that proc-macro generated code and users
+// can reference them through brioche_core without adding them to
+// their own Cargo.toml.
+pub use postcard;
+pub use serde;
 pub use types::{
     ActiveToolCall, AgentState, AgentStateTag, AsyncTaskResult, BriocheError, ChatMessage, Effect,
     EffectBit, EngineInput, EpochAction, EpochState, ErrorCode, ErrorDetail, ExecutionPath,
@@ -41,13 +49,3 @@ pub use types::{
     TransitionTraceLog, TruncatedToolResult, UiWidget, effect_to_bitmask, seal, seal_single,
     tool_outcome_to_string,
 };
-
-// Re-export dependencies so that proc-macro generated code and users
-// can reference them through brioche_core without adding them to
-// their own Cargo.toml.
-pub use postcard;
-pub use serde;
-
-// Re-export the derive macro so users can `use brioche_core::BriocheExtensionType;`
-// and apply `#[derive(BriocheExtensionType)]` with a single import.
-pub use brioche_macro::BriocheExtensionType;

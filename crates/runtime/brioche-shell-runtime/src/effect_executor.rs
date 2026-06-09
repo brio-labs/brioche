@@ -8,12 +8,14 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO, I-Shell-ToolResult-PassThrough
 
-use crate::{BriocheShell, NetworkRecovery, PersistenceMode, ShellError};
+use std::sync::Arc;
+
 use brioche_core::{
     ActiveToolCall, ChatMessage, ErrorCode, ErrorDetail, SubRoutineHandle, SystemSignal,
     ToolResultDTO, UiWidget,
 };
-use std::sync::Arc;
+
+use crate::{BriocheShell, NetworkRecovery, PersistenceMode, ShellError};
 
 /// Pluggable persistence boundary.
 ///

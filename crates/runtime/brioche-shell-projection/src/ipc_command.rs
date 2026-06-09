@@ -12,10 +12,11 @@
 //!
 //! Refs: SPECS.md §Book III-C Ch 4
 
+use std::sync::Arc;
+
 use brioche_core::{EngineInput, SubRoutineHandle, SystemSignal};
 use brioche_shell_persistence::{RedbStorage, SubRoutineCache, load_subroutine};
 use brioche_shell_runtime::{BriocheShell, ShellError};
-use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Service exposing IPC command handlers.
@@ -143,12 +144,13 @@ impl IpcCommandService {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use brioche_core::{BriocheEngineBuilder, Session};
     use brioche_governance_default::{BriocheEngineBuilderExt, GovernanceProfile};
     use brioche_shell_runtime::{
         DefaultEffectExecutor, EchoToolExecutor, MockLlmClient, NoopPersistence, ShellConfig,
     };
+
+    use super::*;
 
     /// Build a shell suitable for IPC command testing.
     ///

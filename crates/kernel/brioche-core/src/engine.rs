@@ -146,6 +146,7 @@ impl BriocheEngine {
     /// Access the internal `SessionRegistry`.
     ///
     /// Refs: I-Shell-Session-NoSend
+    /// Complexity: O(1). Returns a reference; no allocation.
     pub fn session_registry(&self) -> &SessionRegistry {
         &self.routines.registry
     }
@@ -153,6 +154,7 @@ impl BriocheEngine {
     /// Insert a sub-routine session into the registry.
     ///
     /// Refs: I-Shell-Session-NoSend
+    /// Complexity: O(log n) where n = number of sub-routines.
     pub fn create_subroutine(&mut self, handle: SubRoutineHandle, session: Session) {
         self.routines.registry.insert(handle, session);
     }
@@ -160,6 +162,7 @@ impl BriocheEngine {
     /// Remove a sub-routine session from the registry.
     ///
     /// Refs: I-Shell-Session-NoSend
+    /// Complexity: O(log n) where n = number of sub-routines.
     pub fn remove_subroutine(&mut self, handle: &SubRoutineHandle) -> Option<Session> {
         self.routines.registry.remove(handle)
     }
@@ -170,6 +173,7 @@ impl BriocheEngine {
     /// processed until this call completes.
     ///
     /// Refs: I-Gov-Rebuild-Barrier
+    /// Complexity: O(p log p) where p = number of plugins.
     pub fn rebuild_routes(&mut self, active_mask: &[bool]) {
         let active_indices: Vec<usize> = (0..self.router.plugins.len())
             .filter(|i| active_mask.get(*i).copied().unwrap_or(true))
@@ -182,6 +186,7 @@ impl BriocheEngine {
     /// The default tool timeout applied when a descriptor omits `timeout_ms`.
     ///
     /// Refs: I-Core-ActiveToolCall
+    /// Complexity: O(1). Scalar field access.
     pub fn default_tool_timeout_ms(&self) -> u64 {
         self.governance.default_tool_timeout_ms
     }

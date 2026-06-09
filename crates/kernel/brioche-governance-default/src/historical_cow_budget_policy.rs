@@ -5,8 +5,9 @@
 //!
 //! Refs: I-Gov-CowBudget-Adaptative
 
-use brioche_core::CowBudgetPolicy;
 use std::collections::VecDeque;
+
+use brioche_core::CowBudgetPolicy;
 
 /// History of rollback decisions per frame.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -30,6 +31,8 @@ pub struct HistoricalCowBudgetPolicy {
 
 impl HistoricalCowBudgetPolicy {
     /// Creates a policy with the default parameters.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn new() -> Self {
         Self {
             base_budget: 65536,
@@ -41,6 +44,8 @@ impl HistoricalCowBudgetPolicy {
     }
 
     /// Creates a policy with custom parameters.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn with_params(
         base_budget: usize,
         min_budget: usize,
@@ -57,6 +62,8 @@ impl HistoricalCowBudgetPolicy {
     }
 
     /// Records the result of a frame for auto-tuning.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn record_frame(&mut self, hook_name: &str, succeeded: bool, weight: usize) {
         if self.history.len() >= self.window_size {
             self.history.pop_front();
@@ -69,6 +76,8 @@ impl HistoricalCowBudgetPolicy {
     }
 
     /// Computes the success rate over the sliding window.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn success_rate(&self) -> f64 {
         if self.history.is_empty() {
             return 1.0;
@@ -77,7 +86,9 @@ impl HistoricalCowBudgetPolicy {
         successes as f64 / self.history.len() as f64
     }
 
-    /// Budget adaptatif courant.
+    /// Current adaptive budget.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn adaptive_budget(&self) -> usize {
         let rate = self.success_rate();
         if rate > 0.95 {

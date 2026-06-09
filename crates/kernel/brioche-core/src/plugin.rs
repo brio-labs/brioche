@@ -12,12 +12,13 @@
 //!
 //! Refs: SPECS.md §4, §Book II
 
+use std::any::{Any, TypeId};
+
 use crate::{
     ChatMessage, Effect, EngineInput, ExtVTable, ExtensionStorage, PluginError, PluginResult,
     PolicyDecision, Session, SessionRegistry, StreamAction, StreamEvent, SubRoutineHandle,
     ToolCallDescriptor, ToolResultDTO,
 };
-use std::any::{Any, TypeId};
 
 // ---------------------------------------------------------------------------
 // PluginCapabilities
@@ -34,23 +35,29 @@ use std::any::{Any, TypeId};
 pub struct PluginCapabilities(pub u16);
 
 impl PluginCapabilities {
-    pub const NONE: Self = Self(0);
-    pub const ON_INPUT: Self = Self(1 << 0);
-    pub const BEFORE_PREDICTION: Self = Self(1 << 1);
-    pub const ON_STREAM_EVENT: Self = Self(1 << 2);
     pub const AFTER_PREDICTION: Self = Self(1 << 3);
+    pub const BEFORE_PREDICTION: Self = Self(1 << 1);
+    pub const NONE: Self = Self(0);
+    pub const ON_ERROR: Self = Self(1 << 6);
+    pub const ON_INPUT: Self = Self(1 << 0);
+    pub const ON_STREAM_EVENT: Self = Self(1 << 2);
     pub const ON_TOOL_CALLS: Self = Self(1 << 4);
     pub const ON_TOOL_RESULT: Self = Self(1 << 5);
-    pub const ON_ERROR: Self = Self(1 << 6);
 
     /// Returns `true` if this capability set includes `other`.
     ///
     /// Complexity: O(1). Bitwise AND.
+    ///
+    /// Refs: I-Core-Pure
     pub fn contains(self, other: Self) -> bool {
         self.0 & other.0 == other.0
     }
 
     /// Returns `true` if no capabilities are set.
+    ///
+    /// Complexity: O(1). Equality check.
+    ///
+    /// Refs: I-Core-Pure
     pub fn is_empty(self) -> bool {
         self.0 == 0
     }

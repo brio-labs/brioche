@@ -26,8 +26,8 @@ use brioche_core::{EffectBit, HookEffectConstraint};
 ///
 /// # Exemple
 /// ```
-/// use brioche_governance_default::FastHookEffectConstraint;
 /// use brioche_core::HookEffectConstraint;
+/// use brioche_governance_default::FastHookEffectConstraint;
 ///
 /// let constraint = FastHookEffectConstraint::permissive();
 /// assert!(constraint.is_allowed_fast(1, brioche_core::EffectBit::FORWARD_TO_UI));
@@ -38,18 +38,22 @@ pub struct FastHookEffectConstraint {
 
 impl FastHookEffectConstraint {
     /// Creates a constraint with the provided masks.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn new(masks: [u64; 8]) -> Self {
         Self { masks }
     }
 
     /// Permissive profile: all effects allowed on all hooks.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn permissive() -> Self {
         Self {
             masks: [u64::MAX; 8],
         }
     }
 
-    /// Profil standard : restreint les effets dangereux sur les hooks sensibles.
+    /// Standard profile: restricts dangerous effects on sensitive hooks.
     ///
     /// - `on_input` : `ForwardToUi`, `Error`, `SaveSession`, `SystemIdle`
     /// - `before_prediction` : `MutateHistory` (via RequestEffect),
@@ -57,6 +61,8 @@ impl FastHookEffectConstraint {
     /// - `on_stream_event` : `ExecuteCpuTask`, `SaveSession`
     /// - `on_tool_calls` : `ExecuteTools` (via RequestEffect), `SaveSession`
     /// - `on_tool_result` : `CallLlmNetwork`, `SaveSession`
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn standard() -> Self {
         let mut masks = [0u64; 8];
 

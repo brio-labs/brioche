@@ -6,9 +6,10 @@
 //!
 //! Refs: SPECS.md §Book III-B Ch 1.1, I-Persist-Idempotence
 
+use std::collections::BTreeMap;
+
 use brioche_core::{AgentState, Session};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 /// Versioned schema for forward-compatible session head serialization.
 ///

@@ -11,8 +11,9 @@
 //!
 //! Refs: SPECS.md §Book III-C Ch 3
 
-use brioche_core::{Effect, UiWidget};
 use std::collections::VecDeque;
+
+use brioche_core::{Effect, UiWidget};
 
 /// Priority tier for a `ForwardToUi` effect.
 ///

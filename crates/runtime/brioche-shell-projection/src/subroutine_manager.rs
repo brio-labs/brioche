@@ -10,9 +10,11 @@
 //!
 //! Refs: SPECS.md §Book III-C Ch 5
 
-use crate::ContentRenderer;
-use brioche_core::SubRoutineHandle;
 use std::collections::BTreeMap;
+
+use brioche_core::SubRoutineHandle;
+
+use crate::ContentRenderer;
 
 /// Accordion lifecycle states for a sub-routine in the UI.
 ///
