@@ -105,9 +105,15 @@ pub enum AgentState {
     #[default]
     Idle,
     /// LLM prediction in progress.
-    Predicting { generation_id: u64 },
+    Predicting {
+        /// Generation ID correlating async responses.
+        generation_id: u64,
+    },
     /// Tools are being executed by the shell.
-    ExecutingTools { generation_id: u64 },
+    ExecutingTools {
+        /// Generation ID matching the triggering prediction.
+        generation_id: u64,
+    },
     /// Delegated to a sub-routine.
     SubRoutine(SubRoutineHandle),
     /// Terminal failure state. No further effects are emitted.
@@ -126,13 +132,19 @@ pub enum AgentState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ChatMessage {
+    /// System prompt or instruction. Fixed at session start.
     System {
+        /// Message text content.
         content: String,
     },
+    /// User message. Triggers `Idle -> Predicting`.
     User {
+        /// Message text content.
         content: String,
     },
+    /// Assistant response, possibly with tool calls.
     Assistant {
+        /// Message text content.
         content: String,
         /// Optional reasoning / chain-of-thought text.
         /// Preserved for reasoning models (Qwen, DeepSeek, Claude
@@ -153,13 +165,20 @@ pub enum ChatMessage {
         #[serde(default)]
         tool_calls: Vec<ToolCallDescriptor>,
     },
+    /// Tool call requested by the assistant.
     ToolRequest {
+        /// Stable identifier for the tool call or result.
         id: String,
+        /// Name of the tool being invoked.
         name: String,
+        /// JSON-encoded arguments for the tool call.
         arguments: String,
     },
+    /// Serialized result of a tool execution.
     ToolResult {
+        /// Stable identifier for the tool call or result.
         id: String,
+        /// Message text content.
         content: String,
     },
 }
@@ -176,8 +195,11 @@ pub enum ChatMessage {
 /// Refs: I-Core-ActiveToolCall
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolCallDescriptor {
+    /// Opaque identifier assigned by the LLM provider.
     pub tool_id: String,
+    /// Name of the tool, as registered in the tool registry.
     pub tool_name: String,
+    /// JSON-encoded arguments for the tool call.
     pub arguments: String,
     /// Timeout proposed by AI or mutated by policy plugins.
     /// The kernel materializes the final value in `ActiveToolCall.timeout_ms`.
@@ -192,8 +214,11 @@ pub struct ToolCallDescriptor {
 /// Refs: I-Core-ActiveToolCall
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ActiveToolCall {
+    /// Opaque identifier assigned by the LLM provider.
     pub tool_id: String,
+    /// Name of the tool, as registered in the tool registry.
     pub tool_name: String,
+    /// JSON-encoded arguments for the tool call.
     pub arguments: String,
     /// Materialized by the kernel after `on_tool_calls` hook execution.
     pub timeout_ms: u64,
@@ -204,15 +229,19 @@ pub struct ActiveToolCall {
 /// Extracted as a pure function so the compiler forces exhaustive field
 /// mapping without `Vec` allocation overhead in hot paths.
 ///
+/// `default_timeout_ms` is applied when `descriptor.timeout_ms` is `None`.
+/// This ensures every `ActiveToolCall` has a concrete timeout — never zero
+/// unless explicitly requested by the descriptor.
+///
 /// Complexity: O(1). No heap allocation.
 ///
 /// Refs: I-Core-ActiveToolCall
-pub fn seal_single(descriptor: ToolCallDescriptor) -> ActiveToolCall {
+pub fn seal_single(descriptor: ToolCallDescriptor, default_timeout_ms: u64) -> ActiveToolCall {
     ActiveToolCall {
         tool_id: descriptor.tool_id,
         tool_name: descriptor.tool_name,
         arguments: descriptor.arguments,
-        timeout_ms: descriptor.timeout_ms.unwrap_or(0),
+        timeout_ms: descriptor.timeout_ms.unwrap_or(default_timeout_ms),
     }
 }
 
@@ -221,11 +250,18 @@ pub fn seal_single(descriptor: ToolCallDescriptor) -> ActiveToolCall {
 /// Called immediately after `handle_tool_calls`. Any new field must be mapped
 /// explicitly here; the Rust compiler forces exhaustive matching.
 ///
+/// `default_timeout_ms` is applied to any descriptor lacking an explicit
+/// timeout. Use the engine's configured `default_tool_timeout_ms()` to
+/// preserve consistency with the main dispatch path.
+///
 /// Complexity: O(n) where n = number of descriptors. Allocates one `Vec`.
 ///
 /// Refs: I-Core-ActiveToolCall
-pub fn seal(descriptors: Vec<ToolCallDescriptor>) -> Vec<ActiveToolCall> {
-    descriptors.into_iter().map(seal_single).collect()
+pub fn seal(descriptors: Vec<ToolCallDescriptor>, default_timeout_ms: u64) -> Vec<ActiveToolCall> {
+    descriptors
+        .into_iter()
+        .map(|d| seal_single(d, default_timeout_ms))
+        .collect()
 }
 
 /// Convert a `ToolOutcome` into its string representation for history injection.
@@ -261,10 +297,17 @@ pub fn tool_outcome_to_string(outcome: &ToolOutcome) -> String {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ToolOutcome {
+    /// Tool completed successfully. Result injected into history.
     Success(String),
+    /// Domain-level error. The LLM may retry.
     BusinessError(String),
+    /// Tool crashed or was unreachable.
     SystemError(String),
-    TimeoutWithPartialData { partial_output: Option<String> },
+    /// Tool exceeded its timeout. Partial output may be available.
+    TimeoutWithPartialData {
+        /// Partial output.
+        partial_output: Option<String>,
+    },
 }
 
 /// Structured result returned from the shell to the kernel after tool execution.
@@ -272,8 +315,11 @@ pub enum ToolOutcome {
 /// Refs: I-Core-Pure
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolResultDTO {
+    /// Opaque identifier assigned by the LLM provider.
     pub tool_id: String,
+    /// Name of the tool, as registered in the tool registry.
     pub tool_name: String,
+    /// Execution outcome: success, business error, system error, or timeout.
     pub outcome: ToolOutcome,
 }
 
@@ -285,8 +331,11 @@ pub struct ToolResultDTO {
 /// Refs: I-Comp-Pure-Logic, I-Comp-Typed-Effects
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TruncatedToolResult {
+    /// Whether the result was truncated due to size limits.
     pub truncated: bool,
+    /// Original byte length before truncation.
     pub original_len: usize,
+    /// First `max_bytes` of the original content.
     pub preview: String,
 }
 
@@ -365,12 +414,17 @@ type NotSendSync = std::marker::PhantomData<*mut ()>;
 ///
 /// Refs: I-Core-Pure, I-Core-NoPanic, I-Shell-Session-NoSend
 pub struct Session {
+    /// Stable identifier for the tool call or result.
     pub id: String,
+    /// Chronological message history (user, assistant, tool results).
     pub history: Vec<ChatMessage>,
     /// Disk synchronization index for the Delta protocol (Redb).
     pub persisted_msg_count: usize,
+    /// Current mechanical state of the hierarchical automaton.
     pub state: AgentState,
+    /// Stack of previous states, restored on `pop_state()`.
     pub state_stack: Vec<AgentState>,
+    /// Plugin state container. Typed via `BriocheExtensionType`.
     pub extensions: ExtensionStorage,
     /// Mechanical state: tools currently in execution.
     /// Managed exclusively by the kernel. Not modifiable by plugins.
@@ -679,10 +733,15 @@ impl Default for SessionRegistry {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AgentStateTag {
     #[default]
+    /// No active prediction or tool execution.
     Idle,
+    /// LLM response is being streamed.
     Predicting,
+    /// Shell is executing tools in parallel.
     ExecutingTools,
+    /// Control delegated to a child session.
     SubRoutine,
+    /// Terminal failure. Session is dead.
     Failure,
 }
 
@@ -726,7 +785,9 @@ impl From<&AgentState> for AgentStateTag {
 /// Refs: I-Core-Pure
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 pub struct SessionSnapshot {
+    /// Mechanical state tag (no internal data exposed to plugins).
     pub current_state: AgentStateTag,
+    /// Depth of the state stack (used by depth guards).
     pub state_stack_depth: usize,
 }
 
@@ -750,12 +811,16 @@ pub enum EngineInput {
     LlmStream(StreamEvent),
     /// Tool execution results (parallelized by the shell).
     ToolCallsResult {
+        /// Must match the current epoch or the result is rejected.
         generation_id: u64,
+        /// Parallel tool execution outcomes.
         results: Vec<ToolResultDTO>,
     },
     /// Request to hydrate a sub-routine into the `SessionRegistry`.
     RestoreSubRoutine {
+        /// Handle for the restored sub-routine session.
         handle: SubRoutineHandle,
+        /// Serialized session head (postcard-encoded `SessionHeadDTO`).
         head_blob: Vec<u8>,
     },
 }
@@ -773,7 +838,10 @@ pub enum PolicyDecision {
     /// Allow the current operation to proceed.
     Allow,
     /// Block the current operation with a reason.
-    Block { reason: String },
+    Block {
+        /// Human-readable explanation for the block.
+        reason: String,
+    },
     /// Mutate the session history before the next phase.
     MutateHistory(Vec<HistoryEdit>),
     /// Request emission of a mechanical effect.
@@ -792,9 +860,25 @@ pub enum PolicyDecision {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum HistoryEdit {
-    Insert { index: usize, message: ChatMessage },
-    Replace { index: usize, message: ChatMessage },
-    Truncate { keep_last: usize },
+    /// Insert a message at a specific history index.
+    Insert {
+        /// Position in history for the edit operation.
+        index: usize,
+        /// The `ChatMessage` to insert or replace.
+        message: ChatMessage,
+    },
+    /// Overwrite a message at a specific history index.
+    Replace {
+        /// Position in history for the edit operation.
+        index: usize,
+        /// The `ChatMessage` to insert or replace.
+        message: ChatMessage,
+    },
+    /// Discard all but the most recent N messages.
+    Truncate {
+        /// Number of most recent messages to retain.
+        keep_last: usize,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -816,31 +900,62 @@ pub enum HistoryEdit {
 #[non_exhaustive]
 pub enum UiWidget {
     /// Text fragment from LLM streaming.
-    TextChunk { trace_id: String, text: String },
+    TextChunk {
+        /// Correlation ID for the current LLM stream.
+        trace_id: String,
+        /// Fragment of generated text.
+        text: String,
+    },
     /// Generic error notification displayed in the content area.
-    Error { code: String, message: String },
+    Error {
+        /// Error code for classification and retry logic.
+        code: String,
+        /// Human-readable error description.
+        message: String,
+    },
     /// Critical system error (e.g., governance cascade failure).
     CriticalError {
+        /// Name of the subsystem that failed.
         component: String,
+        /// Optional technical detail for debugging.
         detail: Option<String>,
     },
     /// System degradation banner (e.g., plugin quarantined).
-    SystemDegraded { plugin: String },
+    SystemDegraded {
+        /// Name of the quarantined or failing plugin.
+        plugin: String,
+    },
     /// Network unavailability notification.
-    NetworkError { reason: String },
+    NetworkError {
+        /// Transport-level failure description.
+        reason: String,
+    },
     /// Generic status indicator (e.g., "cancelled").
     Status(String),
     /// Sub-routine timeout notification.
     SubRoutineTimeout {
+        /// Handle for the restored sub-routine session.
         handle: SubRoutineHandle,
+        /// Timeout limit that was exceeded.
         limit_ms: u64,
     },
     /// Sub-routine successfully restored.
-    SubRoutineLoaded { handle: SubRoutineHandle },
+    SubRoutineLoaded {
+        /// Handle of the restored sub-routine.
+        handle: SubRoutineHandle,
+    },
     /// Pending task status update.
-    PendingTask { task_id: String, status: String },
+    PendingTask {
+        /// Identifier of the background task.
+        task_id: String,
+        /// Current status string (e.g., "running", "completed").
+        status: String,
+    },
     /// Test widget for integration tests.
-    Test { msg: String },
+    Test {
+        /// Test message payload.
+        msg: String,
+    },
     /// Catch-all for unknown third-party widgets.
     ///
     /// Payload is raw JSON bytes to preserve determinism.
@@ -848,7 +963,9 @@ pub enum UiWidget {
     ///
     /// Refs: I-Comp-Typed-Effects
     Custom {
+        /// Canonical type string for third-party widget routing.
         widget_type: String,
+        /// Raw JSON payload. Deterministic because it is bytes.
         payload_json: Vec<u8>,
     },
 }
@@ -896,23 +1013,40 @@ pub enum ErrorDetail {
     Generic(String),
     /// History edit index out of bounds.
     HistoryIndexOutOfBounds {
+        /// Which edit failed: insert, replace, or truncate.
         operation: String,
+        /// Position in history for the edit operation.
         index: usize,
+        /// Current history length at the time of the failed edit.
         len: usize,
     },
     /// Tool descriptor missing timeout (default applied).
-    MissingToolTimeout { default_timeout_ms: u64 },
+    MissingToolTimeout {
+        /// Default timeout applied when the descriptor omits one.
+        default_timeout_ms: u64,
+    },
     /// Effect variant not allowed on the current hook.
     EffectNotAllowed {
+        /// Name of the hook on which the effect was requested.
         hook: String,
+        /// Name of the disallowed `Effect` variant.
         effect_variant: String,
     },
     /// Effects were dropped after `RebuildRoutes`.
-    EffectsDroppedAfterRebuildRoutes { count: usize },
+    EffectsDroppedAfterRebuildRoutes {
+        /// Number of discarded effects.
+        count: usize,
+    },
     /// Sub-routine lifecycle guard failed.
-    SubRoutineLifecycleFailed { guard_name: String },
+    SubRoutineLifecycleFailed {
+        /// Name of the lifecycle guard that failed.
+        guard_name: String,
+    },
     /// State inconsistency detected by a governance plugin or internal check.
-    StateInconsistent { source: String },
+    StateInconsistent {
+        /// Source of the inconsistency (plugin name or internal module).
+        source: String,
+    },
 }
 
 impl std::fmt::Display for ErrorDetail {
@@ -966,31 +1100,53 @@ impl std::fmt::Display for ErrorDetail {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Effect {
+    /// Request the shell to initiate an LLM prediction.
     CallLlmNetwork,
+    /// Request the shell to execute active tool calls.
     ExecuteTools(Vec<ActiveToolCall>),
+    /// Emit a structured widget to the projection layer.
     ForwardToUi(UiWidget),
+    /// Report a system-level error. The shell decides on recovery.
     Error {
+        /// Error code for classification and retry logic.
         code: ErrorCode,
+        /// Optional technical detail for debugging.
         detail: ErrorDetail,
     },
+    /// Persist the current session head to disk (Delta protocol).
     SaveSession,
+    /// Persist a plugin-specific binary blob.
     SavePluginBlob {
+        /// Unique identifier of the plugin owning this blob.
         plugin_id: String,
+        /// Opaque binary payload. Serialized by the plugin itself.
         data: Vec<u8>,
     },
+    /// Start a background summarization task.
     TriggerSummarization,
+    /// Offload a CPU-intensive computation to the shell.
     ExecuteCpuTask {
+        /// Identifier of the background task.
         task_id: String,
+        /// Serialized input for the offloaded computation.
         payload: Vec<u8>,
     },
+    /// Request garbage collection of orphaned sub-routines.
     TriggerGc,
+    /// Notify the shell that the kernel is idle and awaiting input.
     SystemIdle,
+    /// A plugin fatally errored. Triggers quarantine evaluation.
     PluginFault {
+        /// Plugin name.
         plugin_name: String,
+        /// The fatal error that triggered this notification.
         error: PluginError,
     },
+    /// Rebuild the plugin routing table (after quarantine).
     RebuildRoutes,
+    /// A sub-routine was successfully hydrated from disk.
     SubRoutineRestored {
+        /// Handle for the restored sub-routine session.
         handle: SubRoutineHandle,
     },
 }
@@ -1004,10 +1160,15 @@ pub enum Effect {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ErrorCode {
+    /// Transport-level network failure.
     NetworkUnavailable,
+    /// User cancelled the current operation.
     OperationCancelled,
+    /// Internal state violates an invariant.
     StateInconsistency,
+    /// Async response carries a stale generation ID.
     EpochMismatch,
+    /// A governance plugin crashed or returned a fatal error.
     PluginFaulted,
 }
 
@@ -1020,6 +1181,7 @@ pub enum ErrorCode {
 /// Refs: I-Core-ChunkBudget
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExecutionPath {
+    /// Ordered list of nested node identifiers for tree-structured output.
     pub nodes: Vec<String>,
 }
 
@@ -1033,26 +1195,40 @@ pub struct ExecutionPath {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum StreamEvent {
+    /// Fragment of LLM-generated text.
     TextChunk {
+        /// Nested execution path for tree-structured models.
         path: ExecutionPath,
+        /// Text or argument fragment (pre-segmented to ≤ 4 KB).
         chunk: Bytes,
     },
+    /// Beginning of a tool call declaration in the stream.
     ToolCallStart {
+        /// Nested execution path for tree-structured models.
         path: ExecutionPath,
+        /// Stable identifier for the tool call or result.
         id: String,
+        /// Name of the tool being invoked.
         name: String,
     },
+    /// Fragment of tool call arguments (JSON).
     ToolArgumentChunk {
+        /// Nested execution path for tree-structured models.
         path: ExecutionPath,
+        /// Stable identifier for the tool call or result.
         id: String,
+        /// Text or argument fragment (pre-segmented to ≤ 4 KB).
         chunk: Bytes,
     },
+    /// End of a tool call declaration.
     ToolCallDone {
+        /// Nested execution path for tree-structured models.
         path: ExecutionPath,
     },
     /// End-of-stream marker. Sent by the shell when the LLM response
     /// completes without further chunks or tool calls.
     Done,
+    /// No-op event. Used for heartbeat / keepalive.
     Pass,
 }
 
@@ -1067,7 +1243,12 @@ pub enum StreamAction {
     /// Hold the chunk (buffering).
     Hold,
     /// Offload a CPU-intensive task to the shell.
-    OffloadTask { task_id: String, payload: Vec<u8> },
+    OffloadTask {
+        /// Identifier of the background task.
+        task_id: String,
+        /// Serialized input for the offloaded computation.
+        payload: Vec<u8>,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -1084,13 +1265,19 @@ pub enum StreamAction {
 #[non_exhaustive]
 pub enum PluginError {
     #[error("soft error in plugin {plugin_name}: {message}")]
+    /// Non-fatal error. Logged; evaluation continues.
     Soft {
+        /// Plugin name.
         plugin_name: String,
+        /// The `ChatMessage` to insert or replace.
         message: String,
     },
     #[error("fatal error in plugin {plugin_name}: {message}")]
+    /// Structural error. The kernel emits `Effect::PluginFault`.
     Fatal {
+        /// Plugin name.
         plugin_name: String,
+        /// The `ChatMessage` to insert or replace.
         message: String,
     },
 }
@@ -1105,14 +1292,19 @@ pub enum PluginError {
 #[non_exhaustive]
 pub enum BriocheError {
     #[error("invalid state transition: {0}")]
+    /// Transition violates the automaton rules.
     InvalidStateTransition(String),
     #[error("storage access failed: {0}")]
+    /// ExtensionStorage lookup or mutation failed.
     StorageAccess(String),
     #[error("serialization failed: {0}")]
+    /// Binary serialization/deserialization failed.
     Serialization(String),
     #[error("plugin not found: {0}")]
+    /// Referenced plugin is not registered.
     PluginNotFound(String),
     #[error("other error: {0}")]
+    /// Catch-all for unclassified system errors.
     Other(String),
 }
 
@@ -1134,7 +1326,10 @@ pub enum EpochAction {
     /// Input is valid for the current epoch; proceed with standard dispatch.
     Proceed,
     /// Input belongs to a past epoch; reject silently.
-    Block { reason: String },
+    Block {
+        /// Human-readable explanation for the epoch rejection.
+        reason: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -1148,18 +1343,31 @@ pub enum EpochAction {
 pub struct EffectBit;
 
 impl EffectBit {
+    /// Bit for `Effect::CallLlmNetwork`.
     pub const CALL_LLM_NETWORK: u64 = 1 << 0;
+    /// Bit for `Effect::Error`.
     pub const ERROR: u64 = 1 << 3;
+    /// Bit for `Effect::ExecuteCpuTask`.
     pub const EXECUTE_CPU_TASK: u64 = 1 << 7;
+    /// Bit for `Effect::ExecuteTools`.
     pub const EXECUTE_TOOLS: u64 = 1 << 1;
+    /// Bit for `Effect::ForwardToUi`.
     pub const FORWARD_TO_UI: u64 = 1 << 2;
+    /// Bit for `Effect::PluginFault`.
     pub const PLUGIN_FAULT: u64 = 1 << 10;
+    /// Bit for `Effect::RebuildRoutes`.
     pub const REBUILD_ROUTES: u64 = 1 << 11;
+    /// Bit for `Effect::SavePluginBlob`.
     pub const SAVE_PLUGIN_BLOB: u64 = 1 << 5;
+    /// Bit for `Effect::SaveSession`.
     pub const SAVE_SESSION: u64 = 1 << 4;
+    /// Bit for `Effect::SubRoutineRestored`.
     pub const SUB_ROUTINE_RESTORED: u64 = 1 << 12;
+    /// Bit for `Effect::SystemIdle`.
     pub const SYSTEM_IDLE: u64 = 1 << 9;
+    /// Bit for `Effect::TriggerGc`.
     pub const TRIGGER_GC: u64 = 1 << 8;
+    /// Bit for `Effect::TriggerSummarization`.
     pub const TRIGGER_SUMMARIZATION: u64 = 1 << 6;
     // Bits 13-63 reserved for future extensions.
 }
@@ -1196,8 +1404,11 @@ pub fn effect_to_bitmask(effect: &Effect) -> u64 {
 /// Refs: I-Gov-OverrideTrace
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TransitionTrace {
+    /// Name of the plugin that emitted the `OverrideTransition`.
     pub source_plugin: String,
+    /// The actual decision that was applied.
     pub decision: PolicyDecision,
+    /// Generation ID at the time of the override.
     pub epoch: u64,
 }
 
@@ -1211,6 +1422,7 @@ pub struct TransitionTrace {
 #[brioche(critical_state)]
 pub struct TransitionTraceLog {
     #[brioche(deterministic_order)]
+    /// Ring buffer of overrides (max 128, FIFO eviction).
     pub entries: Vec<TransitionTrace>,
 }
 
@@ -1245,9 +1457,13 @@ impl TransitionTraceLog {
 /// Refs: I-Gov-OverrideTrace
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SupersededTransitionTrace {
+    /// Name of the plugin that emitted the `OverrideTransition`.
     pub source_plugin: String,
+    /// The decision that was overridden.
     pub attempted_decision: PolicyDecision,
+    /// Name of the plugin whose override won.
     pub preempted_by: String,
+    /// Generation ID at the time of the override.
     pub epoch: u64,
 }
 
@@ -1261,6 +1477,7 @@ pub struct SupersededTransitionTrace {
 #[brioche(critical_state)]
 pub struct SupersededTransitionTraceLog {
     #[brioche(deterministic_order)]
+    /// Ring buffer of overrides (max 128, FIFO eviction).
     pub entries: Vec<SupersededTransitionTrace>,
 }
 
@@ -1304,6 +1521,7 @@ impl SupersededTransitionTraceLog {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 #[brioche(critical_state)]
 pub struct EpochState {
+    /// Monotonically increasing generation counter.
     pub current_generation: u64,
 }
 
@@ -1340,11 +1558,19 @@ pub struct StreamToolAccumulator {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SystemSignal {
     /// Network failure detected at transport level.
-    NetworkUnavailable { reason: String },
+    /// Transport failure detected by the shell.
+    NetworkUnavailable {
+        /// Transport failure description.
+        reason: String,
+    },
     /// User requested cancellation of the current operation.
     OperationCancelled,
     /// Periodic tick emitted by the shell for sub-routine timeout monitoring.
-    Tick { elapsed_ms: u64 },
+    /// Periodic heartbeat for timeout monitoring.
+    Tick {
+        /// Monotonically increasing milliseconds since session start.
+        elapsed_ms: u64,
+    },
 }
 
 /// Result of an asynchronous task executed by the shell.
@@ -1356,13 +1582,27 @@ pub enum SystemSignal {
 pub enum AsyncTaskResult {
     /// Background summarization completed.
     SummarizationDone {
+        /// Compressed chat message for history truncation.
         summary: ChatMessage,
+        /// History index up to which summarization is valid.
         watermark: u32,
     },
     /// CPU-intensive task completed.
-    CpuTaskDone { task_id: String, result: Vec<u8> },
+    /// Offloaded computation finished.
+    CpuTaskDone {
+        /// Identifier matching the original `Effect::ExecuteCpuTask`.
+        task_id: String,
+        /// Serialized output of the CPU task.
+        result: Vec<u8>,
+    },
     /// Status check for a long-running (pending) tool task.
-    ToolStatusCheck { task_id: String, status: ToolStatus },
+    /// Status update for a pending tool task.
+    ToolStatusCheck {
+        /// Identifier of the pending tool.
+        task_id: String,
+        /// Current execution status.
+        status: ToolStatus,
+    },
 }
 
 /// Status of a pending tool task.
@@ -1370,7 +1610,10 @@ pub enum AsyncTaskResult {
 /// Refs: SPECS.md §1.4
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ToolStatus {
+    /// Tool is still executing.
+    /// Tool is still executing.
     Running,
+    /// Tool finished (success or failure in `ToolOutcome`).
     Completed(ToolOutcome),
 }
 
@@ -1385,7 +1628,9 @@ pub enum GovernanceNotification {
     /// A plugin emitted a fatal error. The shell notifies governance
     /// so that `QuarantineManager` can decide on follow-up.
     PluginFaulted {
+        /// Plugin name.
         plugin_name: String,
+        /// The fatal error that triggered this notification.
         error: PluginError,
     },
 }
@@ -1428,9 +1673,12 @@ pub struct SignalDrainBatch {
 #[brioche(no_snapshot)]
 pub struct SignalBuffer {
     #[brioche(deterministic_order)]
+    /// System-level events (network, cancel, tick) — produced first.
     pub system_signals: Vec<SystemSignal>,
     #[brioche(deterministic_order)]
+    /// Plugin fault notifications — produced second.
     pub governance_notifications: Vec<GovernanceNotification>,
     #[brioche(deterministic_order)]
+    /// Background task completions — produced third.
     pub async_task_results: Vec<AsyncTaskResult>,
 }

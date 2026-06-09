@@ -103,8 +103,10 @@ fn accumulate_stream_tools(
             if pending.is_empty() {
                 return Ok(None);
             }
-            let active: Vec<ActiveToolCall> =
-                pending.into_iter().map(brioche_core::seal_single).collect();
+            let active: Vec<ActiveToolCall> = pending
+                .into_iter()
+                .map(|d| brioche_core::seal_single(d, brioche_core::DEFAULT_TOOL_TIMEOUT_MS))
+                .collect();
             child.active_tools = active.clone();
             let generation = match child.state {
                 AgentState::Predicting { generation_id } => generation_id,

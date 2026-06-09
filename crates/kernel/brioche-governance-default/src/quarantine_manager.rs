@@ -43,7 +43,9 @@ pub struct QuarantineState {
 /// Deterministic key for fault counting.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct PluginFaultKey {
+    /// Name of the plugin that faulted.
     pub plugin_name: String,
+    /// Discriminant string of the error kind.
     pub error_kind: String,
 }
 

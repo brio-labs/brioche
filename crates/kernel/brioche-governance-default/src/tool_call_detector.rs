@@ -23,7 +23,9 @@ use brioche_core::{
     brioche_core::BriocheExtensionType,
 )]
 pub struct ToolCallDetectorState {
+    /// Total tool call starts detected.
     pub total_detected: u64,
+    /// Total tool call completions detected.
     pub total_completed: u64,
 }
 

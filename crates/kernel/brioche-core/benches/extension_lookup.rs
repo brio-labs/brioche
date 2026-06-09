@@ -1,3 +1,7 @@
+//! Criterion benchmark for `ExtensionStorage` hot-path lookups.
+//!
+//! Refs: I-Core-ExtO1
+
 use std::collections::BTreeMap;
 use std::hint::black_box;
 
@@ -5,9 +9,12 @@ use brioche_core::{BriocheExtensionType, ExtensionStorage};
 use criterion::{Criterion, criterion_group, criterion_main};
 use serde::{Deserialize, Serialize};
 
+/// Benchmark fixture state for extension storage.
 #[derive(Clone, Default, Debug, Serialize, Deserialize, BriocheExtensionType)]
 pub struct BenchState {
+    /// Scalar field for weight measurement.
     pub value: u64,
+    /// Ordered map field for weight measurement.
     pub map: BTreeMap<String, u64>,
 }
 

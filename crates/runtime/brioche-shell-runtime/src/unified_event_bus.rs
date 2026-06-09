@@ -23,9 +23,13 @@ use tokio::sync::mpsc;
 /// Refs: SPECS.md §Book III-A Ch 3.5
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EngineEnvelope {
+    /// Direct engine input (user message, LLM stream, tool results).
     Input(EngineInput),
+    /// System signal (tick, network failure, cancellation).
     Signal(SystemSignal),
+    /// Result of an async CPU task.
     TaskResult(AsyncTaskResult),
+    /// Governance notification (plugin faulted, epoch rejected).
     Governance(GovernanceNotification),
 }
 

@@ -307,6 +307,19 @@ fn scan_fields(fields: &Fields, errors: &mut Vec<DeriveError>) {
     }
 }
 
+/// Derive macro for `BriocheExtensionType`.
+///
+/// Generates the sealed trait impl, VTable, and compile-time checks
+/// for `HashMap`/`HashSet` bans and deterministic `Vec` ordering.
+///
+/// Supported attributes:
+/// - `#[brioche(critical_state)]` — always snapshot, exempt from budget.
+/// - `#[brioche(no_snapshot)]` — rollback forbidden for this type.
+/// - `#[brioche(incremental_snapshot)]` — use incremental COW.
+/// - `#[brioche(ext_id = "...")]` — override the auto-generated EXT_ID.
+/// - `#[brioche(deterministic_order)]` — certify `Vec` field ordering.
+///
+/// Refs: I-Core-ExtensionType
 #[proc_macro_derive(BriocheExtensionType, attributes(brioche))]
 pub fn derive_brioche_extension_type(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
