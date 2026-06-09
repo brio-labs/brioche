@@ -51,6 +51,8 @@ pub struct RecoveryPolicy {
 
 impl RecoveryPolicy {
     /// Creates a policy with the default threshold (3).
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn new() -> Self {
         Self {
             max_consecutive_recoveries: DEFAULT_MAX_RECOVERIES,
@@ -58,6 +60,8 @@ impl RecoveryPolicy {
     }
 
     /// Creates a policy with a custom threshold (0 = never block).
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn with_max_recoveries(max_consecutive_recoveries: u64) -> Self {
         Self {
             max_consecutive_recoveries,

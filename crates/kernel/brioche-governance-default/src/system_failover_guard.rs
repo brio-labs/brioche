@@ -15,6 +15,8 @@ pub struct SystemFailoverGuard;
 
 impl SystemFailoverGuard {
     /// Creates a new instance.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn new() -> Self {
         Self
     }

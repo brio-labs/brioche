@@ -2,8 +2,9 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
-use crate::registry::{SystemTool, ToolError};
 use tokio_util::sync::CancellationToken;
+
+use crate::registry::{SystemTool, ToolError};
 
 /// Performs an HTTP GET on a URL.
 pub struct FetchUrlTool;

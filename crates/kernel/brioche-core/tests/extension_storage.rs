@@ -1,7 +1,8 @@
+use std::collections::BTreeMap;
+
 use brioche_core::{BriocheExtensionType, ExtensionStorage};
 use proptest::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, BriocheExtensionType)]
 pub struct TestState {

@@ -10,8 +10,9 @@
 //!
 //! Refs: SPECS.md §Book III-C Ch 2
 
-use crate::StreamBuffer;
 use brioche_core::Effect;
+
+use crate::StreamBuffer;
 
 /// Streaming engine that accumulates text fragments by trace ID.
 ///

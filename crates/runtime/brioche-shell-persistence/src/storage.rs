@@ -7,13 +7,14 @@
 //!
 //! Refs: SPECS.md §Book III-B Ch 1–3, I-Persist-SaveSession, I-Persist-PluginBlob
 
+use std::collections::BTreeMap;
+use std::path::Path;
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use brioche_core::ChatMessage;
 use brioche_shell_runtime::{Persistence, ShellError};
 use redb::{Database, ReadableDatabase, ReadableTable};
-use std::collections::BTreeMap;
-use std::path::Path;
-use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::dto::SessionHeadDTO;

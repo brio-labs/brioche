@@ -26,7 +26,7 @@ use brioche_core::{DecisionAggregator, Effect, ExtensionStorage, PluginResult, P
 )]
 #[brioche(critical_state)]
 pub struct NegotiationState {
-    /// Phase courante (0–2).
+    /// Current phase (0–2).
     pub current_phase: u8,
     /// Decisions accumulated per phase.
     #[brioche(deterministic_order)]
@@ -45,11 +45,15 @@ pub struct NegotiationBroker {
 
 impl NegotiationBroker {
     /// Creates a broker with 3 max phases.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn new() -> Self {
         Self { max_phases: 3 }
     }
 
     /// Creates a broker with a custom number of phases.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn with_max_phases(max_phases: u8) -> Self {
         Self { max_phases }
     }

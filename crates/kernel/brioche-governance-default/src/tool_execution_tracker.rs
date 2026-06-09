@@ -5,11 +5,12 @@
 //!
 //! Refs: I-Eco-ExtensionOverMod
 
+use std::collections::BTreeMap;
+
 use brioche_core::{
     BriochePlugin, ExtensionStorage, PluginCapabilities, PluginResult, ToolCallDescriptor,
     ToolResultDTO,
 };
-use std::collections::BTreeMap;
 
 /// Persistent execution tracker state.
 ///
@@ -49,6 +50,8 @@ pub struct ToolExecutionTracker;
 
 impl ToolExecutionTracker {
     /// Creates a new instance.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn new() -> Self {
         Self
     }

@@ -4,10 +4,11 @@
 //!
 //! Refs: I-Core-HookEffect-O1
 
+use std::hint::black_box;
+
 use brioche_core::{EffectBit, HookEffectConstraint};
 use brioche_governance_default::FastHookEffectConstraint;
 use criterion::{Criterion, criterion_group, criterion_main};
-use std::hint::black_box;
 
 fn bench_hook_effect_o1(c: &mut Criterion) {
     let mut masks = [0u64; 8];

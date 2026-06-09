@@ -10,9 +10,11 @@
 //!
 //! Refs: SPECS.md §Book III-C Ch 2
 
-use crate::IpcRateLimiter;
-use serde::Serialize;
 use std::collections::BTreeMap;
+
+use serde::Serialize;
+
+use crate::IpcRateLimiter;
 
 /// A batch of accumulated trace text, ready for MessagePack serialization.
 ///

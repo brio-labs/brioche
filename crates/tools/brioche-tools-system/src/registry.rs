@@ -5,9 +5,10 @@
 //!
 //! Refs: I-Shell-ToolResult-PassThrough
 
+use std::collections::BTreeMap;
+
 use brioche_core::{ActiveToolCall, ToolOutcome, ToolResultDTO};
 use brioche_shell_runtime::ToolExecutor;
-use std::collections::BTreeMap;
 use tokio_util::sync::CancellationToken;
 
 /// Error emitted by a system tool.

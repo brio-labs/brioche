@@ -6,10 +6,12 @@
 //!
 //! Refs: SPECS.md §Book III-B Ch 2, I-Persist-Cache
 
-use crate::dto::SessionHeadDTO;
-use lru::LruCache;
 use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
+
+use lru::LruCache;
+
+use crate::dto::SessionHeadDTO;
 
 /// Two-level cache for sub-routine session heads.
 ///

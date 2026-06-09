@@ -6,9 +6,12 @@
 //!
 //! Refs: SPECS.md §Book III-B Ch 5, I-Persist-GC-Interrupt
 
-use crate::{error::PersistenceError, schema::MESSAGES_TABLE, storage::RedbStorage};
 use redb::ReadableTable;
 use tokio_util::sync::CancellationToken;
+
+use crate::error::PersistenceError;
+use crate::schema::MESSAGES_TABLE;
+use crate::storage::RedbStorage;
 
 /// Runner for opportunistic garbage collection.
 ///

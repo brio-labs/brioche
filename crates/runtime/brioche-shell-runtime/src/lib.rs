@@ -34,6 +34,11 @@ pub mod transition_journal;
 pub mod unified_event_bus;
 
 pub use backpressure::{BackpressureRegulator, DropPolicy};
+// Re-export channel types from core so consumers need only one import.
+pub use brioche_core::{
+    AsyncTaskResult, BriocheEngine, BriocheEngineBuilder, BriochePlugin, ChatMessage, Effect,
+    EngineInput, GovernanceNotification, Session, SystemSignal,
+};
 pub use effect_executor::{DefaultEffectExecutor, EffectExecutor, NoopPersistence, Persistence};
 pub use engine_watchdog::{
     EngineWatchdog, EngineWatchdogHandle, RecoveryProcedure, WatchdogPing, WatchdogPong,
@@ -51,9 +56,3 @@ pub use tick_emitter::TickEmitter;
 pub use tool_executor::{EchoToolExecutor, ToolExecutor};
 pub use transition_journal::{JournalEntry, TransitionJournal};
 pub use unified_event_bus::{EngineEnvelope, UnifiedEventBus};
-
-// Re-export channel types from core so consumers need only one import.
-pub use brioche_core::{
-    AsyncTaskResult, BriocheEngine, BriocheEngineBuilder, BriochePlugin, ChatMessage, Effect,
-    EngineInput, GovernanceNotification, Session, SystemSignal,
-};

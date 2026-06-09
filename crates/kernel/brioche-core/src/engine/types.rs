@@ -1,3 +1,14 @@
+//! Book I — The Core Book: Internal engine types.
+//!
+//! Governance kernel container, routine manager, and transition state snapshots.
+//! These types are `pub(crate)` — they are not part of the public API.
+//!
+//! ## Invariants upheld
+//! - I-Core-Pure: No side effects in these types.
+//! - I-Shell-Session-NoSend: `RoutineManager` owns `!Send + !Sync` sessions.
+//!
+//! Refs: SPECS.md §4
+
 use crate::{
     ConsistencyVerifier, CycleRollbackPolicy, DecisionAggregator, Effect, EpochInterceptor,
     GovernanceFailoverHandler, HookEffectConstraint, SessionRegistry, SubRoutineHandle,
@@ -35,6 +46,11 @@ pub struct RoutineManager {
 }
 
 impl RoutineManager {
+    /// Create a new `RoutineManager` with an empty registry.
+    ///
+    /// Complexity: O(1). Allocates empty collections.
+    ///
+    /// Refs: I-Shell-Session-NoSend
     pub(crate) fn new() -> Self {
         Self {
             registry: SessionRegistry::new(),

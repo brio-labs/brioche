@@ -7,11 +7,12 @@
 //!
 //! Refs: I-Gov-SubRoutineLifecycle-Guard
 
+use std::collections::BTreeMap;
+
 use brioche_core::{
     AgentStateTag, BriochePlugin, EngineInput, ExtensionStorage, PluginCapabilities, PluginResult,
     PolicyDecision, SessionSnapshot,
 };
-use std::collections::BTreeMap;
 
 /// Sub-routine timer state.
 ///
@@ -51,12 +52,16 @@ pub struct SubRoutineTimeoutPolicy;
 
 impl SubRoutineTimeoutPolicy {
     /// Creates a new policy instance.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn new() -> Self {
         Self
     }
 
     /// Creates a policy with a default timeout (ignored until shell
     /// adapter populates timers; kept for API compatibility).
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn with_default_timeout(_default_timeout_ms: u64) -> Self {
         Self::new()
     }
@@ -85,7 +90,9 @@ impl BriochePlugin for SubRoutineTimeoutPolicy {
     ///
     /// Time is sourced deterministically from `SystemSignal::Tick`
     /// events stored in `SignalBuffer`, never from direct system time.
-    /// This preserves I-Core-Pure: identical inputs produce identical outputs.
+    /// Refs: I-Core-Pure
+    ///
+    /// This preserves determinism: identical inputs produce identical outputs.
     ///
     /// # Complexity
     /// O(n) where n = number of tracked timers. Linear scan.

@@ -1,8 +1,9 @@
+use std::collections::BTreeMap;
+use std::hint::black_box;
+
 use brioche_core::{BriocheExtensionType, ExtensionStorage};
 use criterion::{Criterion, criterion_group, criterion_main};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-use std::hint::black_box;
 
 #[derive(Clone, Default, Debug, Serialize, Deserialize, BriocheExtensionType)]
 pub struct BenchState {

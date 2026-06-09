@@ -9,6 +9,7 @@
 
 use std::sync::Arc;
 
+use brioche_reedline::session::SessionManager;
 use brioche_shell_persistence::{RedbStorage, SessionStore};
 use nu_ansi_term::Color;
 use reedline::ExternalPrinter;
@@ -18,7 +19,6 @@ use tokio_util::sync::CancellationToken;
 use crate::bridge;
 use crate::config::CliConfig;
 use crate::shell_builder::build_shell;
-use brioche_reedline::session::SessionManager;
 
 /// Launches the full interactive mode.
 pub async fn run(cli_config: CliConfig, redb_storage: RedbStorage, session_store: SessionStore) {

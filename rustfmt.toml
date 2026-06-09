@@ -10,7 +10,7 @@ use_small_heuristics = "Default"
 # If you have nightly installed locally, uncomment the lines below so
 # `cargo fmt` uses them automatically.
 # ---------------------------------------------------------------------------
-# imports_granularity = "Module"        # One use statement per module
-# group_imports = "StdExternalCrate"    # std -> external -> crate
-# reorder_impl_items = true             # Keep trait impls ordered
-# format_code_in_doc_comments = true
+imports_granularity = "Module"     # One use statement per module
+group_imports = "StdExternalCrate" # std -> external -> crate
+reorder_impl_items = true          # Keep trait impls ordered
+format_code_in_doc_comments = true

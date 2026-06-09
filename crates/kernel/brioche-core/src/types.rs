@@ -12,24 +12,22 @@
 //!
 //! Refs: SPECS.md §2, §5
 
-use crate::BriocheExtensionType;
-use crate::extension::ExtensionStorage;
+use std::collections::BTreeMap;
+
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+
+use crate::BriocheExtensionType;
+use crate::extension::ExtensionStorage;
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/// Maximum size of an inline streaming chunk in bytes.
-///
-/// SSE payloads exceeding this size are segmented into independent
-/// 4 KB fragments before injection into the kernel, guaranteeing the
-/// absence of heap allocation in the synchronous hot path for plugins
-/// in `Pass` or `Hold` mode.
-///
 /// Default tool timeout applied when a descriptor omits `timeout_ms`.
+///
+/// The kernel materializes this value during `seal()` when no plugin
+/// has set a timeout on the `ToolCallDescriptor`.
 ///
 /// Refs: I-Core-ActiveToolCall
 pub const DEFAULT_TOOL_TIMEOUT_MS: u64 = 30_000;
@@ -73,6 +71,8 @@ impl SubRoutineHandle {
     /// Create a new handle from any string-like value.
     ///
     /// Complexity: O(length of id). Allocates one `String`.
+    ///
+    /// Refs: I-Core-AgentState
     pub fn new(id: impl Into<String>) -> Self {
         Self(id.into())
     }
@@ -80,6 +80,8 @@ impl SubRoutineHandle {
     /// Borrow the underlying string.
     ///
     /// Complexity: O(1).
+    ///
+    /// Refs: I-Core-AgentState
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -292,6 +294,8 @@ impl TruncatedToolResult {
     /// Creates a truncation record from the full content and a byte limit.
     ///
     /// Complexity: O(1). One `String` allocation for the preview.
+    ///
+    /// Refs: I-Comp-Pure-Logic
     pub fn from_content(content: &str, max_bytes: usize) -> Self {
         let preview = content[..max_bytes.min(content.len())].to_string();
         Self {
@@ -307,6 +311,8 @@ impl TruncatedToolResult {
     ///
     /// # Errors
     /// Returns `BriocheError::Serialization` if JSON serialization fails.
+    ///
+    /// Refs: I-Comp-Pure-Logic
     pub fn to_json(&self) -> Result<String, BriocheError> {
         serde_json::to_string(self)
             .map_err(|e| BriocheError::Serialization(format!("TruncatedToolResult: {e}")))
@@ -400,6 +406,8 @@ impl Session {
     /// Create a new session in `AgentState::Idle`.
     ///
     /// Complexity: O(1). Allocates empty collections.
+    ///
+    /// Refs: I-Core-AgentState
     pub fn new(id: impl Into<String>) -> Self {
         Self {
             id: id.into(),
@@ -576,6 +584,8 @@ impl SessionRegistry {
     /// Create an empty registry.
     ///
     /// Complexity: O(1).
+    ///
+    /// Refs: I-Core-AgentState
     pub fn new() -> Self {
         Self {
             sessions: BTreeMap::new(),
@@ -587,6 +597,8 @@ impl SessionRegistry {
     /// Insert a sub-routine session.
     ///
     /// Complexity: O(log n) where n = number of sub-routines.
+    ///
+    /// Refs: I-Shell-Session-NoSend
     pub fn insert(&mut self, handle: SubRoutineHandle, session: Session) {
         self.sessions.insert(handle, session);
     }
@@ -594,6 +606,8 @@ impl SessionRegistry {
     /// Get a mutable reference to a sub-routine session.
     ///
     /// Complexity: O(log n).
+    ///
+    /// Refs: I-Shell-Session-NoSend
     pub fn get_mut(&mut self, handle: &SubRoutineHandle) -> Option<&mut Session> {
         self.sessions.get_mut(handle)
     }
@@ -601,6 +615,8 @@ impl SessionRegistry {
     /// Remove a sub-routine session, returning it if present.
     ///
     /// Complexity: O(log n).
+    ///
+    /// Refs: I-Shell-Session-NoSend
     pub fn remove(&mut self, handle: &SubRoutineHandle) -> Option<Session> {
         self.sessions.remove(handle)
     }
@@ -608,6 +624,8 @@ impl SessionRegistry {
     /// Returns `true` if the registry contains the given handle.
     ///
     /// Complexity: O(log n).
+    ///
+    /// Refs: I-Shell-Session-NoSend
     pub fn contains(&self, handle: &SubRoutineHandle) -> bool {
         self.sessions.contains_key(handle)
     }
@@ -617,6 +635,8 @@ impl SessionRegistry {
     /// Called by the kernel on every outgoing transition from `SubRoutine`.
     ///
     /// Complexity: O(log n).
+    ///
+    /// Refs: I-Shell-Session-NoSend
     pub fn increment_exit_count(&mut self, handle: &SubRoutineHandle) {
         *self.exit_counts.entry(handle.clone()).or_insert(0) += 1;
     }
@@ -624,6 +644,8 @@ impl SessionRegistry {
     /// Get the current exit count for a handle.
     ///
     /// Complexity: O(log n).
+    ///
+    /// Refs: I-Shell-Session-NoSend
     pub fn get_exit_count(&self, handle: &SubRoutineHandle) -> u64 {
         self.exit_counts.get(handle).copied().unwrap_or(0)
     }
@@ -631,6 +653,8 @@ impl SessionRegistry {
     /// Iterate over all registered handles.
     ///
     /// Complexity: O(1) for the iterator creation.
+    ///
+    /// Refs: I-Shell-Session-NoSend
     pub fn handles(&self) -> impl Iterator<Item = &SubRoutineHandle> {
         self.sessions.keys()
     }
@@ -666,6 +690,8 @@ impl AgentState {
     /// Extract the generation ID if currently predicting or executing tools.
     ///
     /// Returns `None` for states that carry no generation context.
+    ///
+    /// Complexity: O(1). One pattern match.
     ///
     /// Refs: I-Core-NoPanic
     pub fn generation_id(&self) -> Option<u64> {
@@ -816,9 +842,14 @@ pub enum UiWidget {
     /// Test widget for integration tests.
     Test { msg: String },
     /// Catch-all for unknown third-party widgets.
+    ///
+    /// Payload is raw JSON bytes to preserve determinism.
+    /// The projection layer deserializes on the shell side.
+    ///
+    /// Refs: I-Comp-Typed-Effects
     Custom {
         widget_type: String,
-        payload: serde_json::Value,
+        payload_json: Vec<u8>,
     },
 }
 
@@ -829,6 +860,8 @@ impl UiWidget {
     /// classification while the ecosystem migrates to structured variants.
     ///
     /// Complexity: O(1).
+    ///
+    /// Refs: I-Comp-Typed-Effects
     pub fn widget_type(&self) -> &str {
         match self {
             UiWidget::TextChunk { .. } => "text_chunk",
@@ -1116,18 +1149,18 @@ pub struct EffectBit;
 
 impl EffectBit {
     pub const CALL_LLM_NETWORK: u64 = 1 << 0;
+    pub const ERROR: u64 = 1 << 3;
+    pub const EXECUTE_CPU_TASK: u64 = 1 << 7;
     pub const EXECUTE_TOOLS: u64 = 1 << 1;
     pub const FORWARD_TO_UI: u64 = 1 << 2;
-    pub const ERROR: u64 = 1 << 3;
-    pub const SAVE_SESSION: u64 = 1 << 4;
-    pub const SAVE_PLUGIN_BLOB: u64 = 1 << 5;
-    pub const TRIGGER_SUMMARIZATION: u64 = 1 << 6;
-    pub const EXECUTE_CPU_TASK: u64 = 1 << 7;
-    pub const TRIGGER_GC: u64 = 1 << 8;
-    pub const SYSTEM_IDLE: u64 = 1 << 9;
     pub const PLUGIN_FAULT: u64 = 1 << 10;
     pub const REBUILD_ROUTES: u64 = 1 << 11;
+    pub const SAVE_PLUGIN_BLOB: u64 = 1 << 5;
+    pub const SAVE_SESSION: u64 = 1 << 4;
     pub const SUB_ROUTINE_RESTORED: u64 = 1 << 12;
+    pub const SYSTEM_IDLE: u64 = 1 << 9;
+    pub const TRIGGER_GC: u64 = 1 << 8;
+    pub const TRIGGER_SUMMARIZATION: u64 = 1 << 6;
     // Bits 13-63 reserved for future extensions.
 }
 
@@ -1188,6 +1221,8 @@ impl TransitionTraceLog {
     ///
     /// Complexity: O(n) in the worst case (vec shift at capacity),
     /// bounded by `CAPACITY` (128). Never panics.
+    ///
+    /// Refs: I-Gov-OverrideTrace
     pub fn push(&mut self, entry: TransitionTrace) {
         if self.entries.len() >= Self::CAPACITY {
             self.entries.remove(0);
@@ -1198,6 +1233,8 @@ impl TransitionTraceLog {
     /// Take all entries, leaving the log empty.
     ///
     /// Complexity: O(1).
+    ///
+    /// Refs: I-Gov-OverrideTrace
     pub fn take_entries(&mut self) -> Vec<TransitionTrace> {
         std::mem::take(&mut self.entries)
     }
@@ -1234,6 +1271,8 @@ impl SupersededTransitionTraceLog {
     ///
     /// Complexity: O(n) in the worst case (vec shift at capacity),
     /// bounded by `CAPACITY` (128). Never panics.
+    ///
+    /// Refs: I-Gov-OverrideTrace
     pub fn push(&mut self, entry: SupersededTransitionTrace) {
         if self.entries.len() >= Self::CAPACITY {
             self.entries.remove(0);
@@ -1244,6 +1283,8 @@ impl SupersededTransitionTraceLog {
     /// Take all entries, leaving the log empty.
     ///
     /// Complexity: O(1).
+    ///
+    /// Refs: I-Gov-OverrideTrace
     pub fn take_entries(&mut self) -> Vec<SupersededTransitionTrace> {
         std::mem::take(&mut self.entries)
     }

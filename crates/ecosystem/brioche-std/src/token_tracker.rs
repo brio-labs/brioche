@@ -6,11 +6,12 @@
 //!
 //! Refs: I-Eco-ExtensionOverMod, I-Eco-OrderedCollections
 
+use std::collections::BTreeMap;
+
 use brioche_core::{
     BriocheExtensionType, BriochePlugin, ChatMessage, ExtensionStorage, PluginCapabilities,
     PluginResult,
 };
-use std::collections::BTreeMap;
 
 /// Token tracking state.
 ///

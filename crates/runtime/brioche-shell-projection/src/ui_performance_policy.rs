@@ -13,8 +13,9 @@
 //!
 //! Refs: SPECS.md §Book III-C Ch 6
 
-use crate::UiComposer;
 use brioche_core::{BriocheExtensionType, Effect, ExtensionStorage};
+
+use crate::UiComposer;
 
 /// User-configurable rendering performance state.
 ///

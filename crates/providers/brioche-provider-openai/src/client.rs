@@ -16,12 +16,10 @@
 //!
 //! Refs: SPECS.md §Book III-A, I-Core-ChunkBudget
 
-use crate::{
-    config::OpenAiConfig,
-    extractor::{ChunkExtractor, StreamErrorDetector},
-    request::build_request_body,
-    sse::SseParser,
-};
+use std::collections::BTreeMap;
+use std::sync::Arc;
+use std::time::Duration;
+
 use brioche_core::{
     ChatMessage, MAX_INLINE_CHUNK, StreamEvent, ToolCallDescriptor, ToolOutcome, ToolResultDTO,
 };
@@ -30,10 +28,12 @@ use brioche_shell_runtime::{
 };
 use bytes::Bytes;
 use futures_util::StreamExt;
-use std::collections::BTreeMap;
-use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::{RwLock, broadcast};
+
+use crate::config::OpenAiConfig;
+use crate::extractor::{ChunkExtractor, StreamErrorDetector};
+use crate::request::build_request_body;
+use crate::sse::SseParser;
 
 /// OpenAI-compatible LLM client.
 ///

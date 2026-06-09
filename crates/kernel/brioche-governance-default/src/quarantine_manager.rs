@@ -6,11 +6,12 @@
 //!
 //! Refs: I-Gov-Quarantine-Isolate, I-Comp-Override-Rebuild
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use brioche_core::{
     BriochePlugin, Effect, ExtensionStorage, PluginCapabilities, PluginError, PluginResult,
     PolicyDecision,
 };
-use std::collections::{BTreeMap, BTreeSet};
 
 /// State tracking quarantined plugins.
 ///
@@ -54,6 +55,8 @@ pub struct QuarantineManager;
 
 impl QuarantineManager {
     /// Creates a new instance.
+    ///
+    /// Refs: I-Gov-TraitAtomic
     pub fn new() -> Self {
         Self
     }
