@@ -31,6 +31,10 @@ use crate::{
 /// each capability, eliminating runtime mask checks in the hot path.
 ///
 /// Refs: I-Core-StreamNoBranch, I-Core-PluginOrder
+/// # Complexity
+/// O(1) for construction and field/variant access.
+/// # Panics
+/// Never panics.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PluginCapabilities(pub u16);
 
@@ -57,6 +61,8 @@ impl PluginCapabilities {
     /// Complexity: O(1). Bitwise AND.
     ///
     /// Refs: I-Core-Pure
+    /// # Panics
+    /// Never panics.
     pub fn contains(self, other: Self) -> bool {
         self.0 & other.0 == other.0
     }
@@ -66,6 +72,8 @@ impl PluginCapabilities {
     /// Complexity: O(1). Equality check.
     ///
     /// Refs: I-Core-Pure
+    /// # Panics
+    /// Never panics.
     pub fn is_empty(self) -> bool {
         self.0 == 0
     }
@@ -98,6 +106,8 @@ impl std::ops::BitOr for PluginCapabilities {
 /// so a plugin only needs to override the hooks it cares about.
 ///
 /// Refs: I-Core-PluginOrder, I-Gov-NoCoreMutation
+/// # Panics
+/// Panics only if an index is out of bounds; callers must validate lengths.
 pub trait BriochePlugin: Send + Sync {
     /// Unique plugin name, used for total ordering and traceability.
     fn name(&self) -> &'static str;
@@ -202,6 +212,10 @@ pub trait BriochePlugin: Send + Sync {
 /// No subsequent trait may override an epoch barrier.
 ///
 /// Refs: I-Comp-Epoch-First, I-Gov-Epoch-Reject
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 pub trait EpochInterceptor: Send + Sync {
     /// Intercept epoch.
     fn intercept_epoch(
@@ -217,6 +231,10 @@ pub trait EpochInterceptor: Send + Sync {
 /// `SessionRegistry`. If `Some(effects)`, standard dispatch is short-circuited.
 ///
 /// Refs: I-Comp-Epoch-Subroutine
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 pub trait SubRoutineHandler: Send + Sync {
     /// Handle subroutine.
     fn handle_subroutine(
@@ -233,6 +251,10 @@ pub trait SubRoutineHandler: Send + Sync {
 /// applies mechanical forcing (typically `OverrideTransition` to `Idle`).
 ///
 /// Refs: I-Core-NoPanic
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 pub trait ConsistencyVerifier: Send + Sync {
     /// Verify consistency.
     fn verify_consistency(&self, session: &mut Session) -> PluginResult<Option<Vec<Effect>>>;
@@ -243,6 +265,10 @@ pub trait ConsistencyVerifier: Send + Sync {
 /// The kernel refuses to start without an injected aggregator.
 ///
 /// Refs: I-Gov-Decision-Required
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 pub trait DecisionAggregator: Send + Sync {
     /// Aggregate decisions.
     fn aggregate_decisions(
@@ -262,6 +288,10 @@ pub trait DecisionAggregator: Send + Sync {
 /// Canonical order: `SystemSignal` → `GovernanceNotification` → `AsyncTaskResult`.
 ///
 /// Refs: SPECS.md §1.4, I-Shell-Drain-Atomic
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 pub trait SignalDrainOrder: Send + Sync {
     /// Drain.
     fn drain(&self) -> crate::SignalDrainBatch;
@@ -272,6 +302,8 @@ pub trait SignalDrainOrder: Send + Sync {
 /// Without injection, all `RequestEffect`s are allowed on all hooks.
 ///
 /// Refs: I-Core-HookEffect-O1
+/// # Panics
+/// Never panics.
 pub trait HookEffectConstraint: Send + Sync {
     /// O(1) validation by bitmask lookup.
     ///
@@ -288,6 +320,10 @@ pub trait HookEffectConstraint: Send + Sync {
 /// Without injection, the kernel performs no snapshot or rollback.
 ///
 /// Refs: I-Gov-Rollback-BestEffort
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 pub trait CycleRollbackPolicy: Send + Sync {
     /// Called by the kernel before each monitored hook.
     fn begin_hook(&mut self);
@@ -308,6 +344,10 @@ pub trait CycleRollbackPolicy: Send + Sync {
 /// The kernel refuses to start without an injected implementation.
 ///
 /// Refs: I-Gov-SubRoutineLifecycle-Guard
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 pub trait SubRoutineLifecycleGuard: Send + Sync {
     /// On exit.
     fn on_exit(
@@ -323,6 +363,10 @@ pub trait SubRoutineLifecycleGuard: Send + Sync {
 /// Without injection, the kernel returns the raw `PluginFault`.
 ///
 /// Refs: SPECS.md §2.10
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 pub trait GovernanceFailoverHandler: Send + Sync {
     /// Handle failure.
     fn handle_failure(
@@ -337,6 +381,10 @@ pub trait GovernanceFailoverHandler: Send + Sync {
 /// Without injection, the default value is 65536 bytes (64 KB).
 ///
 /// Refs: SPECS.md §2.11
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 pub trait CowBudgetPolicy: Send + Sync {
     /// Max cow bytes.
     fn max_cow_bytes(&self, hook_name: &str) -> usize;

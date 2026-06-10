@@ -46,6 +46,8 @@ pub struct ToolExecutionTelemetry {
 /// Records high-level metrics on tool calls.
 /// The data is purely telemetry; no transition decision
 /// is made by this plugin.
+///
+/// Refs: I-Core-ActiveToolCall, I-Eco-ExtensionOverMod
 pub struct ToolExecutionTracker;
 
 impl ToolExecutionTracker {

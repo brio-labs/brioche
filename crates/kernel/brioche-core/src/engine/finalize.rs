@@ -27,6 +27,8 @@ impl BriocheEngine {
     ///
     /// Refs: I-Core-NoPanic, I-Gov-SubRoutineLifecycle-Guard,
     /// I-Core-HookEffect-O1, I-Gov-Rebuild-Barrier, I-Gov-Failover
+    /// # Panics
+    /// Never panics.
     pub(crate) fn finalize_transition(
         &mut self,
         session: &mut Session,

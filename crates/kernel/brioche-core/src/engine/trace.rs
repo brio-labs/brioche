@@ -3,9 +3,9 @@
 //! Refs: I-Core-ActiveToolCall, I-Core-ChunkBudget, I-Gov-Trace-Log
 
 use crate::{
-    ActiveToolCall, Effect, EpochState, PolicyDecision, Session, StreamToolAccumulator,
-    SupersededTransitionTrace, SupersededTransitionTraceLog, ToolCallDescriptor, TransitionTrace,
-    TransitionTraceLog,
+    ActiveToolCall, Effect, EpochState, PluginSource, PolicyDecision, Session,
+    StreamToolAccumulator, SupersededTransitionTrace, SupersededTransitionTraceLog,
+    ToolCallDescriptor, TransitionTrace, TransitionTraceLog,
 };
 
 // ---------------------------------------------------------------------------
@@ -27,6 +27,8 @@ use crate::{
 /// ```
 ///
 /// Refs: I-Core-ActiveToolCall, I-Core-ChunkBudget
+/// # Panics
+/// Panics only if an index is out of bounds; callers must validate lengths.
 pub struct ToolCallAccumulator;
 
 impl ToolCallAccumulator {
@@ -38,6 +40,8 @@ impl ToolCallAccumulator {
     /// Complexity: O(log t) where t = pending descriptors.
     ///
     /// Refs: I-Core-ActiveToolCall
+    /// # Panics
+    /// Never panics.
     pub fn on_start(ext: &mut crate::ExtensionStorage, id: String, name: String) {
         let acc = ext.get_or_insert_default::<StreamToolAccumulator>();
         acc.pending.insert(
@@ -60,6 +64,8 @@ impl ToolCallAccumulator {
     /// where k = chunk length.
     ///
     /// Refs: I-Core-ActiveToolCall
+    /// # Panics
+    /// Panics only if an index is out of bounds; callers must validate lengths.
     pub fn on_argument_chunk(ext: &mut crate::ExtensionStorage, id: &str, chunk: &[u8]) {
         let acc = ext.get_or_insert_default::<StreamToolAccumulator>();
         if let Some(descriptor) = acc.pending.get_mut(id) {
@@ -77,6 +83,8 @@ impl ToolCallAccumulator {
     /// Complexity: O(t) where t = number of pending descriptors.
     ///
     /// Refs: I-Core-ActiveToolCall
+    /// # Panics
+    /// Never panics.
     pub fn drain(ext: &mut crate::ExtensionStorage) -> Vec<ToolCallDescriptor> {
         let acc = ext.get_or_insert_default::<StreamToolAccumulator>();
         std::mem::take(&mut acc.pending).into_values().collect()
@@ -96,6 +104,8 @@ impl ToolCallAccumulator {
 /// O(n) where n = number of descriptors. Allocates one `Vec<ActiveToolCall>`.
 ///
 /// Refs: I-Core-ActiveToolCall, I-Core-NoPanic
+/// # Panics
+/// Never panics.
 pub fn seal_tool_descriptors(
     descriptors: Vec<ToolCallDescriptor>,
     default_timeout_ms: u64,
@@ -138,7 +148,13 @@ impl BriocheEngine {
     ///
     /// Refs: I-Gov-Trace-Log
     /// Complexity: O(1). One Vec push (amortized).
-    pub(crate) fn log_override_transition(&self, session: &mut Session, source_plugin: &str) {
+    /// # Panics
+    /// Never panics.
+    pub(crate) fn log_override_transition(
+        &self,
+        session: &mut Session,
+        source_plugin: &PluginSource,
+    ) {
         let epoch = session
             .extensions
             .get_or_insert_default::<EpochState>()
@@ -147,7 +163,7 @@ impl BriocheEngine {
             .extensions
             .get_or_insert_default::<TransitionTraceLog>();
         log.push(TransitionTrace {
-            source_plugin: source_plugin.to_string(),
+            source_plugin: source_plugin.0.clone(),
             decision: PolicyDecision::OverrideTransition(vec![]),
             epoch,
         });
@@ -157,10 +173,12 @@ impl BriocheEngine {
     ///
     /// Refs: I-Gov-Trace-Log
     /// Complexity: O(1). One Vec push (amortized).
+    /// # Panics
+    /// Never panics.
     pub(crate) fn log_superseded_transition(
         &self,
         session: &mut Session,
-        source_plugin: &str,
+        source_plugin: &PluginSource,
         attempted_decision: &PolicyDecision,
     ) {
         let epoch = session
@@ -171,7 +189,7 @@ impl BriocheEngine {
             .extensions
             .get_or_insert_default::<SupersededTransitionTraceLog>();
         log.push(SupersededTransitionTrace {
-            source_plugin: source_plugin.to_string(),
+            source_plugin: source_plugin.0.clone(),
             attempted_decision: attempted_decision.clone(),
             preempted_by: "prior_override_plugin".to_string(),
             epoch,

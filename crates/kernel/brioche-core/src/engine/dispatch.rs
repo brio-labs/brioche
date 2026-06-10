@@ -13,7 +13,7 @@
 use super::BriocheEngine;
 use crate::{
     AgentState, BriocheError, ChatMessage, Effect, EngineInput, ErrorCode, ErrorDetail,
-    PolicyDecision, Session, StreamAction, StreamEvent, SubRoutineHandle, ToolResultDTO,
+    PolicyDecision, Session, StreamAction, StreamEvent, SubRoutineHandle, TaskId, ToolResultDTO,
 };
 
 impl BriocheEngine {
@@ -24,6 +24,8 @@ impl BriocheEngine {
     ///
     /// Refs: I-Core-StreamNoBranch, I-Core-RetVecEffect
     /// Complexity: O(1) dispatch + O(handler cost).
+    /// # Panics
+    /// Never panics. Errors are returned as `Result::Err`.
     pub(crate) fn dispatch_input(
         &mut self,
         session: &mut Session,
@@ -154,7 +156,10 @@ impl BriocheEngine {
                     // Buffering is handled by the plugin / shell.
                 }
                 StreamAction::OffloadTask { task_id, payload } => {
-                    effects.push(Effect::ExecuteCpuTask { task_id, payload });
+                    effects.push(Effect::ExecuteCpuTask {
+                        task_id: TaskId(task_id),
+                        payload,
+                    });
                 }
             },
         );
