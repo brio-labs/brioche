@@ -93,12 +93,15 @@ impl OpenAiLlmClient {
     /// Never panics. Empty `api_key` is accepted (some local endpoints
     /// like Ollama do not require a key).
     pub fn new(config: OpenAiConfig) -> (Self, broadcast::Receiver<LlmChunk>, SharedHistory) {
-        let http = reqwest::Client::builder()
+        let http = match reqwest::Client::builder()
             // No global request timeout — streaming generations can
             // take minutes (e.g. 80KB file writes). Idle detection
             // is handled by the per-chunk READ_TIMEOUT in call_llm().
             .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
+        {
+            Ok(c) => c,
+            Err(_) => reqwest::Client::new(),
+        };
 
         let (ui_tx, ui_rx) = broadcast::channel(256);
         let history: SharedHistory = Arc::new(RwLock::new(Vec::new()));
@@ -274,9 +277,12 @@ impl OpenAiLlmClient {
                 ToolOutcome::Success(s)
                 | ToolOutcome::BusinessError(s)
                 | ToolOutcome::SystemError(s) => s.clone(),
-                ToolOutcome::TimeoutWithPartialData { partial_output } => {
-                    partial_output.clone().unwrap_or_default()
-                }
+                ToolOutcome::TimeoutWithPartialData {
+                    partial_output: Some(s),
+                } => s.clone(),
+                ToolOutcome::TimeoutWithPartialData {
+                    partial_output: None,
+                } => String::new(),
                 _ => String::new(),
             };
             history.push(ChatMessage::ToolResult {
@@ -399,15 +405,18 @@ impl OpenAiLlmClient {
 
         if !response.status().is_success() {
             let status = response.status();
-            let body_text = response.text().await.unwrap_or_default();
+            let body_text = response.text().await.ok().map_or(String::new(), |t| t);
             let compact = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body_text) {
                 json.get("error")
                     .and_then(|e| e.get("message"))
                     .and_then(|m| m.as_str())
-                    .unwrap_or(&body_text)
-                    .to_string()
+                    .map_or_else(|| body_text.clone(), |s| s.to_string())
+                // TODO: replace unwrap_or_else with match
             } else {
-                body_text.lines().next().unwrap_or(&body_text).to_string()
+                match body_text.lines().next() {
+                    Some(line) => line.to_string(),
+                    None => body_text.clone(),
+                }
             };
             let msg = format!("HTTP {status}: {compact}");
             tracing::error!(status = %status, error = %body_text, "OpenAI HTTP error");
@@ -488,7 +497,7 @@ impl OpenAiLlmClient {
                         .send(LlmChunk::Status("Receiving response…".into()));
                 }
                 for tc in tool_calls {
-                    let idx = tc.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
+                    let idx = tc.get("index").and_then(|i| i.as_u64()).map_or(0, |v| v) as usize;
                     let entry = acc.tool_acc.entry(idx).or_default();
 
                     if let Some(id) = tc.get("id").and_then(|i| i.as_str())
@@ -713,7 +722,10 @@ impl OpenAiLlmClient {
                 let _ = self.ui_tx.send(LlmChunk::Warning(diag));
             }
 
-            let content = text.map(Self::truncate_assistant_text).unwrap_or_default();
+            let content = match text {
+                Some(t) => Self::truncate_assistant_text(t),
+                None => String::new(),
+            };
             self.history.write().await.push(ChatMessage::Assistant {
                 content,
                 reasoning,

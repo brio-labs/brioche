@@ -113,8 +113,7 @@ fn cold_snapshot_persists_binary_blobs() {
     assert!(
         snapshot
             .get(TestState::EXT_ID)
-            .map(|v| !v.is_empty())
-            .unwrap_or(false)
+            .is_some_and(|v| !v.is_empty())
     );
 }
 

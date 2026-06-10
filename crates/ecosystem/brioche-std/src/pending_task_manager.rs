@@ -14,6 +14,9 @@ use brioche_core::{
 };
 
 /// Information about a pending task.
+///
+/// ## Snapshot strategy
+/// COW: full clone (~64 bytes). Two `String` fields plus one enum.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PendingTaskInfo {
     /// Identifier of the pending task.
@@ -39,6 +42,10 @@ pub enum PendingTaskStatus {
 }
 
 /// Pending task manager state.
+///
+/// ## Snapshot strategy
+/// COW: full clone. Weight scales with pending tasks (typically < 10).
+/// One `BTreeMap` plus one counter.
 ///
 /// Refs: I-Eco-OrderedCollections
 #[derive(
@@ -149,7 +156,13 @@ impl BriochePlugin for PendingTaskManager {
                                 | brioche_core::ToolOutcome::SystemError(s) => s.clone(),
                                 brioche_core::ToolOutcome::TimeoutWithPartialData {
                                     partial_output,
-                                } => partial_output.clone().unwrap_or_default(),
+                                } => {
+                                    let fallback = Default::default();
+                                    match partial_output.clone() {
+                                        Some(v) => v,
+                                        None => fallback,
+                                    }
+                                }
                                 _ => String::new(),
                             };
                             PendingTaskStatus::Completed(msg)

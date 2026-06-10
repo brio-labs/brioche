@@ -12,6 +12,9 @@ use brioche_core::{
 };
 
 /// Detected tool call counter.
+///
+/// ## Snapshot strategy
+/// COW: full clone (~16 bytes). Two scalar fields.
 #[derive(
     Clone,
     Debug,

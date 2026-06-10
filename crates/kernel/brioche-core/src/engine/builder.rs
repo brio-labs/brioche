@@ -11,12 +11,30 @@ use crate::{
 
 /// Type-state marker: mandatory trait not yet injected.
 ///
-/// Refs: SPECS
+/// Used by `BriocheEngineBuilder` to enforce at compile time that
+/// `DecisionAggregator` and `SubRoutineLifecycleGuard` are present
+/// before `build()` can be called.
+///
+/// # Complexity
+/// O(1). Zero-sized type.
+///
+/// # Panics
+/// Never panics.
+///
+/// Refs: I-Core-BuilderTypeState
 pub struct Missing;
 
 /// Type-state marker: mandatory trait injected.
 ///
-/// Refs: SPECS
+/// See `Missing` for rationale.
+///
+/// # Complexity
+/// O(1). Zero-sized type.
+///
+/// # Panics
+/// Never panics.
+///
+/// Refs: I-Core-BuilderTypeState
 pub struct Present;
 
 /// Builder for `BriocheEngine`.
@@ -25,7 +43,13 @@ pub struct Present;
 /// (`DecisionAggregator`, `SubRoutineLifecycleGuard`) at **compile time**.
 /// Calling `build()` before both traits are injected is a compile error.
 ///
-/// Refs: SPECS
+/// # Complexity
+/// O(1) per setter. O(p log p) at `build()` time where p = number of plugins.
+///
+/// # Panics
+/// Never panics.
+///
+/// Refs: I-Core-BuilderTypeState, I-Gov-Decision-Required, I-Gov-SubRoutineLifecycle-Guard
 pub struct BriocheEngineBuilder<DA = Missing, LG = Missing> {
     plugins: Vec<Box<dyn BriochePlugin>>,
     epoch_interceptor: Option<Box<dyn EpochInterceptor>>,
@@ -43,7 +67,13 @@ pub struct BriocheEngineBuilder<DA = Missing, LG = Missing> {
 impl Default for BriocheEngineBuilder<Missing, Missing> {
     /// Default builder in the `Missing, Missing` state.
     ///
-    /// Refs: SPECS
+    /// # Complexity
+    /// O(1). Delegates to `new()`.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Core-BuilderTypeState
     fn default() -> Self {
         Self::new()
     }
@@ -52,7 +82,13 @@ impl Default for BriocheEngineBuilder<Missing, Missing> {
 impl BriocheEngineBuilder<Missing, Missing> {
     /// Create a new builder with no plugins or governance traits.
     ///
-    /// Refs: SPECS
+    /// # Complexity
+    /// O(1). Allocates empty vectors.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Core-BuilderTypeState
     pub fn new() -> Self {
         Self {
             plugins: Vec::new(),
@@ -91,6 +127,12 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
     ///
     /// Plugins are sorted by `(priority, name)` at `build()` time.
     ///
+    /// # Complexity
+    /// O(1). One `Vec` push.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
     /// Refs: I-Core-PluginOrder
     pub fn with_plugin(mut self, plugin: Box<dyn BriochePlugin>) -> Self {
         self.plugins.push(plugin);
@@ -98,6 +140,12 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
     }
 
     /// Inject an `EpochInterceptor`.
+    ///
+    /// # Complexity
+    /// O(1). One `Option` assignment.
+    ///
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Comp-Epoch-First
     pub fn with_epoch_interceptor(mut self, interceptor: Box<dyn EpochInterceptor>) -> Self {
@@ -107,6 +155,12 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
 
     /// Inject a `SubRoutineHandler`.
     ///
+    /// # Complexity
+    /// O(1). One `Option` assignment.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
     /// Refs: I-Comp-Epoch-Subroutine
     pub fn with_subroutine_handler(mut self, handler: Box<dyn SubRoutineHandler>) -> Self {
         self.subroutine_handler = Some(handler);
@@ -115,6 +169,12 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
 
     /// Inject a `ConsistencyVerifier`.
     ///
+    /// # Complexity
+    /// O(1). One `Option` assignment.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
     /// Refs: I-Gov-Rebuild-Barrier
     pub fn with_consistency_verifier(mut self, verifier: Box<dyn ConsistencyVerifier>) -> Self {
         self.consistency_verifier = Some(verifier);
@@ -122,6 +182,12 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
     }
 
     /// Inject a `HookEffectConstraint`.
+    ///
+    /// # Complexity
+    /// O(1). One `Option` assignment.
+    ///
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Core-HookEffect-O1
     pub fn with_hook_effect_constraint(
@@ -134,6 +200,12 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
 
     /// Inject a `CycleRollbackPolicy`.
     ///
+    /// # Complexity
+    /// O(1). One `Option` assignment.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
     /// Refs: I-Gov-Rollback-BestEffort
     pub fn with_cycle_rollback_policy(mut self, policy: Box<dyn CycleRollbackPolicy>) -> Self {
         self.cycle_rollback_policy = Some(policy);
@@ -141,6 +213,12 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
     }
 
     /// Inject a `GovernanceFailoverHandler`.
+    ///
+    /// # Complexity
+    /// O(1). One `Option` assignment.
+    ///
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Gov-Failover
     pub fn with_governance_failover_handler(
@@ -157,6 +235,12 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
     /// This is a mechanical safeguard, not a policy decision. The kernel
     /// applies this value during `seal()` when no plugin has set a timeout.
     ///
+    /// # Complexity
+    /// O(1). Scalar assignment.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
     /// Refs: I-Core-ActiveToolCall
     pub fn with_default_tool_timeout_ms(mut self, timeout_ms: u64) -> Self {
         self.default_tool_timeout_ms = timeout_ms;
@@ -168,6 +252,12 @@ impl<LG> BriocheEngineBuilder<Missing, LG> {
     /// Inject a `DecisionAggregator` (mandatory).
     ///
     /// Transitions the builder type from `Missing` to `Present`.
+    ///
+    /// # Complexity
+    /// O(1). One `Option` assignment plus type-state marker change.
+    ///
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Gov-Decision-Required
     pub fn with_decision_aggregator(
@@ -182,6 +272,12 @@ impl<LG> BriocheEngineBuilder<Missing, LG> {
 impl<LG> BriocheEngineBuilder<Present, LG> {
     /// Override the `DecisionAggregator`.
     ///
+    /// # Complexity
+    /// O(1). One `Option` assignment.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
     /// Refs: I-Gov-Decision-Required
     pub fn with_decision_aggregator(mut self, aggregator: Box<dyn DecisionAggregator>) -> Self {
         self.decision_aggregator = Some(aggregator);
@@ -193,6 +289,12 @@ impl<DA> BriocheEngineBuilder<DA, Missing> {
     /// Inject a `SubRoutineLifecycleGuard` (mandatory).
     ///
     /// Transitions the builder type from `Missing` to `Present`.
+    ///
+    /// # Complexity
+    /// O(1). One `Option` assignment plus type-state marker change.
+    ///
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Gov-SubRoutineLifecycle-Guard
     pub fn with_subroutine_lifecycle_guard(
@@ -206,6 +308,12 @@ impl<DA> BriocheEngineBuilder<DA, Missing> {
 
 impl<DA> BriocheEngineBuilder<DA, Present> {
     /// Override the `SubRoutineLifecycleGuard`.
+    ///
+    /// # Complexity
+    /// O(1). One `Option` assignment.
+    ///
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Gov-SubRoutineLifecycle-Guard
     pub fn with_subroutine_lifecycle_guard(
@@ -223,7 +331,13 @@ impl BriocheEngineBuilder<Present, Present> {
     /// Both mandatory traits are guaranteed present by the type system.
     /// This method never fails.
     ///
-    /// Refs: SPECS
+    /// # Complexity
+    /// O(p log p) where p = number of plugins. One-time cost at engine creation.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Core-BuilderTypeState, I-Gov-Decision-Required, I-Gov-SubRoutineLifecycle-Guard
     pub fn build(self) -> BriocheEngine {
         let routing_table = UnifiedRoutingTable::from_plugins(&self.plugins);
 

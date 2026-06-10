@@ -97,7 +97,10 @@ impl BriochePlugin for ToolTimeoutPolicy {
         state.max_timeout_ms = self.max_timeout_ms;
 
         for call in calls {
-            let mut timeout = call.timeout_ms.unwrap_or(self.default_timeout_ms);
+            let mut timeout = match call.timeout_ms {
+                Some(t) => t,
+                None => self.default_timeout_ms,
+            };
 
             if self.max_timeout_ms > 0 && timeout > self.max_timeout_ms {
                 timeout = self.max_timeout_ms;
