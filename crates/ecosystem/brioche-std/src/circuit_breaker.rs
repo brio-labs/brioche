@@ -75,6 +75,9 @@ impl BriochePlugin for CircuitBreaker {
     /// # Complexity
     /// O(h) where h = history length. One linear scan.
     ///
+    /// # Panics
+    /// Never panics. All indexing is guarded by length checks.
+    ///
     /// Refs: I-Eco-ExtensionOverMod
     fn before_prediction(
         &self,
@@ -102,9 +105,11 @@ impl BriochePlugin for CircuitBreaker {
         }
 
         // Count consecutive identical signatures from the end.
+        // `signatures` is guaranteed non-empty due to the guard above.
         let fallback = Default::default();
         let last = match signatures.last().cloned() {
             Some(v) => v,
+            // Defensive fallback; this arm is unreachable after the is_empty guard.
             None => fallback,
         };
         let mut consecutive = 1u64;

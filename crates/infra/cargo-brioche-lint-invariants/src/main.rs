@@ -1,4 +1,4 @@
-//! `cargo-brioche-lint-invariants` — invariant reference checker.
+//! `cargo-brioche-lint-invariants` — invariant reference checker — Book V.
 //!
 //! Scans Rust source files for `Refs:` documentation patterns and
 //! validates them against the canonical invariant registry.
@@ -9,7 +9,7 @@
 //! cargo brioche-lint-invariants --check-matrix --json
 //! ```
 //!
-//! Refs: SPECS.md §Book V
+//! Refs: SPECS.md §Book IV Ch 3 §3.4
 
 use std::fs;
 use std::path::PathBuf;
@@ -40,16 +40,22 @@ const KNOWN_CATEGORIES: &[&str] = &[
 const KNOWN_CANONICAL_REFS: &[&str] = &["SPECS", "SCIFI"];
 
 /// Returns true if `inv` starts with any of the known category prefixes.
+///
+/// Refs: SPECS.md §Book IV Ch 3 §3.4
 fn has_known_category(inv: &str) -> bool {
     KNOWN_CATEGORIES.iter().any(|cat| inv.starts_with(*cat))
 }
 
 /// Returns true if `inv` is a known canonical non-invariant reference.
+///
+/// Refs: SPECS.md §Book IV Ch 3 §3.4
 fn is_known_canonical_ref(inv: &str) -> bool {
     KNOWN_CANONICAL_REFS.contains(&inv)
 }
 
 /// CLI arguments.
+///
+/// Refs: SPECS.md §Book IV Ch 3 §3.4
 #[derive(Parser)]
 #[command(name = "cargo-brioche-lint-invariants")]
 #[command(about = "Check Brioche invariant references in source code")]
@@ -66,6 +72,9 @@ struct Cli {
     format: String,
 }
 
+/// Subcommands.
+///
+/// Refs: SPECS.md §Book IV Ch 3 §3.4
 #[derive(Subcommand)]
 enum Commands {
     /// Check that all `Refs:` entries match known invariant patterns.
@@ -75,6 +84,8 @@ enum Commands {
 }
 
 /// A single invariant reference found in source.
+///
+/// Refs: SPECS.md §Book IV Ch 3 §3.4
 #[derive(Debug, serde::Serialize)]
 struct RefEntry {
     file: String,
@@ -84,6 +95,8 @@ struct RefEntry {
 }
 
 /// Lint result for a single file.
+///
+/// Refs: SPECS.md §Book IV Ch 3 §3.4
 #[derive(Debug, serde::Serialize)]
 struct FileResult {
     file: String,
@@ -91,6 +104,9 @@ struct FileResult {
     unknown_refs: Vec<String>,
 }
 
+/// Entry point.
+///
+/// Refs: SPECS.md §Book IV Ch 3 §3.4
 fn main() {
     let cli = Cli::parse();
     let root = match cli.root {
@@ -117,6 +133,11 @@ fn main() {
 }
 
 /// Scan source files for `Refs:` patterns.
+///
+/// # Complexity
+/// O(n · m) where n = files scanned, m = lines per file.
+///
+/// Refs: SPECS.md §Book IV Ch 3 §3.4
 fn check_refs(root: &PathBuf) -> Vec<FileResult> {
     let ref_re = match Regex::new(r"Refs:\s*([A-Za-z0-9_-]+(?:\s*,\s*[A-Za-z0-9_-]+)*)") {
         Ok(re) => re,
@@ -195,6 +216,9 @@ fn check_refs(root: &PathBuf) -> Vec<FileResult> {
     results
 }
 
+/// Print results as human-readable text.
+///
+/// Refs: SPECS.md §Book IV Ch 3 §3.4
 fn print_text(results: &[FileResult]) {
     let total_refs: usize = results.iter().map(|r| r.refs.len()).sum();
     let total_unknown: usize = results.iter().map(|r| r.unknown_refs.len()).sum();
@@ -218,6 +242,9 @@ fn print_text(results: &[FileResult]) {
     }
 }
 
+/// Print results as JSON.
+///
+/// Refs: SPECS.md §Book IV Ch 3 §3.4
 fn print_json(results: &[FileResult]) {
     let json = match serde_json::to_string_pretty(results) {
         Ok(j) => j,

@@ -1,4 +1,4 @@
-//! Blocking REPL thread (reedline).
+//! Blocking REPL thread (reedline) — Book III §3.1.
 //!
 //! This module runs in `tokio::task::spawn_blocking`. It reads user
 //! lines and forwards them via an `mpsc::Sender<String>` to an async
@@ -6,6 +6,9 @@
 //!
 //! Uses `reedline::ExternalPrinter` to allow the async bridge to
 //! display messages without corrupting the reedline prompt.
+//!
+//! ## Invariants upheld
+//! - I-Shell-Runtime-OnlyIO: All I/O is terminal-only; no Core state mutation.
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
@@ -20,6 +23,8 @@ use tokio_util::sync::CancellationToken;
 ///
 /// Completes slash commands (`/help`, `/quit`, `/session`…) and
 /// file paths.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 pub struct BasicCompleter;
 
 impl BasicCompleter {
@@ -118,6 +123,14 @@ impl Completer for BasicCompleter {
 ///
 /// `history_path` is optional — if provided, reedline history
 /// will be persisted to this file.
+///
+/// # Complexity
+/// O(1) per iteration. Blocking on `reedline.read_line`.
+///
+/// # Panics
+/// Never panics. All fallible operations use graceful fallbacks.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 pub fn run(
     input_tx: tokio::sync::mpsc::Sender<String>,
     printer: ExternalPrinter<String>,

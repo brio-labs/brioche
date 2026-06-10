@@ -1,4 +1,4 @@
-//! # Brioche Reedline
+//! # Brioche Reedline — Book III
 //!
 //! Shared terminal infrastructure for Brioche agents.
 //!
@@ -9,6 +9,12 @@
 //!
 //! Agent-specific orchestration (bridge, shell building, slash commands)
 //! lives in each agent crate.
+//!
+//! ## Invariants upheld
+//! - I-Shell-Runtime-OnlyIO: This crate performs I/O only; no kernel logic.
+//! - I-Shell-Projection-Independent: UI rendering is independent of Core state.
+//!
+//! Refs: I-Shell-Runtime-OnlyIO
 
 pub mod repl;
 pub mod session;
