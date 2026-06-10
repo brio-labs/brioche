@@ -75,6 +75,9 @@ impl BriochePlugin for ContextOptimizer {
     /// # Complexity
     /// O(1). Only checks history length.
     ///
+    /// # Panics
+    /// Never panics. No indexing or allocation on the hot path.
+    ///
     /// Refs: I-Eco-ExtensionOverMod
     fn before_prediction(
         &self,

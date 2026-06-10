@@ -3,7 +3,7 @@
 //! Provides a fluent API for constructing engines with plugins and
 //! governance traits, suitable for both production and test code.
 //!
-//! Refs: SPECS.md §Book IV
+//! Refs: SPECS.md §Book IV Ch 3 §3.2
 
 use brioche_core::{
     BriocheEngine, BriocheEngineBuilder, BriochePlugin, ConsistencyVerifier, CycleRollbackPolicy,
@@ -40,6 +40,8 @@ impl PluginBuilder {
     ///
     /// This is the recommended starting point for most use cases.
     /// It injects all mandatory traits and sensible defaults.
+    ///
+    /// Refs: I-Gov-Profile-Agnostic
     pub fn standard() -> Self {
         let builder = BriocheEngineBuilder::new();
         let builder = GovernanceProfile::Standard.apply(builder);
@@ -50,6 +52,8 @@ impl PluginBuilder {
     ///
     /// Use for development, testing, and rapid prototyping.
     /// Minimal policy constraints; all optional traits are no-ops.
+    ///
+    /// Refs: I-Gov-Profile-Agnostic
     pub fn permissive() -> Self {
         let builder = BriocheEngineBuilder::new();
         let builder = GovernanceProfile::Permissive.apply(builder);
@@ -60,6 +64,8 @@ impl PluginBuilder {
     ///
     /// Use for production deployments requiring maximum safety.
     /// All optional traits are active with conservative thresholds.
+    ///
+    /// Refs: I-Gov-Profile-Agnostic
     pub fn strict() -> Self {
         let builder = BriocheEngineBuilder::new();
         let builder = GovernanceProfile::Strict.apply(builder);
@@ -67,42 +73,56 @@ impl PluginBuilder {
     }
 
     /// Add a plugin to the engine.
+    ///
+    /// Refs: I-Eco-ExtensionOverMod
     pub fn with_plugin(mut self, plugin: Box<dyn BriochePlugin>) -> Self {
         self.inner = self.inner.with_plugin(plugin);
         self
     }
 
     /// Set the default tool timeout in milliseconds.
+    ///
+    /// Refs: I-Eco-ExtensionOverMod
     pub fn with_default_tool_timeout_ms(mut self, timeout_ms: u64) -> Self {
         self.inner = self.inner.with_default_tool_timeout_ms(timeout_ms);
         self
     }
 
     /// Override the `EpochInterceptor`.
+    ///
+    /// Refs: I-Gov-Profile-Agnostic
     pub fn with_epoch_interceptor(mut self, interceptor: Box<dyn EpochInterceptor>) -> Self {
         self.inner = self.inner.with_epoch_interceptor(interceptor);
         self
     }
 
     /// Override the `SubRoutineHandler`.
+    ///
+    /// Refs: I-Gov-Profile-Agnostic
     pub fn with_subroutine_handler(mut self, handler: Box<dyn SubRoutineHandler>) -> Self {
         self.inner = self.inner.with_subroutine_handler(handler);
         self
     }
 
     /// Override the `ConsistencyVerifier`.
+    ///
+    /// Refs: I-Gov-Profile-Agnostic
     pub fn with_consistency_verifier(mut self, verifier: Box<dyn ConsistencyVerifier>) -> Self {
         self.inner = self.inner.with_consistency_verifier(verifier);
         self
     }
 
     /// Override the `DecisionAggregator`.
+    ///
+    /// Refs: I-Gov-Profile-Agnostic
     pub fn with_decision_aggregator(mut self, aggregator: Box<dyn DecisionAggregator>) -> Self {
         self.inner = self.inner.with_decision_aggregator(aggregator);
         self
     }
 
     /// Override the `HookEffectConstraint`.
+    ///
+    /// Refs: I-Gov-Profile-Agnostic
     pub fn with_hook_effect_constraint(
         mut self,
         constraint: Box<dyn HookEffectConstraint>,
@@ -112,12 +132,16 @@ impl PluginBuilder {
     }
 
     /// Override the `CycleRollbackPolicy`.
+    ///
+    /// Refs: I-Gov-Profile-Agnostic
     pub fn with_cycle_rollback_policy(mut self, policy: Box<dyn CycleRollbackPolicy>) -> Self {
         self.inner = self.inner.with_cycle_rollback_policy(policy);
         self
     }
 
     /// Override the `SubRoutineLifecycleGuard`.
+    ///
+    /// Refs: I-Gov-Profile-Agnostic
     pub fn with_subroutine_lifecycle_guard(
         mut self,
         guard: Box<dyn SubRoutineLifecycleGuard>,
@@ -127,6 +151,8 @@ impl PluginBuilder {
     }
 
     /// Override the `GovernanceFailoverHandler`.
+    ///
+    /// Refs: I-Gov-Profile-Agnostic
     pub fn with_governance_failover_handler(
         mut self,
         handler: Box<dyn GovernanceFailoverHandler>,
@@ -136,6 +162,12 @@ impl PluginBuilder {
     }
 
     /// Build the `BriocheEngine`.
+    ///
+    /// # Panics
+    /// Never panics. Mandatory traits are enforced at compile time via
+    /// the `Present` type state.
+    ///
+    /// Refs: I-Gov-Profile-Agnostic
     pub fn build(self) -> BriocheEngine {
         self.inner.build()
     }
@@ -143,6 +175,11 @@ impl PluginBuilder {
     /// Build the engine and create a new `Session` in one step.
     ///
     /// Returns `(engine, session)` ready for `transition()` calls.
+    ///
+    /// # Panics
+    /// Never panics. Delegates to `build()` and `Session::new`.
+    ///
+    /// Refs: I-Gov-Profile-Agnostic
     pub fn build_with_session(self, session_id: impl Into<String>) -> (BriocheEngine, Session) {
         let engine = self.build();
         let session = Session::new(session_id);

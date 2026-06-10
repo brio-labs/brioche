@@ -1,4 +1,4 @@
-//! `cargo-brioche-lint` — plugin linter.
+//! `cargo-brioche-lint` — plugin linter — Book V.
 //!
 //! Detects forbidden patterns in Brioche plugin code:
 //! - Direct `session.history` or `session.state` field access.
@@ -10,7 +10,7 @@
 //! cargo brioche-lint --path crates/my-plugin
 //! ```
 //!
-//! Refs: SPECS.md §Book V
+//! Refs: SPECS.md §Book IV Ch 3 §3.5
 
 use std::fs;
 use std::path::PathBuf;
@@ -19,6 +19,8 @@ use clap::Parser;
 use walkdir::WalkDir;
 
 /// CLI arguments.
+///
+/// Refs: SPECS.md §Book IV Ch 3 §3.5
 #[derive(Parser)]
 #[command(name = "cargo-brioche-lint")]
 #[command(about = "Lint Brioche plugins for forbidden patterns")]
@@ -29,6 +31,8 @@ struct Cli {
 }
 
 /// A single lint violation.
+///
+/// Refs: SPECS.md §Book IV Ch 3 §3.5
 #[derive(Debug)]
 struct Violation {
     file: String,
@@ -36,6 +40,9 @@ struct Violation {
     message: String,
 }
 
+/// Entry point.
+///
+/// Refs: SPECS.md §Book IV Ch 3 §3.5
 fn main() {
     let cli = Cli::parse();
     let violations = lint_directory(&cli.path);
@@ -52,6 +59,12 @@ fn main() {
     std::process::exit(1);
 }
 
+/// Scan a directory for lint violations.
+///
+/// # Complexity
+/// O(n · m) where n = files scanned, m = lines per file.
+///
+/// Refs: SPECS.md §Book IV Ch 3 §3.5
 fn lint_directory(root: &PathBuf) -> Vec<Violation> {
     let mut violations = Vec::new();
 
@@ -79,6 +92,12 @@ fn lint_directory(root: &PathBuf) -> Vec<Violation> {
     violations
 }
 
+/// Lint a single file's contents.
+///
+/// # Complexity
+/// O(m) where m = lines in file.
+///
+/// Refs: SPECS.md §Book IV Ch 3 §3.5
 fn lint_file_contents(path: &std::path::Path, contents: &str, violations: &mut Vec<Violation>) {
     let file = path.display().to_string();
 
