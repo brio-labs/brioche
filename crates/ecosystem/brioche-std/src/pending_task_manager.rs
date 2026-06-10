@@ -13,10 +13,15 @@ use brioche_core::{
     PluginResult, PolicyDecision, SignalBuffer, ToolResultDTO,
 };
 
+/// Marker string that a tool result must contain to be treated as pending.
+const PENDING_MARKER: &str = "__PENDING__";
+
 /// Information about a pending task.
 ///
 /// ## Snapshot strategy
 /// COW: full clone (~64 bytes). Two `String` fields plus one enum.
+///
+/// Refs: I-Eco-OrderedCollections
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PendingTaskInfo {
     /// Identifier of the pending task.
@@ -28,6 +33,8 @@ pub struct PendingTaskInfo {
 }
 
 /// Status of a pending task.
+///
+/// Refs: I-Eco-OrderedCollections
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum PendingTaskStatus {
     /// Task is queued but not yet started.
@@ -100,8 +107,11 @@ impl BriochePlugin for PendingTaskManager {
 
     /// Inspects tool results for pending task indicators.
     ///
-    /// If a result contains the string `"__PENDING__"`, it is treated as
+    /// If a result contains `PENDING_MARKER` (`"__PENDING__"`), it is treated as
     /// a long-running task handle and stored for later status checks.
+    ///
+    /// # Panics
+    /// Never panics. No indexing or conditional allocation.
     ///
     /// Refs: I-Eco-ExtensionOverMod
     fn on_tool_result(
@@ -114,7 +124,7 @@ impl BriochePlugin for PendingTaskManager {
 
         for result in results {
             if let brioche_core::ToolOutcome::Success(content) = &result.outcome
-                && content.contains("__PENDING__")
+                && content.contains(PENDING_MARKER)
             {
                 let info = PendingTaskInfo {
                     task_id: result.tool_id.clone(),
@@ -132,6 +142,9 @@ impl BriochePlugin for PendingTaskManager {
     ///
     /// The shell drains `AsyncTaskResult::ToolStatusCheck` events into
     /// `ExtensionStorage` as `SignalBuffer` before each transition.
+    ///
+    /// # Panics
+    /// Never panics. All collection access is via safe `BTreeMap` APIs.
     ///
     /// Refs: I-Eco-ExtensionOverMod
     fn on_input(
@@ -157,11 +170,8 @@ impl BriochePlugin for PendingTaskManager {
                                 brioche_core::ToolOutcome::TimeoutWithPartialData {
                                     partial_output,
                                 } => {
-                                    let fallback = Default::default();
-                                    match partial_output.clone() {
-                                        Some(v) => v,
-                                        None => fallback,
-                                    }
+                                    let out = partial_output.clone();
+                                    out.map_or(String::new(), |v| v)
                                 }
                                 _ => String::new(),
                             };

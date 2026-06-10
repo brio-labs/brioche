@@ -7,4 +7,4 @@
 //! - Playground server and web UI.
 //! - Quick-start templates for plugin development.
 //!
-//! Refs: SPECS.md §Book V
+//! Refs: SPECS.md §Book IV Ch 3 §3.1

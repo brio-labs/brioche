@@ -9,7 +9,7 @@
 //! brioche-docgen sequence-diagram --input EngineInput --output docs/
 //! ```
 //!
-//! Refs: SPECS.md §Book V
+//! Refs: SPECS.md §Book IV Ch 3 §3.3
 
 use std::fs;
 use std::io::Write;

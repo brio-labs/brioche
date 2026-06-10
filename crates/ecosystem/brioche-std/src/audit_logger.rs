@@ -12,6 +12,9 @@ use brioche_core::{
 };
 
 /// Single audit log entry.
+///
+/// # Invariants
+/// - Refs: I-Eco-OrderedCollections: Sequence numbers are monotonic.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AuditEntry {
     /// Sequence number (monotonically increasing).
@@ -87,6 +90,10 @@ impl BriochePlugin for AuditLogger {
     /// # Complexity
     /// O(1) amortized. One JSON serialization + optional Vec push.
     ///
+    /// # Panics
+    /// Never panics. JSON serialization of `EngineInput` is infallible for
+    /// all domain variants; the error branch is defensive only.
+    ///
     /// Refs: I-Eco-ExtensionOverMod
     fn on_input(
         &self,
@@ -117,11 +124,8 @@ impl BriochePlugin for AuditLogger {
         state.pending.push(entry);
 
         if state.pending.len() >= self.batch_size {
-            let fallback = Default::default();
-            let blob = match brioche_core::postcard::to_allocvec(&state.pending) {
-                Ok(v) => v,
-                Err(_) => fallback,
-            };
+            let result = brioche_core::postcard::to_allocvec(&state.pending);
+            let blob = result.map_or(Vec::new(), |v| v);
             state.pending.clear();
             return Ok(PolicyDecision::RequestEffect(Effect::SavePluginBlob {
                 plugin_id: "audit_logger".into(),

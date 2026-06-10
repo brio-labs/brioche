@@ -36,44 +36,64 @@ impl MockEngine {
     /// Create a new `MockEngine` with the `Permissive` profile.
     ///
     /// The session id is `"test"`.
+    ///
+    /// Refs: I-Eco-ExtensionOverMod
     pub fn new() -> Self {
         let (engine, session) = PluginBuilder::permissive().build_with_session("test");
         Self { engine, session }
     }
 
     /// Create a new `MockEngine` with the `Standard` profile.
+    ///
+    /// Refs: I-Eco-ExtensionOverMod
     pub fn standard() -> Self {
         let (engine, session) = PluginBuilder::standard().build_with_session("test");
         Self { engine, session }
     }
 
     /// Create a new `MockEngine` with the `Strict` profile.
+    ///
+    /// Refs: I-Eco-ExtensionOverMod
     pub fn strict() -> Self {
         let (engine, session) = PluginBuilder::strict().build_with_session("test");
         Self { engine, session }
     }
 
     /// Execute one transition cycle.
+    ///
+    /// # Panics
+    /// Never panics under normal operation. A panic indicates a bug in
+    /// `brioche-core` (violating I-Core-NoPanic).
+    ///
+    /// Refs: I-Eco-ExtensionOverMod
     pub fn transition(&mut self, input: EngineInput) -> Vec<Effect> {
         self.engine.transition(&mut self.session, &input)
     }
 
     /// Mutable access to the underlying engine.
+    ///
+    /// Refs: I-Eco-ExtensionOverMod
     pub fn engine(&mut self) -> &mut BriocheEngine {
         &mut self.engine
     }
 
     /// Mutable access to the session.
+    ///
+    /// Refs: I-Eco-ExtensionOverMod
     pub fn session(&mut self) -> &mut Session {
         &mut self.session
     }
 
     /// Immutable access to the session.
+    ///
+    /// Refs: I-Eco-ExtensionOverMod
     pub fn session_ref(&self) -> &Session {
         &self.session
     }
 
     /// Consume the mock, returning the engine and session.
+    ///
+    /// Refs: I-Eco-ExtensionOverMod
     pub fn into_parts(self) -> (BriocheEngine, Session) {
         (self.engine, self.session)
     }

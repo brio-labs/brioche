@@ -8,7 +8,7 @@
 //! brioche-playground
 //! ```
 //!
-//! Refs: SPECS.md §Book V
+//! Refs: SPECS.md §Book IV Ch 3 §3.1
 
 use brioche_core::{
     ChatMessage, EngineInput, PluginCapabilities, PluginError, PluginResult, PolicyDecision,
@@ -17,6 +17,8 @@ use brioche_plugin_kit::{BriochePlugin, PluginBuilder};
 
 /// A mock plugin that intercepts `CallLlmNetwork` and injects a fake
 /// assistant response, enabling end-to-end testing without a real LLM.
+///
+/// Refs: I-Eco-ExtensionOverMod
 pub struct MockLlmBackend;
 
 impl BriochePlugin for MockLlmBackend {
@@ -34,6 +36,8 @@ impl BriochePlugin for MockLlmBackend {
 }
 
 /// A passive observer plugin that logs every effect to stdout.
+///
+/// Refs: I-Eco-ExtensionOverMod
 pub struct EffectLogger;
 
 impl BriochePlugin for EffectLogger {

@@ -1,8 +1,12 @@
-//! Terminal rendering primitives for LLM output.
+//! Terminal rendering primitives for LLM output — Book III §3.3.
 //!
 //! Renders the LLM response **as a single block** when the stream is
 //! complete (no per-character streaming). This avoids reedline
 //! redraw artefacts.
+//!
+//! ## Invariants upheld
+//! - I-Shell-Projection-Independent: UI rendering is independent of Core state.
+//! - I-Shell-Runtime-OnlyIO: All operations are terminal-side; no Core mutation.
 //!
 //! Refs: I-Shell-Projection-Independent
 
@@ -67,6 +71,8 @@ fn render_block(text: &str) -> String {
 ///
 /// When `show` is false the buffer is silently discarded — reasoning
 /// is still preserved in the history mirror, just not displayed.
+///
+/// Refs: I-Shell-Projection-Independent
 struct ReasoningBuffer {
     buffer: String,
     show: bool,
@@ -102,9 +108,24 @@ impl ReasoningBuffer {
     }
 }
 
+/// Wake reedline by sending `SIGWINCH` to the current process.
+///
+/// Reedline redraws on window-size changes. Sending `SIGWINCH`
+/// forces a prompt refresh so that `ExternalPrinter` output is
+/// immediately visible.
+///
+/// # Safety
+/// `libc::kill(getpid(), SIGWINCH)` is safe because:
+/// - `std::process::id()` always returns a valid PID.
+/// - `SIGWINCH` is a non-fatal signal (window resize).
+/// - The signal is sent to the current process only.
+///
+/// Refs: I-Shell-Projection-Independent
 fn wake_reedline() {
     #[cfg(unix)]
     {
+        // SAFETY: SIGWINCH is non-fatal and sent to the current process only.
+        // See function-level `# Safety` documentation.
         unsafe {
             libc::kill(std::process::id() as i32, libc::SIGWINCH);
         }
@@ -123,6 +144,11 @@ const BOX_WIDTH: usize = 50;
 
 /// Wrap a line at a maximum display width, breaking on word boundaries
 /// when possible. Returns the wrapped segments.
+///
+/// # Complexity
+/// O(n) where n = line length in chars.
+///
+/// Refs: I-Shell-Projection-Independent
 fn wrap_line(line: &str, max_width: usize) -> Vec<String> {
     if line.chars().count() <= max_width {
         return vec![line.to_string()];
@@ -179,6 +205,11 @@ fn wrap_line(line: &str, max_width: usize) -> Vec<String> {
 /// │  pending…              │
 /// ╰────────────────────────╯
 /// ```
+///
+/// # Complexity
+/// O(n) where n = content length.
+///
+/// Refs: I-Shell-Projection-Independent
 fn box_lines(label: &str, content: &str) -> Vec<String> {
     let label_chars = label.chars().count();
     let content_max = content
@@ -232,6 +263,11 @@ fn box_lines(label: &str, content: &str) -> Vec<String> {
 /// Draw a compact error block with optional suggestion.
 ///
 /// Lines are wrapped to fit the terminal so borders stay intact.
+///
+/// # Complexity
+/// O(n) where n = message length.
+///
+/// Refs: I-Shell-Projection-Independent
 fn error_lines(
     code: &str,
     message: &str,
@@ -309,6 +345,10 @@ fn error_lines(
 }
 
 /// Print the accumulated response block and clear the buffer.
+///
+/// Print failures are silently dropped — the terminal is best-effort.
+///
+/// Refs: I-Shell-Projection-Independent
 fn print_response_block(printer: &ExternalPrinter<String>, buffer: &mut String) {
     if !buffer.is_empty() {
         let _ = printer.print(render_block(buffer));
@@ -318,6 +358,8 @@ fn print_response_block(printer: &ExternalPrinter<String>, buffer: &mut String) 
 }
 
 /// Truncate long tool output to a 10-line preview.
+///
+/// Refs: I-Shell-Projection-Independent
 fn truncate_output(output: &str) -> String {
     let trimmed = output.trim();
     if trimmed.lines().count() > 10 {
@@ -330,6 +372,11 @@ fn truncate_output(output: &str) -> String {
 /// Parse a structured or raw error and render it as error lines.
 ///
 /// Returns a vector of pre-formatted strings ready for the printer.
+///
+/// # Complexity
+/// O(n) where n = error string length.
+///
+/// Refs: I-Shell-Projection-Independent
 fn render_error_block(error: &str) -> Vec<String> {
     let (code, message, source, recoverable, suggestion) =
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(error) {
@@ -374,6 +421,16 @@ fn render_error_block(error: &str) -> Vec<String> {
 ///
 /// Responses are rendered as a single block (no per-character
 /// streaming) to avoid reedline redraw artefacts.
+///
+/// Reasoning visibility is controlled by the `BRIOCHE_SHOW_REASONING`
+/// environment variable. This is shell-side configuration only; it does
+/// not affect Core determinism.
+///
+/// # Complexity
+/// O(n) per chunk where n = chunk content length.
+///
+/// # Panics
+/// Never panics. All fallible operations use best-effort fallbacks.
 ///
 /// Refs: I-Shell-Projection-Independent
 pub async fn run(
