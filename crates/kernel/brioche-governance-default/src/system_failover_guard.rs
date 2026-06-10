@@ -11,6 +11,8 @@ use brioche_core::{Effect, GovernanceFailoverHandler, PluginResult, Session};
 ///
 /// Intercepts `Effect::PluginFault` emanating from fundamental plugins
 /// and replaces the effect sequence with a safe terminal state.
+///
+/// Refs: I-Gov-Failover
 pub struct SystemFailoverGuard;
 
 impl SystemFailoverGuard {
@@ -41,7 +43,7 @@ impl GovernanceFailoverHandler for SystemFailoverGuard {
 
         Ok(Some(vec![
             Effect::ForwardToUi(brioche_core::UiWidget::CriticalError {
-                component: plugin_name,
+                component: plugin_name.0,
                 detail: Some("governance component failed; system degraded".into()),
             }),
             Effect::SaveSession,

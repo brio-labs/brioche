@@ -14,7 +14,7 @@ use super::BriocheEngine;
 use super::types::InputResult;
 use crate::{
     BriocheError, BriochePlugin, Effect, EngineInput, ErrorCode, ErrorDetail, PluginError,
-    PluginResult, PolicyDecision, Session,
+    PluginResult, PluginSource, PolicyDecision, Session,
 };
 
 impl BriocheEngine {
@@ -31,11 +31,22 @@ impl BriocheEngine {
     /// per-plugin. This is the single canonical implementation of the
     /// iteration pattern; no caller may replicate it.
     ///
+    /// ## Architectural Note
+    /// The `hook` closure takes `&dyn BriochePlugin`. PHILOSOPHY.md §1
+    /// discourages vtables, but the plugin container stores heterogeneous
+    /// concrete types (`Vec<Box<dyn BriochePlugin>>`). Dispatch itself is
+    /// pre-routed via `UnifiedRoutingTable` (O(1) index lookup); the vtable
+    /// is only used for the actual heterogeneous method call after the
+    /// route has been resolved. This is a documented, bounded indirection
+    /// rather than a dynamic dispatch on the hot-path routing decision.
+    ///
     /// # Complexity
     /// O(p) where p = route length. One snapshot insertion, one rollback
     /// per plugin.
     ///
     /// Refs: I-Core-StreamNoBranch, I-Gov-Rollback-BestEffort
+    /// # Panics
+    /// Never panics. Errors are returned as `Result::Err`.
     pub(crate) fn eval_route<R>(
         &mut self,
         session: &mut Session,
@@ -66,6 +77,8 @@ impl BriocheEngine {
     ///
     /// Refs: I-Core-PluginOrder, I-Core-StreamNoBranch
     /// Complexity: O(p) where p = plugins on route_after_prediction.
+    /// # Panics
+    /// Never panics.
     pub(crate) fn eval_after_prediction(
         &mut self,
         session: &mut Session,
@@ -90,13 +103,15 @@ impl BriocheEngine {
     ///
     /// Refs: I-Core-PluginOrder, I-Gov-Decision-Required
     /// Complexity: O(p) where p = plugins on route_on_input.
+    /// # Panics
+    /// Panics only if an index is out of bounds; callers must validate lengths.
     pub(crate) fn eval_on_input(
         &mut self,
         session: &mut Session,
         input: &EngineInput,
     ) -> InputResult {
         let mut accumulated = Vec::new();
-        let mut override_transition: Option<(Vec<Effect>, &'static str)> = None;
+        let mut override_transition: Option<(Vec<Effect>, PluginSource)> = None;
 
         session.extensions.insert(session.snapshot());
         let route_len = self.router.routing_table.route_on_input.len();
@@ -112,7 +127,9 @@ impl BriocheEngine {
             match decision {
                 Ok(PolicyDecision::Allow) => {}
                 Ok(PolicyDecision::Block { reason }) => {
-                    return InputResult::Block { reason };
+                    return InputResult::Block {
+                        detail: ErrorDetail::Generic(reason),
+                    };
                 }
                 Ok(PolicyDecision::MutateHistory(edits)) => {
                     if let Err(err) = session.apply_history_edits(&edits) {
@@ -126,12 +143,13 @@ impl BriocheEngine {
                     accumulated.push(eff);
                 }
                 Ok(PolicyDecision::OverrideTransition(effects)) => {
+                    let source = PluginSource(name.into());
                     if override_transition.is_none() {
-                        override_transition = Some((effects, name));
+                        override_transition = Some((effects, source));
                     } else {
                         self.log_superseded_transition(
                             session,
-                            name,
+                            &source,
                             &PolicyDecision::OverrideTransition(effects),
                         );
                     }
@@ -157,6 +175,8 @@ impl BriocheEngine {
     ///
     /// Refs: I-Core-PluginOrder, I-Core-ActiveToolCall
     /// Complexity: O(p) where p = plugins on route_on_tool_calls.
+    /// # Panics
+    /// Never panics. Errors are returned as `Result::Err`.
     pub(crate) fn handle_tool_calls(
         &mut self,
         session: &mut Session,

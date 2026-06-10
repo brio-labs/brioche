@@ -662,13 +662,13 @@ where
             executor.save_session(&snapshot.session_id).await?;
         }
         Effect::SavePluginBlob { plugin_id, data } => {
-            executor.save_plugin_blob(&plugin_id, data).await?;
+            executor.save_plugin_blob(&plugin_id.0, data).await?;
         }
         Effect::TriggerSummarization => {
             executor.trigger_summarization(shell).await?;
         }
         Effect::ExecuteCpuTask { task_id, payload } => {
-            executor.execute_cpu_task(task_id, payload, shell).await?;
+            executor.execute_cpu_task(task_id.0, payload, shell).await?;
         }
         Effect::TriggerGc => {
             executor.trigger_gc().await?;
@@ -685,7 +685,10 @@ where
             //    OverrideTransition([RebuildRoutes, ...]).
             //
             // Refs: SPECS.md §Book III-A Ch 1.3
-            let notification = GovernanceNotification::PluginFaulted { plugin_name, error };
+            let notification = GovernanceNotification::PluginFaulted {
+                plugin_name: plugin_name.0,
+                error,
+            };
             shell.send_governance_notification(notification).await?;
         }
         Effect::RebuildRoutes => {

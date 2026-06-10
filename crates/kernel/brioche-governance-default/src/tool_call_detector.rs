@@ -33,6 +33,8 @@ pub struct ToolCallDetectorState {
 ///
 /// On `on_stream_event`, increments counters during
 /// `ToolCallStart` and `ToolCallDone` events.
+///
+/// Refs: I-Core-ActiveToolCall
 pub struct ToolCallDetector;
 
 impl ToolCallDetector {

@@ -18,6 +18,8 @@ use brioche_core::{
 ///
 /// Delegates inputs to the child `Session` and handles bubbling up when
 /// the child reaches `Idle` or `Failure`.
+///
+/// Refs: I-Comp-Epoch-Subroutine, I-Shell-Session-NoSend
 pub struct SubRoutineOrchestrator;
 
 impl SubRoutineOrchestrator {

@@ -16,8 +16,10 @@ use brioche_core::{
 ///
 /// # Algorithm
 /// 1. Increments `registry.exit_counts[handle]` (defense in depth).
-/// 2. Retire la session enfant de `SessionRegistry`.
+/// 2. Removes the child session from `SessionRegistry`.
 /// 3. Emits `Effect::SaveSession` if the removal succeeds.
+///
+/// Refs: I-Gov-SubRoutineLifecycle-Guard
 pub struct SubRoutineCleanupGuard;
 
 impl SubRoutineCleanupGuard {

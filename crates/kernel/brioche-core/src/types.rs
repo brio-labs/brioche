@@ -64,6 +64,10 @@ pub const MAX_INLINE_CHUNK: usize = 4096;
 /// Refs: I-Core-PluginOrder
 ///
 /// Refs: I-Core-AgentState
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct SubRoutineHandle(String);
 
@@ -73,6 +77,8 @@ impl SubRoutineHandle {
     /// Complexity: O(length of id). Allocates one `String`.
     ///
     /// Refs: I-Core-AgentState
+    /// # Panics
+    /// Never panics.
     pub fn new(id: impl Into<String>) -> Self {
         Self(id.into())
     }
@@ -82,8 +88,84 @@ impl SubRoutineHandle {
     /// Complexity: O(1).
     ///
     /// Refs: I-Core-AgentState
+    /// # Panics
+    /// Never panics.
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Strong identifiers
+// ---------------------------------------------------------------------------
+
+/// Strongly-typed identifier for the plugin that produced a decision,
+/// owned a blob, or faulted.
+///
+/// Replaces bare `String` plugin names in `Effect` and `InputResult` so
+/// that the compiler rejects accidental mixing with arbitrary strings or
+/// other identifiers (e.g., `TaskId`).
+///
+/// # Complexity
+/// O(1) copy of the inner `String` reference. Clones allocate.
+///
+/// # Panics
+/// Never panics.
+///
+/// Refs: I-Core-PluginOrder
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginSource(pub String);
+
+impl PluginSource {
+    /// Borrow the underlying plugin name.
+    ///
+    /// Complexity: O(1).
+    ///
+    /// Refs: I-Core-PluginOrder
+    /// # Panics
+    /// Never panics.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<&str> for PluginSource {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
+    }
+}
+
+impl From<String> for PluginSource {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+/// Strongly-typed identifier for an offloaded CPU task.
+///
+/// Replaces bare `String` task IDs in `Effect::ExecuteCpuTask` so that
+/// the compiler rejects accidental mixing with `PluginSource` or other
+/// string-like identifiers.
+///
+/// # Complexity
+/// O(1) copy of the inner `String` reference. Clones allocate.
+///
+/// # Panics
+/// Never panics.
+///
+/// Refs: I-Core-RetVecEffect
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskId(pub String);
+
+impl From<&str> for TaskId {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
+    }
+}
+
+impl From<String> for TaskId {
+    fn from(value: String) -> Self {
+        Self(value)
     }
 }
 
@@ -98,6 +180,10 @@ impl SubRoutineHandle {
 /// transitions via `OverrideTransition` if needed.
 ///
 /// Refs: I-Core-AgentState
+/// # Complexity
+/// O(1) for construction and field/variant access.
+/// # Panics
+/// Never panics.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[non_exhaustive]
 pub enum AgentState {
@@ -129,6 +215,10 @@ pub enum AgentState {
 /// `ToolResult` content is serialized JSON of a `ToolOutcome`.
 ///
 /// Refs: I-Core-Pure
+/// # Complexity
+/// O(1) for construction and field/variant access.
+/// # Panics
+/// Never panics.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ChatMessage {
@@ -193,6 +283,10 @@ pub enum ChatMessage {
 /// hook. The kernel converts these into `ActiveToolCall` via `seal()`.
 ///
 /// Refs: I-Core-ActiveToolCall
+/// # Complexity
+/// O(1) for construction and field/variant access.
+/// # Panics
+/// Never panics.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolCallDescriptor {
     /// Opaque identifier assigned by the LLM provider.
@@ -212,6 +306,10 @@ pub struct ToolCallDescriptor {
 /// by the kernel's `seal()` function after the `on_tool_calls` hook.
 ///
 /// Refs: I-Core-ActiveToolCall
+/// # Complexity
+/// O(1) for construction and field/variant access.
+/// # Panics
+/// Never panics.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ActiveToolCall {
     /// Opaque identifier assigned by the LLM provider.
@@ -236,6 +334,8 @@ pub struct ActiveToolCall {
 /// Complexity: O(1). No heap allocation.
 ///
 /// Refs: I-Core-ActiveToolCall
+/// # Panics
+/// Never panics.
 pub fn seal_single(descriptor: ToolCallDescriptor, default_timeout_ms: u64) -> ActiveToolCall {
     ActiveToolCall {
         tool_id: descriptor.tool_id,
@@ -257,6 +357,8 @@ pub fn seal_single(descriptor: ToolCallDescriptor, default_timeout_ms: u64) -> A
 /// Complexity: O(n) where n = number of descriptors. Allocates one `Vec`.
 ///
 /// Refs: I-Core-ActiveToolCall
+/// # Panics
+/// Never panics.
 pub fn seal(descriptors: Vec<ToolCallDescriptor>, default_timeout_ms: u64) -> Vec<ActiveToolCall> {
     descriptors
         .into_iter()
@@ -273,6 +375,8 @@ pub fn seal(descriptors: Vec<ToolCallDescriptor>, default_timeout_ms: u64) -> Ve
 /// Complexity: O(1). May clone an inner `String`.
 ///
 /// Refs: I-Comp-Pure-Logic
+/// # Panics
+/// Never panics.
 pub fn tool_outcome_to_string(outcome: &ToolOutcome) -> String {
     match outcome {
         ToolOutcome::Success(s) | ToolOutcome::BusinessError(s) | ToolOutcome::SystemError(s) => {
@@ -294,6 +398,10 @@ pub fn tool_outcome_to_string(outcome: &ToolOutcome) -> String {
 /// and can react accordingly.
 ///
 /// Refs: SPECS.md §1.5
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ToolOutcome {
@@ -313,6 +421,10 @@ pub enum ToolOutcome {
 /// Structured result returned from the shell to the kernel after tool execution.
 ///
 /// Refs: I-Core-Pure
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolResultDTO {
     /// Opaque identifier assigned by the LLM provider.
@@ -329,6 +441,10 @@ pub struct ToolResultDTO {
 /// that serializes deterministically via `serde_json`.
 ///
 /// Refs: I-Comp-Pure-Logic, I-Comp-Typed-Effects
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TruncatedToolResult {
     /// Whether the result was truncated due to size limits.
@@ -345,6 +461,8 @@ impl TruncatedToolResult {
     /// Complexity: O(1). One `String` allocation for the preview.
     ///
     /// Refs: I-Comp-Pure-Logic
+    /// # Panics
+    /// Never panics.
     pub fn from_content(content: &str, max_bytes: usize) -> Self {
         let preview = content[..max_bytes.min(content.len())].to_string();
         Self {
@@ -384,6 +502,12 @@ pub struct RollbackEventLog {
 }
 
 /// Single COW rollback event.
+///
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
+/// Refs: I-Gov-Rollback-BestEffort
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RollbackEvent {
     /// Hook name during which the event occurred.
@@ -411,6 +535,8 @@ type NotSendSync = std::marker::PhantomData<*mut ()>;
 ///
 /// `Session` is strictly `!Send` and `!Sync`. A single thread owns it.
 /// Concurrent mutation is prevented by the type system.
+/// # Complexity
+/// O(1) for construction and field/variant access.
 ///
 /// Refs: I-Core-Pure, I-Core-NoPanic, I-Shell-Session-NoSend
 pub struct Session {
@@ -460,6 +586,8 @@ impl Session {
     /// Create a new session in `AgentState::Idle`.
     ///
     /// Complexity: O(1). Allocates empty collections.
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Core-AgentState
     pub fn new(id: impl Into<String>) -> Self {
@@ -525,6 +653,8 @@ impl Session {
     /// so that plugins can read session state without direct field access.
     ///
     /// Complexity: O(1). No allocation.
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Core-Pure
     pub fn snapshot(&self) -> SessionSnapshot {
@@ -540,6 +670,8 @@ impl Session {
     /// clears the buffer. No-op if the buffer is empty.
     ///
     /// Complexity: O(1). One `Vec` push if text exists.
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Core-ChunkBudget
     pub fn persist_assistant_text(&mut self) {
@@ -613,6 +745,10 @@ impl Default for Session {
 /// The kernel is the sole holder of live `Session` instances.
 ///
 /// `SessionRegistry` is strictly `!Send` and `!Sync`.
+/// # Complexity
+/// O(1) for construction and field/variant access.
+/// # Panics
+/// Never panics.
 ///
 /// Refs: I-Shell-Session-NoSend, I-Shell-DTO-Only
 pub struct SessionRegistry {
@@ -638,6 +774,8 @@ impl SessionRegistry {
     /// Create an empty registry.
     ///
     /// Complexity: O(1).
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Core-AgentState
     pub fn new() -> Self {
@@ -651,6 +789,8 @@ impl SessionRegistry {
     /// Insert a sub-routine session.
     ///
     /// Complexity: O(log n) where n = number of sub-routines.
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Shell-Session-NoSend
     pub fn insert(&mut self, handle: SubRoutineHandle, session: Session) {
@@ -660,6 +800,8 @@ impl SessionRegistry {
     /// Get a mutable reference to a sub-routine session.
     ///
     /// Complexity: O(log n).
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Shell-Session-NoSend
     pub fn get_mut(&mut self, handle: &SubRoutineHandle) -> Option<&mut Session> {
@@ -669,6 +811,8 @@ impl SessionRegistry {
     /// Remove a sub-routine session, returning it if present.
     ///
     /// Complexity: O(log n).
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Shell-Session-NoSend
     pub fn remove(&mut self, handle: &SubRoutineHandle) -> Option<Session> {
@@ -678,6 +822,8 @@ impl SessionRegistry {
     /// Returns `true` if the registry contains the given handle.
     ///
     /// Complexity: O(log n).
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Shell-Session-NoSend
     pub fn contains(&self, handle: &SubRoutineHandle) -> bool {
@@ -689,6 +835,8 @@ impl SessionRegistry {
     /// Called by the kernel on every outgoing transition from `SubRoutine`.
     ///
     /// Complexity: O(log n).
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Shell-Session-NoSend
     pub fn increment_exit_count(&mut self, handle: &SubRoutineHandle) {
@@ -698,6 +846,8 @@ impl SessionRegistry {
     /// Get the current exit count for a handle.
     ///
     /// Complexity: O(log n).
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Shell-Session-NoSend
     pub fn get_exit_count(&self, handle: &SubRoutineHandle) -> u64 {
@@ -707,6 +857,8 @@ impl SessionRegistry {
     /// Iterate over all registered handles.
     ///
     /// Complexity: O(1) for the iterator creation.
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Shell-Session-NoSend
     pub fn handles(&self) -> impl Iterator<Item = &SubRoutineHandle> {
@@ -729,6 +881,10 @@ impl Default for SessionRegistry {
 /// This is intentionally a separate type from `AgentState` so that plugins
 /// cannot observe or match on internal state data (e.g., `generation_id`).
 ///
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 /// Refs: I-Core-AgentState
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AgentStateTag {
@@ -751,6 +907,8 @@ impl AgentState {
     /// Returns `None` for states that carry no generation context.
     ///
     /// Complexity: O(1). One pattern match.
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Core-NoPanic
     pub fn generation_id(&self) -> Option<u64> {
@@ -782,6 +940,10 @@ impl From<&AgentState> for AgentStateTag {
 /// ## Snapshot strategy
 /// COW: full clone (~64 bytes). Lightweight — three scalar fields.
 ///
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 /// Refs: I-Core-Pure
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 pub struct SessionSnapshot {
@@ -802,6 +964,10 @@ pub struct SessionSnapshot {
 /// variants of `EngineInput`.
 ///
 /// Refs: I-Core-EngineInput
+/// # Complexity
+/// O(1) for construction and field/variant access.
+/// # Panics
+/// Never panics.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum EngineInput {
@@ -832,6 +998,10 @@ pub enum EngineInput {
 /// Decision returned by a plugin hook, interpreted by the kernel.
 ///
 /// Refs: I-Gov-Decision-Required, I-Gov-OverrideTrace
+/// # Complexity
+/// O(1) for construction and field/variant access.
+/// # Panics
+/// Never panics.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum PolicyDecision {
@@ -857,6 +1027,10 @@ pub enum PolicyDecision {
 /// indices after each edit to prevent out-of-bounds mutations.
 ///
 /// Refs: I-Gov-Decision-Isolation
+/// # Complexity
+/// O(1) for construction and field/variant access.
+/// # Panics
+/// Never panics.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum HistoryEdit {
@@ -896,6 +1070,10 @@ pub enum HistoryEdit {
 /// on enum variants directly.
 ///
 /// Refs: I-Comp-Typed-Effects
+/// # Complexity
+/// O(1) for construction and field/variant access.
+/// # Panics
+/// Never panics.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum UiWidget {
@@ -977,6 +1155,8 @@ impl UiWidget {
     /// classification while the ecosystem migrates to structured variants.
     ///
     /// Complexity: O(1).
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Comp-Typed-Effects
     pub fn widget_type(&self) -> &str {
@@ -1006,6 +1186,10 @@ impl UiWidget {
 /// exhaustively matchable variants. The shell and projection layer can
 /// inspect specific error scenarios without string parsing.
 ///
+/// # Complexity
+/// O(1) for construction and field/variant access.
+/// # Panics
+/// Never panics.
 /// Refs: I-Comp-Typed-Effects
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ErrorDetail {
@@ -1097,6 +1281,10 @@ impl std::fmt::Display for ErrorDetail {
 /// UI fallback, or specific notification variants appear here.
 ///
 /// Refs: I-Core-EffectPure, I-Core-RetVecEffect
+/// # Complexity
+/// O(1) for construction and field/variant access.
+/// # Panics
+/// Never panics.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Effect {
@@ -1117,8 +1305,8 @@ pub enum Effect {
     SaveSession,
     /// Persist a plugin-specific binary blob.
     SavePluginBlob {
-        /// Unique identifier of the plugin owning this blob.
-        plugin_id: String,
+        /// Plugin that owns this blob.
+        plugin_id: PluginSource,
         /// Opaque binary payload. Serialized by the plugin itself.
         data: Vec<u8>,
     },
@@ -1127,7 +1315,7 @@ pub enum Effect {
     /// Offload a CPU-intensive computation to the shell.
     ExecuteCpuTask {
         /// Identifier of the background task.
-        task_id: String,
+        task_id: TaskId,
         /// Serialized input for the offloaded computation.
         payload: Vec<u8>,
     },
@@ -1137,8 +1325,8 @@ pub enum Effect {
     SystemIdle,
     /// A plugin fatally errored. Triggers quarantine evaluation.
     PluginFault {
-        /// Plugin name.
-        plugin_name: String,
+        /// Plugin that faulted.
+        plugin_name: PluginSource,
         /// The fatal error that triggered this notification.
         error: PluginError,
     },
@@ -1157,6 +1345,10 @@ pub enum Effect {
 /// that the shell must handle.
 ///
 /// Refs: I-Core-NoPanic
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ErrorCode {
@@ -1178,6 +1370,8 @@ pub enum ErrorCode {
 
 /// Execution path for nested / tree-structured stream events.
 ///
+/// # Panics
+/// Never panics.
 /// Refs: I-Core-ChunkBudget
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExecutionPath {
@@ -1192,6 +1386,8 @@ pub struct ExecutionPath {
 /// (4096 bytes) by the shell.
 ///
 /// Refs: I-Core-ChunkBudget, I-Core-StreamNoBranch
+/// # Panics
+/// Never panics.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum StreamEvent {
@@ -1235,6 +1431,10 @@ pub enum StreamEvent {
 /// Action requested by a plugin in response to a stream event.
 ///
 /// Refs: I-Core-StreamNoBranch
+/// # Complexity
+/// O(1) for construction and field/variant access.
+/// # Panics
+/// Never panics.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum StreamAction {
@@ -1261,6 +1461,10 @@ pub enum StreamAction {
 /// - `Fatal`: structural error. The kernel emits `Effect::PluginFault`.
 ///
 /// Refs: SPECS.md §1.5
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[non_exhaustive]
 pub enum PluginError {
@@ -1288,6 +1492,8 @@ pub enum PluginError {
 /// typically converted into `Effect::Error` or `AgentState::Failure`.
 ///
 /// Refs: I-Core-NoPanic, SPECS.md §1.5
+/// # Complexity
+/// O(1) for construction and field/variant access.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[non_exhaustive]
 pub enum BriocheError {
@@ -1320,6 +1526,10 @@ pub type PluginResult<T> = Result<T, PluginError>;
 /// Result of epoch interception by the `EpochInterceptor` governance trait.
 ///
 /// Refs: I-Gov-Epoch-Reject
+/// # Complexity
+/// O(1) for construction and field/variant access.
+/// # Panics
+/// Never panics.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum EpochAction {
@@ -1338,6 +1548,8 @@ pub enum EpochAction {
 
 /// Bitmask constants for each `Effect` variant, used by `HookEffectConstraint`
 /// for O(1) permission validation.
+/// # Panics
+/// Never panics.
 ///
 /// Refs: I-Core-HookEffect-O1
 pub struct EffectBit;
@@ -1375,6 +1587,8 @@ impl EffectBit {
 /// Map an `Effect` to its bitmask constant.
 ///
 /// Complexity: O(1). Match on enum variant.
+/// # Panics
+/// Never panics.
 ///
 /// Refs: I-Core-HookEffect-O1
 pub fn effect_to_bitmask(effect: &Effect) -> u64 {
@@ -1401,6 +1615,10 @@ pub fn effect_to_bitmask(effect: &Effect) -> u64 {
 
 /// Single entry in the `TransitionTraceLog` ring buffer.
 ///
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 /// Refs: I-Gov-OverrideTrace
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TransitionTrace {
@@ -1418,6 +1636,8 @@ pub struct TransitionTrace {
 /// COW: full clone. Weight ~O(n) where n = entries (max 128).
 ///
 /// Refs: I-Gov-OverrideTrace, I-Core-NoPanic
+/// # Panics
+/// Never panics.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 #[brioche(critical_state)]
 pub struct TransitionTraceLog {
@@ -1445,6 +1665,8 @@ impl TransitionTraceLog {
     /// Take all entries, leaving the log empty.
     ///
     /// Complexity: O(1).
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Gov-OverrideTrace
     pub fn take_entries(&mut self) -> Vec<TransitionTrace> {
@@ -1454,6 +1676,10 @@ impl TransitionTraceLog {
 
 /// Single entry in the `SupersededTransitionTraceLog` ring buffer.
 ///
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 /// Refs: I-Gov-OverrideTrace
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SupersededTransitionTrace {
@@ -1473,6 +1699,8 @@ pub struct SupersededTransitionTrace {
 /// COW: full clone. Weight ~O(n) where n = entries (max 128).
 ///
 /// Refs: I-Gov-OverrideTrace
+/// # Panics
+/// Never panics.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 #[brioche(critical_state)]
 pub struct SupersededTransitionTraceLog {
@@ -1500,6 +1728,8 @@ impl SupersededTransitionTraceLog {
     /// Take all entries, leaving the log empty.
     ///
     /// Complexity: O(1).
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Gov-OverrideTrace
     pub fn take_entries(&mut self) -> Vec<SupersededTransitionTrace> {
@@ -1518,6 +1748,10 @@ impl SupersededTransitionTraceLog {
 /// COW: full clone (~8 bytes). Single scalar — negligible weight.
 ///
 /// Refs: I-Gov-Epoch-Reject
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 #[brioche(critical_state)]
 pub struct EpochState {
@@ -1540,6 +1774,8 @@ pub struct EpochState {
 /// COW rollback because it is reconstructed on every stream event.
 ///
 /// Refs: I-Core-ActiveToolCall, I-Core-ChunkBudget
+/// # Panics
+/// Never panics.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 #[brioche(no_snapshot)]
 pub struct StreamToolAccumulator {
@@ -1554,10 +1790,13 @@ pub struct StreamToolAccumulator {
 /// System signals emitted by the shell and consumed by governance plugins
 /// via adapters. These events do **not** transit through `EngineInput`.
 ///
+/// # Complexity
+/// O(1) for construction and field/variant access.
+/// # Panics
+/// Never panics.
 /// Refs: SPECS.md §1.4, I-Shell-Network-Signal
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SystemSignal {
-    /// Network failure detected at transport level.
     /// Transport failure detected by the shell.
     NetworkUnavailable {
         /// Transport failure description.
@@ -1565,7 +1804,6 @@ pub enum SystemSignal {
     },
     /// User requested cancellation of the current operation.
     OperationCancelled,
-    /// Periodic tick emitted by the shell for sub-routine timeout monitoring.
     /// Periodic heartbeat for timeout monitoring.
     Tick {
         /// Monotonically increasing milliseconds since session start.
@@ -1577,6 +1815,10 @@ pub enum SystemSignal {
 ///
 /// Consumed by governance plugins via `AsyncTaskResultAdapter`.
 ///
+/// # Complexity
+/// O(1) for construction and field/variant access.
+/// # Panics
+/// Never panics.
 /// Refs: SPECS.md §1.4
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AsyncTaskResult {
@@ -1587,7 +1829,6 @@ pub enum AsyncTaskResult {
         /// History index up to which summarization is valid.
         watermark: u32,
     },
-    /// CPU-intensive task completed.
     /// Offloaded computation finished.
     CpuTaskDone {
         /// Identifier matching the original `Effect::ExecuteCpuTask`.
@@ -1595,7 +1836,6 @@ pub enum AsyncTaskResult {
         /// Serialized output of the CPU task.
         result: Vec<u8>,
     },
-    /// Status check for a long-running (pending) tool task.
     /// Status update for a pending tool task.
     ToolStatusCheck {
         /// Identifier of the pending tool.
@@ -1607,6 +1847,10 @@ pub enum AsyncTaskResult {
 
 /// Status of a pending tool task.
 ///
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 /// Refs: SPECS.md §1.4
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ToolStatus {
@@ -1621,6 +1865,10 @@ pub enum ToolStatus {
 /// Consumed by governance plugins (e.g. `QuarantineManager`) via
 /// `GovernanceNotificationAdapter`.
 ///
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 /// Refs: SPECS.md §1.4
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GovernanceNotification {
@@ -1647,6 +1895,10 @@ pub enum GovernanceNotification {
 /// Canonical order is enforced by the `SignalDrainOrder` implementation:
 /// `SystemSignal` → `GovernanceNotification` → `AsyncTaskResult`.
 ///
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 /// Refs: SPECS.md §1.4, I-Shell-Drain-Atomic
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignalDrainBatch {
@@ -1668,6 +1920,10 @@ pub struct SignalDrainBatch {
 /// each cycle; rollback of this buffer is meaningless.
 ///
 /// Refs: I-Shell-Drain-Atomic
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 #[brioche(no_snapshot)]
 pub struct SignalBuffer {

@@ -17,6 +17,8 @@ use brioche_core::{
 ///
 /// ## Snapshot strategy
 /// COW: full clone (~40 bytes). Three scalars + one optional short String.
+///
+/// Refs: I-Gov-Recovery-Graceful
 #[derive(
     Clone,
     Debug,
@@ -45,6 +47,8 @@ const DEFAULT_MAX_RECOVERIES: u64 = 3;
 /// Monitors `SessionSnapshot` to detect when the session is stuck in
 /// `Failure`. After `max_consecutive_recoveries` consecutive failures,
 /// blocks all further input until the session recovers.
+///
+/// Refs: I-Gov-Recovery-Graceful
 pub struct RecoveryPolicy {
     max_consecutive_recoveries: u64,
 }

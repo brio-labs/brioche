@@ -41,6 +41,8 @@ pub struct QuarantineState {
 }
 
 /// Deterministic key for fault counting.
+///
+/// Refs: I-Gov-Quarantine-Isolate
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct PluginFaultKey {
     /// Name of the plugin that faulted.
@@ -49,10 +51,12 @@ pub struct PluginFaultKey {
     pub error_kind: String,
 }
 
-/// Manager de quarantaine des plugins.
+/// Plugin quarantine manager.
 ///
 /// On `on_error`, if the error is `Fatal`, the plugin is added to
 /// `QuarantineState` and a `RebuildRoutes` is requested.
+///
+/// Refs: I-Gov-Quarantine-Isolate, I-Comp-Override-Rebuild
 pub struct QuarantineManager;
 
 impl QuarantineManager {
