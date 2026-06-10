@@ -139,6 +139,13 @@ pub trait BriochePlugin: Send + Sync {
 
     /// Input interceptor hook. Allows a governance plugin to entirely
     /// replace the standard dispatch.
+    ///
+    /// # Complexity
+    /// O(1) for the default implementation. Plugin-defined otherwise.
+    ///
+    /// # Panics
+    /// Never panics in the default implementation. Plugin implementations
+    /// must uphold I-Core-NoPanic.
     fn on_input(
         &self,
         _input: &EngineInput,
@@ -149,6 +156,13 @@ pub trait BriochePlugin: Send + Sync {
 
     /// Hook called before LLM prediction. Decisions are collected and
     /// passed to `DecisionAggregator`.
+    ///
+    /// # Complexity
+    /// O(1) for the default implementation. Plugin-defined otherwise.
+    ///
+    /// # Panics
+    /// Never panics in the default implementation. Plugin implementations
+    /// must uphold I-Core-NoPanic.
     fn before_prediction(
         &self,
         _history: &[ChatMessage],
@@ -159,6 +173,13 @@ pub trait BriochePlugin: Send + Sync {
 
     /// Stream event hook — the hot path. Plugins return `StreamAction`
     /// rather than `PolicyDecision` to avoid branching in the streaming loop.
+    ///
+    /// # Complexity
+    /// O(1) for the default implementation. Plugin-defined otherwise.
+    ///
+    /// # Panics
+    /// Never panics in the default implementation. Plugin implementations
+    /// must uphold I-Core-NoPanic.
     fn on_stream_event(
         &self,
         _event: &StreamEvent,
@@ -168,12 +189,26 @@ pub trait BriochePlugin: Send + Sync {
     }
 
     /// Hook called after prediction completes (before tool execution).
+    ///
+    /// # Complexity
+    /// O(1) for the default implementation. Plugin-defined otherwise.
+    ///
+    /// # Panics
+    /// Never panics in the default implementation. Plugin implementations
+    /// must uphold I-Core-NoPanic.
     fn after_prediction(&self, _ext: &mut ExtensionStorage) -> PluginResult<()> {
         Ok(())
     }
 
     /// Hook called before emission of the `ExecuteTools` effect.
     /// Plugins mutate `timeout_ms` and other fields in place.
+    ///
+    /// # Complexity
+    /// O(1) for the default implementation. Plugin-defined otherwise.
+    ///
+    /// # Panics
+    /// Never panics in the default implementation. Plugin implementations
+    /// must uphold I-Core-NoPanic.
     fn on_tool_calls(
         &self,
         _calls: &mut Vec<ToolCallDescriptor>,
@@ -184,6 +219,13 @@ pub trait BriochePlugin: Send + Sync {
 
     /// Hook called before persistence of tool results in history.
     /// Plugins may mutate results in place.
+    ///
+    /// # Complexity
+    /// O(1) for the default implementation. Plugin-defined otherwise.
+    ///
+    /// # Panics
+    /// Never panics in the default implementation. Plugin implementations
+    /// must uphold I-Core-NoPanic.
     fn on_tool_result(
         &self,
         _results: &mut Vec<ToolResultDTO>,
@@ -193,6 +235,13 @@ pub trait BriochePlugin: Send + Sync {
     }
 
     /// Hook called by the core when a plugin error is intercepted.
+    ///
+    /// # Complexity
+    /// O(1) for the default implementation. Plugin-defined otherwise.
+    ///
+    /// # Panics
+    /// Never panics in the default implementation. Plugin implementations
+    /// must uphold I-Core-NoPanic.
     fn on_error(
         &self,
         _error: &PluginError,

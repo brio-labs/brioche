@@ -341,7 +341,10 @@ pub fn seal_single(descriptor: ToolCallDescriptor, default_timeout_ms: u64) -> A
         tool_id: descriptor.tool_id,
         tool_name: descriptor.tool_name,
         arguments: descriptor.arguments,
-        timeout_ms: descriptor.timeout_ms.unwrap_or(default_timeout_ms),
+        timeout_ms: match descriptor.timeout_ms {
+            Some(t) => t,
+            None => default_timeout_ms,
+        },
     }
 }
 
@@ -382,9 +385,12 @@ pub fn tool_outcome_to_string(outcome: &ToolOutcome) -> String {
         ToolOutcome::Success(s) | ToolOutcome::BusinessError(s) | ToolOutcome::SystemError(s) => {
             s.clone()
         }
-        ToolOutcome::TimeoutWithPartialData { partial_output } => {
-            partial_output.clone().unwrap_or_default()
-        }
+        ToolOutcome::TimeoutWithPartialData {
+            partial_output: Some(s),
+        } => s.clone(),
+        ToolOutcome::TimeoutWithPartialData {
+            partial_output: None,
+        } => String::new(),
     }
 }
 
@@ -464,7 +470,11 @@ impl TruncatedToolResult {
     /// # Panics
     /// Never panics.
     pub fn from_content(content: &str, max_bytes: usize) -> Self {
-        let preview = content[..max_bytes.min(content.len())].to_string();
+        let limit = max_bytes.min(content.len());
+        let preview = match content.get(..limit) {
+            Some(s) => s.to_string(),
+            None => String::new(),
+        };
         Self {
             truncated: true,
             original_len: content.len(),
@@ -490,6 +500,9 @@ impl TruncatedToolResult {
 ///
 /// Written by `CycleRollbackPolicy` implementations during `commit_hook`
 /// and `rollback_hook`, then consumed by `RollbackTelemetryEmitter`.
+///
+/// ## Snapshot strategy
+/// COW: full clone. Weight ~O(n) where n = events (typically < 10).
 ///
 /// Refs: I-Gov-Rollback-BestEffort, I-Comp-Pure-Logic
 #[derive(
@@ -714,7 +727,10 @@ impl Session {
                             self.history.len()
                         )));
                     }
-                    self.history[*index] = message.clone();
+                    // Invariant: index validated above.
+                    if let Some(slot) = self.history.get_mut(*index) {
+                        *slot = message.clone();
+                    }
                 }
                 HistoryEdit::Truncate { keep_last } => {
                     let keep = (*keep_last).min(self.history.len());
@@ -851,7 +867,10 @@ impl SessionRegistry {
     ///
     /// Refs: I-Shell-Session-NoSend
     pub fn get_exit_count(&self, handle: &SubRoutineHandle) -> u64 {
-        self.exit_counts.get(handle).copied().unwrap_or(0)
+        match self.exit_counts.get(handle) {
+            Some(&v) => v,
+            None => 0,
+        }
     }
 
     /// Iterate over all registered handles.

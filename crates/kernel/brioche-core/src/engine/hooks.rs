@@ -57,9 +57,27 @@ impl BriocheEngine {
         session.extensions.insert(session.snapshot());
         let mut errors = Vec::new();
         for &idx in route {
-            let name = self.router.plugins[idx].name();
+            let name = match self.router.plugins.get(idx) {
+                Some(p) => p.name(),
+                None => {
+                    errors.push((
+                        "<invalid_index>",
+                        PluginError::Fatal {
+                            plugin_name: "<invalid_index>".into(),
+                            message: format!("plugin index {idx} out of bounds"),
+                        },
+                    ));
+                    continue;
+                }
+            };
             let result = self.with_rollback(session, name, |engine, session| {
-                hook(&*engine.router.plugins[idx], session)
+                match engine.router.plugins.get(idx) {
+                    Some(plugin) => hook(plugin.as_ref(), session),
+                    None => Err(PluginError::Fatal {
+                        plugin_name: "<invalid_index>".into(),
+                        message: format!("plugin index {idx} out of bounds"),
+                    }),
+                }
             });
             match result {
                 Ok(r) => on_ok(r),
@@ -114,14 +132,27 @@ impl BriocheEngine {
         let mut override_transition: Option<(Vec<Effect>, PluginSource)> = None;
 
         session.extensions.insert(session.snapshot());
-        let route_len = self.router.routing_table.route_on_input.len();
-        for i in 0..route_len {
-            let idx = self.router.routing_table.route_on_input[i];
-            let name = self.router.plugins[idx].name();
+        let route = self.router.routing_table.route_on_input.clone();
+        for &idx in &route {
+            let Some(plugin) = self.router.plugins.get(idx) else {
+                accumulated.push(Effect::Error {
+                    code: ErrorCode::StateInconsistency,
+                    detail: ErrorDetail::StateInconsistent {
+                        source: format!("plugin index {idx} out of bounds"),
+                    },
+                });
+                continue;
+            };
+            let name = plugin.name();
 
             let decision = self.with_rollback(session, name, |engine, session| {
-                let plugin = &engine.router.plugins[idx];
-                plugin.on_input(input, &mut session.extensions)
+                match engine.router.plugins.get(idx) {
+                    Some(plugin) => plugin.as_ref().on_input(input, &mut session.extensions),
+                    None => Err(PluginError::Fatal {
+                        plugin_name: "<invalid_index>".into(),
+                        message: format!("plugin index {idx} out of bounds"),
+                    }),
+                }
             });
 
             match decision {

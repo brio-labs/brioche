@@ -50,12 +50,13 @@ impl BasicCompleter {
         let (dir, prefix) = if last_word.ends_with('/') {
             (path.to_path_buf(), "")
         } else {
-            (
-                path.parent()
-                    .map(|p| p.to_path_buf())
-                    .unwrap_or_else(|| std::path::PathBuf::from(".")),
-                path.file_name().and_then(|n| n.to_str()).unwrap_or(""),
-            )
+            let fallback_dir = std::path::PathBuf::from(".");
+            let dir = match path.parent().map(|p| p.to_path_buf()) {
+                Some(p) => p,
+                None => fallback_dir,
+            };
+            let prefix = path.file_name().and_then(|n| n.to_str()).map_or("", |s| s);
+            (dir, prefix)
         };
 
         let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -67,7 +68,7 @@ impl BasicCompleter {
             let name = entry.file_name();
             let name = name.to_string_lossy();
             if name.starts_with(prefix) {
-                let value = if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                let value = if entry.file_type().is_ok_and(|t| t.is_dir()) {
                     format!("{name}/")
                 } else {
                     name.to_string()
@@ -91,7 +92,7 @@ impl Completer for BasicCompleter {
             return Self::complete_slash(prefix, pos);
         }
 
-        let last_word_start = prefix.rfind(' ').map(|i| i + 1).unwrap_or(0);
+        let last_word_start = prefix.rfind(' ').map_or(0, |i| i + 1);
         let last_word = &prefix[last_word_start..];
         if last_word.starts_with('/') || last_word.starts_with('.') || last_word.starts_with('~') {
             return Self::complete_path(last_word, pos, last_word_start);
@@ -127,16 +128,27 @@ pub fn run(
     let history: Box<dyn reedline::History> = match history_path {
         Some(path) => match FileBackedHistory::with_file(1000, path) {
             Ok(h) => Box::new(h),
-            Err(_) => Box::new(
-                FileBackedHistory::new(1000).unwrap_or_else(|_| FileBackedHistory::default()),
-            ),
+            Err(_) => {
+                let fallback = FileBackedHistory::default();
+                Box::new(match FileBackedHistory::new(1000) {
+                    Ok(h) => h,
+                    Err(_) => fallback,
+                })
+            }
         },
         None => {
-            Box::new(FileBackedHistory::new(1000).unwrap_or_else(|_| FileBackedHistory::default()))
+            let fallback = FileBackedHistory::default();
+            Box::new(match FileBackedHistory::new(1000) {
+                Ok(h) => h,
+                Err(_) => fallback,
+            })
         }
     };
 
-    let completer = completer.unwrap_or_else(|| Box::new(BasicCompleter));
+    let completer = match completer {
+        Some(c) => c,
+        None => Box::new(BasicCompleter),
+    };
 
     let completion_menu = Box::new(
         IdeMenu::default()

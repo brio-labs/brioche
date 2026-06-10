@@ -190,13 +190,19 @@ impl BriocheEngine {
     /// This is a transactional barrier: no new `EngineInput` should be
     /// processed until this call completes.
     ///
-    /// Refs: I-Gov-Rebuild-Barrier
-    /// Complexity: O(p log p) where p = number of plugins.
+    /// # Complexity
+    /// O(p log p) where p = number of plugins.
+    ///
     /// # Panics
-    /// Panics only if an index is out of bounds; callers must validate lengths.
+    /// Never panics. Invalid indices from `active_mask` are silently skipped.
+    ///
+    /// Refs: I-Gov-Rebuild-Barrier
     pub fn rebuild_routes(&mut self, active_mask: &[bool]) {
         let active_indices: Vec<usize> = (0..self.router.plugins.len())
-            .filter(|i| active_mask.get(*i).copied().unwrap_or(true))
+            .filter(|i| match active_mask.get(*i) {
+                Some(&b) => b,
+                None => true,
+            })
             .collect();
 
         self.router.routing_table =

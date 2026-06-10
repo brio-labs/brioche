@@ -12,6 +12,9 @@ use brioche_core::{
 
 /// Context optimizer state.
 ///
+/// ## Snapshot strategy
+/// COW: full clone (~24 bytes). Three scalar fields.
+///
 /// Refs: I-Eco-OrderedCollections
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, BriocheExtensionType,

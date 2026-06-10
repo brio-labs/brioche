@@ -72,7 +72,7 @@ impl UnifiedRoutingTable {
     ) -> Self {
         let mut indexed: Vec<(usize, i16, &'static str)> = active_indices
             .iter()
-            .map(|&i| (i, plugins[i].priority(), plugins[i].name()))
+            .filter_map(|&i| plugins.get(i).map(|p| (i, p.priority(), p.name())))
             .collect();
         // Total order: priority ascending, then name lexicographically.
         indexed.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.2.cmp(b.2)));
@@ -109,7 +109,7 @@ impl UnifiedRoutingTable {
     ) -> Vec<usize> {
         sorted
             .iter()
-            .filter(|(i, _, _)| has_cap(plugins[*i].capabilities()))
+            .filter(|(i, _, _)| plugins.get(*i).is_some_and(|p| has_cap(p.capabilities())))
             .map(|(i, _, _)| *i)
             .collect()
     }

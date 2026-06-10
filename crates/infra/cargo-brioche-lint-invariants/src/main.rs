@@ -93,7 +93,10 @@ struct FileResult {
 
 fn main() {
     let cli = Cli::parse();
-    let root = cli.root.unwrap_or_else(|| PathBuf::from("."));
+    let root = match cli.root {
+        Some(p) => p,
+        None => PathBuf::from("."),
+    };
 
     match cli.command {
         Commands::CheckRefs => {
@@ -137,9 +140,7 @@ fn check_refs(root: &PathBuf) -> Vec<FileResult> {
         .filter_map(|e| e.ok())
         .filter(|e| {
             let p = e.path();
-            p.extension()
-                .map(|ext| ext == "rs" || ext == "md")
-                .unwrap_or(false)
+            p.extension().is_some_and(|ext| ext == "rs" || ext == "md")
                 && !p.components().any(|c| {
                     let s = c.as_os_str().to_string_lossy();
                     s == "target" || s == ".git"
@@ -218,6 +219,9 @@ fn print_text(results: &[FileResult]) {
 }
 
 fn print_json(results: &[FileResult]) {
-    let json = serde_json::to_string_pretty(results).unwrap_or_else(|_| "[]".into());
+    let json = match serde_json::to_string_pretty(results) {
+        Ok(j) => j,
+        Err(_) => "[]".into(),
+    };
     println!("{json}");
 }

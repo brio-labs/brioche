@@ -180,11 +180,11 @@ pub struct OpenRouterErrorDetector;
 impl StreamErrorDetector for OpenRouterErrorDetector {
     fn detect_error(&self, event: &serde_json::Value) -> Option<String> {
         let error = event.get("error")?;
-        let code = error.get("code").and_then(|c| c.as_u64()).unwrap_or(0);
+        let code = error.get("code").and_then(|c| c.as_u64()).map_or(0, |c| c);
         let message = error
             .get("message")
             .and_then(|m| m.as_str())
-            .unwrap_or("unknown provider error");
+            .map_or("unknown provider error", |v| v);
         Some(format!("Provider error (code {code}): {message}"))
     }
 }

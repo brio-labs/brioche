@@ -336,10 +336,14 @@ impl ExtensionStorage {
         if !self.hot_map.contains_key(&type_id) {
             let value: Box<dyn Any + Send + Sync> =
                 if let Some(vtable) = self.registry.get(&type_id) {
-                    self.cold_snapshot
+                    match self
+                        .cold_snapshot
                         .get(vtable.ext_id)
                         .and_then(|blob| (vtable.deserialize)(blob).ok())
-                        .unwrap_or_else(|| (vtable.default_construct)())
+                    {
+                        Some(val) => val,
+                        None => (vtable.default_construct)(),
+                    }
                 } else {
                     // Defensive: vtable should have been registered just above.
                     Box::new(T::default())
@@ -352,10 +356,14 @@ impl ExtensionStorage {
         // Box<T> for this type_id. If a type mismatch occurs, it indicates
         // a fundamental invariant violation; we leak rather than panic
         // to uphold I-Core-NoPanic.
-        self.hot_map
+        match self
+            .hot_map
             .get_mut(&type_id)
             .and_then(|any| any.downcast_mut::<T>())
-            .unwrap_or_else(|| Box::leak(Box::new(T::default())))
+        {
+            Some(val) => val,
+            None => Box::leak(Box::new(T::default())),
+        }
     }
 
     /// Hydrate a plugin from an external raw blob.
