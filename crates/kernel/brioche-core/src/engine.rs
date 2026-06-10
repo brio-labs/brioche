@@ -49,6 +49,18 @@ pub use types::{GovernanceKernel, RoutineManager};
 ///
 /// Construct via `BriocheEngineBuilder`.
 ///
+/// # Data Layout
+/// Three owned fields: `PluginRouter` (~40 bytes + plugin vec),
+/// `GovernanceKernel` (~136 bytes), `RoutineManager` (~48 bytes).
+/// Total stack footprint ~224 bytes + heap-owned plugin/route state.
+///
+/// # Complexity
+/// `transition()` is O(p + e) where p = active plugins, e = effects.
+/// No allocation inside `transition()` beyond effects and rollback frames.
+///
+/// # Panics
+/// Never panics. All anomalies produce `Effect::Error` or `Failure` state.
+///
 /// Refs: I-Core-Pure, I-Core-NoPanic
 pub struct BriocheEngine {
     pub(crate) router: PluginRouter,
@@ -110,15 +122,15 @@ impl BriocheEngine {
         // on_input hook (routed).
         match self.eval_on_input(session, input) {
             InputResult::OverrideTransition(ov_effects, source_plugin) => {
-                self.log_override_transition(session, source_plugin);
+                self.log_override_transition(session, &source_plugin);
                 effects.extend(ov_effects);
                 self.finalize_transition(session, pre, &mut effects);
                 return effects;
             }
-            InputResult::Block { reason } => {
+            InputResult::Block { detail } => {
                 effects.push(Effect::Error {
                     code: ErrorCode::StateInconsistency,
-                    detail: ErrorDetail::Generic(reason),
+                    detail,
                 });
                 effects.push(Effect::SystemIdle);
                 self.finalize_transition(session, pre, &mut effects);
@@ -147,6 +159,8 @@ impl BriocheEngine {
     ///
     /// Refs: I-Shell-Session-NoSend
     /// Complexity: O(1). Returns a reference; no allocation.
+    /// # Panics
+    /// Never panics.
     pub fn session_registry(&self) -> &SessionRegistry {
         &self.routines.registry
     }
@@ -155,6 +169,8 @@ impl BriocheEngine {
     ///
     /// Refs: I-Shell-Session-NoSend
     /// Complexity: O(log n) where n = number of sub-routines.
+    /// # Panics
+    /// Never panics.
     pub fn create_subroutine(&mut self, handle: SubRoutineHandle, session: Session) {
         self.routines.registry.insert(handle, session);
     }
@@ -163,6 +179,8 @@ impl BriocheEngine {
     ///
     /// Refs: I-Shell-Session-NoSend
     /// Complexity: O(log n) where n = number of sub-routines.
+    /// # Panics
+    /// Never panics.
     pub fn remove_subroutine(&mut self, handle: &SubRoutineHandle) -> Option<Session> {
         self.routines.registry.remove(handle)
     }
@@ -174,6 +192,8 @@ impl BriocheEngine {
     ///
     /// Refs: I-Gov-Rebuild-Barrier
     /// Complexity: O(p log p) where p = number of plugins.
+    /// # Panics
+    /// Panics only if an index is out of bounds; callers must validate lengths.
     pub fn rebuild_routes(&mut self, active_mask: &[bool]) {
         let active_indices: Vec<usize> = (0..self.router.plugins.len())
             .filter(|i| active_mask.get(*i).copied().unwrap_or(true))
@@ -187,6 +207,8 @@ impl BriocheEngine {
     ///
     /// Refs: I-Core-ActiveToolCall
     /// Complexity: O(1). Scalar field access.
+    /// # Panics
+    /// Never panics.
     pub fn default_tool_timeout_ms(&self) -> u64 {
         self.governance.default_tool_timeout_ms
     }

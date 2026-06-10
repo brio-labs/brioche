@@ -36,6 +36,8 @@ pub struct DepthState {
 /// On `on_input`, verifies that the stack depth does not exceed
 /// `max_depth`. If so, emits an `OverrideTransition` to
 /// `Idle` with a UI notification.
+///
+/// Refs: I-Gov-Depth-Limit
 pub struct DepthGuard {
     max_depth: u64,
 }

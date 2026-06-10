@@ -763,7 +763,7 @@ pub fn brioche_offload_task(_args: TokenStream, input: TokenStream) -> TokenStre
             }
 
             /// Build an `Effect::ExecuteCpuTask` from a task id and input.
-            pub fn effect(task_id: impl Into<::std::string::String>, input: &#arg_ty) -> ::brioche_core::Effect {
+            pub fn effect(task_id: impl Into<::brioche_core::TaskId>, input: &#arg_ty) -> ::brioche_core::Effect {
                 ::brioche_core::Effect::ExecuteCpuTask {
                     task_id: task_id.into(),
                     payload: serialize_input(input),

@@ -22,6 +22,8 @@ use brioche_core::{
 /// Null `GovernanceFailoverHandler`.
 ///
 /// Passes through plugin faults without intervention.
+///
+/// Refs: I-Gov-TraitAtomic
 pub struct NoopGovernanceFailoverHandler;
 
 impl GovernanceFailoverHandler for NoopGovernanceFailoverHandler {
@@ -37,6 +39,8 @@ impl GovernanceFailoverHandler for NoopGovernanceFailoverHandler {
 /// Null `HookEffectConstraint`.
 ///
 /// Allows all effects on all hooks (same as not injecting the trait).
+///
+/// Refs: I-Gov-TraitAtomic, I-Core-HookEffect-O1
 pub struct NoopHookEffectConstraint;
 
 impl HookEffectConstraint for NoopHookEffectConstraint {
@@ -53,6 +57,8 @@ impl HookEffectConstraint for NoopHookEffectConstraint {
 /// Null `CowBudgetPolicy`.
 ///
 /// Returns the default 64 KB threshold for all hooks.
+///
+/// Refs: I-Gov-Rollback-BestEffort
 pub struct NoopCowBudgetPolicy;
 
 impl CowBudgetPolicy for NoopCowBudgetPolicy {
@@ -65,6 +71,8 @@ impl CowBudgetPolicy for NoopCowBudgetPolicy {
 ///
 /// All methods are no-ops. This is the behavior of the kernel when
 /// no `CycleRollbackPolicy` is injected.
+///
+/// Refs: I-Gov-Rollback-BestEffort
 pub struct NoopCycleRollbackPolicy;
 
 impl CycleRollbackPolicy for NoopCycleRollbackPolicy {
@@ -87,6 +95,8 @@ impl CycleRollbackPolicy for NoopCycleRollbackPolicy {
 ///
 /// Allows all standard and future effects on all hooks. Used by the
 /// `Permissive` profile for prototyping and migration.
+///
+/// Refs: I-Gov-TraitAtomic, I-Core-HookEffect-O1
 pub struct PermissiveHookEffectConstraint {
     masks: [u64; 8],
 }

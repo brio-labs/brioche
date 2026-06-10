@@ -7,7 +7,7 @@
 
 use brioche_plugin_kit::{
     BriochePlugin, Effect, EngineInput, ExtensionStorage, MockEngine, PluginBuilder, PluginResult,
-    PolicyDecision,
+    PolicyDecision, TaskId,
 };
 
 // ---------------------------------------------------------------------------
@@ -137,7 +137,7 @@ fn offload_task_generates_effect() {
     let effect = __brioche_offload_double_payload::effect("task-1", &input);
     match effect {
         Effect::ExecuteCpuTask { task_id, payload } => {
-            assert_eq!(task_id, "task-1");
+            assert_eq!(task_id, TaskId("task-1".into()));
             assert!(!payload.is_empty());
         }
         other => {

@@ -46,6 +46,8 @@ impl Default for ToolResultFormatterState {
 /// Tool result formatter.
 ///
 /// On `on_tool_result`, formats and truncates results if necessary.
+///
+/// Refs: I-Core-ActiveToolCall
 pub struct ToolResultFormatter {
     max_result_bytes: usize,
 }

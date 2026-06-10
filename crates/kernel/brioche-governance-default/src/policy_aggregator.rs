@@ -22,6 +22,8 @@ use brioche_core::{
 /// This component is **mandatory**: the kernel refuses to start without
 /// a `DecisionAggregator` injected via `BriocheEngineBuilder`.
 ///
+/// Refs: I-Gov-Decision-Required, I-Gov-Decision-Isolation
+///
 /// # Example
 /// ```
 /// use brioche_core::BriocheEngineBuilder;

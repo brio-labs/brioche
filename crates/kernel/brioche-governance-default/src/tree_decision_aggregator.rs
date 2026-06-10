@@ -10,6 +10,8 @@
 use brioche_core::{DecisionAggregator, ExtensionStorage, PluginResult, PolicyDecision};
 
 /// Node of a decision tree.
+///
+/// Refs: I-Gov-Decision-Required
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DecisionNode {
     /// Leaf — returns this decision.
@@ -26,6 +28,8 @@ pub enum DecisionNode {
 }
 
 /// Condition evaluated in the decision tree.
+///
+/// Refs: I-Gov-Decision-Required
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DecisionCondition {
     /// True if at least one decision is `Block`.
@@ -64,6 +68,8 @@ pub struct DecisionTreeState {
 /// Conditional decision tree aggregator.
 ///
 /// Evaluates decisions against a tree stored in `ExtensionStorage`.
+///
+/// Refs: I-Gov-Decision-Required
 pub struct TreeDecisionAggregator;
 
 impl TreeDecisionAggregator {

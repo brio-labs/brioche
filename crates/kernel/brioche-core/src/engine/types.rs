@@ -1,7 +1,9 @@
 //! Book I — The Core Book: Internal engine types.
 //!
 //! Governance kernel container, routine manager, and transition state snapshots.
-//! These types are `pub(crate)` — they are not part of the public API.
+//! The structs in this module are `pub` (their fields are `pub(crate)`) so
+//! that `BriocheEngine` can own them; they are not re-exported at the crate
+//! root and are therefore not part of the public API.
 //!
 //! ## Invariants upheld
 //! - I-Core-Pure: No side effects in these types.
@@ -11,8 +13,8 @@
 
 use crate::{
     ConsistencyVerifier, CycleRollbackPolicy, DecisionAggregator, Effect, EpochInterceptor,
-    GovernanceFailoverHandler, HookEffectConstraint, SessionRegistry, SubRoutineHandle,
-    SubRoutineHandler, SubRoutineLifecycleGuard,
+    ErrorDetail, GovernanceFailoverHandler, HookEffectConstraint, PluginSource, SessionRegistry,
+    SubRoutineHandle, SubRoutineHandler, SubRoutineLifecycleGuard,
 };
 
 /// Governance trait container.
@@ -20,6 +22,26 @@ use crate::{
 /// Holds all injectable policy traits and their orchestration state.
 /// Separated from routing so that governance can evolve independently
 /// of plugin dispatch mechanics.
+///
+/// ## Architectural Note
+/// Each optional trait is stored as `Box<dyn>`. This introduces one vtable
+/// indirection per access. PHILOSOPHY.md §1 recommends pre-routing tables,
+/// but governance traits have heterogeneous signatures that cannot be
+/// flattened into a uniform table without erasing type safety. This is a
+/// known architectural debt tracked under the governance-trait-dispatch
+/// improvement theme.
+///
+/// # Data Layout
+/// Nine fields: eight `Option<Box<dyn Trait>>` pointers (16 bytes each on
+/// x86_64: data pointer + vtable pointer) plus one `u64`. Total: ~136 bytes.
+/// All heap allocation happens at engine-build time; `transition()` only
+/// dereferences existing boxes.
+///
+/// # Complexity
+/// O(1) field access per governance phase. No allocation in `transition()`.
+///
+/// # Panics
+/// Never panics. All fields are `Option`; absent traits are silently skipped.
 ///
 /// Refs: I-Comp-Epoch-First, I-Gov-Decision-Required
 pub struct GovernanceKernel {
@@ -39,6 +61,17 @@ pub struct GovernanceKernel {
 /// Owns live `Session` instances for sub-routines and tracks the
 /// monotonically increasing prediction generation ID.
 ///
+/// # Data Layout
+/// `SessionRegistry` (typically a `BTreeMap<SubRoutineHandle, Session>`) plus
+/// one `u64`. Estimated footprint: ~48 bytes + map entries.
+///
+/// # Complexity
+/// `new()`: O(1). `registry` insert/remove: O(log n) where n = sub-routine count.
+///
+/// # Panics
+/// Never panics. `next_generation_id` overflows are accepted as wrap-around
+/// (u64 range is effectively inexhaustible for the engine lifetime).
+///
 /// Refs: I-Shell-Session-NoSend
 pub struct RoutineManager {
     pub(crate) registry: SessionRegistry,
@@ -48,7 +81,11 @@ pub struct RoutineManager {
 impl RoutineManager {
     /// Create a new `RoutineManager` with an empty registry.
     ///
-    /// Complexity: O(1). Allocates empty collections.
+    /// # Complexity
+    /// O(1). Allocates empty collections.
+    ///
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Shell-Session-NoSend
     pub(crate) fn new() -> Self {
@@ -64,6 +101,16 @@ impl RoutineManager {
 ///
 /// Used by lifecycle guards to detect transitions that exit a sub-routine.
 ///
+/// # Data Layout
+/// Two fields: one `bool` + one `Option<SubRoutineHandle>` (typically a
+/// small string or handle struct). Total: ~32 bytes. Stack-only; no heap.
+///
+/// # Complexity
+/// O(1). Copied by value into `finalize_transition`.
+///
+/// # Panics
+/// Never panics.
+///
 /// Refs: I-Gov-SubRoutineLifecycle-Guard
 pub(crate) struct PreTransitionState {
     pub(crate) was_subroutine: bool,
@@ -75,10 +122,26 @@ pub(crate) struct PreTransitionState {
 /// Encodes the three terminal actions a plugin can take on input, plus
 /// the accumulation of non-terminal effects.
 ///
+/// # Data Layout
+/// Four variants. `Block` carries `ErrorDetail` (structured, ≤ ~64 bytes).
+/// `OverrideTransition` carries a `Vec<Effect>` (heap) + `PluginSource` (copy).
+/// `Accumulated` carries a `Vec<Effect>` (heap). `Allow` is ZST.
+///
+/// # Complexity
+/// O(1) variant construction and match. `Vec` moves are pointer copies.
+///
+/// # Panics
+/// Never panics.
+///
 /// Refs: I-Core-PluginOrder, I-Gov-Decision-Required
 pub(crate) enum InputResult {
+    /// Input is allowed to proceed to dispatch.
     Allow,
-    Block { reason: String },
-    OverrideTransition(Vec<Effect>, &'static str),
+    /// Input is blocked; emit the structured error detail and idle.
+    Block { detail: ErrorDetail },
+    /// A plugin forced a custom transition; effects are emitted and the
+    /// normal dispatch phase is skipped.
+    OverrideTransition(Vec<Effect>, PluginSource),
+    /// Non-terminal effects accumulated from `RequestEffect` decisions.
     Accumulated(Vec<Effect>),
 }
