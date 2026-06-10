@@ -88,6 +88,9 @@ impl BriochePlugin for GcPolicy {
     /// # Complexity
     /// O(1). Two ExtensionStorage reads.
     ///
+    /// # Panics
+    /// Never panics. No indexing or conditional allocation.
+    ///
     /// Refs: I-Eco-ExtensionOverMod
     fn after_prediction(&self, ext: &mut ExtensionStorage) -> PluginResult<()> {
         // Read snapshot first so the mutable borrow ends before state access.

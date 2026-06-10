@@ -101,6 +101,9 @@ impl BriochePlugin for TokenTracker {
     /// # Complexity
     /// O(h · log r) where h = history length, r = number of roles.
     ///
+    /// # Panics
+    /// Never panics. No indexing; all access is via safe `BTreeMap` APIs.
+    ///
     /// Refs: I-Eco-ExtensionOverMod
     fn before_prediction(
         &self,
@@ -131,6 +134,9 @@ impl BriochePlugin for TokenTracker {
     }
 
     /// Finalizes cycle count after prediction completes.
+    ///
+    /// # Panics
+    /// Never panics. Scalar increment only.
     ///
     /// Refs: I-Eco-ExtensionOverMod
     fn after_prediction(&self, ext: &mut ExtensionStorage) -> PluginResult<()> {

@@ -14,7 +14,7 @@
 //! Items exported from this crate follow semver. Internal crate APIs
 //! (`brioche-core`, `brioche-governance`) may change without notice.
 //!
-//! Refs: SPECS.md §Book IV
+//! Refs: SPECS.md §Book IV Ch 3 §3.2
 
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
