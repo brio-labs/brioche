@@ -36,12 +36,14 @@ fn session_head_dto_from_idle_session() {
 #[test]
 fn session_head_dto_flattened_state_stack() {
     let mut session = Session::new("test-2");
-    session
-        .push_state(AgentState::Predicting { generation_id: 7 })
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
-    session
-        .push_state(AgentState::ExecutingTools { generation_id: 7 })
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    match session.push_state(AgentState::Predicting { generation_id: 7 }) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+    match session.push_state(AgentState::ExecutingTools { generation_id: 7 }) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     let dto = SessionHeadDTO::from_session(&session);
 
@@ -77,26 +79,38 @@ fn session_head_dto_subroutine_handle() {
 #[test]
 fn compress_large_payload() {
     let data = vec![0u8; COMPRESSION_THRESHOLD + 100];
-    let compressed = maybe_compress(data.clone()).unwrap_or_else(|e| unreachable!("{:?}", e));
+    let compressed = match maybe_compress(data.clone()) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     // First byte is the compression flag.
     assert_eq!(compressed[0], 1);
     // Compressed should be smaller than original.
     assert!(compressed.len() < data.len());
 
-    let decompressed = maybe_decompress(&compressed).unwrap_or_else(|e| unreachable!("{:?}", e));
+    let decompressed = match maybe_decompress(&compressed) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     assert_eq!(decompressed, data);
 }
 
 #[test]
 fn passthrough_small_payload() {
     let data = vec![1u8, 2, 3];
-    let compressed = maybe_compress(data.clone()).unwrap_or_else(|e| unreachable!("{:?}", e));
+    let compressed = match maybe_compress(data.clone()) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     assert_eq!(compressed[0], 0);
     assert_eq!(compressed[1..], data);
 
-    let decompressed = maybe_decompress(&compressed).unwrap_or_else(|e| unreachable!("{:?}", e));
+    let decompressed = match maybe_decompress(&compressed) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     assert_eq!(decompressed, data);
 }
 
@@ -104,7 +118,10 @@ fn passthrough_small_payload() {
 fn decompress_legacy_no_flag() {
     // Data written before the flag prefix was introduced.
     let raw = vec![7u8, 8, 9];
-    let decompressed = maybe_decompress(&raw).unwrap_or_else(|e| unreachable!("{:?}", e));
+    let decompressed = match maybe_decompress(&raw) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     assert_eq!(decompressed, raw);
 }
 
@@ -112,8 +129,14 @@ fn decompress_legacy_no_flag() {
 fn session_head_serialization_roundtrip() {
     let session = Session::new("roundtrip");
     let dto = SessionHeadDTO::from_session(&session);
-    let blob = serialize_head(&dto).unwrap_or_else(|e| unreachable!("{:?}", e));
-    let restored = deserialize_head(&blob).unwrap_or_else(|e| unreachable!("{:?}", e));
+    let blob = match serialize_head(&dto) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+    let restored = match deserialize_head(&blob) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     assert_eq!(dto, restored);
 }
@@ -133,13 +156,20 @@ fn idempotence_two_serializations_bit_for_bit() {
         reasoning: None,
         tool_calls: Vec::new(),
     });
-    session
-        .push_state(AgentState::Predicting { generation_id: 42 })
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    match session.push_state(AgentState::Predicting { generation_id: 42 }) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     let dto = SessionHeadDTO::from_session(&session);
-    let blob1 = serialize_head(&dto).unwrap_or_else(|e| unreachable!("{:?}", e));
-    let blob2 = serialize_head(&dto).unwrap_or_else(|e| unreachable!("{:?}", e));
+    let blob1 = match serialize_head(&dto) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+    let blob2 = match serialize_head(&dto) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     assert_eq!(
         blob1, blob2,
@@ -184,30 +214,42 @@ fn extract_delta_non_empty() {
 
 #[tokio::test]
 async fn redb_save_and_load_session_head() {
-    let tmp = tempfile::NamedTempFile::new().unwrap_or_else(|e| unreachable!("{:?}", e));
+    let tmp = match tempfile::NamedTempFile::new() {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     let store = new_session_store();
-    let storage = RedbStorage::new(tmp.path(), store).unwrap_or_else(|e| unreachable!("{:?}", e));
+    let storage = match RedbStorage::new(tmp.path(), store) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     let session = Session::new("redb-test");
     let dto = SessionHeadDTO::from_session(&session);
 
-    storage
-        .save_session_dto(&dto)
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    match storage.save_session_dto(&dto).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
-    let loaded = storage
-        .load_session("redb-test")
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    let loaded = match storage.load_session("redb-test").await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     assert_eq!(loaded, Some(dto));
 }
 
 #[tokio::test]
 async fn redb_save_and_load_messages() {
-    let tmp = tempfile::NamedTempFile::new().unwrap_or_else(|e| unreachable!("{:?}", e));
+    let tmp = match tempfile::NamedTempFile::new() {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     let store = new_session_store();
-    let storage = RedbStorage::new(tmp.path(), store).unwrap_or_else(|e| unreachable!("{:?}", e));
+    let storage = match RedbStorage::new(tmp.path(), store) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     let msgs = vec![
         ChatMessage::User {
@@ -220,19 +262,19 @@ async fn redb_save_and_load_messages() {
         },
     ];
 
-    storage
-        .save_messages("sess-1", &msgs, 0)
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    match storage.save_messages("sess-1", &msgs, 0).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
-    let m0 = storage
-        .load_message("sess-1", 0)
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
-    let m1 = storage
-        .load_message("sess-1", 1)
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    let m0 = match storage.load_message("sess-1", 0).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+    let m1 = match storage.load_message("sess-1", 1).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     assert_eq!(m0, Some(msgs[0].clone()));
     assert_eq!(m1, Some(msgs[1].clone()));
@@ -240,9 +282,15 @@ async fn redb_save_and_load_messages() {
 
 #[tokio::test]
 async fn redb_load_messages_for_session_sorted() {
-    let tmp = tempfile::NamedTempFile::new().unwrap_or_else(|e| unreachable!("{:?}", e));
+    let tmp = match tempfile::NamedTempFile::new() {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     let store = new_session_store();
-    let storage = RedbStorage::new(tmp.path(), store).unwrap_or_else(|e| unreachable!("{:?}", e));
+    let storage = match RedbStorage::new(tmp.path(), store) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     let msgs = [
         ChatMessage::User {
@@ -257,23 +305,23 @@ async fn redb_load_messages_for_session_sorted() {
     ];
 
     // Save out of order to verify deterministic sort on load.
-    storage
-        .save_messages("sess-2", &[msgs[2].clone()], 2)
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
-    storage
-        .save_messages("sess-2", &[msgs[0].clone()], 0)
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
-    storage
-        .save_messages("sess-2", &[msgs[1].clone()], 1)
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    match storage.save_messages("sess-2", &[msgs[2].clone()], 2).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+    match storage.save_messages("sess-2", &[msgs[0].clone()], 0).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+    match storage.save_messages("sess-2", &[msgs[1].clone()], 1).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
-    let loaded = storage
-        .load_messages_for_session("sess-2")
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    let loaded = match storage.load_messages_for_session("sess-2").await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     assert_eq!(loaded.len(), 3);
     assert_eq!(loaded[0].0, 0);
@@ -288,36 +336,53 @@ async fn redb_load_messages_for_session_sorted() {
 async fn redb_save_plugin_blob_roundtrip() {
     use brioche_shell_runtime::Persistence;
 
-    let tmp = tempfile::NamedTempFile::new().unwrap_or_else(|e| unreachable!("{:?}", e));
+    let tmp = match tempfile::NamedTempFile::new() {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     let store = new_session_store();
-    let storage = RedbStorage::new(tmp.path(), store).unwrap_or_else(|e| unreachable!("{:?}", e));
+    let storage = match RedbStorage::new(tmp.path(), store) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     let data = vec![0xAB, 0xCD, 0xEF];
-    storage
-        .save_plugin_blob("plugin::x", data.clone())
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    match storage.save_plugin_blob("plugin::x", data.clone()).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     // Drop storage to close the database so we can reopen it for verification.
     drop(storage);
 
     // Verify via direct Redb read.
-    let loaded = tokio::task::spawn_blocking({
+    let loaded = match tokio::task::spawn_blocking({
         let path = tmp.path().to_path_buf();
         move || {
-            let db = redb::Database::open(path).unwrap_or_else(|e| unreachable!("{:?}", e));
-            let txn = db.begin_read().unwrap_or_else(|e| unreachable!("{:?}", e));
-            let table = txn
-                .open_table(brioche_shell_persistence::schema::BLOBS_TABLE)
-                .unwrap_or_else(|e| unreachable!("{:?}", e));
-            let guard = table
-                .get("plugin::x")
-                .unwrap_or_else(|e| unreachable!("{:?}", e));
+            let db = match redb::Database::open(path) {
+                Ok(v) => v,
+                Err(e) => unreachable!("{:?}", e),
+            };
+            let txn = match db.begin_read() {
+                Ok(v) => v,
+                Err(e) => unreachable!("{:?}", e),
+            };
+            let table = match txn.open_table(brioche_shell_persistence::schema::BLOBS_TABLE) {
+                Ok(v) => v,
+                Err(e) => unreachable!("{:?}", e),
+            };
+            let guard = match table.get("plugin::x") {
+                Ok(v) => v,
+                Err(e) => unreachable!("{:?}", e),
+            };
             guard.map(|g| g.value().to_vec())
         }
     })
     .await
-    .unwrap_or_else(|e| unreachable!("{:?}", e));
+    {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     assert_eq!(loaded, Some(data));
 }
@@ -326,10 +391,15 @@ async fn redb_save_plugin_blob_roundtrip() {
 async fn persistence_trait_save_session_with_delta() {
     use brioche_shell_runtime::Persistence;
 
-    let tmp = tempfile::NamedTempFile::new().unwrap_or_else(|e| unreachable!("{:?}", e));
+    let tmp = match tempfile::NamedTempFile::new() {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     let store = new_session_store();
-    let storage =
-        RedbStorage::new(tmp.path(), store.clone()).unwrap_or_else(|e| unreachable!("{:?}", e));
+    let storage = match RedbStorage::new(tmp.path(), store.clone()) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     let mut session = Session::new("trait-test");
     session.history.push(ChatMessage::User {
@@ -348,10 +418,10 @@ async fn persistence_trait_save_session_with_delta() {
     storage.update_session(entry).await;
 
     // First save: head + 2 messages.
-    storage
-        .save_session("trait-test")
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    match storage.save_session("trait-test").await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     // Add a third message, update store.
     session.history.push(ChatMessage::User {
@@ -368,23 +438,23 @@ async fn persistence_trait_save_session_with_delta() {
     storage.update_session(entry2).await;
 
     // Second save: only the delta (msg-2).
-    storage
-        .save_session("trait-test")
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    match storage.save_session("trait-test").await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     // Verify head.
-    let loaded_head = storage
-        .load_session("trait-test")
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    let loaded_head = match storage.load_session("trait-test").await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     assert!(loaded_head.is_some());
 
     // Verify all messages are present.
-    let loaded_msgs = storage
-        .load_messages_for_session("trait-test")
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    let loaded_msgs = match storage.load_messages_for_session("trait-test").await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     assert_eq!(loaded_msgs.len(), 3);
     assert_eq!(loaded_msgs[0].0, 0);
     assert_eq!(loaded_msgs[1].0, 1);
@@ -397,8 +467,10 @@ async fn persistence_trait_save_session_with_delta() {
 
 #[test]
 fn subroutine_cache_l1_l2_promotion() {
-    let mut cache =
-        SubRoutineCache::new(NonZeroUsize::new(2).unwrap_or_else(|| unreachable!("2 is non-zero")));
+    let mut cache = SubRoutineCache::new(match NonZeroUsize::new(2) {
+        Some(v) => v,
+        None => unreachable!("2 is non-zero"),
+    });
 
     let dto = SessionHeadDTO::from_session(&Session::new("sub-1"));
     cache.insert("sub-1".into(), dto.clone());
@@ -418,8 +490,10 @@ fn subroutine_cache_l1_l2_promotion() {
 
 #[test]
 fn subroutine_cache_lru_eviction() {
-    let mut cache =
-        SubRoutineCache::new(NonZeroUsize::new(2).unwrap_or_else(|| unreachable!("2 is non-zero")));
+    let mut cache = SubRoutineCache::new(match NonZeroUsize::new(2) {
+        Some(v) => v,
+        None => unreachable!("2 is non-zero"),
+    });
 
     for i in 0..4 {
         let dto = SessionHeadDTO::from_session(&Session::new(format!("sub-{}", i)));
@@ -435,8 +509,10 @@ fn subroutine_cache_lru_eviction() {
 
 #[test]
 fn subroutine_cache_remove() {
-    let mut cache =
-        SubRoutineCache::new(NonZeroUsize::new(2).unwrap_or_else(|| unreachable!("2 is non-zero")));
+    let mut cache = SubRoutineCache::new(match NonZeroUsize::new(2) {
+        Some(v) => v,
+        None => unreachable!("2 is non-zero"),
+    });
 
     let dto = SessionHeadDTO::from_session(&Session::new("sub-x"));
     cache.insert("sub-x".into(), dto.clone());
@@ -453,47 +529,59 @@ fn subroutine_cache_remove() {
 
 #[tokio::test]
 async fn lazy_session_load_with_children() {
-    let tmp = tempfile::NamedTempFile::new().unwrap_or_else(|e| unreachable!("{:?}", e));
+    let tmp = match tempfile::NamedTempFile::new() {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     let store = new_session_store();
-    let storage = RedbStorage::new(tmp.path(), store).unwrap_or_else(|e| unreachable!("{:?}", e));
+    let storage = match RedbStorage::new(tmp.path(), store) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     // Create a child sub-routine session.
     let child_session = Session::new("child-1");
     let child_dto = SessionHeadDTO::from_session(&child_session);
-    storage
-        .save_session_dto(&child_dto)
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    match storage.save_session_dto(&child_dto).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     // Create a parent session whose state stack references the child.
     let mut parent_session = Session::new("parent-1");
-    parent_session
-        .push_state(AgentState::SubRoutine(brioche_core::SubRoutineHandle::new(
-            "child-1",
-        )))
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    match parent_session.push_state(AgentState::SubRoutine(brioche_core::SubRoutineHandle::new(
+        "child-1",
+    ))) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     parent_session.history.push(ChatMessage::User {
         content: "hello parent".into(),
     });
 
     let parent_dto = SessionHeadDTO::from_session(&parent_session);
-    storage
-        .save_session_dto(&parent_dto)
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
-    storage
+    match storage.save_session_dto(&parent_dto).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+    match storage
         .save_messages("parent-1", &parent_session.history, 0)
         .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     // Load parent lazily — child should be pre-filled into L2.
-    let mut cache =
-        SubRoutineCache::new(NonZeroUsize::new(4).unwrap_or_else(|| unreachable!("4 is non-zero")));
+    let mut cache = SubRoutineCache::new(match NonZeroUsize::new(4) {
+        Some(v) => v,
+        None => unreachable!("4 is non-zero"),
+    });
     let loader = LazySessionLoader::new(&storage);
-    let result = loader
-        .load("parent-1", &mut cache)
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    let result = match loader.load("parent-1", &mut cache).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     let (head, messages) = match result {
         Some(r) => r,
@@ -516,30 +604,40 @@ async fn lazy_session_load_with_children() {
 
 #[tokio::test]
 async fn load_subroutine_l1_l2_redb_fallback() {
-    let tmp = tempfile::NamedTempFile::new().unwrap_or_else(|e| unreachable!("{:?}", e));
+    let tmp = match tempfile::NamedTempFile::new() {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     let store = new_session_store();
-    let storage = RedbStorage::new(tmp.path(), store).unwrap_or_else(|e| unreachable!("{:?}", e));
+    let storage = match RedbStorage::new(tmp.path(), store) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     let dto = SessionHeadDTO::from_session(&Session::new("sub-fallback"));
-    storage
-        .save_session_dto(&dto)
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    match storage.save_session_dto(&dto).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
-    let mut cache =
-        SubRoutineCache::new(NonZeroUsize::new(4).unwrap_or_else(|| unreachable!("4 is non-zero")));
+    let mut cache = SubRoutineCache::new(match NonZeroUsize::new(4) {
+        Some(v) => v,
+        None => unreachable!("4 is non-zero"),
+    });
 
     // First load: miss cache, hit Redb.
-    let loaded = load_subroutine(&storage, &mut cache, "sub-fallback")
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    let loaded = match load_subroutine(&storage, &mut cache, "sub-fallback").await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     assert!(loaded.is_some());
     assert_eq!(cache.l2_len(), 1);
 
     // Second load: should hit L2 (no need to query Redb).
-    let loaded2 = load_subroutine(&storage, &mut cache, "sub-fallback")
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    let loaded2 = match load_subroutine(&storage, &mut cache, "sub-fallback").await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     let loaded2_dto = match loaded2 {
         Some(d) => d,
         None => {
@@ -555,9 +653,10 @@ async fn load_subroutine_l1_l2_redb_fallback() {
     assert_eq!(cache.l2_len(), 0);
 
     // Third load: should hit L1.
-    let loaded3 = load_subroutine(&storage, &mut cache, "sub-fallback")
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    let loaded3 = match load_subroutine(&storage, &mut cache, "sub-fallback").await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     assert!(loaded3.is_some());
 }
 
@@ -567,9 +666,15 @@ async fn load_subroutine_l1_l2_redb_fallback() {
 
 #[tokio::test]
 async fn persistence_roundtrip_save_load_replay() {
-    let tmp = tempfile::NamedTempFile::new().unwrap_or_else(|e| unreachable!("{:?}", e));
+    let tmp = match tempfile::NamedTempFile::new() {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     let store = new_session_store();
-    let storage = RedbStorage::new(tmp.path(), store).unwrap_or_else(|e| unreachable!("{:?}", e));
+    let storage = match RedbStorage::new(tmp.path(), store) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     let mut session = Session::new("roundtrip-full");
     session.history.push(ChatMessage::System {
@@ -583,25 +688,30 @@ async fn persistence_roundtrip_save_load_replay() {
         reasoning: None,
         tool_calls: Vec::new(),
     });
-    session
-        .push_state(AgentState::Predicting { generation_id: 99 })
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    match session.push_state(AgentState::Predicting { generation_id: 99 }) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     // Save.
     let head = SessionHeadDTO::from_session(&session);
-    storage
-        .save_session_dto(&head)
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
-    storage
+    match storage.save_session_dto(&head).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+    match storage
         .save_messages("roundtrip-full", &session.history, 0)
         .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     // Load full session.
-    let result = load_session_full(&storage, "roundtrip-full")
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    let result = match load_session_full(&storage, "roundtrip-full").await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     let (loaded_head, loaded_messages) = match result {
         Some(r) => r,
         None => {
@@ -630,9 +740,15 @@ async fn persistence_roundtrip_save_load_replay() {
 
 #[tokio::test]
 async fn gc_removes_messages_below_compaction_index() {
-    let tmp = tempfile::NamedTempFile::new().unwrap_or_else(|e| unreachable!("{:?}", e));
+    let tmp = match tempfile::NamedTempFile::new() {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     let store = new_session_store();
-    let storage = RedbStorage::new(tmp.path(), store).unwrap_or_else(|e| unreachable!("{:?}", e));
+    let storage = match RedbStorage::new(tmp.path(), store) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     let msgs = vec![
         ChatMessage::User {
@@ -648,24 +764,24 @@ async fn gc_removes_messages_below_compaction_index() {
             content: "3".into(),
         },
     ];
-    storage
-        .save_messages("gc-sess", &msgs, 0)
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    match storage.save_messages("gc-sess", &msgs, 0).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     let gc = GcRunner::new();
-    let removed = gc
-        .run_gc(&storage, "gc-sess", 2)
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    let removed = match gc.run_gc(&storage, "gc-sess", 2).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     // Messages with index < 2 should be removed.
     assert_eq!(removed, 2);
 
-    let remaining = storage
-        .load_messages_for_session("gc-sess")
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    let remaining = match storage.load_messages_for_session("gc-sess").await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     assert_eq!(remaining.len(), 2);
     assert_eq!(remaining[0].0, 2);
     assert_eq!(remaining[1].0, 3);
@@ -673,9 +789,15 @@ async fn gc_removes_messages_below_compaction_index() {
 
 #[tokio::test]
 async fn gc_does_not_remove_when_index_equals_compaction() {
-    let tmp = tempfile::NamedTempFile::new().unwrap_or_else(|e| unreachable!("{:?}", e));
+    let tmp = match tempfile::NamedTempFile::new() {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     let store = new_session_store();
-    let storage = RedbStorage::new(tmp.path(), store).unwrap_or_else(|e| unreachable!("{:?}", e));
+    let storage = match RedbStorage::new(tmp.path(), store) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     let msgs = vec![
         ChatMessage::User {
@@ -685,16 +807,16 @@ async fn gc_does_not_remove_when_index_equals_compaction() {
             content: "1".into(),
         },
     ];
-    storage
-        .save_messages("gc-eq", &msgs, 0)
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    match storage.save_messages("gc-eq", &msgs, 0).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     let gc = GcRunner::new();
-    let removed = gc
-        .run_gc(&storage, "gc-eq", 0)
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    let removed = match gc.run_gc(&storage, "gc-eq", 0).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     // Strictly less than, so index 0 is NOT removed when compaction_index == 0.
     assert_eq!(removed, 0);
@@ -702,9 +824,15 @@ async fn gc_does_not_remove_when_index_equals_compaction() {
 
 #[tokio::test]
 async fn gc_interruptible_by_cancellation_token() {
-    let tmp = tempfile::NamedTempFile::new().unwrap_or_else(|e| unreachable!("{:?}", e));
+    let tmp = match tempfile::NamedTempFile::new() {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     let store = new_session_store();
-    let storage = RedbStorage::new(tmp.path(), store).unwrap_or_else(|e| unreachable!("{:?}", e));
+    let storage = match RedbStorage::new(tmp.path(), store) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     // Populate many messages to ensure the scan takes some time.
     let mut msgs = Vec::with_capacity(200);
@@ -713,20 +841,20 @@ async fn gc_interruptible_by_cancellation_token() {
             content: format!("msg-{}", i),
         });
     }
-    storage
-        .save_messages("gc-cancel", &msgs, 0)
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    match storage.save_messages("gc-cancel", &msgs, 0).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     let gc = GcRunner::new();
 
     // Cancel immediately before running.
     gc.cancel();
 
-    let removed = gc
-        .run_gc(&storage, "gc-cancel", 200)
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    let removed = match gc.run_gc(&storage, "gc-cancel", 200).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
 
     // Cancellation happens before or during the first iteration,
     // so either 0 or a very small number of messages are removed.
@@ -739,10 +867,10 @@ async fn gc_interruptible_by_cancellation_token() {
     );
 
     // Verify the database is still consistent.
-    let remaining = storage
-        .load_messages_for_session("gc-cancel")
-        .await
-        .unwrap_or_else(|e| unreachable!("{:?}", e));
+    let remaining = match storage.load_messages_for_session("gc-cancel").await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     assert_eq!(remaining.len(), 200);
 }
 

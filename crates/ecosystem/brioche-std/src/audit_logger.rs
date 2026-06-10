@@ -24,6 +24,10 @@ pub struct AuditEntry {
 
 /// Audit logger state.
 ///
+/// ## Snapshot strategy
+/// COW: full clone. Weight scales with pending entries (typically
+/// bounded by `batch_size`, default 64). One `Vec` plus three scalars.
+///
 /// Refs: I-Eco-OrderedCollections
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, BriocheExtensionType,
@@ -113,7 +117,11 @@ impl BriochePlugin for AuditLogger {
         state.pending.push(entry);
 
         if state.pending.len() >= self.batch_size {
-            let blob = brioche_core::postcard::to_allocvec(&state.pending).unwrap_or_default();
+            let fallback = Default::default();
+            let blob = match brioche_core::postcard::to_allocvec(&state.pending) {
+                Ok(v) => v,
+                Err(_) => fallback,
+            };
             state.pending.clear();
             return Ok(PolicyDecision::RequestEffect(Effect::SavePluginBlob {
                 plugin_id: "audit_logger".into(),

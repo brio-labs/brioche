@@ -61,6 +61,7 @@ HOT_PATH_MODULES = [
     "crates/kernel/brioche-core/src/engine/router.rs",
     "crates/kernel/brioche-core/src/engine/trace.rs",
     "crates/kernel/brioche-core/src/engine/types.rs",
+    "crates/kernel/brioche-core/src/engine/builder.rs",
     "crates/kernel/brioche-core/src/extension.rs",
     "crates/kernel/brioche-core/src/types.rs",
     "crates/kernel/brioche-core/src/plugin.rs",
@@ -276,26 +277,50 @@ def check_extension_type_docs() -> CheckResult:
         content = path.read_text()
         lines = content.split("\n")
 
-        # Find derive lines mentioning BriocheExtensionType
-        for i, line in enumerate(lines):
-            if "BriocheExtensionType" not in line or not line.strip().startswith("#"):
+        # Find lines mentioning BriocheExtensionType that are not comments or imports.
+        for derive_line, line in enumerate(lines):
+            if "BriocheExtensionType" not in line:
+                continue
+            stripped = line.strip()
+            if stripped.startswith(("//", "use ")):
                 continue
 
-            # Walk up to find the struct definition and its doc block
+            # Verify this line belongs to a #[derive(...) block.
+            is_derive = False
+            for k in range(max(0, derive_line - 20), derive_line + 1):
+                if lines[k].strip().startswith("#[derive"):
+                    is_derive = True
+                    break
+            if not is_derive:
+                continue
+
+            # Find the start of the derive block (for doc collection).
+            derive_start = derive_line
+            for k in range(derive_line, -1, -1):
+                if lines[k].strip().startswith("#[derive"):
+                    derive_start = k
+                    break
+
+            # Walk forward to find the associated pub struct.
             struct_idx = None
-            for j in range(i + 1, len(lines)):
-                if lines[j].strip().startswith("pub struct "):
+            for j in range(derive_line + 1, len(lines)):
+                stripped = lines[j].strip()
+                if stripped.startswith("pub struct "):
                     struct_idx = j
                     break
-                if lines[j].strip() and not lines[j].strip().startswith("#"):
-                    break
+                if stripped == "" or stripped.startswith(("#", "//")):
+                    continue
+                # Allow closing paren of a multi-line derive block.
+                if stripped.startswith(")"):
+                    continue
+                break
 
             if struct_idx is None:
                 continue
 
-            # Collect doc block above the derive
+            # Collect doc block above the derive block.
             doc_lines: list[str] = []
-            for idx in range(i - 1, -1, -1):
+            for idx in range(derive_start - 1, -1, -1):
                 stripped = lines[idx].strip()
                 if stripped.startswith("///"):
                     doc_lines.insert(0, stripped)
@@ -443,8 +468,15 @@ def check_vtable_in_core() -> CheckResult:
 
 PANIC_PATTERNS = [
     (re.compile(r"\.unwrap\(\)"), "unwrap()"),
+    (re.compile(r"\.unwrap_or\("), "unwrap_or(...)"),
+    (re.compile(r"\.unwrap_or_else\("), "unwrap_or_else(...)"),
+    (re.compile(r"\.unwrap_or_default\("), "unwrap_or_default()"),
     (re.compile(r"\.expect\("), "expect(...)"),
     (re.compile(r"\bpanic!\("), "panic!(...)"),
+    (
+        re.compile(r"(?<!\w)\w+\[[^\]]+\]"),
+        "direct indexing (potential panic path)",
+    ),
 ]
 
 
@@ -459,14 +491,15 @@ def check_panic_guards() -> CheckResult:
         content = path.read_text()
         lines = content.split("\n")
 
-        for pat, desc in PANIC_PATTERNS:
-            for m in pat.finditer(content):
-                line_no = content[: m.start()].count("\n") + 1
-                line = lines[line_no - 1].strip()
-                if line.startswith("//"):
-                    continue
-                # Allow expect in non-production paths if explicitly justified
-                result.add(path, line_no, f"forbidden: {desc}")
+        for i, line in enumerate(lines):
+            if line.strip().startswith("#[cfg(test)]"):
+                break
+            stripped = line.strip()
+            if stripped.startswith("//"):
+                continue
+            for pat, desc in PANIC_PATTERNS:
+                if pat.search(line):
+                    result.add(path, i + 1, f"forbidden: {desc}")
 
     return result
 
@@ -694,6 +727,19 @@ def check_invariant_format() -> CheckResult:
                     # Check if this line or the surrounding doc block has "Refs:"
                     block = "\n".join(lines[max(0, i - 5) : i + 6])
                     if "Refs:" not in block and "# Invariants" not in block:
+                        # Allow invariant mentions inside standard doc sections
+                        # (Panics, Complexity, Safety, Errors) where they serve
+                        # as cross-references rather than primary citations.
+                        if any(
+                            sec in block
+                            for sec in (
+                                "# Panics",
+                                "# Complexity",
+                                "# Safety",
+                                "# Errors",
+                            )
+                        ):
+                            continue
                         result.add(
                             path,
                             i + 1,

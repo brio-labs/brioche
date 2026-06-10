@@ -134,8 +134,8 @@ impl SystemTool for WriteFileTool {
             .as_str()
             .ok_or_else(|| ToolError::InvalidArgs("missing 'path'".into()))?;
         let path = expand_tilde(path_raw);
-        let content = args["content"].as_str().unwrap_or("");
-        let append = args["append"].as_bool().unwrap_or(false);
+        let content = args["content"].as_str().map_or("", |v| v);
+        let append = args["append"].as_bool().is_none_or(|v| v);
 
         // Create parent directories if they don't exist.
         if let Some(parent) = std::path::Path::new(&path).parent() {

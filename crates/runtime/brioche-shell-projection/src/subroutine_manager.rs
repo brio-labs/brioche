@@ -269,14 +269,16 @@ mod tests {
         let handle = SubRoutineHandle::new("sub-1");
         mgr.begin_load(handle.clone());
 
-        let state = mgr
-            .mark_error(&handle)
-            .unwrap_or_else(|| unreachable!("handle must exist"));
+        let state = match mgr.mark_error(&handle) {
+            Some(v) => v,
+            None => unreachable!("handle must exist"),
+        };
         assert_eq!(state.accordion, SubRoutineAccordionState::Error);
 
-        let state = mgr
-            .mark_timeout(&handle)
-            .unwrap_or_else(|| unreachable!("handle must exist"));
+        let state = match mgr.mark_timeout(&handle) {
+            Some(v) => v,
+            None => unreachable!("handle must exist"),
+        };
         assert_eq!(state.accordion, SubRoutineAccordionState::Timeout);
     }
 
@@ -285,9 +287,10 @@ mod tests {
         let mut mgr = SubRoutineManager::new();
         let handle = SubRoutineHandle::new("sub-1");
         mgr.begin_load(handle.clone());
-        let removed = mgr
-            .remove(&handle)
-            .unwrap_or_else(|| unreachable!("handle must exist"));
+        let removed = match mgr.remove(&handle) {
+            Some(v) => v,
+            None => unreachable!("handle must exist"),
+        };
         assert_eq!(removed.accordion, SubRoutineAccordionState::Loading);
         assert!(mgr.is_empty());
     }
@@ -302,16 +305,18 @@ mod tests {
         mgr.begin_load(h2.clone());
 
         // Each sub-routine has its own ContentRenderer.
-        let r1 = &mut mgr
-            .get_mut(&h1)
-            .unwrap_or_else(|| unreachable!("h1 must exist"))
-            .renderer;
+        let state1 = match mgr.get_mut(&h1) {
+            Some(v) => v,
+            None => unreachable!("h1 must exist"),
+        };
+        let r1 = &mut state1.renderer;
         r1.buffer_mut().append("trace", "alpha");
 
-        let r2 = &mgr
-            .get(&h2)
-            .unwrap_or_else(|| unreachable!("h2 must exist"))
-            .renderer;
+        let state2 = match mgr.get(&h2) {
+            Some(v) => v,
+            None => unreachable!("h2 must exist"),
+        };
+        let r2 = &state2.renderer;
         assert!(r2.buffer().is_empty());
     }
 

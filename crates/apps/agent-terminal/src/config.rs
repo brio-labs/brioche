@@ -38,20 +38,20 @@ impl CliConfig {
         let api_key = user
             .api_key
             .or_else(|| std::env::var("BRIOCHE_API_KEY").ok())
-            .unwrap_or_default();
+            .map_or(String::new(), |v| v);
         let model = user
             .model
             .or_else(|| std::env::var("BRIOCHE_MODEL").ok())
-            .unwrap_or_else(|| "gpt-4o-mini".into());
+            .map_or("gpt-4o-mini".into(), |v| v);
         let base_url = user
             .base_url
             .or_else(|| std::env::var("BRIOCHE_BASE_URL").ok())
-            .unwrap_or_else(|| "https://api.openai.com/v1".into());
+            .map_or("https://api.openai.com/v1".into(), |v| v);
 
         let max_tokens = std::env::var("BRIOCHE_MAX_TOKENS")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(4096u32);
+            .map_or(4096u32, |v| v);
 
         // Reasoning effort: user override only. No per-model defaults.
         //

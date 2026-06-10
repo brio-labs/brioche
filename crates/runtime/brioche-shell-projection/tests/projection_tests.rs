@@ -492,11 +492,14 @@ fn stream_batch_messagepack_roundtrip() {
     batch.append("trace-1", "Hello");
     batch.append("trace-2", "world");
 
-    let bytes = batch
-        .to_messagepack()
-        .unwrap_or_else(|e| unreachable!("serialize failed: {}", e));
-    let decoded: StreamBatch =
-        rmp_serde::from_slice(&bytes).unwrap_or_else(|e| unreachable!("deserialize failed: {}", e));
+    let bytes = match batch.to_messagepack() {
+        Ok(v) => v,
+        Err(e) => unreachable!("serialize failed: {}", e),
+    };
+    let decoded: StreamBatch = match rmp_serde::from_slice(&bytes) {
+        Ok(v) => v,
+        Err(e) => unreachable!("deserialize failed: {}", e),
+    };
     assert_eq!(decoded, batch);
 }
 
@@ -509,11 +512,14 @@ fn stream_batch_emitter_integration() {
     emitter.accumulate("main", "quick ");
     emitter.accumulate("side", "fox");
 
-    let bytes = emitter
-        .try_emit()
-        .unwrap_or_else(|| unreachable!("should emit"));
-    let decoded: StreamBatch =
-        rmp_serde::from_slice(&bytes).unwrap_or_else(|e| unreachable!("deserialize failed: {}", e));
+    let bytes = match emitter.try_emit() {
+        Some(v) => v,
+        None => unreachable!("should emit"),
+    };
+    let decoded: StreamBatch = match rmp_serde::from_slice(&bytes) {
+        Ok(v) => v,
+        Err(e) => unreachable!("deserialize failed: {}", e),
+    };
     assert_eq!(decoded.traces.get("main"), Some(&"The quick ".to_string()));
     assert_eq!(decoded.traces.get("side"), Some(&"fox".to_string()));
 }
@@ -536,15 +542,17 @@ fn subroutine_manager_end_to_end_lifecycle() {
     assert_eq!(state.accordion, SubRoutineAccordionState::Loaded);
 
     // Error transition.
-    let state = mgr
-        .mark_error(&handle)
-        .unwrap_or_else(|| unreachable!("handle must exist"));
+    let state = match mgr.mark_error(&handle) {
+        Some(v) => v,
+        None => unreachable!("handle must exist"),
+    };
     assert_eq!(state.accordion, SubRoutineAccordionState::Error);
 
     // Timeout transition.
-    let state = mgr
-        .mark_timeout(&handle)
-        .unwrap_or_else(|| unreachable!("handle must exist"));
+    let state = match mgr.mark_timeout(&handle) {
+        Some(v) => v,
+        None => unreachable!("handle must exist"),
+    };
     assert_eq!(state.accordion, SubRoutineAccordionState::Timeout);
 
     // Cleanup.
@@ -563,26 +571,22 @@ fn subroutine_manager_renderer_isolation_integration() {
 
     // Simulate streaming into sub-a.
     let effect = make_text_chunk_effect("trace", "alpha");
-    let renderer = &mut mgr
-        .get_mut(&h1)
-        .unwrap_or_else(|| unreachable!("h1 must exist"))
-        .renderer;
+    let state_h1 = match mgr.get_mut(&h1) {
+        Some(v) => v,
+        None => unreachable!("h1 must exist"),
+    };
+    let renderer = &mut state_h1.renderer;
     assert!(renderer.process_effect(&effect));
 
     // sub-b remains untouched.
-    assert!(
-        mgr.get(&h2)
-            .unwrap_or_else(|| unreachable!("h2 must exist"))
-            .renderer
-            .buffer()
-            .is_empty()
-    );
-    assert_eq!(
-        mgr.get(&h1)
-            .unwrap_or_else(|| unreachable!("h1 must exist"))
-            .renderer
-            .buffer()
-            .get("trace"),
-        Some("alpha")
-    );
+    let state_h2 = match mgr.get(&h2) {
+        Some(v) => v,
+        None => unreachable!("h2 must exist"),
+    };
+    assert!(state_h2.renderer.buffer().is_empty());
+    let state_h1 = match mgr.get(&h1) {
+        Some(v) => v,
+        None => unreachable!("h1 must exist"),
+    };
+    assert_eq!(state_h1.renderer.buffer().get("trace"), Some("alpha"));
 }

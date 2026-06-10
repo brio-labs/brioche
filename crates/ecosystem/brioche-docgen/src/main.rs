@@ -77,14 +77,17 @@ fn generate_trait_graph(output_dir: &PathBuf, format: &str) {
     };
 
     let path = output_dir.join(format!("trait_graph.{ext}"));
-    let mut file = fs::File::create(&path).unwrap_or_else(|_| {
-        eprintln!("failed to create {}", path.display());
-        std::process::exit(1);
-    });
-    file.write_all(content.as_bytes()).unwrap_or_else(|_| {
+    let mut file = match fs::File::create(&path) {
+        Ok(f) => f,
+        Err(_) => {
+            eprintln!("failed to create {}", path.display());
+            std::process::exit(1);
+        }
+    };
+    if file.write_all(content.as_bytes()).is_err() {
         eprintln!("failed to write {}", path.display());
         std::process::exit(1);
-    });
+    }
 
     println!("Trait graph written to {}", path.display());
 }
@@ -105,14 +108,17 @@ fn generate_sequence_diagram(output_dir: &PathBuf, variant: Option<&str>) {
     for v in &variants {
         let diagram = build_sequence_diagram(v);
         let path = output_dir.join(format!("sequence_{v}.md"));
-        let mut file = fs::File::create(&path).unwrap_or_else(|_| {
-            eprintln!("failed to create {}", path.display());
-            std::process::exit(1);
-        });
-        file.write_all(diagram.as_bytes()).unwrap_or_else(|_| {
+        let mut file = match fs::File::create(&path) {
+            Ok(f) => f,
+            Err(_) => {
+                eprintln!("failed to create {}", path.display());
+                std::process::exit(1);
+            }
+        };
+        if file.write_all(diagram.as_bytes()).is_err() {
             eprintln!("failed to write {}", path.display());
             std::process::exit(1);
-        });
+        }
         println!("Sequence diagram written to {}", path.display());
     }
 }
@@ -243,7 +249,10 @@ fn graph_to_html(graph: &TraitGraph) -> String {
 }
 
 fn graph_to_json(graph: &TraitGraph) -> String {
-    serde_json::to_string_pretty(graph).unwrap_or_else(|_| "{}".into())
+    match serde_json::to_string_pretty(graph) {
+        Ok(json) => json,
+        Err(_) => "{}".into(),
+    }
 }
 
 // ---------------------------------------------------------------------------

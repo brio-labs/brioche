@@ -11,6 +11,10 @@ use brioche_core::{
 };
 
 /// Observed rollback metrics.
+///
+/// ## Snapshot strategy
+/// COW: full clone. Weight scales with number of hooks tracked
+/// (typically < 20). One `Vec` of tuples plus four scalar counters.
 #[derive(
     Clone,
     Debug,

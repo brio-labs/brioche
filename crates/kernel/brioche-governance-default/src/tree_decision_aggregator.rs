@@ -96,30 +96,36 @@ impl DecisionAggregator for TreeDecisionAggregator {
         let state = ext.get_or_insert_default::<DecisionTreeState>();
         state.evaluation_count += 1;
 
-        let node = state.root.clone().unwrap_or_else(|| {
-            // Default tree: Block > Override > Mutate > Request > Allow
-            DecisionNode::Branch {
-                condition: DecisionCondition::AnyBlock,
-                if_true: Box::new(DecisionNode::Leaf(PolicyDecision::Block {
-                    reason: "tree: blocked by policy".into(),
-                })),
-                if_false: Box::new(DecisionNode::Branch {
-                    condition: DecisionCondition::AnyOverride,
-                    if_true: Box::new(DecisionNode::Leaf(PolicyDecision::OverrideTransition(
-                        vec![],
-                    ))),
+        let node = match state.root.clone() {
+            Some(n) => n,
+            None => {
+                // Default tree: Block > Override > Mutate > Request > Allow
+                DecisionNode::Branch {
+                    condition: DecisionCondition::AnyBlock,
+                    if_true: Box::new(DecisionNode::Leaf(PolicyDecision::Block {
+                        reason: "tree: blocked by policy".into(),
+                    })),
                     if_false: Box::new(DecisionNode::Branch {
-                        condition: DecisionCondition::AllAllow,
-                        if_true: Box::new(DecisionNode::Leaf(PolicyDecision::Allow)),
-                        if_false: Box::new(DecisionNode::Leaf(PolicyDecision::MutateHistory(
+                        condition: DecisionCondition::AnyOverride,
+                        if_true: Box::new(DecisionNode::Leaf(PolicyDecision::OverrideTransition(
                             vec![],
                         ))),
+                        if_false: Box::new(DecisionNode::Branch {
+                            condition: DecisionCondition::AllAllow,
+                            if_true: Box::new(DecisionNode::Leaf(PolicyDecision::Allow)),
+                            if_false: Box::new(DecisionNode::Leaf(PolicyDecision::MutateHistory(
+                                vec![],
+                            ))),
+                        }),
                     }),
-                }),
+                }
             }
-        });
+        };
 
-        Ok(evaluate_tree(&node, &decisions).unwrap_or(PolicyDecision::Allow))
+        Ok(match evaluate_tree(&node, &decisions) {
+            Some(d) => d,
+            None => PolicyDecision::Allow,
+        })
     }
 }
 

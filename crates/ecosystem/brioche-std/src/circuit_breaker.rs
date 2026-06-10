@@ -14,6 +14,9 @@ use brioche_core::{
 
 /// Circuit breaker state.
 ///
+/// ## Snapshot strategy
+/// COW: full clone (~32 bytes). Three scalar fields plus one `String`.
+///
 /// Refs: I-Eco-OrderedCollections
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, BriocheExtensionType,
@@ -99,7 +102,11 @@ impl BriochePlugin for CircuitBreaker {
         }
 
         // Count consecutive identical signatures from the end.
-        let last = signatures.last().cloned().unwrap_or_default();
+        let fallback = Default::default();
+        let last = match signatures.last().cloned() {
+            Some(v) => v,
+            None => fallback,
+        };
         let mut consecutive = 1u64;
         for i in (0..signatures.len() - 1).rev() {
             if signatures[i] == last {

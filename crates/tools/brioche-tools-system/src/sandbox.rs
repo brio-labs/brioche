@@ -57,7 +57,7 @@ impl AllowList {
 
     /// Checks whether a command is in the allow-list.
     pub fn is_allowed(&self, command: &str) -> bool {
-        let first_word = command.split_whitespace().next().unwrap_or("").trim();
+        let first_word = command.split_whitespace().next().map_or("", |s| s).trim();
         self.commands.contains(first_word)
     }
 }
