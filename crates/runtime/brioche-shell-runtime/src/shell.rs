@@ -649,7 +649,7 @@ where
             executor.call_llm(shell).await?;
         }
         Effect::ExecuteTools(calls) => {
-            let generation_id = snapshot.generation_id.unwrap_or(0);
+            let generation_id = snapshot.generation_id.map_or(0, |id| id);
             executor.execute_tools(calls, generation_id, shell).await?;
         }
         Effect::ForwardToUi(widget) => {

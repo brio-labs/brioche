@@ -60,7 +60,7 @@ fn lint_directory(root: &PathBuf) -> Vec<Violation> {
         .filter_map(|e| e.ok())
         .filter(|e| {
             let p = e.path();
-            p.extension().map(|ext| ext == "rs").unwrap_or(false)
+            p.extension().is_some_and(|ext| ext == "rs")
                 && !p.components().any(|c| {
                     let s = c.as_os_str().to_string_lossy();
                     s == "target" || s == ".git"

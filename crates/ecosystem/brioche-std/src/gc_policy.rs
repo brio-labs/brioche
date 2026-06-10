@@ -14,6 +14,9 @@ use brioche_core::{
 
 /// GC policy state.
 ///
+/// ## Snapshot strategy
+/// COW: full clone (~32 bytes). Four scalar fields.
+///
 /// Refs: I-Eco-OrderedCollections
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, BriocheExtensionType,

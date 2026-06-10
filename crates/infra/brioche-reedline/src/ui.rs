@@ -142,12 +142,8 @@ fn wrap_line(line: &str, max_width: usize) -> Vec<String> {
             }
             let mut w = word.to_string();
             while w.chars().count() > max_width {
-                let (head, tail) = w.split_at(
-                    w.char_indices()
-                        .nth(max_width)
-                        .map(|(i, _)| i)
-                        .unwrap_or(w.len()),
-                );
+                let (head, tail) =
+                    w.split_at(w.char_indices().nth(max_width).map_or(w.len(), |(i, _)| i));
                 result.push(head.to_string());
                 w = tail.to_string();
             }
@@ -190,7 +186,7 @@ fn box_lines(label: &str, content: &str) -> Vec<String> {
         .flat_map(|l| wrap_line(l, BOX_WIDTH.saturating_sub(2)))
         .map(|l| l.chars().count())
         .max()
-        .unwrap_or(0);
+        .map_or(0, |v| v);
     let inner_w = (label_chars + 4)
         .clamp(28, BOX_WIDTH)
         .max(content_max + 2)
@@ -256,7 +252,7 @@ fn error_lines(
         .chain(wrapped_suggestion.iter().flatten())
         .map(|l| l.chars().count())
         .max()
-        .unwrap_or(0);
+        .map_or(0, |v| v);
     let top_label_len = severity.chars().count() + source.chars().count() + 7;
     let inner_w = top_label_len
         .clamp(28, BOX_WIDTH)
@@ -340,22 +336,22 @@ fn render_error_block(error: &str) -> Vec<String> {
             let code = json
                 .get("code")
                 .and_then(|c| c.as_str())
-                .unwrap_or("ProviderError")
+                .map_or("ProviderError", |v| v)
                 .to_string();
             let message = json
                 .get("message")
                 .and_then(|m| m.as_str())
-                .unwrap_or(error)
+                .map_or(error, |v| v)
                 .to_string();
             let source = json
                 .get("source")
                 .and_then(|s| s.as_str())
-                .unwrap_or("openai_provider")
+                .map_or("openai_provider", |v| v)
                 .to_string();
             let recoverable = json
                 .get("recoverable")
                 .and_then(|r| r.as_bool())
-                .unwrap_or(true);
+                .is_none_or(|v| v);
             let suggestion = json
                 .get("suggestion")
                 .and_then(|s| s.as_str())

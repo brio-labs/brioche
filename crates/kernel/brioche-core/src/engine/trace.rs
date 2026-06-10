@@ -114,10 +114,13 @@ pub fn seal_tool_descriptors(
     let active = descriptors
         .into_iter()
         .map(|d| {
-            let timeout_ms = d.timeout_ms.unwrap_or_else(|| {
-                missing = true;
-                default_timeout_ms
-            });
+            let timeout_ms = match d.timeout_ms {
+                Some(t) => t,
+                None => {
+                    missing = true;
+                    default_timeout_ms
+                }
+            };
             ActiveToolCall {
                 tool_id: d.tool_id,
                 tool_name: d.tool_name,

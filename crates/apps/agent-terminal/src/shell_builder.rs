@@ -101,7 +101,8 @@ CRITICAL RULES: \
         move || {
             let (engine, mut session) = PluginBuilder::standard().build_with_session(&session_id);
             if let Some(head) = initial_head {
-                session = head.to_session(initial_history_for_factory.unwrap_or_default());
+                session =
+                    head.to_session(initial_history_for_factory.map_or(Default::default(), |v| v));
             } else if let Some(hist) = initial_history_for_factory {
                 session.history = hist;
             }

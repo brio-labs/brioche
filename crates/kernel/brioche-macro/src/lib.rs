@@ -67,11 +67,10 @@ fn parse_brioche_attrs(attrs: &[Attribute]) -> Result<BriocheAttrs, syn::Error> 
                 let lit: syn::LitStr = value.parse()?;
                 result.ext_id = Some(lit.value());
             } else {
-                let path = meta
-                    .path
-                    .get_ident()
-                    .map(|i| i.to_string())
-                    .unwrap_or_else(|| "unknown".to_string());
+                let path = match meta.path.get_ident() {
+                    Some(ident) => ident.to_string(),
+                    None => "unknown".to_string(),
+                };
                 return Err(meta.error(format!(
                     "unknown brioche attribute `{}`. Expected one of: critical_state, no_snapshot, incremental_snapshot, ext_id",
                     path
@@ -277,11 +276,10 @@ fn scan_fields(fields: &Fields, errors: &mut Vec<DeriveError>) {
     match fields {
         Fields::Named(named) => {
             for f in &named.named {
-                let name = f
-                    .ident
-                    .as_ref()
-                    .map(|i| i.to_string())
-                    .unwrap_or_else(|| "_".to_string());
+                let name = match f.ident.as_ref() {
+                    Some(ident) => ident.to_string(),
+                    None => "_".to_string(),
+                };
                 scan_type(&f.ty, errors, &name);
                 if type_contains_vec(&f.ty) && !field_has_deterministic_order(&f.attrs) {
                     errors.push(DeriveError::UndeterminedVec {

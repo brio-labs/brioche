@@ -15,6 +15,10 @@ use brioche_core::{
 
 /// Token tracking state.
 ///
+/// ## Snapshot strategy
+/// COW: full clone (~32 bytes). Three scalar fields plus one `BTreeMap`
+/// (typically < 10 entries).
+///
 /// Refs: I-Eco-OrderedCollections
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, BriocheExtensionType,

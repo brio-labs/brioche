@@ -157,7 +157,7 @@ async fn handle_session_command(
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs())
-                    .unwrap_or(0)
+                    .map_or(0, |v| v)
             );
             let (new_shell, _new_llm, _new_rx, _history) = build_shell(
                 &new_id,

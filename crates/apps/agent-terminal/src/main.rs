@@ -95,9 +95,12 @@ async fn main() {
 
 /// Opens (or creates) the Redb database and returns the storage + store.
 fn init_persistence() -> (RedbStorage, brioche_shell_persistence::SessionStore) {
-    let data_dir = std::env::var("HOME")
+    let data_dir = match std::env::var("HOME")
         .map(|h| std::path::PathBuf::from(h).join(".local/share/brioche"))
-        .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/brioche"));
+    {
+        Ok(v) => v,
+        Err(_) => std::path::PathBuf::from("/tmp/brioche"),
+    };
     if let Err(err) = std::fs::create_dir_all(&data_dir) {
         eprintln!("Failed to create data directory: {err}");
     }
@@ -108,11 +111,13 @@ fn init_persistence() -> (RedbStorage, brioche_shell_persistence::SessionStore) 
         Ok(storage) => storage,
         Err(err) => {
             eprintln!("Failed to open Redb database: {err}. Using in-memory session only.");
-            RedbStorage::new("/tmp/brioche-fallback.redb", Arc::clone(&session_store))
-                .unwrap_or_else(|e| {
+            match RedbStorage::new("/tmp/brioche-fallback.redb", Arc::clone(&session_store)) {
+                Ok(v) => v,
+                Err(e) => {
                     eprintln!("Fatal: cannot open fallback Redb: {e}");
                     std::process::exit(1);
-                })
+                }
+            }
         }
     };
 

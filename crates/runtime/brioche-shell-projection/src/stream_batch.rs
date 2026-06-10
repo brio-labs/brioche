@@ -193,9 +193,10 @@ mod tests {
         batch.append("t1", " world");
         batch.append("t2", "alpha");
 
-        let bytes = batch
-            .to_messagepack()
-            .unwrap_or_else(|e| unreachable!("serialize failed: {}", e));
+        let bytes = match batch.to_messagepack() {
+            Ok(v) => v,
+            Err(e) => unreachable!("serialize failed: {}", e),
+        };
         assert!(!bytes.is_empty());
     }
 
@@ -225,9 +226,10 @@ mod tests {
         emitter.accumulate("main", "Hello");
         emitter.accumulate("main", " world");
 
-        let bytes = emitter
-            .try_emit()
-            .unwrap_or_else(|| unreachable!("should emit"));
+        let bytes = match emitter.try_emit() {
+            Some(v) => v,
+            None => unreachable!("should emit"),
+        };
         assert!(!bytes.is_empty());
         assert!(!emitter.has_pending());
     }
