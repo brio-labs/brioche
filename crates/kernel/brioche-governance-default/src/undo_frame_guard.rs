@@ -23,6 +23,15 @@ use brioche_core::{CycleRollbackPolicy, ExtVTable, ExtensionStorage, SnapshotStr
 ///
 /// The default threshold is 64 KB, covering >99% of extensions on the hot path
 /// in reference profiles.
+///
+/// # Complexity
+/// `on_mutation`: O(1) lookup + O(clone cost). `rollback_hook`: O(k) restores
+/// where k = snapshotted types.
+///
+/// # Panics
+/// Never panics.
+///
+/// Refs: I-Gov-Rollback-BestEffort
 pub struct UndoFrameGuard {
     max_cow_bytes_per_hook: usize,
     active_frame: Option<Vec<(TypeId, Box<dyn Any + Send + Sync>)>>,

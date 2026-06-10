@@ -42,6 +42,8 @@ pub struct JsonArgumentAccumulatorState {
 ///
 /// On `on_stream_event`, accumulates argument fragments for
 /// validation. Does not modify the mechanical flow (always Pass).
+///
+/// Refs: I-Core-ChunkBudget
 pub struct JsonArgumentAccumulator;
 
 impl JsonArgumentAccumulator {

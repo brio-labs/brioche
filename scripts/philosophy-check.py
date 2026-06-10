@@ -81,10 +81,24 @@ COMPLEXITY_KEYWORDS = [
 ]
 
 
+def _collect_doc_block(lines: list[str], decl_line: int) -> list[str]:
+    """Walk backwards from the line BEFORE the declaration to collect doc comments."""
+    doc_lines: list[str] = []
+    for idx in range(decl_line - 2, -1, -1):
+        stripped = lines[idx].strip()
+        if stripped.startswith("///"):
+            doc_lines.insert(0, stripped)
+        elif stripped == "" or stripped.startswith("#"):
+            continue
+        else:
+            break
+    return doc_lines
+
+
 def check_hotpath_docs() -> CheckResult:
     result = CheckResult("Hot-path documentation")
-    pub_fn_re = re.compile(
-        r"^\s*pub(?:\s*\([^)]*\)|\s+unsafe)?(?:\s*\(\s*crate\s*\))?\s+fn\s+(\w+)",
+    pub_item_re = re.compile(
+        r"^\s*pub(?:\s*\([^)]*\)|\s+unsafe)?(?:\s*\(\s*crate\s*\))?\s+(fn|struct|enum|trait)\s+(\w+)",
         re.MULTILINE,
     )
 
@@ -97,25 +111,15 @@ def check_hotpath_docs() -> CheckResult:
         content = path.read_text()
         lines = content.split("\n")
 
-        for m in pub_fn_re.finditer(content):
-            fn_name = m.group(1)
+        for m in pub_item_re.finditer(content):
+            item_type = m.group(1)
+            item_name = m.group(2)
             pos = m.start()
             line_no = content[:pos].count("\n") + 1
 
-            # Walk backwards from the line BEFORE the function to collect
-            # its doc block. Skip blank lines and attributes.
-            start_line = line_no - 2  # 0-based, skip the `pub fn` line itself
-            doc_lines: list[str] = []
-            for idx in range(start_line, -1, -1):
-                stripped = lines[idx].strip()
-                if stripped.startswith("///"):
-                    doc_lines.insert(0, stripped)
-                elif stripped == "" or stripped.startswith("#"):
-                    continue
-                else:
-                    break
+            doc_lines = _collect_doc_block(lines, line_no)
 
-            # Only flag functions that *have* docs but lack complexity notes.
+            # Only flag items that *have* docs but lack complexity notes.
             # Missing docs is covered by `cargo doc -D warnings`.
             if not doc_lines:
                 continue
@@ -125,7 +129,58 @@ def check_hotpath_docs() -> CheckResult:
                 result.add(
                     path,
                     line_no,
-                    f"pub fn `{fn_name}` missing complexity/budget note",
+                    f"pub {item_type} `{item_name}` missing complexity/budget note",
+                )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 1b. Panic / safety / error contracts on hot-path pub items
+# ---------------------------------------------------------------------------
+
+PANIC_SAFETY_KEYWORDS = [
+    "# Panics",
+    "# Safety",
+    "# Errors",
+    "Never panics",
+    "never panics",
+    "no panic",
+    "cannot panic",
+]
+
+
+def check_panic_safety_docs() -> CheckResult:
+    result = CheckResult("Panic/safety contracts")
+    pub_item_re = re.compile(
+        r"^\s*pub(?:\s*\([^)]*\)|\s+unsafe)?(?:\s*\(\s*crate\s*\))?\s+(fn|struct|enum|trait)\s+(\w+)",
+        re.MULTILINE,
+    )
+
+    for rel in HOT_PATH_MODULES:
+        path = PROJECT_ROOT / rel
+        if not path.exists():
+            continue
+
+        content = path.read_text()
+        lines = content.split("\n")
+
+        for m in pub_item_re.finditer(content):
+            item_type = m.group(1)
+            item_name = m.group(2)
+            pos = m.start()
+            line_no = content[:pos].count("\n") + 1
+
+            doc_lines = _collect_doc_block(lines, line_no)
+            if not doc_lines:
+                continue
+
+            doc_block = "\n".join(doc_lines)
+            if not any(kw in doc_block for kw in PANIC_SAFETY_KEYWORDS):
+                result.add(
+                    path,
+                    line_no,
+                    f"pub {item_type} `{item_name}` missing panic/safety/error contract",
                 )
 
     return result
@@ -151,9 +206,8 @@ INVARIANT_PATTERNS = [
 
 def check_invariant_refs() -> CheckResult:
     result = CheckResult("Invariant references")
-    # Only check pub fn — structs/enums/traits often have module-level docs.
-    pub_fn_re = re.compile(
-        r"^\s*pub(?:\s*\([^)]*\)|\s+unsafe)?(?:\s*\(\s*crate\s*\))?\s+fn\s+(\w+)",
+    pub_item_re = re.compile(
+        r"^\s*pub(?:\s*\([^)]*\)|\s+unsafe)?(?:\s*\(\s*crate\s*\))?\s+(fn|struct|enum|trait)\s+(\w+)",
         re.MULTILINE,
     )
 
@@ -166,24 +220,15 @@ def check_invariant_refs() -> CheckResult:
             content = path.read_text()
             lines = content.split("\n")
 
-            for m in pub_fn_re.finditer(content):
-                fn_name = m.group(1)
+            for m in pub_item_re.finditer(content):
+                item_type = m.group(1)
+                item_name = m.group(2)
                 pos = m.start()
                 line_no = content[:pos].count("\n") + 1
 
-                # Collect preceding doc block (start before the `pub fn` line).
-                start_line = line_no - 2
-                doc_lines: list[str] = []
-                for idx in range(start_line, -1, -1):
-                    stripped = lines[idx].strip()
-                    if stripped.startswith("///"):
-                        doc_lines.insert(0, stripped)
-                    elif stripped == "" or stripped.startswith("#"):
-                        continue
-                    else:
-                        break
+                doc_lines = _collect_doc_block(lines, line_no)
 
-                # Only check functions that already have docs.
+                # Only check items that already have docs.
                 # Missing docs on `pub` items is enforced by `cargo doc -D warnings`.
                 # We only check items that already have docs but lack invariant refs.
                 if not doc_lines:
@@ -194,7 +239,7 @@ def check_invariant_refs() -> CheckResult:
                     result.add(
                         path,
                         line_no,
-                        f"pub fn `{fn_name}` doc missing invariant ref "
+                        f"pub {item_type} `{item_name}` doc missing invariant ref "
                         f"(expected 'Refs: I-...' or '/// # Invariants')",
                     )
 
@@ -325,6 +370,69 @@ def check_determinism() -> CheckResult:
                     if lines[line_no - 1].strip().startswith("//"):
                         continue
                     result.add(path, line_no, f"forbidden: {desc}")
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 4b. Vtable / dyn trait usage in Core transition hot path
+#     PHILOSOPHY.md §1: "Polymorphic dispatch (vtables) — Runtime indirection
+#     in the hot path. Cache-unfriendly."
+#
+# Scope is intentionally narrow: we only flag vtables inside the actual
+# `transition()` hot path (`engine.rs`, `engine/types.rs`, `engine/hooks.rs`).
+# Vtables in `extension.rs` are required for type-erased `ExtensionStorage`
+# and are documented there as a deliberate design trade-off. Vtables in
+# `plugin.rs` and `engine/builder.rs` / `engine/router.rs` are build-time
+# containers, not hot-path traversal.
+# ---------------------------------------------------------------------------
+
+VTABLE_HOT_PATH_MODULES = [
+    "crates/kernel/brioche-core/src/engine.rs",
+    "crates/kernel/brioche-core/src/engine/types.rs",
+    "crates/kernel/brioche-core/src/engine/hooks.rs",
+]
+
+
+def check_vtable_in_core() -> CheckResult:
+    result = CheckResult("Vtable usage in Core hot path")
+    vtable_patterns = [
+        (re.compile(r"Box\s*<\s*dyn\b"), "Box<dyn Trait>"),
+        (re.compile(r"&\s*dyn\b"), "&dyn Trait"),
+    ]
+
+    for rel in VTABLE_HOT_PATH_MODULES:
+        path = PROJECT_ROOT / rel
+        if not path.exists():
+            continue
+
+        content = path.read_text()
+        lines = content.split("\n")
+
+        for pat, desc in vtable_patterns:
+            for m in pat.finditer(content):
+                line_no = content[: m.start()].count("\n") + 1
+                line = lines[line_no - 1].strip()
+                if line.startswith("//"):
+                    continue
+
+                # Allow lines that reference the documented architectural
+                # exception (e.g., GovernanceKernel's ## Architectural Note).
+                # We use a generous window so that a single struct-level note
+                # can cover all of its vtable-carrying fields.
+                surrounding = "\n".join(
+                    lines[max(0, line_no - 30) : min(len(lines), line_no + 5)]
+                )
+                if "Architectural Note" in surrounding or "ADR:" in surrounding:
+                    continue
+
+                result.add(
+                    path,
+                    line_no,
+                    f"vtable indirection: {desc} — "
+                    f"PHILOSOPHY.md §1 recommends pre-routing tables; "
+                    f"document the exception with an ## Architectural Note or ADR: reference",
+                )
 
     return result
 
@@ -498,6 +606,70 @@ def check_effect_structure() -> CheckResult:
 
 
 # ---------------------------------------------------------------------------
+# 7b. Stringly-typed holes in Effect and hot-path action enums
+#     PHILOSOPHY.md §7.5: "No Stringly-Typed Holes in Effect. Structured
+#     payloads only."
+#
+# Scope is intentionally narrow: we only check `Effect` and any enum that
+# is an intermediate producer of effects (`InputResult`). Domain enums that
+# legitimately carry text (ChatMessage, ToolOutcome, EngineInput, etc.) are
+# not flagged. Error enums (PluginError, BriocheError, ErrorDetail) are
+# allowed to carry String messages as part of their purpose.
+# ---------------------------------------------------------------------------
+
+STRINGLY_TYPED_CHECKED_ENUMS = {"Effect", "InputResult"}
+
+
+def check_stringly_typed_enums() -> CheckResult:
+    result = CheckResult("Stringly-typed enum payloads")
+    enum_start_re = re.compile(
+        r"^\s*(?:pub(?:\s*\(\s*crate\s*\))?|pub\(crate\))\s+enum\s+(\w+)",
+        re.MULTILINE,
+    )
+
+    for rel in HOT_PATH_MODULES:
+        path = PROJECT_ROOT / rel
+        if not path.exists():
+            continue
+
+        content = path.read_text()
+        lines = content.split("\n")
+
+        for m in enum_start_re.finditer(content):
+            enum_name = m.group(1)
+            if enum_name not in STRINGLY_TYPED_CHECKED_ENUMS:
+                continue
+
+            # Scan enum body for String or &'static str fields in variants.
+            brace_depth = 0
+            in_enum = False
+            start_line = content[: m.start()].count("\n")
+            for j in range(start_line, len(lines)):
+                line_text = lines[j]
+                if "{" in line_text:
+                    brace_depth += line_text.count("{")
+                    in_enum = True
+                if "}" in line_text:
+                    brace_depth -= line_text.count("}")
+                    if in_enum and brace_depth <= 0:
+                        break
+
+                stripped = line_text.strip()
+                if stripped.startswith("//"):
+                    continue
+
+                if "String" in line_text or "&'static str" in line_text:
+                    result.add(
+                        path,
+                        j + 1,
+                        f"`{enum_name}` variant contains String or &'static str — "
+                        f"use structured types (PHILOSOPHY.md §7.5)",
+                    )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # 8. Invariant reference format — if I-XXX is mentioned, it must use Refs:
 # ---------------------------------------------------------------------------
 
@@ -527,6 +699,73 @@ def check_invariant_format() -> CheckResult:
                             i + 1,
                             f"invariant `{m.group(0)}` mentioned without 'Refs:' prefix",
                         )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 9. Module-level docs (!!) for every crate lib.rs
+#    PHILOSOPHY.md §4.3: Every crate root and module must have a //! block.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# 9b. Module doc visibility accuracy
+#     If a module doc claims items are pub(crate), no pub struct/enum/trait
+#     (without (crate)) should appear at the top level.
+# ---------------------------------------------------------------------------
+
+
+def check_module_doc_visibility() -> CheckResult:
+    result = CheckResult("Module doc visibility accuracy")
+    pub_item_re = re.compile(
+        r"^\s*pub\s+(struct|enum|trait)\s+\w+",
+        re.MULTILINE,
+    )
+
+    for rel in INVARIANT_CRATES:
+        crate_src = PROJECT_ROOT / rel
+        if not crate_src.exists():
+            continue
+
+        for path in crate_src.rglob("*.rs"):
+            if "tests" in path.parts or "benches" in path.parts:
+                continue
+
+            content = path.read_text()
+            lines = content.split("\n")
+
+            # Check if //! falsely claims top-level items are pub(crate).
+            # We look for explicit claims like "These types are `pub(crate)`"
+            # but ignore accurate descriptions like "their fields are `pub(crate)`".
+            has_pubcrate_claim = False
+            pubcrate_claim_re = re.compile(
+                r"\b(?:these\s+)?(?:types?|items?|structs?)\s+(?:in\s+\w+\s+)?(?:are|is)\s+`?pub\(crate\)`?",
+                re.IGNORECASE,
+            )
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith("//!") and pubcrate_claim_re.search(stripped):
+                    has_pubcrate_claim = True
+                    break
+                if (
+                    stripped
+                    and not stripped.startswith("//!")
+                    and not stripped.startswith("#![")
+                ):
+                    break
+
+            if not has_pubcrate_claim:
+                continue
+
+            # Look for pub struct/enum/trait that are NOT pub(crate).
+            for m in pub_item_re.finditer(content):
+                line_no = content[: m.start()].count("\n") + 1
+                result.add(
+                    path,
+                    line_no,
+                    "module doc claims items are `pub(crate)` but this item is `pub` — "
+                    "fix module doc or reduce visibility",
+                )
 
     return result
 
@@ -730,14 +969,18 @@ def check_critical_state() -> CheckResult:
 
 CHECKS = [
     check_hotpath_docs,
+    check_panic_safety_docs,
     check_invariant_refs,
     check_extension_type_docs,
     check_determinism,
     check_panic_guards,
+    check_vtable_in_core,
     check_trait_hierarchies,
     check_effect_structure,
+    check_stringly_typed_enums,
     check_invariant_format,
     check_module_docs,
+    check_module_doc_visibility,
     check_session_send_sync,
     check_critical_state,
     check_language_consistency,

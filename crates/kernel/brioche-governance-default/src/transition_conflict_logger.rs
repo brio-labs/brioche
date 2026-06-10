@@ -38,6 +38,8 @@ pub struct TransitionConflictState {
 /// On `after_prediction`, inspects `SupersededTransitionTraceLog` to
 /// detect `OverrideTransition`s that have been preempted, archives the
 /// summary into `TransitionConflictState`, and clears the trace log.
+///
+/// Refs: I-Gov-OverrideTrace
 pub struct TransitionConflictLogger;
 
 impl TransitionConflictLogger {

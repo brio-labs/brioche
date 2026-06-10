@@ -10,6 +10,18 @@ use crate::{BriochePlugin, PluginCapabilities};
 /// their indices are collected into per-capability vectors. The streaming
 /// loop iterates over these vectors directly — no branching on bitmasks.
 ///
+/// # Data Layout
+/// Seven `Vec<usize>` fields (~56 bytes + route contents). Each route
+/// stores plugin indices, not trait objects, so iteration is cache-friendly
+/// and branch-free after the initial sort.
+///
+/// # Complexity
+/// Construction: O(p log p). Route iteration: O(route length).
+/// No allocation after engine build.
+///
+/// # Panics
+/// Never panics. All route accesses are bounds-checked by construction.
+///
 /// Refs: I-Core-StreamNoBranch, I-Core-PluginOrder
 pub struct UnifiedRoutingTable {
     /// Route on input.
@@ -36,6 +48,8 @@ impl UnifiedRoutingTable {
     /// Complexity: O(p log p) where p = number of plugins.
     ///
     /// Refs: I-Core-Pure
+    /// # Panics
+    /// Never panics.
     pub fn from_plugins(plugins: &[Box<dyn BriochePlugin>]) -> Self {
         let all_indices: Vec<usize> = (0..plugins.len()).collect();
         Self::from_plugins_filtered(plugins, &all_indices)
@@ -50,6 +64,8 @@ impl UnifiedRoutingTable {
     /// Complexity: O(p log p) where p = number of active plugins.
     ///
     /// Refs: I-Gov-Rebuild-Barrier
+    /// # Panics
+    /// Panics only if an index is out of bounds; callers must validate lengths.
     pub fn from_plugins_filtered(
         plugins: &[Box<dyn BriochePlugin>],
         active_indices: &[usize],
@@ -103,6 +119,17 @@ impl UnifiedRoutingTable {
 ///
 /// All plugin iteration happens through this component. The engine
 /// delegates routing queries but never mutates the plugin vector directly.
+///
+/// # Data Layout
+/// `Vec<Box<dyn BriochePlugin>>` (heap, one per plugin) plus an owned
+/// `UnifiedRoutingTable`. Plugins are heterogeneous concrete types; the
+/// vtable indirection is required to store them in a single vector.
+///
+/// # Complexity
+/// Plugin lookup by pre-routed index: O(1). Route rebuild: O(p log p).
+///
+/// # Panics
+/// Never panics. Index-based access uses pre-validated route vectors.
 ///
 /// Refs: I-Core-StreamNoBranch, I-Core-PluginOrder
 pub struct PluginRouter {

@@ -39,6 +39,8 @@ pub struct NegotiationState {
 ///
 /// On `aggregate_decisions`, performs up to 3 negotiation phases
 /// before returning a final decision.
+///
+/// Refs: I-Gov-Decision-Required
 pub struct NegotiationBroker {
     max_phases: u8,
 }

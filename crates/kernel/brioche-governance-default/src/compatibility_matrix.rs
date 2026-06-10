@@ -8,6 +8,8 @@
 //! Refs: I-Comp-Override-Rebuild, I-Comp-Epoch-First
 
 /// Compatibility level between two trait implementations.
+///
+/// Refs: I-Gov-Profile-Agnostic
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CompatibilityLevel {
     /// Recommended and tested combination.
@@ -21,6 +23,8 @@ pub enum CompatibilityLevel {
 }
 
 /// Compatibility matrix entry.
+///
+/// Refs: I-Gov-Profile-Agnostic
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompatibilityEntry {
     /// Name of the first governance trait.
@@ -41,6 +45,8 @@ pub struct CompatibilityEntry {
 ///
 /// This structure is purely documentary/constant. It does not modify
 /// the kernel's runtime behavior.
+///
+/// Refs: I-Gov-Profile-Agnostic
 pub struct GovernanceCompatibilityMatrix;
 
 impl GovernanceCompatibilityMatrix {

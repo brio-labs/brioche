@@ -1,4 +1,4 @@
-//! ToolTimeoutPolicy — Book II §5.14 (variante).
+//! ToolTimeoutPolicy — Book II §5.14 (variant).
 //!
 //! Bounds tool timeouts before `ExecuteTools` emission via the
 //! `on_tool_calls` hook.
@@ -35,6 +35,8 @@ pub struct ToolTimeoutState {
 ///
 /// On `on_tool_calls`, applies `default_timeout_ms` if absent and
 /// caps to `max_timeout_ms` if defined.
+///
+/// Refs: I-Core-ActiveToolCall
 pub struct ToolTimeoutPolicy {
     default_timeout_ms: u64,
     max_timeout_ms: u64,

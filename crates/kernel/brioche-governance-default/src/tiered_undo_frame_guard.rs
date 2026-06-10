@@ -17,6 +17,8 @@ use brioche_core::{CycleRollbackPolicy, ExtVTable, ExtensionStorage, SnapshotStr
 /// Types `#[brioche(critical_state)]` (strategy `CriticalFullClone`)
 /// are always restored. Standard and best-effort types are
 /// subject to differentiated thresholds.
+///
+/// Refs: I-Gov-Rollback-BestEffort, I-Gov-Tiered-Rollback
 pub struct TieredUndoFrameGuard {
     max_standard_bytes: usize,
     max_best_effort_bytes: usize,
