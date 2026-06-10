@@ -10,6 +10,8 @@ use std::collections::VecDeque;
 use brioche_core::CowBudgetPolicy;
 
 /// History of rollback decisions per frame.
+///
+/// Refs: I-Gov-Rollback-BestEffort
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RollbackFrameRecord {
     /// Name of the hook during which the rollback occurred.
@@ -24,6 +26,8 @@ pub struct RollbackFrameRecord {
 ///
 /// Monitors the last N frames and adjusts the budget to avoid
 /// abandonments while limiting memory pressure.
+///
+/// Refs: I-Gov-Rollback-BestEffort
 pub struct HistoricalCowBudgetPolicy {
     base_budget: usize,
     min_budget: usize,

@@ -26,11 +26,11 @@ pub use brioche_core::{
     Effect, EffectBit, EngineInput, EpochAction, EpochInterceptor, EpochState, ErrorCode,
     ExecutionPath, ExtVTable, ExtensionStorage, GovernanceFailoverHandler, GovernanceNotification,
     HistoryEdit, HookEffectConstraint, MAX_INLINE_CHUNK, PluginCapabilities, PluginError,
-    PluginResult, PolicyDecision, Session, SessionRegistry, SessionSnapshot, SignalBuffer,
-    SignalDrainBatch, SignalDrainOrder, SnapshotStrategy, StreamAction, StreamEvent,
+    PluginResult, PluginSource, PolicyDecision, Session, SessionRegistry, SessionSnapshot,
+    SignalBuffer, SignalDrainBatch, SignalDrainOrder, SnapshotStrategy, StreamAction, StreamEvent,
     StreamToolAccumulator, SubRoutineHandle, SubRoutineHandler, SubRoutineLifecycleGuard,
-    SystemSignal, ToolCallDescriptor, ToolOutcome, ToolResultDTO, ToolStatus, TransitionTrace,
-    TransitionTraceLog, effect_to_bitmask, seal,
+    SystemSignal, TaskId, ToolCallDescriptor, ToolOutcome, ToolResultDTO, ToolStatus,
+    TransitionTrace, TransitionTraceLog, effect_to_bitmask, seal,
 };
 // Re-export governance default implementations.
 pub use brioche_governance_default::{

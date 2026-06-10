@@ -13,7 +13,7 @@ use super::BriocheEngine;
 use super::types::PreTransitionState;
 use crate::{
     ActiveToolCall, AgentState, Effect, EngineInput, EpochAction, ErrorCode, ErrorDetail,
-    PluginError, Session,
+    PluginError, PluginSource, Session,
 };
 
 impl BriocheEngine {
@@ -24,6 +24,8 @@ impl BriocheEngine {
     ///
     /// Refs: I-Gov-SubRoutineLifecycle-Guard
     /// Complexity: O(1). Two pattern matches.
+    /// # Panics
+    /// Never panics.
     pub(crate) fn capture_pre_transition_state(&self, session: &Session) -> PreTransitionState {
         let was_subroutine = matches!(session.state, AgentState::SubRoutine(_));
         let handle = match &session.state {
@@ -44,6 +46,8 @@ impl BriocheEngine {
     ///
     /// Refs: I-Comp-Epoch-First
     /// Complexity: O(1). One optional lookup + one trait call.
+    /// # Panics
+    /// Never panics.
     pub(crate) fn apply_epoch_interceptor(
         &mut self,
         session: &mut Session,
@@ -76,6 +80,8 @@ impl BriocheEngine {
     ///
     /// Refs: I-Comp-Epoch-Subroutine
     /// Complexity: O(log n). One optional lookup + registry get_mut.
+    /// # Panics
+    /// Never panics.
     pub(crate) fn apply_subroutine_handler(
         &mut self,
         session: &mut Session,
@@ -114,6 +120,8 @@ impl BriocheEngine {
     ///
     /// Refs: I-Gov-Rollback-BestEffort
     /// Complexity: O(1) for the wrapper. Closure cost depends on hook.
+    /// # Panics
+    /// Never panics.
     pub(crate) fn with_rollback<R>(
         &mut self,
         session: &mut Session,
@@ -144,10 +152,12 @@ impl BriocheEngine {
     /// Build a `PluginFault` effect.
     ///
     /// Refs: I-Core-NoPanic
-    /// Complexity: O(1). Two String clones.
+    /// Complexity: O(1). One `String` clone + one `PluginSource` wrap.
+    /// # Panics
+    /// Never panics.
     pub(crate) fn plugin_fault(name: &str, error: PluginError) -> Effect {
         Effect::PluginFault {
-            plugin_name: name.to_string(),
+            plugin_name: PluginSource(name.into()),
             error,
         }
     }
@@ -160,6 +170,8 @@ impl BriocheEngine {
     ///
     /// Refs: I-Core-ActiveToolCall, I-Core-NoPanic
     /// Complexity: O(n) where n = descriptors. One Vec allocation.
+    /// # Panics
+    /// Never panics.
     pub(crate) fn materialize_tool_calls(
         &self,
         descriptors: Vec<crate::ToolCallDescriptor>,
@@ -174,6 +186,8 @@ impl BriocheEngine {
     ///
     /// Refs: I-Core-RetVecEffect, I-Core-ActiveToolCall
     /// Complexity: O(1). One Vec push + clone of active_tools.
+    /// # Panics
+    /// Never panics.
     pub(crate) fn append_state_effects(&self, session: &Session, effects: &mut Vec<Effect>) {
         effects.push(Effect::SaveSession);
         match session.state {
@@ -199,6 +213,8 @@ impl BriocheEngine {
     ///
     /// Refs: I-Gov-Rebuild-Barrier
     /// Complexity: O(e) where e = effects. One rposition scan.
+    /// # Panics
+    /// Never panics.
     pub(crate) fn ensure_rebuildroutes_last(effects: &mut Vec<Effect>) {
         let Some(pos) = effects
             .iter()

@@ -16,6 +16,8 @@ use brioche_core::{
 /// This guard is optional but recommended in production. Without injection,
 /// the kernel does not verify consistency — which may leave the automaton
 /// in an inconsistent state after a malformed `OverrideTransition`.
+///
+/// Refs: I-Core-NoPanic, I-Gov-Decision-Required
 pub struct StateConsistencyGuard;
 
 impl StateConsistencyGuard {

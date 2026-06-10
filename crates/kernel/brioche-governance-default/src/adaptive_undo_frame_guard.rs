@@ -17,6 +17,8 @@ use brioche_core::{
 ///
 /// Like `UndoFrameGuard`, but the threshold is determined dynamically
 /// by consulting a `CowBudgetPolicy` if available.
+///
+/// Refs: I-Gov-Rollback-BestEffort, I-Gov-CowBudget-Adaptative
 pub struct AdaptiveUndoFrameGuard {
     fallback_max_cow_bytes: usize,
     budget_policy: Option<Box<dyn CowBudgetPolicy>>,

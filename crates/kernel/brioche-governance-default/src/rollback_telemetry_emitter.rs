@@ -41,6 +41,8 @@ pub struct RollbackTelemetryState {
 /// Reads `RollbackEventLog` from `ExtensionStorage`, aggregates metrics,
 /// and stores them in `RollbackTelemetryState`. Clears the log after
 /// consumption to avoid double-counting.
+///
+/// Refs: I-Gov-Rollback-BestEffort
 pub struct RollbackTelemetryEmitter;
 
 impl RollbackTelemetryEmitter {

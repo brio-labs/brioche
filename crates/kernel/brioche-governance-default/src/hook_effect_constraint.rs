@@ -12,6 +12,8 @@ use brioche_core::{EffectBit, HookEffectConstraint};
 /// represents an allowed `Effect` variant. Validation is a simple
 /// bitwise operation: `(mask & effect_mask) != 0`.
 ///
+/// Refs: I-Core-HookEffect-O1
+///
 /// # Hook indices
 /// | Index | Hook |
 /// |-------|------|
@@ -24,7 +26,7 @@ use brioche_core::{EffectBit, HookEffectConstraint};
 /// | 6 | `on_tool_result` |
 /// | 7 | `on_error` |
 ///
-/// # Exemple
+/// # Example
 /// ```
 /// use brioche_core::HookEffectConstraint;
 /// use brioche_governance_default::FastHookEffectConstraint;
