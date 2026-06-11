@@ -55,7 +55,7 @@ done
 
 # 9. Session !Send/!Sync marker
 echo "=== Philosophy: Session !Send/!Sync marker ==="
-if ! grep -q "_not_send_sync\|PhantomData<\*mut ()>" crates/brioche-core/src/types.rs; then
+if ! grep -q "_not_send_sync\|PhantomData<\*mut ()>" crates/kernel/brioche-core/src/types/session.rs; then
 	echo "ERROR: Session struct missing !Send/!Sync marker"
 	exit 1
 fi
