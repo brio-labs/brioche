@@ -196,7 +196,7 @@ cargo test --workspace
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 
 # Philosophy checks
-python3 scripts/check_hotpath_docs.py
+python3 scripts/philosophy-check.py
 ```
 
 If any of these fail, fix them before opening a PR. CI is configured to run the exact same checks.

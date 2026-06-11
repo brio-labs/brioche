@@ -91,6 +91,7 @@ pub enum ShellError {
 /// Configuration for `BriocheShell`.
 ///
 /// All fields have sensible defaults.
+/// Refs: SPECS.md §Book III-A
 #[derive(Clone, Debug)]
 pub struct ShellConfig {
     /// Capacity of the bounded channel to the engine.
@@ -117,11 +118,11 @@ impl Default for ShellConfig {
     }
 }
 
-/// Callback invoqué sur le engine thread après chaque transition.
+/// Callback invoked on the engine thread after each transition.
 ///
-/// Le callback reçoit une référence immuable au `Session` (qui est
-/// `!Send`). C'est le mécanisme standard pour extraire un snapshot
-/// de session et le pousser vers la couche de persistence.
+/// The callback receives an immutable reference to `Session` (which is
+/// `!Send`). This is the standard mechanism for extracting a session
+/// snapshot and pushing it to the persistence layer.
 ///
 /// Refs: I-Shell-Session-NoSend
 pub type SessionCallback = Box<dyn Fn(&Session) + Send>;
@@ -136,11 +137,10 @@ struct RebuildCommand {
     done: oneshot::Sender<()>,
 }
 
-/// Trackeur de tâches async critiques lancées par le shell.
+/// Tracker for critical async tasks spawned by the shell.
 ///
-/// Garantit que les `JoinHandle` des tâches de fond ne sont pas
-/// perdus, permettant un diagnostic en cas de panique ou de
-/// terminaison prématurée.
+/// Ensures that background task `JoinHandle`s are not lost, enabling
+/// diagnostics in case of panic or premature termination.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO, SCIFI — Connect
 #[derive(Clone)]
@@ -149,14 +149,16 @@ pub struct TaskTracker {
 }
 
 impl TaskTracker {
-    /// Crée un nouveau trackeur vide.
+    /// Creates a new empty tracker.
+    /// Refs: SPECS.md §Book III-A
     pub fn new() -> Self {
         Self {
             handles: Arc::new(std::sync::Mutex::new(Vec::new())),
         }
     }
 
-    /// Lance une tâche et conserve son `JoinHandle`.
+    /// Spawns a task and retains its `JoinHandle`.
+    /// Refs: SPECS.md §Book III-A
     pub fn spawn<F>(&self, future: F)
     where
         F: std::future::Future<Output = ()> + Send + 'static,
@@ -167,10 +169,11 @@ impl TaskTracker {
         }
     }
 
-    /// Vérifie l'état des tâches trackées.
+    /// Checks the state of tracked tasks.
     ///
-    /// Retourne `true` si toutes les tâches sont encore actives.
-    /// Pour chaque tâche terminée, émet un `tracing::error`.
+    /// Returns `true` if all tasks are still active.
+    /// For each finished task, emits a `tracing::error`.
+    /// Refs: SPECS.md §Book III-A
     pub fn health_check(&self) -> bool {
         let mut all_healthy = true;
         if let Ok(handles) = self.handles.lock() {
@@ -473,6 +476,7 @@ impl BriocheShell {
     /// Returns `true` if healthy; logs an error for each finished task.
     ///
     /// Refs: SCIFI — Connect
+    /// Refs: SPECS.md §Book III-A
     pub fn health_check(&self) -> bool {
         self.task_tracker.health_check()
     }

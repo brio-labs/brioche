@@ -564,6 +564,7 @@ fn capability_to_tokens(cap: &str) -> proc_macro2::TokenStream {
 ///     }
 /// }
 /// ```
+/// Refs: SPECS.md §Book I
 #[proc_macro_attribute]
 pub fn brioche_plugin(args: TokenStream, input: TokenStream) -> TokenStream {
     let args = parse_macro_input!(args as PluginArgs);
@@ -663,6 +664,7 @@ pub fn brioche_plugin(args: TokenStream, input: TokenStream) -> TokenStream {
 /// When used outside of a `#[brioche_plugin]` impl block, this macro
 /// is a no-op (it passes the item through unchanged). This allows
 /// IDE syntax highlighting and macro expansion to work incrementally.
+/// Refs: SPECS.md §Book I
 #[proc_macro_attribute]
 pub fn hook(_args: TokenStream, input: TokenStream) -> TokenStream {
     // Pass through unchanged. The outer `#[brioche_plugin]` macro strips
@@ -687,6 +689,7 @@ pub fn hook(_args: TokenStream, input: TokenStream) -> TokenStream {
 ///     input
 /// }
 /// ```
+/// Refs: SPECS.md §Book I
 #[proc_macro_attribute]
 pub fn brioche_offload_task(_args: TokenStream, input: TokenStream) -> TokenStream {
     let func = parse_macro_input!(input as syn::ItemFn);
@@ -741,6 +744,7 @@ pub fn brioche_offload_task(_args: TokenStream, input: TokenStream) -> TokenStre
             use super::*;
 
             /// Serialize the input payload for CPU task offloading.
+            /// Refs: SPECS.md §Book I
             pub fn serialize_input(input: &#arg_ty) -> ::std::vec::Vec<u8> {
                 match ::brioche_core::postcard::to_stdvec(input) {
                     Ok(v) => v,
@@ -749,6 +753,7 @@ pub fn brioche_offload_task(_args: TokenStream, input: TokenStream) -> TokenStre
             }
 
             /// Deserialize the result payload after CPU task completion.
+            /// Refs: SPECS.md §Book I
             pub fn deserialize_output(bytes: &[u8]) -> #output_ty {
                 match ::brioche_core::postcard::from_bytes(bytes) {
                     Ok(v) => v,
@@ -761,6 +766,7 @@ pub fn brioche_offload_task(_args: TokenStream, input: TokenStream) -> TokenStre
             }
 
             /// Build an `Effect::ExecuteCpuTask` from a task id and input.
+            /// Refs: SPECS.md §Book I
             pub fn effect(task_id: impl Into<::brioche_core::TaskId>, input: &#arg_ty) -> ::brioche_core::Effect {
                 ::brioche_core::Effect::ExecuteCpuTask {
                     task_id: task_id.into(),

@@ -21,6 +21,7 @@ use crate::PluginBuilder;
 /// Uses the `Permissive` governance profile so that policy plugins do
 /// not interfere with the behavior under test. All mandatory governance
 /// traits are injected with no-op or permissive implementations.
+/// Refs: SPECS.md §Book V
 pub struct MockEngine {
     engine: BriocheEngine,
     session: Session,

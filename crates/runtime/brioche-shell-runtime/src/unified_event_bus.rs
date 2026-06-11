@@ -54,6 +54,7 @@ impl UnifiedEventBus {
     ///
     /// The producer half is returned so that the async runtime can
     /// spawn a task that feeds the bus from the separate channels.
+    /// Refs: SPECS.md §Book III-A
     pub fn new(
         system_rx: mpsc::Receiver<SystemSignal>,
         governance_rx: mpsc::Receiver<GovernanceNotification>,

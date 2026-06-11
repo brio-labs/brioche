@@ -20,6 +20,7 @@ use tokio::time::{Duration, Instant, interval};
 /// emitter.run().await;
 /// # }
 /// ```
+/// Refs: SPECS.md §Book III-A
 #[derive(Clone, Debug)]
 pub struct TickEmitter {
     tx: mpsc::Sender<brioche_core::SystemSignal>,
@@ -32,6 +33,7 @@ impl TickEmitter {
     ///
     /// `tx` — sender wired to the `SystemSignal` channel consumed by the shell.
     /// `interval_ms` — tick period in milliseconds (default: 1000).
+    /// Refs: SPECS.md §Book III-A
     pub fn new(tx: mpsc::Sender<brioche_core::SystemSignal>, interval_ms: u64) -> Self {
         Self {
             tx,

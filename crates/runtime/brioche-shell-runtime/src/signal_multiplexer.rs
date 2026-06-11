@@ -31,6 +31,7 @@ impl SignalMultiplexer {
     ///
     /// The receivers must be the ones paired with the adapters held
     /// by the async side of the shell.
+    /// Refs: SPECS.md §Book III-A
     pub fn new(
         system_rx: mpsc::Receiver<brioche_core::SystemSignal>,
         governance_rx: mpsc::Receiver<brioche_core::GovernanceNotification>,

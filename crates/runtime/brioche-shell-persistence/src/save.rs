@@ -34,21 +34,25 @@ pub fn extract_delta(session: &Session) -> &[ChatMessage] {
 /// Serialize a `SessionHeadDTO` to MessagePack.
 ///
 /// Complexity: O(serialization cost). Allocates one `Vec`.
+/// Refs: SPECS.md §Book III-A
 pub fn serialize_head(dto: &SessionHeadDTO) -> Result<Vec<u8>, PersistenceError> {
     rmp_serde::to_vec(dto).map_err(|e| PersistenceError::Serialization(e.to_string()))
 }
 
 /// Deserialize a `SessionHeadDTO` from a MessagePack blob.
+/// Refs: SPECS.md §Book III-A
 pub fn deserialize_head(blob: &[u8]) -> Result<SessionHeadDTO, PersistenceError> {
     rmp_serde::from_slice(blob).map_err(|e| PersistenceError::Serialization(e.to_string()))
 }
 
 /// Serialize a single `ChatMessage` to MessagePack.
+/// Refs: SPECS.md §Book III-A
 pub fn serialize_message(msg: &ChatMessage) -> Result<Vec<u8>, PersistenceError> {
     rmp_serde::to_vec(msg).map_err(|e| PersistenceError::Serialization(e.to_string()))
 }
 
 /// Deserialize a single `ChatMessage` from a MessagePack blob.
+/// Refs: SPECS.md §Book III-A
 pub fn deserialize_message(blob: &[u8]) -> Result<ChatMessage, PersistenceError> {
     rmp_serde::from_slice(blob).map_err(|e| PersistenceError::Serialization(e.to_string()))
 }
