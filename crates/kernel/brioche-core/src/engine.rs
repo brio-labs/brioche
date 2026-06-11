@@ -20,7 +20,10 @@
 //! Refs: SPECS.md §4, §5; PHILOSOPHY.md §1, §2, §7
 
 use crate::{
-    Effect, EngineInput, ErrorCode, ErrorDetail, Session, SessionRegistry, SubRoutineHandle,
+    ConsistencyVerifier, CycleRollbackPolicy, DecisionAggregator, Effect, EngineInput,
+    EpochInterceptor, ErrorCode, ErrorDetail, GovernanceFailoverHandler, HookEffectConstraint,
+    PluginSource, Session, SessionRegistry, SubRoutineHandle, SubRoutineHandler,
+    SubRoutineLifecycleGuard,
 };
 
 mod builder;
@@ -30,12 +33,114 @@ mod helpers;
 mod hooks;
 mod router;
 mod trace;
-mod types;
 
 pub use builder::{BriocheEngineBuilder, Missing, Present};
 pub use router::{PluginRouter, UnifiedRoutingTable};
-use types::InputResult;
-pub use types::{GovernanceKernel, RoutineManager};
+
+// ---------------------------------------------------------------------------
+// Internal engine types (merged from engine/types.rs per PHILOSOPHY.md §3.3).
+// ---------------------------------------------------------------------------
+
+// Types use the same crate-level imports already present at the top of this file.
+
+/// Governance trait container.
+///
+/// Holds all injectable policy traits and their orchestration state.
+///
+/// ## Architectural Note
+/// Each optional trait is stored as `Box<dyn>`. This introduces one vtable
+/// indirection per access. PHILOSOPHY.md §1 recommends pre-routing tables,
+/// but governance traits have heterogeneous signatures that cannot be
+/// flattened into a uniform table without erasing type safety.
+///
+/// # Complexity
+/// O(1) field access per governance phase. No allocation in `transition()`.
+///
+/// # Panics
+/// Never panics. All fields are `Option`; absent traits are silently skipped.
+///
+/// Refs: I-Comp-Epoch-First, I-Gov-Decision-Required
+pub struct GovernanceKernel {
+    pub(crate) epoch_interceptor: Option<Box<dyn EpochInterceptor>>,
+    pub(crate) subroutine_handler: Option<Box<dyn SubRoutineHandler>>,
+    pub(crate) consistency_verifier: Option<Box<dyn ConsistencyVerifier>>,
+    pub(crate) decision_aggregator: Option<Box<dyn DecisionAggregator>>,
+    pub(crate) hook_effect_constraint: Option<Box<dyn HookEffectConstraint>>,
+    pub(crate) cycle_rollback_policy: Option<Box<dyn CycleRollbackPolicy>>,
+    pub(crate) subroutine_lifecycle_guard: Option<Box<dyn SubRoutineLifecycleGuard>>,
+    pub(crate) governance_failover_handler: Option<Box<dyn GovernanceFailoverHandler>>,
+    pub(crate) default_tool_timeout_ms: u64,
+}
+
+/// Sub-routine session registry and generation counter.
+///
+/// Owns live `Session` instances for sub-routines and tracks the
+/// monotonically increasing prediction generation ID.
+///
+/// # Complexity
+/// O(1) for construction. Insert/remove: O(log n) where n = sub-routine count.
+///
+/// # Panics
+/// Never panics.
+///
+/// Refs: I-Shell-Session-NoSend
+pub struct RoutineManager {
+    pub(crate) registry: SessionRegistry,
+    pub(crate) next_generation_id: u64,
+}
+
+impl RoutineManager {
+    /// Create a new `RoutineManager` with an empty registry.
+    ///
+    /// # Complexity
+    /// O(1). Allocates empty collections.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Shell-Session-NoSend
+    pub(crate) fn new() -> Self {
+        Self {
+            registry: SessionRegistry::new(),
+            next_generation_id: 1,
+        }
+    }
+}
+
+/// Snapshot of sub-routine status taken at the start of `transition()`.
+///
+/// Used by lifecycle guards to detect transitions that exit a sub-routine.
+///
+/// # Complexity
+/// O(1). Copied by value.
+///
+/// # Panics
+/// Never panics.
+///
+/// Refs: I-Gov-SubRoutineLifecycle-Guard
+pub(crate) struct PreTransitionState {
+    pub(crate) was_subroutine: bool,
+    pub(crate) handle: Option<SubRoutineHandle>,
+}
+
+/// Result of evaluating the `on_input` hook route.
+///
+/// Encodes the three terminal actions a plugin can take on input, plus
+/// the accumulation of non-terminal effects.
+///
+/// # Complexity
+/// O(1) variant construction and match.
+///
+/// # Panics
+/// Never panics.
+///
+/// Refs: I-Core-PluginOrder, I-Gov-Decision-Required
+pub(crate) enum InputResult {
+    Allow,
+    Block { detail: ErrorDetail },
+    OverrideTransition(Vec<Effect>, PluginSource),
+    Accumulated(Vec<Effect>),
+}
 
 // ---------------------------------------------------------------------------
 // BriocheEngine
@@ -64,8 +169,8 @@ pub use types::{GovernanceKernel, RoutineManager};
 /// Refs: I-Core-Pure, I-Core-NoPanic
 pub struct BriocheEngine {
     pub(crate) router: PluginRouter,
-    pub(crate) governance: types::GovernanceKernel,
-    pub(crate) routines: types::RoutineManager,
+    pub(crate) governance: GovernanceKernel,
+    pub(crate) routines: RoutineManager,
 }
 
 impl std::fmt::Debug for BriocheEngine {

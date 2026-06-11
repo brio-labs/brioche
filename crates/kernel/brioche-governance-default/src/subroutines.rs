@@ -1,18 +1,20 @@
-//! SubRoutineOrchestrator — `SubRoutineHandler` implementation (Book II §5.4).
+//! Sub-routine lifecycle — Book II §5.
 //!
-//! Manages delegation and resolution of sub-routines via `SessionRegistry`.
+//! Reference implementations for sub-routine delegation and cleanup:
+//! - `SubRoutineOrchestrator`: `SubRoutineHandler`
+//! - `SubRoutineCleanupGuard`: `SubRoutineLifecycleGuard`
 //!
-//! # Refactoring
-//! Each `EngineInput` variant is handled by a dedicated pure helper
-//! (`delegate_user_message`, `accumulate_stream_tools`, `resolve_tool_results`,
-//! `detect_subroutine_termination`) to separate orchestration from calculation.
-//!
-//! Refs: I-Comp-Epoch-Subroutine, I-Comp-Pure-Logic
+//! Refs: I-Comp-Epoch-Subroutine, I-Gov-SubRoutineLifecycle-Guard
 
 use brioche_core::{
     ActiveToolCall, AgentState, ChatMessage, Effect, EngineInput, PluginResult, Session,
-    StreamEvent, SubRoutineHandler, ToolResultDTO,
+    SessionRegistry, StreamEvent, SubRoutineHandle, SubRoutineHandler, SubRoutineLifecycleGuard,
+    ToolResultDTO,
 };
+
+// ---------------------------------------------------------------------------
+// SubRoutineOrchestrator
+// ---------------------------------------------------------------------------
 
 /// Sub-routine orchestrator.
 ///
@@ -37,10 +39,6 @@ impl Default for SubRoutineOrchestrator {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Pure helpers — each corresponds to one `EngineInput` variant.
-// ---------------------------------------------------------------------------
-
 /// Push a user message into the child's history and transition to Predicting.
 fn delegate_user_message(
     child: &mut Session,
@@ -62,8 +60,6 @@ fn delegate_user_message(
 }
 
 /// Accumulate tool-call fragments from an `LlmStream` event.
-///
-/// Returns `Some(effects)` when a complete tool call set is ready.
 fn accumulate_stream_tools(
     child: &mut Session,
     event: &StreamEvent,
@@ -173,10 +169,6 @@ fn detect_subroutine_termination(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Trait implementation — thin orchestration layer.
-// ---------------------------------------------------------------------------
-
 impl SubRoutineHandler for SubRoutineOrchestrator {
     fn handle_subroutine(
         &self,
@@ -204,11 +196,52 @@ impl SubRoutineHandler for SubRoutineOrchestrator {
                 detect_subroutine_termination(parent, child).map_err(wrap)
             }
 
-            EngineInput::RestoreSubRoutine { .. } => {
-                // Should not happen on an already active sub-routine.
-                Ok(None)
-            }
+            EngineInput::RestoreSubRoutine { .. } => Ok(None),
             _ => Ok(None),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SubRoutineCleanupGuard
+// ---------------------------------------------------------------------------
+
+/// Sub-routine cleanup guard.
+///
+/// Cleans up the `SessionRegistry` on every outgoing transition from
+/// the `SubRoutine` state, preventing the accumulation of orphaned sessions.
+///
+/// Refs: I-Gov-SubRoutineLifecycle-Guard
+pub struct SubRoutineCleanupGuard;
+
+impl SubRoutineCleanupGuard {
+    /// Creates a new instance of the cleanup guard.
+    ///
+    /// Refs: I-Gov-TraitAtomic
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for SubRoutineCleanupGuard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SubRoutineLifecycleGuard for SubRoutineCleanupGuard {
+    fn on_exit(
+        &self,
+        handle: SubRoutineHandle,
+        _parent: &mut Session,
+        registry: &mut SessionRegistry,
+    ) -> PluginResult<Vec<Effect>> {
+        registry.increment_exit_count(&handle);
+
+        if registry.remove(&handle).is_some() {
+            Ok(vec![Effect::SaveSession])
+        } else {
+            Ok(vec![])
         }
     }
 }

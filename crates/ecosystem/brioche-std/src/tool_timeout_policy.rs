@@ -5,4 +5,4 @@
 //!
 //! Refs: I-Eco-ExtensionOverMod
 
-pub use brioche_governance_default::{ToolTimeoutPolicy, ToolTimeoutState};
+pub use brioche_governance_default::ToolTimeoutPolicy;

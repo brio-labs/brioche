@@ -72,24 +72,14 @@ pub const MAX_INLINE_CHUNK: usize = 4096;
 pub struct SubRoutineHandle(String);
 
 impl SubRoutineHandle {
-    /// Create a new handle from any string-like value.
-    ///
-    /// Complexity: O(length of id). Allocates one `String`.
-    ///
+    /// Create a new handle. O(1). Never panics.
     /// Refs: I-Core-AgentState
-    /// # Panics
-    /// Never panics.
     pub fn new(id: impl Into<String>) -> Self {
         Self(id.into())
     }
 
     /// Borrow the underlying string.
-    ///
-    /// Complexity: O(1).
-    ///
     /// Refs: I-Core-AgentState
-    /// # Panics
-    /// Never panics.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -118,12 +108,7 @@ pub struct PluginSource(pub String);
 
 impl PluginSource {
     /// Borrow the underlying plugin name.
-    ///
-    /// Complexity: O(1).
-    ///
     /// Refs: I-Core-PluginOrder
-    /// # Panics
-    /// Never panics.
     pub fn as_str(&self) -> &str {
         &self.0
     }

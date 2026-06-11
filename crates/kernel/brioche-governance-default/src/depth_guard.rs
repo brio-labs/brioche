@@ -1,6 +1,6 @@
 //! DepthGuard — Book II §5.12.
 //!
-//! Limits sub-routine nesting depth via `DepthState`.
+//! Limits sub-routine nesting depth.
 //!
 //! Refs: I-Gov-Depth-Limit
 
@@ -9,10 +9,10 @@ use brioche_core::{
     PluginCapabilities, PluginResult, PolicyDecision, SessionSnapshot,
 };
 
-/// Nesting depth tracking state.
+/// Current nesting depth, tracked in `ExtensionStorage`.
 ///
 /// ## Snapshot strategy
-/// COW: full clone (~16 bytes). Two scalar fields.
+/// COW: full clone (~8 bytes). One scalar field.
 #[derive(
     Clone,
     Debug,
@@ -25,8 +25,6 @@ use brioche_core::{
 )]
 #[brioche(critical_state)]
 pub struct DepthState {
-    /// Maximum allowed depth.
-    pub max_depth: u64,
     /// Current depth (derived from `state_stack_depth` on the fly).
     pub current_depth: u64,
 }
@@ -81,19 +79,18 @@ impl BriochePlugin for DepthGuard {
     }
 
     fn priority(&self) -> i16 {
-        -40 // After epoch, recovery, but before business logic
+        -40
     }
 
     /// Verifies depth before each `UserMessage`.
     ///
     /// # Complexity
-    /// O(log n). Two `ExtensionStorage` reads (`SessionSnapshot`, `DepthState`).
+    /// O(log n). Two `ExtensionStorage` reads.
     fn on_input(
         &self,
         input: &EngineInput,
         ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
-        // Only check on user messages (new intentions that may create sub-routines).
         if !matches!(input, EngineInput::UserMessage(_)) {
             return Ok(PolicyDecision::Allow);
         }
@@ -102,7 +99,6 @@ impl BriochePlugin for DepthGuard {
         let current_depth = calculate_depth(snapshot.state_stack_depth, snapshot.current_state);
 
         let state = ext.get_or_insert_default::<DepthState>();
-        state.max_depth = self.max_depth;
         state.current_depth = current_depth;
 
         if current_depth >= self.max_depth {
