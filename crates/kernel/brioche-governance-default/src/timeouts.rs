@@ -1,24 +1,111 @@
-//! SubRoutineTimeoutPolicy — Book II §5.14.
+//! Timeout policies — Book II §5.14.
 //!
-//! Consumes `SystemSignal::Tick` (via shell adapter) and limits
-//! sub-routine lifetime. In the current architecture, this plugin
-//! registers state and would be triggered by a shell-side adapter
-//! that drains tick signals into the engine.
+//! - `ToolTimeoutPolicy`: bounds tool timeouts before `ExecuteTools` emission.
+//! - `SubRoutineTimeoutPolicy`: limits sub-routine lifetime via deterministic ticks.
 //!
-//! Refs: I-Gov-SubRoutineLifecycle-Guard
+//! Refs: I-Gov-Timeout-Bound, I-Gov-SubRoutineLifecycle-Guard
 
 use std::collections::BTreeMap;
 
 use brioche_core::{
     AgentStateTag, BriochePlugin, EngineInput, ExtensionStorage, PluginCapabilities, PluginResult,
-    PolicyDecision, SessionSnapshot,
+    PolicyDecision, SessionSnapshot, ToolCallDescriptor,
 };
+
+// ---------------------------------------------------------------------------
+// ToolTimeoutPolicy
+// ---------------------------------------------------------------------------
+
+/// Timeout policy for tool calls.
+///
+/// On `on_tool_calls`, applies `default_timeout_ms` if absent and
+/// caps to `max_timeout_ms` if defined.
+///
+/// Config is stored directly on the plugin; no separate state type is
+/// needed because the values are immutable after construction.
+///
+/// Refs: I-Core-ActiveToolCall
+pub struct ToolTimeoutPolicy {
+    default_timeout_ms: u64,
+    max_timeout_ms: u64,
+}
+
+impl ToolTimeoutPolicy {
+    /// Creates a policy with a default timeout.
+    ///
+    /// Refs: I-Gov-TraitAtomic
+    pub fn with_default_timeout(default_timeout_ms: u64) -> Self {
+        Self {
+            default_timeout_ms,
+            max_timeout_ms: 0,
+        }
+    }
+
+    /// Creates a policy with a default timeout and a max cap.
+    ///
+    /// Refs: I-Gov-TraitAtomic
+    pub fn with_bounds(default_timeout_ms: u64, max_timeout_ms: u64) -> Self {
+        Self {
+            default_timeout_ms,
+            max_timeout_ms,
+        }
+    }
+}
+
+impl Default for ToolTimeoutPolicy {
+    fn default() -> Self {
+        Self::with_default_timeout(30000)
+    }
+}
+
+impl BriochePlugin for ToolTimeoutPolicy {
+    fn name(&self) -> &'static str {
+        "tool_timeout_policy"
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::ON_TOOL_CALLS
+    }
+
+    fn priority(&self) -> i16 {
+        -10
+    }
+
+    /// Applies the default timeout and caps to `max_timeout_ms`.
+    ///
+    /// # Complexity
+    /// O(c). `c` calls; linear loop.
+    fn on_tool_calls(
+        &self,
+        calls: &mut Vec<ToolCallDescriptor>,
+        _ext: &mut ExtensionStorage,
+    ) -> PluginResult<()> {
+        for call in calls {
+            let mut timeout = match call.timeout_ms {
+                Some(t) => t,
+                None => self.default_timeout_ms,
+            };
+
+            if self.max_timeout_ms > 0 && timeout > self.max_timeout_ms {
+                timeout = self.max_timeout_ms;
+            }
+
+            call.timeout_ms = Some(timeout);
+        }
+
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SubRoutineTimeoutPolicy
+// ---------------------------------------------------------------------------
 
 /// Sub-routine timer state.
 ///
 /// ## Snapshot strategy
 /// COW: full clone. Weight scales with number of active sub-routines
-/// (typically 003c 5). One `BTreeMap` plus one scalar.
+/// (typically < 5). One `BTreeMap` plus one scalar.
 #[derive(
     Clone,
     Debug,
@@ -32,20 +119,15 @@ use brioche_core::{
 #[brioche(critical_state)]
 pub struct SubRoutineTimerState {
     /// Latest observed tick elapsed_ms from the shell's `TickEmitter`.
-    /// Used as the deterministic clock for timeout checks.
     pub last_tick_ms: u64,
     /// Map handle -> (start_tick_ms, timeout_limit_ms).
-    /// `start_tick_ms` must use the same timebase as `TickEmitter`
-    /// (i.e. elapsed milliseconds since the emitter started).
     pub timers: BTreeMap<brioche_core::SubRoutineHandle, (u64, u64)>,
 }
 
 /// Sub-routine timeout policy.
 ///
 /// On `on_input`, verifies if any active sub-routine has exceeded its
-/// timeout limit stored in `SubRoutineTimerState`. Timers are populated
-/// by the shell-side adapter (Sprint 9+); this plugin performs the
-/// policy check only.
+/// timeout limit stored in `SubRoutineTimerState`.
 ///
 /// Refs: I-Gov-SubRoutineLifecycle-Guard, I-Comp-Pure-Logic
 pub struct SubRoutineTimeoutPolicy;
@@ -58,8 +140,7 @@ impl SubRoutineTimeoutPolicy {
         Self
     }
 
-    /// Creates a policy with a default timeout (ignored until shell
-    /// adapter populates timers; kept for API compatibility).
+    /// Creates a policy with a default timeout (API compatibility).
     ///
     /// Refs: I-Gov-TraitAtomic
     pub fn with_default_timeout(_default_timeout_ms: u64) -> Self {
@@ -83,16 +164,13 @@ impl BriochePlugin for SubRoutineTimeoutPolicy {
     }
 
     fn priority(&self) -> i16 {
-        -30 // After epoch, recovery, depth
+        -30
     }
 
     /// Checks active sub-routine timers for expiry.
     ///
     /// Time is sourced deterministically from `SystemSignal::Tick`
     /// events stored in `SignalBuffer`, never from direct system time.
-    /// Refs: I-Core-Pure
-    ///
-    /// This preserves determinism: identical inputs produce identical outputs.
     ///
     /// # Complexity
     /// O(n) where n = number of tracked timers. Linear scan.
@@ -108,15 +186,10 @@ impl BriochePlugin for SubRoutineTimeoutPolicy {
 
         if !is_subroutine {
             let state = ext.get_or_insert_default::<SubRoutineTimerState>();
-            // Not in a sub-routine: clear stale timers to prevent
-            // unbounded growth.
             state.timers.clear();
             return Ok(PolicyDecision::Allow);
         }
 
-        // Deterministic clock: consume the latest Tick signal from
-        // the shell's SignalBuffer. The shell's TickEmitter provides
-        // monotonically increasing elapsed_ms values.
         let latest_tick = {
             let signal_buffer = ext.get_or_insert_default::<brioche_core::SignalBuffer>();
             signal_buffer
@@ -137,7 +210,6 @@ impl BriochePlugin for SubRoutineTimeoutPolicy {
 
         let reference_ms = state.last_tick_ms;
 
-        // Collect expired handles before mutating the map.
         let expired: Vec<_> = state
             .timers
             .iter()

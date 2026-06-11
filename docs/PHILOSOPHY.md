@@ -122,6 +122,23 @@ pub type PluginResult<T> = Result<T, PluginError>;
 // Explicit mapping preserves invariant context.
 ```
 
+#### Rule: Module Cohesion Over File Count
+Splitting code into more files does not make it cleaner. A module file should group
+**related concerns**. Do not create a new file just because a type has a name.
+
+- Two plugins that share a domain concern (e.g., `ToolTimeoutPolicy` and
+  `SubRoutineTimeoutPolicy`) belong in the same module unless the combined file
+  would exceed ~400 lines of logic.
+- Internal glue (`types.rs`, `helpers.rs`, `finalize.rs`) should be merged into
+  the parent module or the file that uses them. Extracting a 30-line helper into
+  its own file creates import boilerplate, not clarity.
+- **One-file-per-type is an OOP cargo-cult.** Brioche uses algebraic composition;
+  file boundaries follow cohesion, not type names.
+
+**Litmus test:** If removing the `//!` doc block and the `use` statements leaves
+a file below ~60 lines of actual logic, it should probably be merged into a
+sibling module.
+
 ### 3.4 Control Flow
 
 #### Forbidden Patterns
@@ -168,6 +185,7 @@ if let EpochAction::Block { reason } = epoch_action {
 ## 4. Documentation Standards
 
 Documentation is not prose. It is **a contract between the code and the invariant system.**
+Documentation is also **signal**—noise dilutes signal. Ceremony is not clarity.
 
 ### 4.1 Mandatory Documentation Blocks
 
@@ -203,6 +221,35 @@ pub trait EpochInterceptor: Send + Sync {
     ) -> Result<EpochAction, PluginError>;
 }
 ```
+
+#### Rule: Documentation Density — No Ceremony
+Do not repeat the trait-level contract on every default method. Do not document
+`O(1)` on trivial accessors (`as_str`, `From` impls, getter methods) unless the
+implementation is non-obvious or on a hot path.
+
+If the "what" is readable from the code in one glance, skip it. The doc block
+must add **invariant context** or **architectural rationale** that is not in the
+code. Boilerplate like "Complexity: O(1). Never panics." on a `From<String>`
+impl is noise, not signal.
+
+**Guideline:**
+- Traits, structs, enums, and non-trivial `pub` functions: full block (purpose,
+  invariants, complexity if hot-path, panic contract if non-obvious).
+- Trivial newtype accessors, `From`/`Into` impls, and trait default methods that
+  return `Ok(())`: omit or keep to one line.
+- Default trait methods that only delegate: document at the trait level, not
+  per-impl.
+
+#### Rule: State Structs Earn Their Keep
+A `*State` type stored in `ExtensionStorage` must carry **mutable runtime state**
+that diverges from its plugin's configuration. If it merely mirrors immutable
+config fields (e.g., `default_timeout_ms` copied from `ToolTimeoutPolicy`),
+eliminate it or store the plugin config directly.
+
+Do not create a `*State` type just to satisfy the `*State` naming convention.
+Config is config; state is state. When they are identical, the type is noise.
+
+---
 
 ### 4.2 Inline Comments: Explain the "Why," Never the "What"
 
@@ -320,6 +367,9 @@ Auto-posted by a GitHub Action on every PR:
 - [ ] No business logic in mechanism code (Core)
 - [ ] Trait implementations are atomic (no inheritance-like coupling)
 - [ ] ADR linked if crossing book boundaries
+- [ ] No one-file-per-type fragmentation: related plugins share a module
+- [ ] No trivial `*State` structs that only mirror plugin config
+- [ ] No redundant `O(1)` / `Never panics` docs on obvious accessors
 ```
 
 ### 5.4 Code Review Human Checklist
@@ -330,6 +380,9 @@ Reviewers must verify:
 2. **Is this mechanism or policy?** If policy, it must be in a plugin/trait, not in Core.
 3. **Where is the `proptest`?** New state machines require property tests.
 4. **Is the documentation lying?** Check that doc comments match code behavior.
+5. **Is this file too small to stand alone?** If the file is <60 lines of logic after removing docs and imports, merge it with a related sibling.
+6. **Does every new `*State` type carry mutable runtime state?** Reject state structs that are pure config mirrors.
+7. **Are docs adding signal or noise?** Reject boilerplate complexity/panic docs on trivial accessors.
 
 ### 5.5 Crate Categories and Applied Standards
 
@@ -642,5 +695,8 @@ Additional rules from §9 through §12 are summarized below alongside the core c
 | **Tests exist for every crate.** | Code review + CI gate |
 | **Provider/tool errors map at shell boundary.** | Code review |
 | **`println!`/`eprintln!` only in app crates.** | Code review + `scripts/philosophy-check.py` |
+| **Module cohesion over file count.** Related types share a file. | Code review + `scripts/philosophy-check.py` |
+| **State structs earn their keep.** No config-mirror state types. | Code review |
+| **Documentation density.** No ceremony on trivial items. | Code review |
 
 This philosophy is not a suggestion. It is the **immune system** of the codebase. Violate it, and the architecture rots. Enforce it, and the compiler becomes your strictest, most reliable collaborator.

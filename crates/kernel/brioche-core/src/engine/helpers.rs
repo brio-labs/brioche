@@ -9,8 +9,7 @@
 //!
 //! Refs: SPECS.md §4
 
-use super::BriocheEngine;
-use super::types::PreTransitionState;
+use super::{BriocheEngine, PreTransitionState};
 use crate::{
     ActiveToolCall, AgentState, Effect, EngineInput, EpochAction, ErrorCode, ErrorDetail,
     PluginError, PluginSource, Session,

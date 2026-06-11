@@ -33,29 +33,23 @@
 // ---------------------------------------------------------------------------
 
 pub mod adaptive_undo_frame_guard;
+pub mod aggregators;
 pub mod compatibility_matrix;
 pub mod depth_guard;
-pub mod epoch_guard;
+pub mod guards;
 pub mod historical_cow_budget_policy;
-pub mod hook_effect_constraint;
 pub mod json_argument_accumulator;
 pub mod negotiation_broker;
 pub mod noop_traits;
-pub mod policy_aggregator;
 pub mod quarantine_manager;
 pub mod recovery_policy;
 pub mod rollback_telemetry_emitter;
-pub mod state_consistency_guard;
-pub mod subroutine_cleanup_guard;
-pub mod subroutine_orchestrator;
-pub mod subroutine_timeout_policy;
-pub mod system_failover_guard;
+pub mod subroutines;
+pub mod telemetry;
 pub mod tiered_undo_frame_guard;
-pub mod tool_call_detector;
+pub mod timeouts;
 pub mod tool_execution_tracker;
 pub mod tool_result_formatter;
-pub mod tool_timeout_policy;
-pub mod transition_conflict_logger;
 pub mod tree_decision_aggregator;
 pub mod undo_frame_guard;
 
@@ -64,34 +58,30 @@ pub mod undo_frame_guard;
 // ---------------------------------------------------------------------------
 
 pub use adaptive_undo_frame_guard::AdaptiveUndoFrameGuard;
+pub use aggregators::{FastHookEffectConstraint, LexicographicDecisionAggregator};
 pub use compatibility_matrix::{
     CompatibilityEntry, CompatibilityLevel, GovernanceCompatibilityMatrix,
 };
 pub use depth_guard::{DepthGuard, DepthState};
-pub use epoch_guard::EpochGuard;
+pub use guards::{EpochGuard, StateConsistencyGuard, SystemFailoverGuard};
 pub use historical_cow_budget_policy::HistoricalCowBudgetPolicy;
-pub use hook_effect_constraint::FastHookEffectConstraint;
 pub use json_argument_accumulator::{JsonArgumentAccumulator, JsonArgumentAccumulatorState};
 pub use negotiation_broker::{NegotiationBroker, NegotiationState};
 pub use noop_traits::{
     NoopCowBudgetPolicy, NoopCycleRollbackPolicy, NoopGovernanceFailoverHandler,
     NoopHookEffectConstraint, PermissiveHookEffectConstraint,
 };
-pub use policy_aggregator::LexicographicDecisionAggregator;
 pub use quarantine_manager::{PluginFaultKey, QuarantineManager, QuarantineState};
 pub use recovery_policy::{RecoveryPolicy, RecoveryState};
 pub use rollback_telemetry_emitter::{RollbackTelemetryEmitter, RollbackTelemetryState};
-pub use state_consistency_guard::StateConsistencyGuard;
-pub use subroutine_cleanup_guard::SubRoutineCleanupGuard;
-pub use subroutine_orchestrator::SubRoutineOrchestrator;
-pub use subroutine_timeout_policy::{SubRoutineTimeoutPolicy, SubRoutineTimerState};
-pub use system_failover_guard::SystemFailoverGuard;
+pub use subroutines::{SubRoutineCleanupGuard, SubRoutineOrchestrator};
+pub use telemetry::{
+    ToolCallDetector, ToolCallDetectorState, TransitionConflictLogger, TransitionConflictState,
+};
 pub use tiered_undo_frame_guard::TieredUndoFrameGuard;
-pub use tool_call_detector::{ToolCallDetector, ToolCallDetectorState};
+pub use timeouts::{SubRoutineTimeoutPolicy, SubRoutineTimerState, ToolTimeoutPolicy};
 pub use tool_execution_tracker::{ToolExecutionTelemetry, ToolExecutionTracker};
 pub use tool_result_formatter::{ToolResultFormatter, ToolResultFormatterState};
-pub use tool_timeout_policy::{ToolTimeoutPolicy, ToolTimeoutState};
-pub use transition_conflict_logger::{TransitionConflictLogger, TransitionConflictState};
 pub use tree_decision_aggregator::{
     DecisionCondition, DecisionNode, DecisionTreeState, TreeDecisionAggregator,
 };
