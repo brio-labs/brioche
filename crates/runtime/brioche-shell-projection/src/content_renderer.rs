@@ -36,6 +36,7 @@ impl ContentRenderer {
     /// Create a new renderer with an empty buffer.
     ///
     /// Complexity: O(1).
+    /// Refs: SPECS.md §Book III-A
     pub fn new() -> Self {
         Self {
             buffer: StreamBuffer::new(),
@@ -57,6 +58,7 @@ impl ContentRenderer {
     ///
     /// Complexity: O(log n + m) where n = traces in buffer,
     /// m = text fragment length.
+    /// Refs: SPECS.md §Book III-A
     pub fn process_effect(&mut self, effect: &Effect) -> bool {
         let Effect::ForwardToUi(widget) = effect else {
             return false;
@@ -79,6 +81,7 @@ impl ContentRenderer {
     /// text for rendering.
     ///
     /// Complexity: O(1).
+    /// Refs: SPECS.md §Book III-A
     pub fn buffer(&self) -> &StreamBuffer {
         &self.buffer
     }
@@ -89,6 +92,7 @@ impl ContentRenderer {
     /// text (e.g. from sub-routine hydration).
     ///
     /// Complexity: O(1).
+    /// Refs: SPECS.md §Book III-A
     pub fn buffer_mut(&mut self) -> &mut StreamBuffer {
         &mut self.buffer
     }
@@ -99,6 +103,7 @@ impl ContentRenderer {
     /// after it has been rendered.
     ///
     /// Complexity: O(log n).
+    /// Refs: SPECS.md §Book III-A
     pub fn drain_trace(&mut self, trace_id: &str) -> Option<String> {
         self.buffer.flush(trace_id)
     }
@@ -108,6 +113,7 @@ impl ContentRenderer {
     /// Called by the shell on session reset or sub-routine cleanup.
     ///
     /// Complexity: O(n) where n = number of traces.
+    /// Refs: SPECS.md §Book III-A
     pub fn clear(&mut self) {
         self.buffer.clear();
     }

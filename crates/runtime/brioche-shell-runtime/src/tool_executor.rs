@@ -32,6 +32,7 @@ pub trait ToolExecutor: Send + Sync {
 // ---------------------------------------------------------------------------
 
 /// A tool executor that always returns success with the argument string echoed.
+/// Refs: SPECS.md §Book III-A
 #[derive(Clone, Debug, Default)]
 pub struct EchoToolExecutor;
 

@@ -12,6 +12,7 @@ use tokio::sync::mpsc;
 ///
 /// Signals are produced by the shell (network failure, cancellation,
 /// periodic tick) and consumed by governance plugins.
+/// Refs: SPECS.md §Book III-A
 #[derive(Clone, Debug)]
 pub struct SystemSignalAdapter {
     tx: mpsc::Sender<SystemSignal>,
@@ -19,6 +20,7 @@ pub struct SystemSignalAdapter {
 
 impl SystemSignalAdapter {
     /// Create a new adapter with the given buffer capacity.
+    /// Refs: SPECS.md §Book III-A
     pub fn new(capacity: usize) -> (Self, mpsc::Receiver<SystemSignal>) {
         let (tx, rx) = mpsc::channel(capacity);
         (Self { tx }, rx)
@@ -33,6 +35,7 @@ impl SystemSignalAdapter {
     }
 
     /// Non-blocking try-send.
+    /// Refs: SPECS.md §Book III-A
     pub fn try_send(
         &self,
         signal: SystemSignal,
@@ -58,6 +61,7 @@ impl SystemSignalAdapter {
 ///
 /// Results are produced by background tasks (CPU offload,
 /// summarization, status checks) and consumed by plugins.
+/// Refs: SPECS.md §Book III-A
 #[derive(Clone, Debug)]
 pub struct AsyncTaskResultAdapter {
     tx: mpsc::Sender<AsyncTaskResult>,
@@ -65,6 +69,7 @@ pub struct AsyncTaskResultAdapter {
 
 impl AsyncTaskResultAdapter {
     /// Create a new adapter with the given buffer capacity.
+    /// Refs: SPECS.md §Book III-A
     pub fn new(capacity: usize) -> (Self, mpsc::Receiver<AsyncTaskResult>) {
         let (tx, rx) = mpsc::channel(capacity);
         (Self { tx }, rx)
@@ -79,6 +84,7 @@ impl AsyncTaskResultAdapter {
     }
 
     /// Non-blocking try-send.
+    /// Refs: SPECS.md §Book III-A
     pub fn try_send(
         &self,
         result: AsyncTaskResult,
@@ -104,6 +110,7 @@ impl AsyncTaskResultAdapter {
 ///
 /// Notifications are produced by the shell when it detects a plugin
 /// fault, and consumed by `QuarantineManager`.
+/// Refs: SPECS.md §Book III-A
 #[derive(Clone, Debug)]
 pub struct GovernanceNotificationAdapter {
     tx: mpsc::Sender<GovernanceNotification>,
@@ -111,6 +118,7 @@ pub struct GovernanceNotificationAdapter {
 
 impl GovernanceNotificationAdapter {
     /// Create a new adapter with the given buffer capacity.
+    /// Refs: SPECS.md §Book III-A
     pub fn new(capacity: usize) -> (Self, mpsc::Receiver<GovernanceNotification>) {
         let (tx, rx) = mpsc::channel(capacity);
         (Self { tx }, rx)
@@ -125,6 +133,7 @@ impl GovernanceNotificationAdapter {
     }
 
     /// Non-blocking try-send.
+    /// Refs: SPECS.md §Book III-A
     pub fn try_send(
         &self,
         notification: GovernanceNotification,

@@ -62,6 +62,7 @@ impl UiRegistry {
     /// Create an empty registry.
     ///
     /// Complexity: O(1). Allocates empty map.
+    /// Refs: SPECS.md §Book III-A
     pub fn new() -> Self {
         Self {
             mappings: BTreeMap::new(),
@@ -73,6 +74,7 @@ impl UiRegistry {
     /// This is the recommended initialization path for the shell.
     ///
     /// Complexity: O(k log k) where k = number of special widgets (5).
+    /// Refs: SPECS.md §Book III-A
     pub fn with_special_widgets() -> Self {
         let mut reg = Self::new();
         reg.register(crate::widget::WIDGET_SYSTEM_DEGRADED, AnchorSlot::TopBar);
@@ -91,6 +93,7 @@ impl UiRegistry {
     /// If `widget_type` was already registered, the old slot is overwritten.
     ///
     /// Complexity: O(log n) where n = number of registered types.
+    /// Refs: SPECS.md §Book III-A
     pub fn register(&mut self, widget_type: impl Into<String>, slot: AnchorSlot) {
         self.mappings.insert(widget_type.into(), slot);
     }
@@ -98,6 +101,7 @@ impl UiRegistry {
     /// Resolve a widget type to its anchor slot, if known.
     ///
     /// Complexity: O(log n).
+    /// Refs: SPECS.md §Book III-A
     pub fn resolve(&self, widget_type: &str) -> Option<AnchorSlot> {
         self.mappings.get(widget_type).copied()
     }
@@ -105,6 +109,7 @@ impl UiRegistry {
     /// Returns `true` if the given widget type is registered.
     ///
     /// Complexity: O(log n).
+    /// Refs: SPECS.md §Book III-A
     pub fn contains(&self, widget_type: &str) -> bool {
         self.mappings.contains_key(widget_type)
     }
@@ -115,6 +120,7 @@ impl UiRegistry {
     /// semantics in the frontend.
     ///
     /// Complexity: O(1). String comparison against constants.
+    /// Refs: SPECS.md §Book III-A
     pub fn is_special_widget(widget_type: &str) -> bool {
         matches!(
             widget_type,
@@ -129,6 +135,7 @@ impl UiRegistry {
     /// Iterate over all registered mappings in deterministic order.
     ///
     /// Complexity: O(1) for iterator creation.
+    /// Refs: SPECS.md §Book III-A
     pub fn iter(&self) -> impl Iterator<Item = (&String, &AnchorSlot)> {
         self.mappings.iter()
     }

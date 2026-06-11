@@ -13,6 +13,7 @@
 use brioche_provider_openai::OpenAiConfig;
 
 /// Global CLI configuration.
+/// Refs: SPECS.md §Book IV
 #[derive(Clone, Debug)]
 pub struct CliConfig {
     pub openai: OpenAiConfig,
@@ -20,6 +21,7 @@ pub struct CliConfig {
 }
 
 /// User-provided configuration source (CLI args).
+/// Refs: SPECS.md §Book IV
 #[derive(Clone, Debug, Default)]
 pub struct UserConfig {
     pub api_key: Option<String>,
@@ -34,6 +36,8 @@ impl CliConfig {
     /// - `BRIOCHE_API_KEY` — API key
     /// - `BRIOCHE_MODEL` — model (default: gpt-4o-mini)
     /// - `BRIOCHE_BASE_URL` — endpoint (default: <https://api.openai.com/v1>)
+    ///
+    /// Refs: SPECS.md §Book IV
     pub fn from_env_and_args(user: UserConfig) -> Self {
         let api_key = user
             .api_key

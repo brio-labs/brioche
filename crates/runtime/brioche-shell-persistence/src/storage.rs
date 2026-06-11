@@ -35,12 +35,14 @@ use crate::schema::{BLOBS_TABLE, MESSAGES_TABLE, SESSIONS_TABLE};
 pub type SessionStore = Arc<RwLock<BTreeMap<String, SessionStoreEntry>>>;
 
 /// Create a new empty `SessionStore`.
+/// Refs: SPECS.md §Book III-A
 pub fn new_session_store() -> SessionStore {
     Arc::new(RwLock::new(BTreeMap::new()))
 }
 
 /// A single entry in the `SessionStore`, holding both the head DTO and
 /// the full message history needed for delta persistence.
+/// Refs: SPECS.md §Book III-A
 #[derive(Clone, Debug)]
 pub struct SessionStoreEntry {
     /// Flattened session head.
@@ -55,6 +57,7 @@ pub struct SessionStoreEntry {
 /// can be plugged into `DefaultEffectExecutor`.
 ///
 /// Clone is cheap (all fields are `Arc`-wrapped or `Copy`).
+/// Refs: SPECS.md §Book III-A
 #[derive(Clone)]
 pub struct RedbStorage {
     db: Arc<Database>,
@@ -68,6 +71,7 @@ impl RedbStorage {
     /// from the engine thread (typically via `update_session`).
     ///
     /// Complexity: O(1). File creation is deferred to first write.
+    /// Refs: SPECS.md §Book III-A
     pub fn new(
         path: impl AsRef<Path>,
         session_store: SessionStore,
@@ -85,6 +89,7 @@ impl RedbStorage {
     /// table access.
     ///
     /// Complexity: O(1). Clones an `Arc`.
+    /// Refs: SPECS.md §Book III-A
     pub(crate) fn db(&self) -> Arc<Database> {
         Arc::clone(&self.db)
     }

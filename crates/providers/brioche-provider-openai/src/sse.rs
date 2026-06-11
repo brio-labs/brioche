@@ -10,6 +10,7 @@
 use bytes::Bytes;
 
 /// SSE parser state, line by line.
+/// Refs: SPECS.md §Book III-B
 #[derive(Clone, Debug, Default)]
 pub struct SseParser {
     buffer: String,
@@ -17,6 +18,7 @@ pub struct SseParser {
 
 impl SseParser {
     /// Creates a new empty SSE parser.
+    /// Refs: SPECS.md §Book III-B
     pub fn new() -> Self {
         Self {
             buffer: String::new(),
@@ -34,6 +36,7 @@ impl SseParser {
     ///
     /// # Complexity
     /// O(n) where n = number of bytes ingested. Single scan.
+    /// Refs: SPECS.md §Book III-B
     pub fn feed(&mut self, bytes: &Bytes) -> impl Iterator<Item = serde_json::Value> + '_ {
         let text = String::from_utf8_lossy(bytes);
         self.buffer.push_str(&text);
@@ -69,6 +72,7 @@ impl SseParser {
     ///
     /// # Complexity
     /// O(1). Returns a string slice reference.
+    /// Refs: SPECS.md §Book III-B
     pub fn remaining_buffer(&self) -> &str {
         &self.buffer
     }
