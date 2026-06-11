@@ -45,8 +45,8 @@ pub use brioche_governance_default::{
     StateConsistencyGuard, SubRoutineCleanupGuard, SubRoutineOrchestrator, SubRoutineTimeoutPolicy,
     SubRoutineTimerState, SystemFailoverGuard, TieredUndoFrameGuard, ToolCallDetector,
     ToolCallDetectorState, ToolExecutionTelemetry, ToolExecutionTracker, ToolResultFormatter,
-    ToolResultFormatterState, ToolTimeoutPolicy, ToolTimeoutState, TransitionConflictLogger,
-    TreeDecisionAggregator, UndoFrameGuard,
+    ToolResultFormatterState, ToolTimeoutPolicy, TransitionConflictLogger, TreeDecisionAggregator,
+    UndoFrameGuard,
 };
 // Also re-export BriocheExtensionType derive for convenience.
 pub use brioche_macro::BriocheExtensionType;
@@ -56,7 +56,7 @@ pub use brioche_std::{
     AuditEntry, AuditLogger, AuditLoggerState, CircuitBreaker, CircuitBreakerState,
     ContextOptimizer, ContextOptimizerState, GcPolicy, GcPolicyState, PendingTaskInfo,
     PendingTaskManager, PendingTaskState, PendingTaskStatus, TokenTracker, TokenTrackerState,
-    ToolTimeoutPolicy as StdToolTimeoutPolicy, ToolTimeoutState as StdToolTimeoutState,
+    ToolTimeoutPolicy as StdToolTimeoutPolicy,
 };
 
 pub mod builder;

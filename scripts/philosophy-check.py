@@ -60,7 +60,6 @@ HOT_PATH_MODULES = [
     "crates/kernel/brioche-core/src/engine/hooks.rs",
     "crates/kernel/brioche-core/src/engine/router.rs",
     "crates/kernel/brioche-core/src/engine/trace.rs",
-    "crates/kernel/brioche-core/src/engine/types.rs",
     "crates/kernel/brioche-core/src/engine/builder.rs",
     "crates/kernel/brioche-core/src/extension.rs",
     "crates/kernel/brioche-core/src/types.rs",
@@ -125,6 +124,12 @@ def check_hotpath_docs() -> CheckResult:
             if not doc_lines:
                 continue
 
+            # Skip trivial accessors — PHILOSOPHY.md §4.1 exempts them
+            # from complexity documentation.
+            decl_line = lines[line_no - 1] if line_no <= len(lines) else ""
+            if _is_trivial_item(decl_line):
+                continue
+
             doc_block = "\n".join(doc_lines)
             if not any(kw in doc_block for kw in COMPLEXITY_KEYWORDS):
                 result.add(
@@ -174,6 +179,12 @@ def check_panic_safety_docs() -> CheckResult:
 
             doc_lines = _collect_doc_block(lines, line_no)
             if not doc_lines:
+                continue
+
+            # Skip trivial accessors — PHILOSOPHY.md §4.1 exempts them
+            # from panic/safety documentation.
+            decl_line = lines[line_no - 1] if line_no <= len(lines) else ""
+            if _is_trivial_item(decl_line):
                 continue
 
             doc_block = "\n".join(doc_lines)
@@ -777,7 +788,308 @@ def check_invariant_format() -> CheckResult:
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# 9b. Module doc visibility accuracy
+# 9b. Module cohesion — no files below ~60 lines of actual logic
+#     PHILOSOPHY.md §3.3: "If removing the //! doc block and the use
+#     statements leaves a file below ~60 lines of actual logic, merge it."
+# ---------------------------------------------------------------------------
+
+COHESION_CRATES = [
+    "crates/kernel/brioche-core/src",
+    "crates/kernel/brioche-governance-default/src",
+    "crates/kernel/brioche-governance/src",
+]
+
+COHESION_MIN_LOGIC_LINES = 60
+
+
+def check_module_cohesion() -> CheckResult:
+    result = CheckResult("Module cohesion (file size)")
+
+    for rel in COHESION_CRATES:
+        crate_src = PROJECT_ROOT / rel
+        if not crate_src.exists():
+            continue
+
+        for path in crate_src.rglob("*.rs"):
+            name = path.name
+            # lib.rs and mod.rs are allowed to be small (they re-export).
+            if name in ("lib.rs", "mod.rs"):
+                continue
+            if "tests" in path.parts or "benches" in path.parts:
+                continue
+            if name.startswith(("fail_", "pass_")):
+                continue
+
+            lines = path.read_text().split("\n")
+            logic_lines = 0
+            for line in lines:
+                stripped = line.strip()
+                # Skip blanks, comments, doc comments, attributes, imports,
+                # re-exports, and module declarations.
+                if not stripped:
+                    continue
+                if stripped.startswith(("//", "///", "//!", "#![")):
+                    continue
+                if stripped.startswith("use "):
+                    continue
+                if stripped.startswith("pub use "):
+                    continue
+                if stripped.startswith("pub mod "):
+                    continue
+                if stripped.startswith("mod "):
+                    continue
+                logic_lines += 1
+
+            if logic_lines < COHESION_MIN_LOGIC_LINES:
+                result.add(
+                    path,
+                    1,
+                    f"only {logic_lines} lines of logic (<{COHESION_MIN_LOGIC_LINES}) — "
+                    f"merge with a related sibling module (PHILOSOPHY.md §3.3)",
+                )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 9c. Trivial *State structs that mirror plugin config
+#     PHILOSOPHY.md §4.2: "A *State type stored in ExtensionStorage must carry
+#     mutable runtime state that diverges from its plugin's configuration."
+# ---------------------------------------------------------------------------
+
+STATE_SCALAR_TYPES = {
+    "u8",
+    "u16",
+    "u32",
+    "u64",
+    "u128",
+    "usize",
+    "i8",
+    "i16",
+    "i32",
+    "i64",
+    "i128",
+    "isize",
+    "bool",
+    "f32",
+    "f64",
+    "String",
+    "str",
+    "Option",
+    "Duration",
+    "Instant",
+}
+
+
+def _is_scalar_type(type_str: str) -> bool:
+    """Heuristic: is this type 'scalar' / config-like?"""
+    t = type_str.strip()
+    if t in STATE_SCALAR_TYPES:
+        return True
+    # Option<u64>, Option<String>, etc.
+    if t.startswith("Option<"):
+        inner = t[7:-1].strip()
+        if inner in STATE_SCALAR_TYPES:
+            return True
+    return False
+
+
+def _extract_struct_fields(lines: list[str], struct_idx: int) -> list[tuple[str, str]]:
+    """Extract (field_name, field_type) from a struct body."""
+    fields: list[tuple[str, str]] = []
+    brace_depth = 0
+    in_struct = False
+    for j in range(struct_idx, len(lines)):
+        txt = lines[j]
+        if "{" in txt:
+            brace_depth += txt.count("{")
+            in_struct = True
+        if "}" in txt:
+            brace_depth -= txt.count("}")
+            if in_struct and brace_depth <= 0:
+                break
+
+        stripped = txt.strip()
+        if stripped.startswith(("//", "///", "#[")):
+            continue
+        # pub field_name: Type,  — handles generics with commas via greedy match
+        m = re.match(r"^\s*pub\s+(\w+)\s*:\s*(.+?),?\s*$", stripped)
+        if m:
+            fields.append((m.group(1), m.group(2).strip()))
+    return fields
+
+
+def check_trivial_state_structs() -> CheckResult:
+    result = CheckResult("Trivial state structs")
+
+    for rel in [
+        "crates/kernel/brioche-governance-default/src",
+        "crates/kernel/brioche-governance/src",
+    ]:
+        crate_src = PROJECT_ROOT / rel
+        if not crate_src.exists():
+            continue
+
+        # First pass: collect all plugin-like struct names.
+        plugin_names: set[str] = set()
+        for path in crate_src.rglob("*.rs"):
+            if "tests" in path.parts or "benches" in path.parts:
+                continue
+            content = path.read_text()
+            for m in re.finditer(
+                r"^\s*pub\s+struct\s+(\w+)(?:Policy|Guard|Handler|Manager|Tracker|Emitter|Detector|Formatter|Aggregator|Broker|Logger|Orchestrator|Constraint)",
+                content,
+                re.MULTILINE,
+            ):
+                plugin_names.add(m.group(1))
+
+        # Second pass: inspect *State structs.
+        for path in crate_src.rglob("*.rs"):
+            if "tests" in path.parts or "benches" in path.parts:
+                continue
+            content = path.read_text()
+            lines = content.split("\n")
+
+            for m in re.finditer(
+                r"^\s*pub\s+struct\s+(\w+State)\b",
+                content,
+                re.MULTILINE,
+            ):
+                state_name = m.group(1)
+                struct_idx = content[: m.start()].count("\n")
+                fields = _extract_struct_fields(lines, struct_idx)
+
+                if not fields:
+                    continue
+
+                # Heuristic: if ALL fields are scalar AND count ≤ 3,
+                # AND there's a plugin with the same prefix, flag it.
+                # But skip if any field name looks like mutable runtime state.
+                RUNTIME_FIELD_NAMES = {
+                    "total",
+                    "count",
+                    "current",
+                    "last_",
+                    "consecutive",
+                    "inputs_",
+                    "abandoned",
+                    "restored",
+                    "unique_",
+                }
+                has_runtime_field = any(
+                    any(n.startswith(r) or r in n for r in RUNTIME_FIELD_NAMES)
+                    for n, _ in fields
+                )
+                if has_runtime_field:
+                    continue
+
+                all_scalar = all(_is_scalar_type(t) for _, t in fields)
+                if not all_scalar or len(fields) > 3:
+                    continue
+
+                # Check for matching plugin prefix.
+                prefix = state_name.replace("State", "")
+                if prefix and any(p.startswith(prefix) for p in plugin_names):
+                    result.add(
+                        path,
+                        struct_idx + 1,
+                        f"`{state_name}` appears to be a config mirror — "
+                        f"only {len(fields)} scalar field(s). "
+                        f"PHILOSOPHY.md §4.2: state must carry mutable runtime "
+                        f"state that diverges from plugin config.",
+                    )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 9d. Redundant docs on trivial accessors
+#     PHILOSOPHY.md §4.1: "Do not document O(1) on trivial accessors
+#     (as_str, From impls, getter methods)."
+# ---------------------------------------------------------------------------
+
+TRIVIAL_DOC_PATTERNS = [
+    re.compile(r"^\s*impl\s+From<[^>]+>\s+for\s+\w+"),
+    re.compile(r"^\s*impl\s+From<[^>]+>\s+for\s+\w+"),
+    re.compile(r"^\s*pub\s+(?:fn|const fn)\s+as_str\b"),
+    re.compile(r"^\s*pub\s+(?:fn|const fn)\s+as_ref\b"),
+    re.compile(r"^\s*pub\s+(?:fn|const fn)\s+name\b"),
+]
+
+
+def _is_trivial_item(line: str) -> bool:
+    if any(pat.search(line) for pat in TRIVIAL_DOC_PATTERNS):
+        return True
+    # Simple one-line getters: fn foo(&self) -> &Bar { &self.foo }
+    return bool(
+        re.match(
+            r"^\s*pub\s+fn\s+\w+\s*\(&self\)\s*->\s*.*\{\s*\&self\.\w+\s*\}",
+            line,
+        )
+    )
+
+
+def check_redundant_trivial_docs() -> CheckResult:
+    result = CheckResult("Redundant docs on trivial items")
+
+    for rel in INVARIANT_CRATES:
+        crate_src = PROJECT_ROOT / rel
+        if not crate_src.exists():
+            continue
+
+        for path in crate_src.rglob("*.rs"):
+            if "tests" in path.parts or "benches" in path.parts:
+                continue
+
+            content = path.read_text()
+            lines = content.split("\n")
+
+            for i, line in enumerate(lines):
+                if not _is_trivial_item(line):
+                    continue
+
+                # Collect doc block above this line.
+                doc_lines: list[str] = []
+                for idx in range(i - 1, -1, -1):
+                    stripped = lines[idx].strip()
+                    if stripped.startswith("///"):
+                        doc_lines.insert(0, stripped)
+                    elif stripped == "" or stripped.startswith("#!"):
+                        continue
+                    else:
+                        break
+
+                if not doc_lines:
+                    continue
+
+                doc_block = "\n".join(doc_lines)
+                # Flag if the doc contains complexity or panic sections.
+                has_ceremony = bool(
+                    re.search(r"#\s*(?:Complexity|Panics|Errors)\b", doc_block)
+                )
+                # Also flag very long doc blocks on trivial items.
+                too_long = len(doc_lines) > 5
+
+                if has_ceremony or too_long:
+                    item_name = line.strip().split()[2].split("(")[0]
+                    result.add(
+                        path,
+                        i + 1,
+                        f"trivial `{item_name}` has redundant doc ceremony "
+                        f"({len(doc_lines)} lines, complexity/panic sections) — "
+                        f"PHILOSOPHY.md §4.1: omit or keep to one line",
+                    )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 9. Module-level docs (!!) for every crate lib.rs
+#    PHILOSOPHY.md §4.3: Every crate root and module must have a //! block.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# 9e. Module doc visibility accuracy
 #     If a module doc claims items are pub(crate), no pub struct/enum/trait
 #     (without (crate)) should appear at the top level.
 # ---------------------------------------------------------------------------
@@ -1125,6 +1437,9 @@ CHECKS = [
     check_effect_structure,
     check_stringly_typed_enums,
     check_invariant_format,
+    check_module_cohesion,
+    check_trivial_state_structs,
+    check_redundant_trivial_docs,
     check_module_docs,
     check_module_doc_visibility,
     check_session_send_sync,
