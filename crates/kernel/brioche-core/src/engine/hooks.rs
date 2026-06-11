@@ -10,8 +10,7 @@
 //!
 //! Refs: SPECS.md §4.2
 
-use super::BriocheEngine;
-use super::types::InputResult;
+use super::{BriocheEngine, InputResult};
 use crate::{
     BriocheError, BriochePlugin, Effect, EngineInput, ErrorCode, ErrorDetail, PluginError,
     PluginResult, PluginSource, PolicyDecision, Session,
