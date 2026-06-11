@@ -47,6 +47,7 @@ impl UiPerformanceState {
     /// Create state with a specific budget.
     ///
     /// Values are clamped to the range 1–16.
+    /// Refs: SPECS.md §Book III-A
     pub fn with_budget(frame_budget_ms: u8) -> Self {
         Self {
             frame_budget_ms: frame_budget_ms.clamp(1, 16),
@@ -78,6 +79,7 @@ impl UiPerformancePolicy {
     /// Create a policy with the default 2 ms composer budget.
     ///
     /// Complexity: O(1).
+    /// Refs: SPECS.md §Book III-A
     pub fn new() -> Self {
         Self {
             composer: UiComposer::new(),
@@ -87,6 +89,7 @@ impl UiPerformancePolicy {
     /// Create a policy with a custom initial budget.
     ///
     /// Complexity: O(1).
+    /// Refs: SPECS.md §Book III-A
     pub fn with_budget(frame_budget_ms: u8) -> Self {
         Self {
             composer: UiComposer::with_budget(frame_budget_ms),
@@ -99,6 +102,7 @@ impl UiPerformancePolicy {
     /// applies `frame_budget_ms` to the internal `UiComposer`.
     ///
     /// Complexity: O(log n) where n = registered extension types.
+    /// Refs: SPECS.md §Book III-A
     pub fn sync_from_storage(&mut self, ext: &mut ExtensionStorage) {
         let state: &UiPerformanceState = ext.get_or_insert_default();
         self.composer.set_frame_budget(state.frame_budget_ms);
@@ -115,6 +119,7 @@ impl UiPerformancePolicy {
     ///
     /// Complexity: O(m + n log n) where m = total effects,
     /// n = number of `ForwardToUi` effects.
+    /// Refs: SPECS.md §Book III-A
     pub fn process_effects(&mut self, effects: Vec<Effect>) -> Vec<Effect> {
         let mut non_ui = Vec::new();
 
@@ -134,6 +139,7 @@ impl UiPerformancePolicy {
     /// Read-only access to the internal composer.
     ///
     /// Complexity: O(1).
+    /// Refs: SPECS.md §Book III-A
     pub fn composer(&self) -> &UiComposer {
         &self.composer
     }
@@ -141,6 +147,7 @@ impl UiPerformancePolicy {
     /// Mutable access to the internal composer.
     ///
     /// Complexity: O(1).
+    /// Refs: SPECS.md §Book III-A
     pub fn composer_mut(&mut self) -> &mut UiComposer {
         &mut self.composer
     }
@@ -150,6 +157,7 @@ impl UiPerformancePolicy {
     /// Useful for tests and for shell-level overrides.
     ///
     /// Complexity: O(1).
+    /// Refs: SPECS.md §Book III-A
     pub fn set_frame_budget(&mut self, ms: u8) {
         self.composer.set_frame_budget(ms);
     }
@@ -157,6 +165,7 @@ impl UiPerformancePolicy {
     /// Returns `true` if the policy's composer has pending effects.
     ///
     /// Complexity: O(1).
+    /// Refs: SPECS.md §Book III-A
     pub fn has_pending(&self) -> bool {
         self.composer.pending_count() > 0
     }

@@ -50,6 +50,7 @@ impl BackpressureRegulator {
     ///
     /// Returns the regulator handle and the receiver end that should be
     /// wired into the engine thread's input loop.
+    /// Refs: SPECS.md §Book III-A
     pub fn new(capacity: usize, drop_policy: DropPolicy) -> (Self, mpsc::Receiver<EngineInput>) {
         let (tx, rx) = mpsc::channel(capacity);
         let regulator = Self {
@@ -97,6 +98,7 @@ impl BackpressureRegulator {
     }
 
     /// Returns the configured capacity of the channel.
+    /// Refs: SPECS.md §Book III-A
     pub fn capacity(&self) -> usize {
         self.capacity
     }

@@ -98,6 +98,7 @@ pub trait LlmClient: Send + Sync {
 // ---------------------------------------------------------------------------
 
 /// A mock LLM client that yields a fixed sequence of text chunks.
+/// Refs: SPECS.md §Book III-A
 #[derive(Clone, Debug)]
 pub struct MockLlmClient {
     /// Fixed sequence of text chunks yielded by the mock client.

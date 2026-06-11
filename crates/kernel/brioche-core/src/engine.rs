@@ -43,7 +43,7 @@ pub use types::{GovernanceKernel, RoutineManager};
 
 /// The synchronous kernel engine.
 ///
-/// `BriocheEngine` is a thin façade over three independent components:
+/// `BriocheEngine` is a thin facade over three independent components:
 /// `PluginRouter` (dispatch), `GovernanceKernel` (policy traits), and
 /// `RoutineManager` (sub-routine registry + generation counter).
 ///

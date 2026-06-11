@@ -92,6 +92,7 @@ impl OpenAiLlmClient {
     /// # Panics
     /// Never panics. Empty `api_key` is accepted (some local endpoints
     /// like Ollama do not require a key).
+    /// Refs: SPECS.md §Book III-B
     pub fn new(config: OpenAiConfig) -> (Self, broadcast::Receiver<LlmChunk>, SharedHistory) {
         let http = match reqwest::Client::builder()
             // No global request timeout — streaming generations can
@@ -126,6 +127,7 @@ impl OpenAiLlmClient {
     /// Subscribe to the LLM chunk broadcast channel.
     ///
     /// Each call returns an independent new receiver.
+    /// Refs: SPECS.md §Book III-B
     pub fn subscribe(&self) -> broadcast::Receiver<LlmChunk> {
         self.ui_tx.subscribe()
     }
@@ -259,6 +261,7 @@ impl OpenAiLlmClient {
     /// Broadcast a tool result to the projection (CLI).
     ///
     /// Called by the effect executor after execution.
+    /// Refs: SPECS.md §Book III-B
     pub fn emit_tool_result(&self, name: &str, output: &str) {
         let _ = self.ui_tx.send(LlmChunk::ToolResult {
             name: name.to_string(),
@@ -411,7 +414,6 @@ impl OpenAiLlmClient {
                     .and_then(|e| e.get("message"))
                     .and_then(|m| m.as_str())
                     .map_or_else(|| body_text.clone(), |s| s.to_string())
-                // TODO: replace unwrap_or_else with match
             } else {
                 match body_text.lines().next() {
                     Some(line) => line.to_string(),

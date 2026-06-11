@@ -304,7 +304,7 @@ See `.github/workflows/ci.yml` for the `philosophy-check` job which enforces:
 - All `pub` items have doc comments (`RUSTDOCFLAGS="-D warnings"`)
 - Invariant references use proper `Refs:` format
 - No `unwrap`/`expect`/`panic!` in `brioche-core`
-- Hot path functions document complexity/budget (via `scripts/check_hotpath_docs.py`)
+- Hot path functions document complexity/budget (via `scripts/philosophy-check.py`)
 
 ### 5.3 Pull Request Bot Checklist
 
@@ -330,6 +330,22 @@ Reviewers must verify:
 2. **Is this mechanism or policy?** If policy, it must be in a plugin/trait, not in Core.
 3. **Where is the `proptest`?** New state machines require property tests.
 4. **Is the documentation lying?** Check that doc comments match code behavior.
+
+### 5.5 Crate Categories and Applied Standards
+
+Not every rule applies with the same strictness to every crate. The workspace is organized by architectural book, and the `philosophy-check` script maps checks accordingly.
+
+| Book | Crates | Mandatory checks |
+|------|--------|------------------|
+| **Book I — Core** | `brioche-core`, `brioche-macro` | All §5 checks; determinism guards; no panics; no hidden I/O |
+| **Book II — Governance** | `brioche-governance`, `brioche-governance-default` | All §5 checks; trait-hierarchy guard |
+| **Book III-A — Shell Runtime** | `brioche-shell-runtime`, `brioche-shell-persistence`, `brioche-shell-projection` | Module docs; invariant refs; English prose; TODO policy; async standards (§10) |
+| **Book III-B — Providers** | `brioche-provider-openai`, future providers | Module docs; invariant refs; English prose; TODO policy; structured errors (§12) |
+| **Book III-C — Tools** | `brioche-tools-system`, future tools | Module docs; invariant refs; English prose; TODO policy |
+| **Book IV — Apps** | `agent-terminal`, future apps | Module docs; English prose; TODO policy; no `println!` in library modules; CLI exit conventions |
+| **Infrastructure** | `cargo-brioche-lint*`, `brioche-reedline`, `brioche-docgen`, `brioche-plugin-kit`, `brioche-std`, `brioche-playground` | Module docs; invariant refs where applicable; English prose; TODO policy |
+
+Crates in Books III-A through Infra are exempt from determinism guards (`HashMap` ban, `Instant::now` ban, etc.) because they legitimately perform I/O, use caches, and sample clocks. They are **not** exempt from documentation, language, or TODO standards.
 
 ---
 
@@ -514,7 +530,95 @@ pub struct QuarantineState { ... }
 
 ---
 
+## 9. Testing Canon
+
+Untested code is unreviewable code. Every crate category carries a minimum test obligation.
+
+| Category | Unit tests | Property tests | Integration tests | Benchmarks |
+|----------|------------|----------------|-------------------|------------|
+| **Book I — Core** | Required for all `pub` functions | Required for state machines and transitions | Required for serialization round-trips | Required for hot-path functions |
+| **Book II — Governance** | Required for plugin hooks | Strongly encouraged for policy decisions | Required for multi-plugin interaction | Encouraged for negotiation paths |
+| **Book III-A — Shell Runtime** | Required for pure helpers | Encouraged | Required for async effect loops | Encouraged for persistence paths |
+| **Book III-B — Providers** | Required for parsing/serialization | — | Mock-server tests required; no network in `cargo test` | — |
+| **Book III-C — Tools** | Required | — | Required for idempotency and sandboxing | — |
+| **Book IV — Apps** | Required for config/bridge logic | — | Smoke tests for headless mode | — |
+| **Infrastructure** | Required for lint logic | — | Snapshot tests encouraged | — |
+
+A crate with zero tests is not ready for `main`.
+
+---
+
+## 10. Async & Shell Code Standards
+
+Books III-A, III-B, III-C, and Book IV have additional rules that do not apply to the synchronous kernel.
+
+### 10.1 Cancellation Safety
+Every `pub async fn` must document its cancellation contract. If the future is dropped mid-await, what invariants hold? What leaks?
+
+```rust
+/// Reads the next chunk from the SSE stream.
+///
+/// # Cancel safety
+/// This future holds no locks across await points. Dropping it leaks
+/// the underlying TCP connection, which is recovered by the connection
+/// pool timeout.
+pub async fn next_chunk(&mut self) -> Result<Chunk, ShellError>;
+```
+
+### 10.2 Channels and Backpressure
+All internal channels must be bounded. Document the capacity and `DropPolicy`.
+
+### 10.3 Library Code Never Exits
+`std::process::exit` is permitted **only** in `main()`, `headless::run()`, or equivalent top-level CLI dispatch. Library crates must return `Result` and let the caller decide.
+
+### 10.4 Output Conventions
+- `println!` and `eprintln!` are allowed **only** in app crates.
+- Library crates use `tracing` at the appropriate level.
+- Never emit user-facing text from `brioche-core`, `brioche-governance`, or provider internals.
+
+### 10.5 Error Mapping at Boundaries
+When an async provider or tool returns an error, map it to the appropriate crate error type (`ShellError`, `PersistenceError`, etc.) at the architectural boundary. Never let provider-specific error types leak into `Effect` payloads.
+
+---
+
+## 11. TODO / FIXME Policy
+
+`TODO` and `FIXME` are not free passes to merge half-finished work.
+
+### Rules
+1. **Kernel crates (`crates/kernel/*`)**: `TODO` and `FIXME` are forbidden in production code on `main`.
+2. **Outer crates**: allowed only with an explicit attribution:
+   - `TODO(Sprint N): ...` — scheduled work
+   - `TODO(#issue): ...` — linked issue
+   - `TODO(your-name): ...` — owner named
+3. **Bare `TODO` / `FIXME`** without attribution is a CI failure.
+4. **Stale TODOs** must be removed or converted to issues within one release cycle.
+
+---
+
+## 12. Cross-Crate Error Taxonomy
+
+Brioche uses a layered error taxonomy. Each layer owns its error type and maps at boundaries.
+
+| Layer | Error type | Purpose |
+|-------|------------|---------|
+| **Kernel** | `BriocheError` | Deterministic, serializable failure inside `transition()` |
+| **Governance** | `PluginError` | Recoverable or fatal failure inside a plugin hook |
+| **Shell Runtime** | `ShellError` | Async runtime failure (channel, I/O, effect execution) |
+| **Persistence** | `PersistenceError` | Disk/database failure outside the kernel |
+| **Providers** | Provider-specific (e.g., `OpenAiError`) | HTTP/network/model failure; must map to `ShellError` before crossing into `Effect` |
+| **Tools** | Tool-specific | Execution failure; must map to a structured `ToolOutcome` |
+
+### Mapping rules
+1. Never leak a provider error into an `Effect` variant.
+2. Never construct `BriocheError` outside `brioche-core`.
+3. Async code returns `Result<T, ShellError>` (or a domain-specific error) and maps to `Effect::Error` at the shell boundary.
+
+---
+
 ## 8. Summary: The Non-Negotiables
+
+Additional rules from §9 through §12 are summarized below alongside the core canon.
 
 | Rule | Enforcement |
 |------|-------------|
@@ -523,13 +627,20 @@ pub struct QuarantineState { ... }
 | **No hidden side effects.** All effects in `Vec<Effect>`. | Code review + architecture review |
 | **No panics in Core.** | `clippy` deny `unwrap`/`expect` |
 | **All `pub` items documented with invariant refs.** | `RUSTDOCFLAGS="-D warnings"` + bot check |
-| **Hot paths document complexity.** | PR checklist + `scripts/check_hotpath_docs.py` |
+| **Hot paths document complexity.** | PR checklist + `scripts/philosophy-check.py` |
 | **Mechanism vs Policy separation.** | Human review + ADR requirement |
 | **Determinism by design, not by test.** | `proptest` + replay tests + `HashMap` ban |
 | **One concern per plugin.** No plugin does two observable things. | Code review + PHILOSOPHY.md §7.5 |
 | **Extract pure functions from hooks.** Testable without mocks. | Code review + unit-test gate |
 | **No stringly-typed holes in `Effect`.** Structured payloads only. | Compiler + code review |
 | **Traits are capabilities, not taxonomies.** No supertrait hierarchies. | Compiler + code review |
-| **Document data layout.** Memory footprint and snapshot strategy. | Code review + `scripts/check_hotpath_docs.py` |
+| **Document data layout.** Memory footprint and snapshot strategy. | Code review + `scripts/philosophy-check.py` |
+| **English-only prose in doc comments.** | Code review + `scripts/philosophy-check.py` |
+| **No bare `TODO`/`FIXME`; none at all in kernel crates.** | Code review + `scripts/philosophy-check.py` |
+| **`pub async fn` documents cancel safety.** | Code review |
+| **Library code returns errors; apps handle exit.** | Code review |
+| **Tests exist for every crate.** | Code review + CI gate |
+| **Provider/tool errors map at shell boundary.** | Code review |
+| **`println!`/`eprintln!` only in app crates.** | Code review + `scripts/philosophy-check.py` |
 
 This philosophy is not a suggestion. It is the **immune system** of the codebase. Violate it, and the architecture rots. Enforce it, and the compiler becomes your strictest, most reliable collaborator.

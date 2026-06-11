@@ -12,6 +12,7 @@ use brioche_shell_runtime::ToolExecutor;
 use tokio_util::sync::CancellationToken;
 
 /// Error emitted by a system tool.
+/// Refs: SPECS.md §Book III-C
 #[derive(Debug, thiserror::Error)]
 pub enum ToolError {
     /// Sandbox policy denied this command.
@@ -62,6 +63,7 @@ pub struct SystemToolExecutor {
 
 impl SystemToolExecutor {
     /// Creates an empty tool registry.
+    /// Refs: SPECS.md §Book III-C
     pub fn new() -> Self {
         Self {
             tools: BTreeMap::new(),
@@ -69,6 +71,7 @@ impl SystemToolExecutor {
     }
 
     /// Registers a tool, replacing any existing tool with the same name.
+    /// Refs: SPECS.md §Book III-C
     pub fn with_tool(mut self, tool: impl SystemTool + 'static) -> Self {
         let name = tool.name().to_string();
         self.tools.insert(name, Box::new(tool));
@@ -81,6 +84,7 @@ impl SystemToolExecutor {
     /// ```json
     /// [{"type": "function", "function": {"name": "...", "description": "...", "parameters": {...}}}]
     /// ```
+    /// Refs: SPECS.md §Book III-C
     pub fn schema_json(&self) -> Vec<serde_json::Value> {
         self.tools
             .values()

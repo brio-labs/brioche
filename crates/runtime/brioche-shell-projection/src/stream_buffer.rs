@@ -32,6 +32,7 @@ impl StreamBuffer {
     /// Create an empty buffer.
     ///
     /// Complexity: O(1).
+    /// Refs: SPECS.md §Book III-A
     pub fn new() -> Self {
         Self {
             buffers: BTreeMap::new(),
@@ -44,6 +45,7 @@ impl StreamBuffer {
     ///
     /// Complexity: O(log n + m) where n = number of traces,
     /// m = length of fragment (amortized `String` append).
+    /// Refs: SPECS.md §Book III-A
     pub fn append(&mut self, trace_id: impl Into<String>, fragment: impl AsRef<str>) {
         let id = trace_id.into();
         let frag = fragment.as_ref();
@@ -58,6 +60,7 @@ impl StreamBuffer {
     /// Read the accumulated text for a trace without consuming it.
     ///
     /// Complexity: O(log n).
+    /// Refs: SPECS.md §Book III-A
     pub fn get(&self, trace_id: &str) -> Option<&str> {
         self.buffers.get(trace_id).map(|s| s.as_str())
     }
@@ -67,6 +70,7 @@ impl StreamBuffer {
     /// Returns `None` if the trace is not present.
     ///
     /// Complexity: O(log n).
+    /// Refs: SPECS.md §Book III-A
     pub fn flush(&mut self, trace_id: &str) -> Option<String> {
         self.buffers.remove(trace_id)
     }
@@ -74,6 +78,7 @@ impl StreamBuffer {
     /// Remove all traces from the buffer.
     ///
     /// Complexity: O(n) where n = number of traces.
+    /// Refs: SPECS.md §Book III-A
     pub fn clear(&mut self) {
         self.buffers.clear();
     }
@@ -81,6 +86,7 @@ impl StreamBuffer {
     /// Iterate over all traces in deterministic order.
     ///
     /// Complexity: O(1) for iterator creation.
+    /// Refs: SPECS.md §Book III-A
     pub fn traces(&self) -> impl Iterator<Item = (&String, &String)> {
         self.buffers.iter()
     }
@@ -88,6 +94,7 @@ impl StreamBuffer {
     /// Total number of active traces.
     ///
     /// Complexity: O(1).
+    /// Refs: SPECS.md §Book III-A
     pub fn len(&self) -> usize {
         self.buffers.len()
     }
@@ -95,6 +102,7 @@ impl StreamBuffer {
     /// Returns `true` if no traces are buffered.
     ///
     /// Complexity: O(1).
+    /// Refs: SPECS.md §Book III-A
     pub fn is_empty(&self) -> bool {
         self.buffers.is_empty()
     }

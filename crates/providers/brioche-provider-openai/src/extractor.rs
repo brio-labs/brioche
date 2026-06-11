@@ -126,6 +126,7 @@ impl ChunkExtractor for ReasoningModelExtractor {
 ///
 /// # Complexity
 /// O(1). Constant-time string prefix checks.
+/// Refs: SPECS.md §Book III-B
 pub fn chunk_extractor_for_model(model: &str) -> Box<dyn ChunkExtractor> {
     let lower = model.to_lowercase();
     if lower.contains("qwen") || lower.contains("deepseek") || lower.contains("minimax") {
@@ -161,6 +162,7 @@ pub trait StreamErrorDetector: Send + Sync {
 ///
 /// Always returns `None`. Used for OpenAI, Anthropic, and other
 /// well-behaved providers.
+/// Refs: SPECS.md §Book III-B
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NoOpErrorDetector;
 
@@ -174,6 +176,7 @@ impl StreamErrorDetector for NoOpErrorDetector {
 /// errors.
 ///
 /// Checks for `event.error.code` and `event.error.message`.
+/// Refs: SPECS.md §Book III-B
 #[derive(Clone, Copy, Debug, Default)]
 pub struct OpenRouterErrorDetector;
 
@@ -197,6 +200,7 @@ impl StreamErrorDetector for OpenRouterErrorDetector {
 ///
 /// # Complexity
 /// O(1). Constant-time string prefix checks.
+/// Refs: SPECS.md §Book III-B
 pub fn error_detector_for_model(model: &str) -> Box<dyn StreamErrorDetector> {
     let lower = model.to_lowercase();
     // OpenRouter prefixes: anything with a slash is likely OpenRouter.

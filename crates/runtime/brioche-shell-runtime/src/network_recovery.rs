@@ -41,6 +41,7 @@ pub trait NetworkRecovery: Send + Sync {
 ///
 /// Default policy: 3 attempts, base delay 500 ms, multiplier 2.0,
 /// max delay 8 s.
+/// Refs: SPECS.md §Book III-A
 #[derive(Clone, Debug)]
 pub struct ExponentialBackoff {
     /// Maximum retry attempts before giving up.
@@ -82,6 +83,7 @@ impl NetworkRecovery for ExponentialBackoff {
 /// No-op recovery: never retries.
 ///
 /// Useful in tests or when the caller wants immediate failure.
+/// Refs: SPECS.md §Book III-A
 #[derive(Clone, Debug, Default)]
 pub struct NoRetry;
 

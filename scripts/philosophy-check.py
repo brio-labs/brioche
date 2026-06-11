@@ -192,9 +192,30 @@ def check_panic_safety_docs() -> CheckResult:
 # ---------------------------------------------------------------------------
 
 INVARIANT_CRATES = [
+    # Book I — Core
     "crates/kernel/brioche-core/src",
+    "crates/kernel/brioche-macro/src",
+    # Book II — Governance
     "crates/kernel/brioche-governance/src",
     "crates/kernel/brioche-governance-default/src",
+    # Book III-A — Shell Runtime
+    "crates/runtime/brioche-shell-runtime/src",
+    "crates/runtime/brioche-shell-persistence/src",
+    "crates/runtime/brioche-shell-projection/src",
+    # Book III-B — Providers
+    "crates/providers/brioche-provider-openai/src",
+    # Book III-C — Tools
+    "crates/tools/brioche-tools-system/src",
+    # Book IV — Apps
+    "crates/apps/agent-terminal/src",
+    # Infrastructure
+    "crates/infra/brioche-reedline/src",
+    "crates/infra/cargo-brioche-lint/src",
+    "crates/infra/cargo-brioche-lint-invariants/src",
+    "crates/ecosystem/brioche-docgen/src",
+    "crates/ecosystem/brioche-playground/src",
+    "crates/ecosystem/brioche-plugin-kit/src",
+    "crates/ecosystem/brioche-std/src",
 ]
 
 INVARIANT_PATTERNS = [
@@ -545,6 +566,7 @@ ALLOWED_SUPERTRAITS = {
     "Write",
     "Sealed",
     "Any",
+    "'static",
 }
 
 
@@ -823,9 +845,22 @@ def check_module_doc_visibility() -> CheckResult:
 
 MODULE_DOC_CRATES = [
     "crates/kernel/brioche-core/src",
+    "crates/kernel/brioche-macro/src",
     "crates/kernel/brioche-governance/src",
     "crates/kernel/brioche-governance-default/src",
-    "crates/kernel/brioche-macro/src",
+    "crates/runtime/brioche-shell-runtime/src",
+    "crates/runtime/brioche-shell-persistence/src",
+    "crates/runtime/brioche-shell-projection/src",
+    "crates/providers/brioche-provider-openai/src",
+    "crates/tools/brioche-tools-system/src",
+    "crates/apps/agent-terminal/src",
+    "crates/infra/brioche-reedline/src",
+    "crates/infra/cargo-brioche-lint/src",
+    "crates/infra/cargo-brioche-lint-invariants/src",
+    "crates/ecosystem/brioche-docgen/src",
+    "crates/ecosystem/brioche-playground/src",
+    "crates/ecosystem/brioche-plugin-kit/src",
+    "crates/ecosystem/brioche-std/src",
 ]
 
 
@@ -866,11 +901,13 @@ def check_module_docs() -> CheckResult:
 
 
 # ---------------------------------------------------------------------------
-# 12. Language consistency — English only in kernel crates
+# 12. Language consistency — English only in all production doc comments
 # ---------------------------------------------------------------------------
 
 # These must match as whole words (or near-whole words) to avoid false positives
 # on legitimate English terms like "phase", "standard", "profile".
+# The accented-character detector catches common French vocabulary that leaks
+# into doc comments (invoqué, référence, mécanisme, etc.).
 FRENCH_KEYWORDS = [
     ("garde", r"\bgarde\b"),
     ("profondeur", r"\bprofondeur\b"),
@@ -885,6 +922,7 @@ FRENCH_KEYWORDS = [
     ("adaptative", r"\badaptative\b"),
     ("adaptatif", r"\badaptatif\b"),
     ("courant", r"\bcourant\b"),
+    ("french-accented-word", r"\b\w*[éèêàçôûùï]\w*\b"),
 ]
 
 
@@ -920,7 +958,7 @@ def check_language_consistency() -> CheckResult:
                             path,
                             i + 1,
                             f"French keyword '{kw}' found in doc comment — "
-                            f"PHILOSOPHY.md requires English-only prose in kernel crates",
+                            f"PHILOSOPHY.md requires English-only prose in all production doc comments",
                         )
                         break
 
@@ -1010,6 +1048,68 @@ def check_critical_state() -> CheckResult:
 
 
 # ---------------------------------------------------------------------------
+# 12. TODO / FIXME policy
+#     PHILOSOPHY.md §11: Kernel crates forbid TODO/FIXME entirely.
+#     Outer crates require attribution: (Sprint N), (#issue), or (name).
+# ---------------------------------------------------------------------------
+
+TODO_FORBIDDEN_CRATES = {
+    "crates/kernel/brioche-core/src",
+    "crates/kernel/brioche-macro/src",
+    "crates/kernel/brioche-governance/src",
+    "crates/kernel/brioche-governance-default/src",
+}
+
+TODO_ATTRIBUTION_RE = re.compile(r"(?:TODO|FIXME)\s*\([^)]+\)", re.IGNORECASE)
+TODO_BARE_RE = re.compile(r"\b(?:TODO|FIXME)\b", re.IGNORECASE)
+
+
+def check_todo_policy() -> CheckResult:
+    result = CheckResult("TODO / FIXME policy")
+
+    for rel in INVARIANT_CRATES:
+        crate_src = PROJECT_ROOT / rel
+        if not crate_src.exists():
+            continue
+
+        is_kernel = rel in TODO_FORBIDDEN_CRATES
+
+        for path in crate_src.rglob("*.rs"):
+            if "tests" in path.parts or "benches" in path.parts:
+                continue
+
+            content = path.read_text()
+            lines = content.split("\n")
+
+            for i, line in enumerate(lines):
+                if not TODO_BARE_RE.search(line):
+                    continue
+
+                stripped = line.strip()
+                # Only inspect comment lines (production code, not string literals).
+                if not stripped.startswith(("//", "///", "*")):
+                    continue
+
+                if is_kernel:
+                    result.add(
+                        path,
+                        i + 1,
+                        "TODO/FIXME is forbidden in kernel crates (PHILOSOPHY.md §11)",
+                    )
+                    continue
+
+                if not TODO_ATTRIBUTION_RE.search(stripped):
+                    result.add(
+                        path,
+                        i + 1,
+                        "bare TODO/FIXME must include attribution: (Sprint N), (#issue), "
+                        "or (name) (PHILOSOPHY.md §11)",
+                    )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -1030,6 +1130,7 @@ CHECKS = [
     check_session_send_sync,
     check_critical_state,
     check_language_consistency,
+    check_todo_policy,
 ]
 
 

@@ -23,6 +23,7 @@ use crate::config::CliConfig;
 ///
 /// This function is reusable for creating multiple shells
 /// (multi-session) or a headless shell.
+/// Refs: SPECS.md §Book IV
 pub fn build_shell(
     session_id: impl Into<String>,
     cli_config: &CliConfig,
