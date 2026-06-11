@@ -62,7 +62,13 @@ HOT_PATH_MODULES = [
     "crates/kernel/brioche-core/src/engine/trace.rs",
     "crates/kernel/brioche-core/src/engine/builder.rs",
     "crates/kernel/brioche-core/src/extension.rs",
-    "crates/kernel/brioche-core/src/types.rs",
+    "crates/kernel/brioche-core/src/types/mod.rs",
+    "crates/kernel/brioche-core/src/types/fundamental.rs",
+    "crates/kernel/brioche-core/src/types/session.rs",
+    "crates/kernel/brioche-core/src/types/tool.rs",
+    "crates/kernel/brioche-core/src/types/effect.rs",
+    "crates/kernel/brioche-core/src/types/trace.rs",
+    "crates/kernel/brioche-core/src/types/runtime.rs",
     "crates/kernel/brioche-core/src/plugin.rs",
     "crates/kernel/brioche-governance/src/lib.rs",
 ]
@@ -1286,10 +1292,18 @@ def check_language_consistency() -> CheckResult:
 
 def check_session_send_sync() -> CheckResult:
     result = CheckResult("Session !Send/!Sync marker")
-    path = PROJECT_ROOT / "crates" / "kernel" / "brioche-core" / "src" / "types.rs"
+    path = (
+        PROJECT_ROOT
+        / "crates"
+        / "kernel"
+        / "brioche-core"
+        / "src"
+        / "types"
+        / "session.rs"
+    )
 
     if not path.exists():
-        result.add(path, 0, "types.rs not found")
+        result.add(path, 0, "types/session.rs not found")
         return result
 
     content = path.read_text()

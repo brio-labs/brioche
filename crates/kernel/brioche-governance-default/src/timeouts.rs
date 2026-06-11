@@ -42,7 +42,6 @@ impl ToolTimeoutPolicy {
     }
 
     /// Creates a policy with a default timeout and a max cap.
-    ///
     /// Refs: I-Gov-TraitAtomic
     pub fn with_bounds(default_timeout_ms: u64, max_timeout_ms: u64) -> Self {
         Self {
@@ -128,6 +127,7 @@ pub struct SubRoutineTimerState {
 ///
 /// On `on_input`, verifies if any active sub-routine has exceeded its
 /// timeout limit stored in `SubRoutineTimerState`.
+/// Refs: I-Gov-TraitAtomic
 ///
 /// Refs: I-Gov-SubRoutineLifecycle-Guard, I-Comp-Pure-Logic
 pub struct SubRoutineTimeoutPolicy;

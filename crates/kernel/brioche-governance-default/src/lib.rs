@@ -13,11 +13,15 @@
 //! - `NoopCycleRollbackPolicy`: Null `CycleRollbackPolicy`.
 //! - `SystemFailoverGuard`: Default `GovernanceFailoverHandler`.
 //! - `SubRoutineOrchestrator`: Default `SubRoutineHandler`.
-//! - `ToolExecutionTracker`: Telemetry observer for tool calls.
 //! - `GovernanceProfile`: Predefined profiles (Permissive / Standard / Strict).
-//! - `QuarantineManager`, `RecoveryPolicy`, `DepthGuard`: Safety plugins.
-//! - `ToolTimeoutPolicy`, `SubRoutineTimeoutPolicy`: Timeout guards.
-//! - `AdaptiveUndoFrameGuard`, `TieredUndoFrameGuard`: Advanced COW rollback.
+//! - `error_safety`: `QuarantineManager` and `RecoveryPolicy`.
+//! - `input_guards`: `DepthGuard` and `JsonArgumentAccumulator`.
+//! - `tool_pipeline`: `ToolResultFormatter` and `ToolExecutionTracker`.
+//! - `timeouts`: `ToolTimeoutPolicy` and `SubRoutineTimeoutPolicy`.
+//! - `rollback`: `UndoFrameGuard`, `TieredUndoFrameGuard`, `AdaptiveUndoFrameGuard`,
+//!   and `HistoricalCowBudgetPolicy`.
+//! - `telemetry`: `ToolCallDetector`, `TransitionConflictLogger`, and
+//!   `RollbackTelemetryEmitter`.
 //! - `NegotiationBroker`, `TreeDecisionAggregator`: Alternative aggregators.
 //!
 //! ## Invariants upheld
@@ -32,60 +36,56 @@
 // Modules
 // ---------------------------------------------------------------------------
 
-pub mod adaptive_undo_frame_guard;
 pub mod aggregators;
 pub mod compatibility_matrix;
-pub mod depth_guard;
+pub mod error_safety;
 pub mod guards;
-pub mod historical_cow_budget_policy;
-pub mod json_argument_accumulator;
+pub mod input_guards;
 pub mod negotiation_broker;
 pub mod noop_traits;
-pub mod quarantine_manager;
-pub mod recovery_policy;
-pub mod rollback_telemetry_emitter;
+pub mod rollback;
 pub mod subroutines;
 pub mod telemetry;
-pub mod tiered_undo_frame_guard;
 pub mod timeouts;
-pub mod tool_execution_tracker;
-pub mod tool_result_formatter;
+pub mod tool_pipeline;
 pub mod tree_decision_aggregator;
-pub mod undo_frame_guard;
 
 // ---------------------------------------------------------------------------
 // Re-exports
 // ---------------------------------------------------------------------------
 
-pub use adaptive_undo_frame_guard::AdaptiveUndoFrameGuard;
 pub use aggregators::{FastHookEffectConstraint, LexicographicDecisionAggregator};
 pub use compatibility_matrix::{
     CompatibilityEntry, CompatibilityLevel, GovernanceCompatibilityMatrix,
 };
-pub use depth_guard::{DepthGuard, DepthState};
+pub use error_safety::{
+    PluginFaultKey, QuarantineManager, QuarantineState, RecoveryPolicy, RecoveryState,
+};
 pub use guards::{EpochGuard, StateConsistencyGuard, SystemFailoverGuard};
-pub use historical_cow_budget_policy::HistoricalCowBudgetPolicy;
-pub use json_argument_accumulator::{JsonArgumentAccumulator, JsonArgumentAccumulatorState};
+pub use input_guards::{
+    DepthGuard, DepthState, JsonArgumentAccumulator, JsonArgumentAccumulatorState, calculate_depth,
+};
 pub use negotiation_broker::{NegotiationBroker, NegotiationState};
 pub use noop_traits::{
     NoopCowBudgetPolicy, NoopCycleRollbackPolicy, NoopGovernanceFailoverHandler,
     NoopHookEffectConstraint, PermissiveHookEffectConstraint,
 };
-pub use quarantine_manager::{PluginFaultKey, QuarantineManager, QuarantineState};
-pub use recovery_policy::{RecoveryPolicy, RecoveryState};
-pub use rollback_telemetry_emitter::{RollbackTelemetryEmitter, RollbackTelemetryState};
+pub use rollback::{
+    AdaptiveUndoFrameGuard, HistoricalCowBudgetPolicy, RollbackFrameRecord, TieredUndoFrameGuard,
+    UndoFrameGuard,
+};
 pub use subroutines::{SubRoutineCleanupGuard, SubRoutineOrchestrator};
 pub use telemetry::{
-    ToolCallDetector, ToolCallDetectorState, TransitionConflictLogger, TransitionConflictState,
+    RollbackTelemetryEmitter, RollbackTelemetryState, ToolCallDetector, ToolCallDetectorState,
+    TransitionConflictLogger, TransitionConflictState,
 };
-pub use tiered_undo_frame_guard::TieredUndoFrameGuard;
 pub use timeouts::{SubRoutineTimeoutPolicy, SubRoutineTimerState, ToolTimeoutPolicy};
-pub use tool_execution_tracker::{ToolExecutionTelemetry, ToolExecutionTracker};
-pub use tool_result_formatter::{ToolResultFormatter, ToolResultFormatterState};
+pub use tool_pipeline::{
+    ToolExecutionTelemetry, ToolExecutionTracker, ToolResultFormatter, ToolResultFormatterState,
+};
 pub use tree_decision_aggregator::{
     DecisionCondition, DecisionNode, DecisionTreeState, TreeDecisionAggregator,
 };
-pub use undo_frame_guard::UndoFrameGuard;
 
 // GovernanceProfile is re-exported at crate root for one-line bootstrap.
 mod profile;

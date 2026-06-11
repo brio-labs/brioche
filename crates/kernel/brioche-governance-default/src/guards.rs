@@ -122,6 +122,7 @@ impl ConsistencyVerifier for StateConsistencyGuard {
 /// Intercepts `Effect::PluginFault` emanating from fundamental plugins
 /// and replaces the effect sequence with a safe terminal state.
 ///
+/// Refs: I-Gov-TraitAtomic
 /// Refs: I-Gov-Failover
 pub struct SystemFailoverGuard;
 
