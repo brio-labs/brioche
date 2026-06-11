@@ -10,6 +10,7 @@ use crate::registry::{SystemTool, ToolError};
 use crate::sandbox::{AllowList, ConfirmHandler, SandboxPolicy};
 
 /// Executes a shell command with a sandbox policy.
+/// Refs: SPECS.md §Book III-C
 pub struct ExecuteCommandTool {
     policy: SandboxPolicy,
     confirm_handler: Option<ConfirmHandler>,
@@ -17,6 +18,7 @@ pub struct ExecuteCommandTool {
 
 impl ExecuteCommandTool {
     /// Creates a new shell command tool with default sandbox policy.
+    /// Refs: SPECS.md §Book III-C
     pub fn new() -> Self {
         Self {
             policy: SandboxPolicy::default(),
@@ -25,12 +27,14 @@ impl ExecuteCommandTool {
     }
 
     /// Sets the sandbox policy explicitly.
+    /// Refs: SPECS.md §Book III-C
     pub fn with_policy(mut self, policy: SandboxPolicy) -> Self {
         self.policy = policy;
         self
     }
 
     /// Creates the tool with an explicit allow-list.
+    /// Refs: SPECS.md §Book III-C
     pub fn with_allow_list(list: AllowList) -> Self {
         Self {
             policy: SandboxPolicy::AllowList(list),
@@ -43,6 +47,7 @@ impl ExecuteCommandTool {
     /// When a command is outside the allow-list (or in
     /// `Interactive` mode), the handler is called inside
     /// `spawn_blocking` to ask the user for confirmation.
+    /// Refs: SPECS.md §Book III-C
     pub fn with_confirm_handler(mut self, handler: ConfirmHandler) -> Self {
         self.confirm_handler = Some(handler);
         self

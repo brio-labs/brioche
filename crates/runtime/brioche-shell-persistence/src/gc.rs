@@ -48,6 +48,7 @@ impl GcRunner {
     /// Create a new GC runner with a fresh cancellation token.
     ///
     /// Complexity: O(1).
+    /// Refs: SPECS.md §Book III-A
     pub fn new() -> Self {
         Self {
             cancel: CancellationToken::new(),

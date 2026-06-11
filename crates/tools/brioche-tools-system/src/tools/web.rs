@@ -7,6 +7,7 @@ use tokio_util::sync::CancellationToken;
 use crate::registry::{SystemTool, ToolError};
 
 /// Performs an HTTP GET on a URL.
+/// Refs: SPECS.md §Book III-C
 pub struct FetchUrlTool;
 
 #[async_trait::async_trait]

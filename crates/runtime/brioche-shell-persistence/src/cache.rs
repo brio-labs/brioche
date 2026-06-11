@@ -35,6 +35,7 @@ impl SubRoutineCache {
     /// L1 capacity is unbounded (managed explicitly by UI open/close).
     ///
     /// Complexity: O(1).
+    /// Refs: SPECS.md §Book III-A
     pub fn new(l2_capacity: NonZeroUsize) -> Self {
         Self {
             l1_visible: BTreeMap::new(),
@@ -48,6 +49,7 @@ impl SubRoutineCache {
     /// (use `promote_to_l1` for explicit promotion).
     ///
     /// Complexity: O(log n) for L1, O(1) for L2.
+    /// Refs: SPECS.md §Book III-A
     pub fn get(&self, id: &str) -> Option<&SessionHeadDTO> {
         self.l1_visible.get(id).or_else(|| self.l2_lru.peek(id))
     }
@@ -57,6 +59,7 @@ impl SubRoutineCache {
     /// Returns the previously held DTO if the ID was already in L1.
     ///
     /// Complexity: O(log n) for L1 insertion + O(1) for L2 removal.
+    /// Refs: SPECS.md §Book III-A
     pub fn promote_to_l1(&mut self, id: String) -> Option<SessionHeadDTO> {
         if let Some(dto) = self.l2_lru.pop(&id) {
             self.l1_visible.insert(id, dto)
@@ -70,6 +73,7 @@ impl SubRoutineCache {
     /// Returns the DTO if it was not in L1 (already evicted or never present).
     ///
     /// Complexity: O(log n) for L1 removal + O(1) for L2 insertion.
+    /// Refs: SPECS.md §Book III-A
     pub fn demote_to_l2(&mut self, id: String) {
         if let Some(dto) = self.l1_visible.remove(&id) {
             self.l2_lru.put(id, dto);
@@ -81,6 +85,7 @@ impl SubRoutineCache {
     /// Used when loading from Redb on demand.
     ///
     /// Complexity: O(1).
+    /// Refs: SPECS.md §Book III-A
     pub fn insert(&mut self, id: String, dto: SessionHeadDTO) {
         self.l2_lru.put(id, dto);
     }
@@ -88,6 +93,7 @@ impl SubRoutineCache {
     /// Returns `true` if the ID is present in either tier.
     ///
     /// Complexity: O(log n) for L1 + O(1) for L2.
+    /// Refs: SPECS.md §Book III-A
     pub fn contains(&self, id: &str) -> bool {
         self.l1_visible.contains_key(id) || self.l2_lru.contains(id)
     }
@@ -97,16 +103,19 @@ impl SubRoutineCache {
     /// Returns the removed DTO if present.
     ///
     /// Complexity: O(log n) for L1 + O(1) for L2.
+    /// Refs: SPECS.md §Book III-A
     pub fn remove(&mut self, id: &str) -> Option<SessionHeadDTO> {
         self.l1_visible.remove(id).or_else(|| self.l2_lru.pop(id))
     }
 
     /// Number of entries currently in L1.
+    /// Refs: SPECS.md §Book III-A
     pub fn l1_len(&self) -> usize {
         self.l1_visible.len()
     }
 
     /// Number of entries currently in L2.
+    /// Refs: SPECS.md §Book III-A
     pub fn l2_len(&self) -> usize {
         self.l2_lru.len()
     }

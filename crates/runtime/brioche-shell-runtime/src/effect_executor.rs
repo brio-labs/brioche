@@ -33,6 +33,7 @@ pub trait Persistence: Send + Sync {
 }
 
 /// No-op persistence for testing and headless profiles.
+/// Refs: SPECS.md §Book III-A
 #[derive(Clone, Debug, Default)]
 pub struct NoopPersistence;
 
@@ -115,6 +116,7 @@ pub trait EffectExecutor: Clone + Send + Sync + 'static {
 /// `T` — `ToolExecutor`
 /// `L` — `LlmClient`
 /// `P` — `Persistence`
+/// Refs: SPECS.md §Book III-A
 pub struct DefaultEffectExecutor<T, L, P> {
     tool_executor: Arc<T>,
     llm_client: Arc<L>,
@@ -143,6 +145,7 @@ impl<T, L, P> Clone for DefaultEffectExecutor<T, L, P> {
 
 impl<T, L, P> DefaultEffectExecutor<T, L, P> {
     /// Create a new executor with the given subsystems.
+    /// Refs: SPECS.md §Book III-A
     pub fn new(tool_executor: T, llm_client: L, persistence: P) -> Self {
         Self {
             tool_executor: Arc::new(tool_executor),

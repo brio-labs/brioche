@@ -14,6 +14,7 @@
 pub type ConfirmHandler = std::sync::Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
 /// Sandbox policy for shell commands.
+/// Refs: SPECS.md §Book III-C
 #[derive(Clone, Debug)]
 pub enum SandboxPolicy {
     /// Any command is allowed (dangerous mode, requires confirmation).
@@ -36,6 +37,7 @@ impl Default for SandboxPolicy {
 }
 
 /// Explicit list of allowed commands.
+/// Refs: SPECS.md §Book III-C
 #[derive(Clone, Debug)]
 pub struct AllowList {
     commands: std::collections::BTreeSet<String>,
@@ -43,6 +45,7 @@ pub struct AllowList {
 
 impl AllowList {
     /// Creates an empty allow-list.
+    /// Refs: SPECS.md §Book III-C
     pub fn new() -> Self {
         Self {
             commands: std::collections::BTreeSet::new(),
@@ -50,12 +53,14 @@ impl AllowList {
     }
 
     /// Adds a command to the allow-list.
+    /// Refs: SPECS.md §Book III-C
     pub fn with_command(mut self, cmd: &str) -> Self {
         self.commands.insert(cmd.to_string());
         self
     }
 
     /// Checks whether a command is in the allow-list.
+    /// Refs: SPECS.md §Book III-C
     pub fn is_allowed(&self, command: &str) -> bool {
         let first_word = command.split_whitespace().next().map_or("", |s| s).trim();
         self.commands.contains(first_word)

@@ -82,6 +82,7 @@ impl<'a> LazySessionLoader<'a> {
     /// Create a new lazy loader backed by the given storage.
     ///
     /// Complexity: O(1).
+    /// Refs: SPECS.md §Book III-A
     pub fn new(storage: &'a RedbStorage) -> Self {
         Self { storage }
     }
