@@ -40,6 +40,7 @@ impl GovernanceFailoverHandler for NoopGovernanceFailoverHandler {
 ///
 /// Allows all effects on all hooks (same as not injecting the trait).
 ///
+/// Refs: I-Gov-TraitAtomic
 /// Refs: I-Gov-TraitAtomic, I-Core-HookEffect-O1
 pub struct NoopHookEffectConstraint;
 
@@ -57,6 +58,7 @@ impl HookEffectConstraint for NoopHookEffectConstraint {
 /// Null `CowBudgetPolicy`.
 ///
 /// Returns the default 64 KB threshold for all hooks.
+/// Refs: I-Gov-TraitAtomic
 ///
 /// Refs: I-Gov-Rollback-BestEffort
 pub struct NoopCowBudgetPolicy;
@@ -70,6 +72,7 @@ impl CowBudgetPolicy for NoopCowBudgetPolicy {
 /// Null `CycleRollbackPolicy`.
 ///
 /// All methods are no-ops. This is the behavior of the kernel when
+/// Refs: I-Gov-TraitAtomic
 /// no `CycleRollbackPolicy` is injected.
 ///
 /// Refs: I-Gov-Rollback-BestEffort
@@ -93,6 +96,7 @@ impl CycleRollbackPolicy for NoopCycleRollbackPolicy {
 
 /// Permissive `HookEffectConstraint`.
 ///
+/// Refs: I-Gov-TraitAtomic
 /// Allows all standard and future effects on all hooks. Used by the
 /// `Permissive` profile for prototyping and migration.
 ///
