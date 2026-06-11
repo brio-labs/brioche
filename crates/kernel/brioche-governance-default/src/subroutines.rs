@@ -211,6 +211,7 @@ impl SubRoutineHandler for SubRoutineOrchestrator {
 /// Cleans up the `SessionRegistry` on every outgoing transition from
 /// the `SubRoutine` state, preventing the accumulation of orphaned sessions.
 ///
+/// Refs: I-Gov-TraitAtomic
 /// Refs: I-Gov-SubRoutineLifecycle-Guard
 pub struct SubRoutineCleanupGuard;
 

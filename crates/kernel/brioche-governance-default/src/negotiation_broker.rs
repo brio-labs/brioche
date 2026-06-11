@@ -54,7 +54,6 @@ impl NegotiationBroker {
     }
 
     /// Creates a broker with a custom number of phases.
-    ///
     /// Refs: I-Gov-TraitAtomic
     pub fn with_max_phases(max_phases: u8) -> Self {
         Self { max_phases }

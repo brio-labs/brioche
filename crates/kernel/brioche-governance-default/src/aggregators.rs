@@ -84,7 +84,6 @@ impl FastHookEffectConstraint {
     }
 
     /// Permissive profile: all effects allowed on all hooks.
-    ///
     /// Refs: I-Gov-TraitAtomic
     pub fn permissive() -> Self {
         Self {
