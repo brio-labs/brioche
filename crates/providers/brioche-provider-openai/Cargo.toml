@@ -26,3 +26,7 @@ async-trait = { workspace = true }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+brioche-governance-default.workspace = true
+wiremock = "0.6.5"
