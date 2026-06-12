@@ -136,6 +136,11 @@ impl OpenAiLlmClient {
     ///
     /// The CLI calls this method before sending a `UserMessage`
     /// to the shell, ensuring the LLM client sees the complete history.
+    ///
+    /// # Cancel safety
+    /// This future holds an `RwLock` write guard across a single
+    /// non-awaiting statement. Dropping it before await completion
+    /// leaves `history` unchanged.
     pub async fn push_message(&self, message: ChatMessage) {
         self.history.write().await.push(message);
     }
@@ -143,6 +148,11 @@ impl OpenAiLlmClient {
     /// Update the available tools list without rebuilding the client.
     ///
     /// This list is read at the start of each `call_llm()` invocation.
+    ///
+    /// # Cancel safety
+    /// This future holds an `RwLock` write guard across a single
+    /// non-awaiting statement. Dropping it before await completion
+    /// leaves `tools_schema` unchanged.
     pub async fn set_tools_schema(&self, schemas: Vec<serde_json::Value>) {
         let mut guard = self.tools_schema.write().await;
         *guard = schemas;
@@ -273,6 +283,12 @@ impl OpenAiLlmClient {
     ///
     /// The effect executor calls this method after executing tools,
     /// ensuring the next `call_llm()` sees the results in history.
+    ///
+    /// # Cancel safety
+    /// This future holds an `RwLock` write guard across a single
+    /// non-awaiting loop. Dropping it before await completion may
+    /// leave `history` partially updated; callers should retry the
+    /// full slice on recovery.
     pub async fn push_tool_results(&self, results: &[ToolResultDTO]) {
         let mut history = self.history.write().await;
         for result in results {

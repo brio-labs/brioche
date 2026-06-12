@@ -21,6 +21,11 @@ use crate::config::CliConfig;
 use crate::shell_builder::build_shell;
 
 /// Launches the full interactive mode.
+///
+/// # Cancel safety
+/// This future owns the REPL and bridge tasks. Dropping it aborts the
+/// interactive session; background shells are shut down via the
+/// `CancellationToken`.
 pub async fn run(cli_config: CliConfig, redb_storage: RedbStorage, session_store: SessionStore) {
     print_banner();
 

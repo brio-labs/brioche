@@ -432,6 +432,11 @@ fn render_error_block(error: &str) -> Vec<String> {
 /// # Panics
 /// Never panics. All fallible operations use best-effort fallbacks.
 ///
+/// # Cancel safety
+/// This loop holds only local rendering state across await points.
+/// Dropping it stops UI updates; the underlying LLM client continues
+/// emitting chunks on its broadcast channel.
+///
 /// Refs: I-Shell-Projection-Independent
 pub async fn run(
     mut llm_rx: broadcast::Receiver<LlmChunk>,

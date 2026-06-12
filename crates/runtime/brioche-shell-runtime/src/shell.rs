@@ -383,6 +383,10 @@ impl BriocheShell {
     /// Returns `Err(ShellError::RebuildInProgress)` if a route
     /// recalculation is ongoing (transactional barrier).
     ///
+    /// # Cancel safety
+    /// This future holds no locks across await points. Dropping it before
+    /// completion only fails to enqueue the input; the caller can retry.
+    ///
     /// Refs: I-Shell-Backpressure-NoOverflow, I-Gov-Rebuild-Barrier
     pub async fn send_input(&self, input: EngineInput) -> Result<(), ShellError> {
         if self.rebuild_in_progress.load(Ordering::Acquire) {
@@ -399,6 +403,10 @@ impl BriocheShell {
     /// Signals are drained by the shell between transition cycles and
     /// injected into the engine via `SignalBuffer`.
     ///
+    /// # Cancel safety
+    /// This future holds no locks across await points. Dropping it before
+    /// completion only fails to enqueue the signal; the caller can retry.
+    ///
     /// Refs: I-Shell-Network-Signal
     pub async fn send_system_signal(&self, signal: SystemSignal) -> Result<(), ShellError> {
         self.system_signal_tx
@@ -408,6 +416,10 @@ impl BriocheShell {
     }
 
     /// Send a `GovernanceNotification` to the kernel.
+    ///
+    /// # Cancel safety
+    /// This future holds no locks across await points. Dropping it before
+    /// completion only fails to enqueue the notification; the caller can retry.
     ///
     /// Refs: I-Shell-Drain-Atomic
     pub async fn send_governance_notification(
@@ -424,6 +436,10 @@ impl BriocheShell {
     ///
     /// Results are drained by the shell between transition cycles and
     /// injected into the engine via `SignalBuffer`.
+    ///
+    /// # Cancel safety
+    /// This future holds no locks across await points. Dropping it before
+    /// completion only fails to enqueue the result; the caller can retry.
     ///
     /// Refs: I-Shell-Drain-Atomic
     pub async fn send_async_task_result(
@@ -462,6 +478,10 @@ impl BriocheShell {
     /// Block until the engine channel has capacity.
     ///
     /// Useful for backpressure-aware producers.
+    ///
+    /// # Cancel safety
+    /// This future performs only an atomic channel-closed check. Dropping
+    /// it before completion has no side effects.
     ///
     /// Refs: I-Shell-Backpressure-NoOverflow
     pub async fn ready(&self) -> Result<(), ShellError> {

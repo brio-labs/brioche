@@ -10,11 +10,7 @@ description = "Standard plugins and ecosystem"
 
 [dependencies]
 brioche-core = { workspace = true }
-brioche-governance = { workspace = true }
 brioche-governance-default = { workspace = true }
-brioche-shell-runtime = { workspace = true }
-brioche-shell-persistence = { workspace = true }
-brioche-shell-projection = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 

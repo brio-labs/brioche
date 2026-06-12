@@ -84,7 +84,7 @@ pub fn build_messages(history: &[ChatMessage]) -> Vec<serde_json::Value> {
     let slice = &history[start_idx..];
     let mut result = Vec::with_capacity(slice.len() + if keep_first { 1 } else { 0 });
 
-    if keep_first && let ChatMessage::System { content } = &history[0] {
+    if keep_first && let Some(ChatMessage::System { content }) = history.first() {
         result.push(simple_msg("system", content));
     }
 

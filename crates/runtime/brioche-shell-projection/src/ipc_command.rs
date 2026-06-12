@@ -77,6 +77,10 @@ impl IpcCommandService {
     /// barrier is active. Returns `ShellError::ChannelSend` if the
     /// engine thread has disconnected.
     ///
+    /// # Cancel safety
+    /// This future delegates to `BriocheShell::send_input`. Dropping it
+    /// before completion only fails to enqueue the input.
+    ///
     /// Refs: I-UI-IPC-Rate
     pub async fn send_message(&self, text: String) -> Result<(), ShellError> {
         self.shell.send_input(EngineInput::UserMessage(text)).await
@@ -91,6 +95,10 @@ impl IpcCommandService {
     ///
     /// # Errors
     /// Returns `ShellError::ChannelSend` if the signal channel is closed.
+    ///
+    /// # Cancel safety
+    /// This future delegates to `BriocheShell::send_system_signal`. Dropping
+    /// it before completion only fails to enqueue the signal.
     ///
     /// Refs: I-Shell-Network-Signal
     pub async fn cancel_action(&self) -> Result<(), ShellError> {
@@ -111,6 +119,11 @@ impl IpcCommandService {
     ///
     /// # Panics
     /// Never panics. Returns `Err` on all failure paths.
+    ///
+    /// # Cancel safety
+    /// This future holds an `Arc<Mutex<SubRoutineCache>>` guard across
+    /// await points. Dropping it releases the guard without modifying
+    /// cache state; callers should retry the load on recovery.
     ///
     /// Refs: SPECS.md §Book III-C Ch 5, I-Shell-Load-Batch
     pub async fn load_subroutine(&self, handle: SubRoutineHandle) -> Result<(), ShellError> {

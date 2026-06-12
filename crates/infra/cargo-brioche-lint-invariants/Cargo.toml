@@ -13,6 +13,7 @@ name = "cargo-brioche-lint-invariants"
 path = "src/main.rs"
 
 [dependencies]
+brioche-governance-default = { workspace = true }
 clap = { version = "4", features = ["derive"] }
 walkdir = "2"
 regex = "1"

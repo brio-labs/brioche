@@ -69,6 +69,34 @@ jobs:
           RUSTDOCFLAGS: "-D warnings"
 
   # -------------------------------------------------------------------------
+  # Gate 0b — Dependency hygiene & architecture policy
+  # -------------------------------------------------------------------------
+  dependency-audit:
+    runs-on: ubuntu-latest
+    needs: [clippy]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete
+      - name: Detect unused dependencies
+        run: cargo machete
+
+      - name: Install cargo-tree
+        run: cargo install cargo-tree
+
+      - name: Enforce architectural dependency boundaries
+        run: |
+          # Book IV / Infrastructure: brioche-std must NOT depend on shell/runtime crates.
+          if cargo tree -p brioche-std -e normal | grep -E 'brioche-shell-(runtime|persistence|projection)'; then
+            echo "❌ brioche-std illegally depends on shell runtime crates"
+            exit 1
+          fi
+          echo "✓ brioche-std dependency boundary OK"
+
+  # -------------------------------------------------------------------------
   # Gate 1 — Philosophy & invariant checks (run in parallel with tests)
   # -------------------------------------------------------------------------
   philosophy-check:
@@ -90,10 +118,21 @@ jobs:
           # there is legitimate kernel code, not a plugin violation.
           cargo run --package cargo-brioche-lint -- --path crates/kernel/brioche-governance
           cargo run --package cargo-brioche-lint -- --path crates/brioche-plugin-template
+          # Self-test: assert the linter catches known-bad patterns.
+          set +e
+          cargo run --package cargo-brioche-lint -- --path crates/kernel/brioche-macro/tests/ui
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "❌ cargo-brioche-lint should have caught fail_hashmap.rs / fail_hashset.rs"
+            exit 1
+          fi
+          echo "✓ cargo-brioche-lint catches HashMap/HashSet in extension state"
 
       - name: "Run cargo-brioche-lint-invariants (Refs: validation)"
         run: |
           cargo run --package cargo-brioche-lint-invariants -- check-refs --root crates/
+          cargo run --package cargo-brioche-lint-invariants -- check-matrix
 
       - name: Comprehensive philosophy check
         run: python3 scripts/philosophy-check.py
