@@ -116,7 +116,13 @@ fn main() {
 
     match cli.command {
         Commands::CheckRefs => {
-            let results = check_refs(&root);
+            let results = match check_refs(&root) {
+                Ok(r) => r,
+                Err(err) => {
+                    eprintln!("internal error: {err}");
+                    std::process::exit(2);
+                }
+            };
             if cli.format == "json" {
                 print_json(&results);
             } else {
@@ -126,8 +132,19 @@ fn main() {
             std::process::exit(if has_errors { 1 } else { 0 });
         }
         Commands::CheckMatrix => {
-            println!("Governance compatibility matrix check: OK (placeholder)");
-            std::process::exit(0);
+            let violations = check_matrix();
+            if violations.is_empty() {
+                println!("Governance compatibility matrix check: OK");
+                std::process::exit(0);
+            }
+            println!(
+                "Governance compatibility matrix check: {} issue(s)",
+                violations.len()
+            );
+            for v in &violations {
+                println!("  - {v}");
+            }
+            std::process::exit(1);
         }
     }
 }
@@ -138,21 +155,11 @@ fn main() {
 /// O(n · m) where n = files scanned, m = lines per file.
 ///
 /// Refs: SPECS.md §Book IV Ch 3 §3.4
-fn check_refs(root: &PathBuf) -> Vec<FileResult> {
-    let ref_re = match Regex::new(r"Refs:\s*([A-Za-z0-9_-]+(?:\s*,\s*[A-Za-z0-9_-]+)*)") {
-        Ok(re) => re,
-        Err(_) => {
-            eprintln!("internal error: failed to compile ref regex");
-            return Vec::new();
-        }
-    };
-    let invariant_re = match Regex::new(r"^I-[A-Za-z]+-[A-Za-z0-9_-]+$") {
-        Ok(re) => re,
-        Err(_) => {
-            eprintln!("internal error: failed to compile invariant regex");
-            return Vec::new();
-        }
-    };
+fn check_refs(root: &PathBuf) -> Result<Vec<FileResult>, String> {
+    let ref_re = Regex::new(r"Refs:\s*([A-Za-z0-9_-]+(?:\s*,\s*[A-Za-z0-9_-]+)*)")
+        .map_err(|e| format!("failed to compile ref regex: {e}"))?;
+    let invariant_re = Regex::new(r"^I-[A-Za-z]+-[A-Za-z0-9_-]+$")
+        .map_err(|e| format!("failed to compile invariant regex: {e}"))?;
 
     let mut results = Vec::new();
 
@@ -213,7 +220,51 @@ fn check_refs(root: &PathBuf) -> Vec<FileResult> {
         }
     }
 
-    results
+    Ok(results)
+}
+
+/// Validate the governance compatibility matrix.
+///
+/// Checks that no entries are duplicated and that every
+/// `Incompatible` entry carries an explanatory note.
+///
+/// Refs: SPECS.md §Book IV Ch 3 §3.4
+fn check_matrix() -> Vec<String> {
+    use brioche_governance_default::{CompatibilityLevel, GovernanceCompatibilityMatrix};
+
+    let entries = GovernanceCompatibilityMatrix::entries();
+    let mut violations = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+
+    for entry in entries {
+        if entry.trait_a.is_empty()
+            || entry.impl_a.is_empty()
+            || entry.trait_b.is_empty()
+            || entry.impl_b.is_empty()
+        {
+            violations.push(format!(
+                "empty trait/impl name in compatibility entry: {:?}",
+                entry
+            ));
+        }
+
+        if entry.level == CompatibilityLevel::Incompatible && entry.note.is_none() {
+            violations.push(format!(
+                "Incompatible entry without note: {}::{} x {}::{}",
+                entry.trait_a, entry.impl_a, entry.trait_b, entry.impl_b
+            ));
+        }
+
+        let key = (entry.trait_a, entry.impl_a, entry.trait_b, entry.impl_b);
+        if !seen.insert(key) {
+            violations.push(format!(
+                "duplicate compatibility entry: {}::{} x {}::{}",
+                entry.trait_a, entry.impl_a, entry.trait_b, entry.impl_b
+            ));
+        }
+    }
+
+    violations
 }
 
 /// Print results as human-readable text.
@@ -251,4 +302,35 @@ fn print_json(results: &[FileResult]) {
         Err(_) => "[]".into(),
     };
     println!("{json}");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_valid_invariant_refs() {
+        let _contents = "/// Refs: I-Core-Pure, I-Gov-Decision-Required";
+        let _root = PathBuf::from(".");
+        // Unit-test the regex directly by calling check_refs on a temp dir would
+        // be noisy; instead exercise validation helpers.
+        assert!(has_known_category("I-Core-Pure"));
+        assert!(has_known_category("I-Gov-Decision-Required"));
+        assert!(is_known_canonical_ref("SPECS"));
+        assert!(!is_known_canonical_ref("UNKNOWN"));
+    }
+
+    #[test]
+    fn rejects_unknown_categories() {
+        assert!(!has_known_category("I-Unknown-Thing"));
+    }
+
+    #[test]
+    fn check_matrix_has_no_violations() {
+        let violations = check_matrix();
+        assert!(
+            violations.is_empty(),
+            "expected no matrix violations, got: {violations:?}"
+        );
+    }
 }

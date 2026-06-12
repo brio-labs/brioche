@@ -13,12 +13,6 @@ name = "brioche-docgen"
 path = "src/main.rs"
 
 [dependencies]
-brioche-core = { workspace = true }
-brioche-governance = { workspace = true }
-syn = { version = "2", features = ["full", "visit"] }
-quote = "1"
-proc-macro2 = "1"
-thiserror = "2"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

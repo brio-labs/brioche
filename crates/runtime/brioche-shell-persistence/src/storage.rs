@@ -99,6 +99,11 @@ impl RedbStorage {
     /// Call this from the engine thread (or an async bridge) after each
     /// `transition()` so that `save_session` has fresh data to flush.
     ///
+    /// # Cancel safety
+    /// This future holds an `RwLock` write guard across a single
+    /// non-awaiting statement. Dropping it before await completion
+    /// leaves the store unchanged.
+    ///
     /// Complexity: O(log n) where n = number of tracked sessions.
     pub async fn update_session(&self, entry: SessionStoreEntry) {
         let mut store = self.session_store.write().await;
@@ -108,6 +113,11 @@ impl RedbStorage {
     /// Persist a session head DTO directly (bypassing the store).
     ///
     /// Used by tests and by `save_session` after reading from the store.
+    ///
+    /// # Cancel safety
+    /// This future awaits a `spawn_blocking` task. Dropping it leaks the
+    /// background write; the on-disk state is consistent because Redb
+    /// commits inside the blocking task regardless of the awaited future.
     ///
     /// Complexity: O(serialization + I/O). Executed on `spawn_blocking`.
     pub async fn save_session_dto(&self, dto: &SessionHeadDTO) -> Result<(), PersistenceError> {
@@ -134,6 +144,10 @@ impl RedbStorage {
     /// Load a session head DTO from Redb.
     ///
     /// Returns `Ok(None)` if the session ID is not found.
+    ///
+    /// # Cancel safety
+    /// This future awaits a `spawn_blocking` read task. Dropping it
+    /// discards the result; the database is not modified.
     ///
     /// Complexity: O(I/O). Executed on `spawn_blocking`.
     pub async fn load_session(
@@ -162,6 +176,11 @@ impl RedbStorage {
     ///
     /// Each message is serialized to MessagePack and written to
     /// `MESSAGES_TABLE` with the composite key `(session_id, index)`.
+    ///
+    /// # Cancel safety
+    /// This future awaits a `spawn_blocking` write task. Dropping it may
+    /// leave the write running in the background; the on-disk state is
+    /// consistent because Redb commits inside the blocking task.
     ///
     /// Complexity: O(m * (serialization + I/O)) where m = messages.len().
     pub async fn save_messages(
@@ -199,6 +218,10 @@ impl RedbStorage {
     /// Load a single message by session ID and index.
     ///
     /// Returns `Ok(None)` if the key is not found.
+    ///
+    /// # Cancel safety
+    /// This future awaits a `spawn_blocking` read task. Dropping it
+    /// discards the result; the database is not modified.
     pub async fn load_message(
         &self,
         session_id: &str,
@@ -226,6 +249,10 @@ impl RedbStorage {
     ///
     /// Iterates the `MESSAGES_TABLE` range for the given session ID.
     /// Returns messages sorted by index.
+    ///
+    /// # Cancel safety
+    /// This future awaits a `spawn_blocking` read task. Dropping it
+    /// discards the result; the database is not modified.
     ///
     /// Refs: I-Shell-Load-Batch (preparation for Sprint 13).
     pub async fn load_messages_for_session(
@@ -262,6 +289,11 @@ impl RedbStorage {
     /// `compaction_index`.
     ///
     /// Returns the number of removed message entries.
+    ///
+    /// # Cancel safety
+    /// This future awaits a `spawn_blocking` write task. Dropping it may
+    /// leave the deletion running in the background; the on-disk state is
+    /// consistent because Redb commits inside the blocking task.
     ///
     /// Complexity: O(m) where m = messages scanned. One write transaction.
     ///

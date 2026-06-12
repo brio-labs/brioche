@@ -13,9 +13,7 @@ name = "brioche_reedline"
 path = "src/lib.rs"
 
 [dependencies]
-brioche-core = { workspace = true }
 brioche-shell-runtime = { workspace = true }
-brioche-shell-persistence = { workspace = true }
 reedline = { version = "0.48", features = ["external_printer"] }
 nu-ansi-term = "0.50"
 tokio = { workspace = true }

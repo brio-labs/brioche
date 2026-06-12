@@ -117,6 +117,10 @@ impl EngineWatchdog {
     /// `pong_rx` — channel to receive pongs from the engine thread.
     ///
     /// This future runs until the pong channel is closed.
+    ///
+    /// # Cancel safety
+    /// This loop holds only local variables across await points. Dropping
+    /// it stops heartbeat monitoring; the engine thread continues running.
     pub async fn run(
         self,
         ping_tx: mpsc::Sender<WatchdogPing>,

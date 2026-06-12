@@ -36,6 +36,11 @@ pub struct ShellFactory {
 /// Receives lines on `input_rx`, processes them, and forwards
 /// messages to the current `BriocheShell`. Slash commands are
 /// interpreted here; normal messages are forwarded.
+///
+/// # Cancel safety
+/// This loop holds only local state and `RwLock` read guards across
+/// await points. Dropping it stops line processing; spawned shells are
+/// shut down via the `cancel` token.
 pub async fn run(
     mut input_rx: mpsc::Receiver<String>,
     cancel: CancellationToken,
@@ -151,7 +156,14 @@ async fn handle_session_command(
     manager: &Arc<RwLock<SessionManager>>,
     factory: &ShellFactory,
 ) {
-    match args[0] {
+    let Some(command) = args.first().copied() else {
+        let _ = printer.print(format!(
+            "{} /session requires a sub-command",
+            Color::Red.paint("!")
+        ));
+        return;
+    };
+    match command {
         "new" => {
             let new_id = format!(
                 "session-{}",
@@ -188,8 +200,14 @@ async fn handle_session_command(
             }
             let _ = printer.print(lines.join("\n"));
         }
-        "load" if args.len() >= 2 => {
-            let id = args[1];
+        "load" => {
+            let Some(id) = args.get(1).copied() else {
+                let _ = printer.print(format!(
+                    "{} /session load requires a session id",
+                    Color::Red.paint("!")
+                ));
+                return;
+            };
             let head = match factory.redb.load_session(id).await {
                 Ok(Some(h)) => h,
                 Ok(None) => {

@@ -32,6 +32,10 @@ fn flush_reasoning(buffer: &mut String, show: bool) {
 /// Accumulates the LLM response for up to 30 s, then prints the result
 /// to stdout and exits with code 0. On network or LLM error, prints
 /// the error to stderr and exits with code 1.
+///
+/// # Cancel safety
+/// This future holds only local state across await points. Dropping it
+/// stops the prompt and exits the process without cleanup.
 pub async fn run(
     prompt: String,
     cli_config: CliConfig,

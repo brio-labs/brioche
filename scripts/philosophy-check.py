@@ -1389,6 +1389,167 @@ TODO_FORBIDDEN_CRATES = {
 TODO_ATTRIBUTION_RE = re.compile(r"(?:TODO|FIXME)\s*\([^)]+\)", re.IGNORECASE)
 TODO_BARE_RE = re.compile(r"\b(?:TODO|FIXME)\b", re.IGNORECASE)
 
+# ---------------------------------------------------------------------------
+# 13. Async cancellation safety docs
+#     PHILOSOPHY.md §10.1: Every `pub async fn` must document its cancellation
+#     contract. Scope covers all non-test async code in Books III-A through IV
+#     and Infrastructure.
+# ---------------------------------------------------------------------------
+
+ASYNC_CANCEL_CRATES = [
+    "crates/runtime/brioche-shell-runtime/src",
+    "crates/runtime/brioche-shell-persistence/src",
+    "crates/runtime/brioche-shell-projection/src",
+    "crates/providers/brioche-provider-openai/src",
+    "crates/tools/brioche-tools-system/src",
+    "crates/apps/agent-terminal/src",
+    "crates/infra/brioche-reedline/src",
+    "crates/ecosystem/brioche-docgen/src",
+    "crates/ecosystem/brioche-playground/src",
+    "crates/ecosystem/brioche-plugin-kit/src",
+    "crates/ecosystem/brioche-std/src",
+]
+
+CANCEL_SAFETY_KEYWORDS = [
+    "# Cancel safety",
+    "# Cancel-safety",
+    "Cancel safety",
+    "cancellation",
+    "dropped mid-await",
+    "dropping it",
+]
+
+
+def check_async_cancel_safety() -> CheckResult:
+    result = CheckResult("Async cancellation safety docs")
+    pub_async_re = re.compile(
+        r"^\s*pub\s+(?:\(\s*crate\s*\))?\s*async\s+fn\s+(\w+)",
+        re.MULTILINE,
+    )
+
+    for rel in ASYNC_CANCEL_CRATES:
+        crate_src = PROJECT_ROOT / rel
+        if not crate_src.exists():
+            continue
+
+        for path in crate_src.rglob("*.rs"):
+            if "tests" in path.parts or "benches" in path.parts:
+                continue
+
+            content = path.read_text()
+            lines = content.split("\n")
+
+            for m in pub_async_re.finditer(content):
+                fn_name = m.group(1)
+                line_no = content[: m.start()].count("\n") + 1
+                doc_lines = _collect_doc_block(lines, line_no)
+                doc_block = "\n".join(doc_lines)
+                if not any(kw in doc_block for kw in CANCEL_SAFETY_KEYWORDS):
+                    result.add(
+                        path,
+                        line_no,
+                        f"pub async fn `{fn_name}` missing cancellation safety docs "
+                        f"(PHILOSOPHY.md §10.1)",
+                    )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 14. Direct indexing / implicit panic paths
+#     PHILOSOPHY.md §3.4: direct indexing is a potential panic source.
+#     Scope: all production code except tests/benches and macro UI tests.
+# ---------------------------------------------------------------------------
+
+INDEXING_FORBIDDEN_CRATES = [
+    "crates/kernel/brioche-core/src",
+    "crates/kernel/brioche-governance/src",
+    "crates/kernel/brioche-governance-default/src",
+    "crates/runtime/brioche-shell-runtime/src",
+    "crates/runtime/brioche-shell-persistence/src",
+    "crates/runtime/brioche-shell-projection/src",
+    "crates/providers/brioche-provider-openai/src",
+    "crates/tools/brioche-tools-system/src",
+    "crates/apps/agent-terminal/src",
+    "crates/infra/brioche-reedline/src",
+    "crates/infra/cargo-brioche-lint/src",
+    "crates/infra/cargo-brioche-lint-invariants/src",
+    "crates/ecosystem/brioche-docgen/src",
+    "crates/ecosystem/brioche-playground/src",
+    "crates/ecosystem/brioche-plugin-kit/src",
+    "crates/ecosystem/brioche-std/src",
+]
+
+DIRECT_INDEX_RE = re.compile(r"(?<!\?)\[[0-9]+\]")
+
+
+# Allowlist: specific patterns that are safe or test-only.
+DIRECT_INDEX_ALLOW_RE = re.compile(
+    r"^(\s*(assert(_eq|_ne)?!\s*\(|let\s+Some\(|if\s+let\s+Some\(|#\[cfg\(test\)\])|(\s*//))"
+)
+
+
+def check_direct_indexing() -> CheckResult:
+    result = CheckResult("Direct indexing panic paths")
+
+    for rel in INDEXING_FORBIDDEN_CRATES:
+        crate_src = PROJECT_ROOT / rel
+        if not crate_src.exists():
+            continue
+
+        for path in crate_src.rglob("*.rs"):
+            if "tests" in path.parts or "benches" in path.parts:
+                continue
+            if path.name.startswith("fail_") or path.name.startswith("pass_"):
+                continue
+
+            content = path.read_text()
+            lines = content.split("\n")
+
+            for i, line in enumerate(lines):
+                stripped = line.strip()
+                if stripped.startswith(("//", "///", "//!", "*")):
+                    continue
+                # Allow macro-generated indexing in derive tests.
+                if path.name.startswith("fail_") or path.name.startswith("pass_"):
+                    continue
+                # Allow bitmask array initialisation like masks[0] = ...
+                if re.search(r"^\s*[A-Za-z_][\w\[\]]*\s*\[\d+\]\s*=?=", stripped):
+                    continue
+                # Allow pattern literal indexing in match arms / assert_eq
+                if (
+                    stripped.startswith("assert_eq!")
+                    or "=>"
+                    in stripped[
+                        : stripped.find("//") if "//" in stripped else len(stripped)
+                    ]
+                ):
+                    continue
+                # Allow direct indexing inside test functions and assertions.
+                if DIRECT_INDEX_ALLOW_RE.match(stripped):
+                    continue
+
+                for m in DIRECT_INDEX_RE.finditer(line):
+                    result.add(
+                        path,
+                        i + 1,
+                        f"direct indexing `{m.group(0)}` is a potential panic path — "
+                        f"use `.get()`, `.first()`, or length checks (PHILOSOPHY.md §3.4)",
+                    )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 15. French function-word detector for doc comments
+#     Catches short common French words that the keyword list misses.
+# ---------------------------------------------------------------------------
+
+FRENCH_FUNCTION_WORDS_RE = re.compile(
+    r"\b(?:ne\s+pas|ne\s+plus|ne\s+jamais|n'est|sont|ce(?:tte|t)?|avec|sans|pour|par|sur|sous|dans|vers|tres|très)\b",
+    re.IGNORECASE,
+)
+
 
 def check_todo_policy() -> CheckResult:
     result = CheckResult("TODO / FIXME policy")
@@ -1460,6 +1621,8 @@ CHECKS = [
     check_critical_state,
     check_language_consistency,
     check_todo_policy,
+    check_async_cancel_safety,
+    check_direct_indexing,
 ]
 
 
