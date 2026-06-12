@@ -7,7 +7,6 @@ name = "agent-terminal"
 version = "0.1.0"
 dependencies = [
  "argh",
- "async-trait",
  "brioche-core",
  "brioche-plugin-kit",
  "brioche-provider-openai",
@@ -208,7 +207,6 @@ dependencies = [
  "brioche-macro",
  "bytes",
  "criterion",
- "parking_lot",
  "postcard",
  "proptest",
  "serde",
@@ -220,35 +218,22 @@ dependencies = [
 name = "brioche-docgen"
 version = "0.1.0"
 dependencies = [
- "brioche-core",
- "brioche-governance",
  "clap",
- "proc-macro2",
- "quote",
  "serde",
  "serde_json",
- "syn",
- "thiserror",
 ]
 
 [[package]]
 name = "brioche-governance"
 version = "0.1.0"
-dependencies = [
- "brioche-core",
- "serde",
- "thiserror",
-]
 
 [[package]]
 name = "brioche-governance-default"
 version = "0.1.0"
 dependencies = [
  "brioche-core",
- "brioche-governance",
  "criterion",
  "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -270,7 +255,6 @@ name = "brioche-playground"
 version = "0.1.0"
 dependencies = [
  "brioche-core",
- "brioche-governance-default",
  "brioche-plugin-kit",
  "tokio",
 ]
@@ -280,11 +264,9 @@ name = "brioche-plugin-kit"
 version = "0.1.0"
 dependencies = [
  "brioche-core",
- "brioche-governance",
  "brioche-governance-default",
  "brioche-macro",
  "brioche-std",
- "clap",
 ]
 
 [[package]]
@@ -297,9 +279,7 @@ dependencies = [
  "bytes",
  "futures-util",
  "reqwest",
- "serde",
  "serde_json",
- "thiserror",
  "tokio",
  "tracing",
 ]
@@ -308,8 +288,6 @@ dependencies = [
 name = "brioche-reedline"
 version = "0.1.0"
 dependencies = [
- "brioche-core",
- "brioche-shell-persistence",
  "brioche-shell-runtime",
  "libc",
  "nu-ansi-term",
@@ -325,7 +303,6 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "brioche-core",
- "brioche-governance",
  "brioche-shell-runtime",
  "criterion",
  "lru",
@@ -337,7 +314,6 @@ dependencies = [
  "tokio",
  "tokio-test",
  "tokio-util",
- "tracing",
  "zstd",
 ]
 
@@ -346,13 +322,11 @@ name = "brioche-shell-projection"
 version = "0.1.0"
 dependencies = [
  "brioche-core",
- "brioche-governance",
  "brioche-governance-default",
  "brioche-shell-persistence",
  "brioche-shell-runtime",
  "rmp-serde",
  "serde",
- "serde_json",
  "tempfile",
  "tokio",
 ]
@@ -379,11 +353,7 @@ name = "brioche-std"
 version = "0.1.0"
 dependencies = [
  "brioche-core",
- "brioche-governance",
  "brioche-governance-default",
- "brioche-shell-persistence",
- "brioche-shell-projection",
- "brioche-shell-runtime",
  "serde",
  "serde_json",
 ]
@@ -396,7 +366,6 @@ dependencies = [
  "brioche-core",
  "brioche-shell-runtime",
  "reqwest",
- "serde",
  "serde_json",
  "tempfile",
  "thiserror",
@@ -425,7 +394,6 @@ name = "cargo-brioche-lint"
 version = "0.1.0"
 dependencies = [
  "clap",
- "syn",
  "walkdir",
 ]
 
@@ -433,6 +401,7 @@ dependencies = [
 name = "cargo-brioche-lint-invariants"
 version = "0.1.0"
 dependencies = [
+ "brioche-governance-default",
  "clap",
  "regex",
  "serde",

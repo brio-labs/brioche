@@ -18,6 +18,10 @@ use crate::{RedbStorage, SessionHeadDTO, SubRoutineCache};
 ///
 /// Returns `Ok(None)` if the session ID is not found.
 ///
+/// # Cancel safety
+/// This future awaits other async loaders. Dropping it discards the
+/// result; cache and database remain unchanged.
+///
 /// Complexity: O(I/O + deserialization). Executed on `spawn_blocking`.
 ///
 /// # Errors
@@ -47,6 +51,10 @@ pub async fn load_session_full(
 ///
 /// Checks the `SubRoutineCache` first, then falls back to Redb.
 /// If loaded from Redb, the DTO is inserted into L2.
+///
+/// # Cancel safety
+/// This future awaits `storage.load_session`. Dropping it discards the
+/// result; cache and database remain unchanged.
 ///
 /// Complexity: O(1) for L1/L2 hit; O(I/O) for Redb fallback.
 ///
@@ -95,6 +103,10 @@ impl<'a> LazySessionLoader<'a> {
     /// the current state or state stack, the child head is loaded from
     /// Redb and inserted into `SubRoutineCache.l2_lru` (unless already
     /// present in L1 or L2).
+    ///
+    /// # Cancel safety
+    /// This future awaits other async loaders. Dropping it discards the
+    /// result; cache and database remain unchanged.
     ///
     /// Complexity: O(I/O + n * I/O) where n = number of sub-routine
     /// references in the state stack.

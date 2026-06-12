@@ -18,7 +18,7 @@ pub enum CompatibilityLevel {
     Compatible,
     /// Functional but with documented limitations.
     Caution,
-    /// Incompatible — ne pas combiner.
+    /// Incompatible — do not combine.
     Incompatible,
 }
 

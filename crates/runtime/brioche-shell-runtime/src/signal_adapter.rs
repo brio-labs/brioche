@@ -27,6 +27,10 @@ impl SystemSignalAdapter {
     }
 
     /// Send a signal into the adapter.
+    ///
+    /// # Cancel safety
+    /// This future holds no locks across await points. Dropping it before
+    /// completion only fails to enqueue the signal.
     pub async fn send(
         &self,
         signal: SystemSignal,
@@ -76,6 +80,10 @@ impl AsyncTaskResultAdapter {
     }
 
     /// Send a result into the adapter.
+    ///
+    /// # Cancel safety
+    /// This future holds no locks across await points. Dropping it before
+    /// completion only fails to enqueue the result.
     pub async fn send(
         &self,
         result: AsyncTaskResult,
@@ -125,6 +133,10 @@ impl GovernanceNotificationAdapter {
     }
 
     /// Send a notification into the adapter.
+    ///
+    /// # Cancel safety
+    /// This future holds no locks across await points. Dropping it before
+    /// completion only fails to enqueue the notification.
     pub async fn send(
         &self,
         notification: GovernanceNotification,

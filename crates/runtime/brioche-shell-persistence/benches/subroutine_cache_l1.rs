@@ -25,7 +25,7 @@ fn make_dto(id: &str) -> SessionHeadDTO {
 }
 
 fn bench_subroutine_cache_l1(c: &mut Criterion) {
-    let mut cache = SubRoutineCache::new(unsafe { NonZeroUsize::new_unchecked(100) });
+    let mut cache = SubRoutineCache::new(NonZeroUsize::MIN.saturating_add(99));
 
     // Populate L2, then promote to L1.
     for i in 0..20usize {

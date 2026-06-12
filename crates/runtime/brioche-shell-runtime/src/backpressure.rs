@@ -70,6 +70,11 @@ impl BackpressureRegulator {
     /// - In `Strict` mode: waits for capacity unconditionally.
     ///
     /// Returns `Err` only if the receiver has been dropped.
+    ///
+    /// # Cancel safety
+    /// In `Conservative` mode, the non-blocking path is cancellation-safe.
+    /// In `Strict` mode, this future holds no locks across await points;
+    /// dropping it before completion only fails to enqueue the input.
     pub async fn send(
         &self,
         input: EngineInput,

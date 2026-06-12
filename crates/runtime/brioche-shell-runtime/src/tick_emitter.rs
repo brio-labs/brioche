@@ -45,6 +45,10 @@ impl TickEmitter {
     /// Run the emitter loop until the receiver is dropped.
     ///
     /// This future never completes unless the channel closes.
+    ///
+    /// # Cancel safety
+    /// This loop holds no state across await points. Dropping it stops
+    /// tick emission; no recovery action is required.
     pub async fn run(self) {
         let mut ticker = interval(Duration::from_millis(self.interval_ms));
         let start = self.start;

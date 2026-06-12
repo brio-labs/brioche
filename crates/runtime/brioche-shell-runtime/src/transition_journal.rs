@@ -339,7 +339,7 @@ mod tests {
         let entries = journal.read_unacknowledged();
         assert_eq!(entries.len(), 1);
         assert!(
-            matches!(entries[0], JournalEntry::Oversized { .. }),
+            matches!(entries.first(), Some(JournalEntry::Oversized { .. })),
             "oversized entry should be recorded as Oversized"
         );
     }

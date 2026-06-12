@@ -100,10 +100,16 @@ fn lint_directory(root: &PathBuf) -> Vec<Violation> {
 /// Refs: SPECS.md §Book IV Ch 3 §3.5
 fn lint_file_contents(path: &std::path::Path, contents: &str, violations: &mut Vec<Violation>) {
     let file = path.display().to_string();
+    let has_extension_type = contents.contains("BriocheExtensionType");
 
     // Pattern 1: direct session.history or session.state access.
     let forbidden_fields = ["session.history", "session.state"];
     for (line_no, line) in contents.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("//") {
+            continue;
+        }
+
         for field in &forbidden_fields {
             if line.contains(field) {
                 violations.push(Violation {
@@ -124,5 +130,72 @@ fn lint_file_contents(path: &std::path::Path, contents: &str, violations: &mut V
                 message: "Found unwrap/expect. Use explicit error handling instead.".into(),
             });
         }
+
+        // Pattern 3: HashMap / HashSet in BriocheExtensionType persisted state.
+        if has_extension_type && (line.contains("HashMap") || line.contains("HashSet")) {
+            violations.push(Violation {
+                file: file.clone(),
+                line: line_no + 1,
+                message: "HashMap/HashSet in BriocheExtensionType state. Use BTreeMap/BTreeSet for determinism.".into(),
+            });
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_session_history_access() {
+        let contents = "fn f() { let _ = session.history; }";
+        let mut violations = Vec::new();
+        lint_file_contents(std::path::Path::new("test.rs"), contents, &mut violations);
+        assert_eq!(violations.len(), 1);
+        assert!(violations[0].message.contains("session.history"));
+    }
+
+    #[test]
+    fn detects_unwrap_and_expect() {
+        let contents = "fn f() {\n    let x = y.unwrap();\n    let z = w.expect(\"ok\");\n}";
+        let mut violations = Vec::new();
+        lint_file_contents(std::path::Path::new("test.rs"), contents, &mut violations);
+        assert_eq!(violations.len(), 2);
+    }
+
+    #[test]
+    fn detects_hashmap_in_extension_state() {
+        let contents = r#"
+/// Test state with disordered collection.
+///
+/// # Invariants
+/// - I-Eco-OrderedCollections
+///
+/// Snapshot: FullClone (< 256 bytes).
+#[derive(BriocheExtensionType)]
+pub struct BadState {
+    pub data: HashMap<String, u64>,
+}
+"#;
+        let mut violations = Vec::new();
+        lint_file_contents(std::path::Path::new("test.rs"), contents, &mut violations);
+        assert_eq!(violations.len(), 1);
+        assert!(violations[0].message.contains("HashMap"));
+    }
+
+    #[test]
+    fn ignores_hashmap_without_extension_type() {
+        let contents = "fn f() { let _: HashMap<String, u64> = HashMap::new(); }";
+        let mut violations = Vec::new();
+        lint_file_contents(std::path::Path::new("test.rs"), contents, &mut violations);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn ignores_commented_violations() {
+        let contents = "// let _ = session.history.unwrap();";
+        let mut violations = Vec::new();
+        lint_file_contents(std::path::Path::new("test.rs"), contents, &mut violations);
+        assert!(violations.is_empty());
     }
 }

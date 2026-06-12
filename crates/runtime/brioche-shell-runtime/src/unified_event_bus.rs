@@ -79,6 +79,10 @@ impl UnifiedEventBus {
     /// # Invariants
     /// - Canonical order is preserved within each batch:
     ///   `SystemSignal` > `GovernanceNotification` > `AsyncTaskResult`.
+    ///
+    /// # Cancel safety
+    /// This loop holds only a local `Vec` across await points. Dropping
+    /// it discards the in-progress batch; source channels remain intact.
     pub async fn producer_loop(
         &self,
         mut system_rx: mpsc::Receiver<SystemSignal>,
