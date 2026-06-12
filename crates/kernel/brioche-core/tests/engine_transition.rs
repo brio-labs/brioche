@@ -1031,7 +1031,7 @@ fn transition_with_fast_hook_effect_constraint_blocks_disallowed_effect() {
     use brioche_core::EffectBit;
     use brioche_governance_default::FastHookEffectConstraint;
 
-    // Interdit tout sur le hook transition (index 0) sauf Error et SystemIdle.
+    // Block all effects on hook transition (index 0) except Error and SystemIdle.
     let mut masks = [0u64; 8];
     masks[0] = EffectBit::ERROR | EffectBit::SYSTEM_IDLE;
     let constraint = FastHookEffectConstraint::new(masks);
