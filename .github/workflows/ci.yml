@@ -201,11 +201,11 @@ jobs:
         run: cargo bench --workspace --no-run
       - name: Smoke-run key benchmarks (minimal sample)
         run: |
-          # Criterion requires sample-size >= 10. Use minimal warm-up/measurement
-          # to keep CI fast while still verifying the benches execute without panic.
-          cargo bench --package brioche-core --bench extension_lookup -- --sample-size 10 --warm-up-time 1 --measurement-time 1
-          cargo bench --package brioche-core --bench stream_latency -- --sample-size 10 --warm-up-time 1 --measurement-time 1
-          cargo bench --package brioche-core --bench hook_effect_o1 -- --sample-size 10 --warm-up-time 1 --measurement-time 1
+          # Divan: --test runs each benchmark once to verify they execute
+          # without panic, without collecting timing data.
+          cargo bench --package brioche-core --bench benchmarks -- --test
+          cargo bench --package brioche-governance-default --bench benchmarks -- --test
+          cargo bench --package brioche-shell-persistence --bench benchmarks -- --test
 
   # -------------------------------------------------------------------------
   # Gate 4 — Security audit

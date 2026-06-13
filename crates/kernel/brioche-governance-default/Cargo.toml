@@ -13,10 +13,10 @@ brioche-core = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
-criterion = { version = "0.8", features = ["html_reports"] }
+divan = "=0.1.21"
 
 [[bench]]
-name = "negotiation_broker"
+name = "benchmarks"
 harness = false
 
 [lints.clippy]
