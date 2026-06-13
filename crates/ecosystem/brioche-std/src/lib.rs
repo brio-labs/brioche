@@ -11,7 +11,7 @@
 //! - I-Eco-ExtensionOverMod: Plugins extend via traits, never modify Core.
 //! - I-Eco-OrderedCollections: All persisted state uses ordered collections.
 //!
-//! Refs: SPECS.md §Book IV Ch 1
+//! Refs: docs/SPECS.md §Book IV Ch 1
 
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 

@@ -116,7 +116,7 @@ impl From<String> for TaskId {
 /// - `Soft`: minor error. Logged; evaluation continues.
 /// - `Fatal`: structural error. The kernel emits `Effect::PluginFault`.
 ///
-/// Refs: SPECS.md §1.5
+/// Refs: docs/SPECS.md §1.5
 /// # Complexity
 /// O(1). No heap allocation.
 /// # Panics
@@ -147,7 +147,7 @@ pub enum PluginError {
 /// These are never panics; they are returned as `Result::Err` and
 /// typically converted into `Effect::Error` or `AgentState::Failure`.
 ///
-/// Refs: I-Core-NoPanic, SPECS.md §1.5
+/// Refs: I-Core-NoPanic, docs/SPECS.md §1.5
 /// # Complexity
 /// O(1) for construction and field/variant access.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]

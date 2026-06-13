@@ -8,7 +8,7 @@
 //! - I-Gov-SubRoutineLifecycle-Guard: Cleanup on sub-routine exit.
 //! - I-Gov-Rebuild-Barrier: `RebuildRoutes` is always last.
 //!
-//! Refs: SPECS.md §4.4
+//! Refs: docs/SPECS.md §4.4
 
 use super::{BriocheEngine, PreTransitionState};
 use crate::{Effect, ErrorCode, ErrorDetail, Session, effect_to_bitmask};

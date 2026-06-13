@@ -26,7 +26,7 @@
 //!   `requestAnimationFrame` loop; no effect is applied outside it.
 //! - I-UI-IPC-Rate: At most one IPC event is emitted per frame budget.
 //!
-//! Refs: SPECS.md §Book III-C
+//! Refs: docs/SPECS.md §Book III-C
 
 pub mod ipc_command;
 pub mod stream_batch;

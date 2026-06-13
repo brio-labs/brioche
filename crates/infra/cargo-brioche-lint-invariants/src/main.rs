@@ -9,7 +9,7 @@
 //! cargo brioche-lint-invariants --check-matrix --json
 //! ```
 //!
-//! Refs: SPECS.md §Book IV Ch 3 §3.4
+//! Refs: docs/SPECS.md §Book IV Ch 3 §3.4
 
 use std::fs;
 use std::path::PathBuf;
@@ -34,28 +34,35 @@ const KNOWN_CATEGORIES: &[&str] = &[
 
 /// Canonical non-invariant references that are also valid in `Refs:` blocks.
 ///
-/// - `SPECS` refers to SPECS.md (the canonical architecture specification).
+/// - `SPECS` refers to docs/SPECS.md (the canonical architecture specification).
+/// - `docs/SPECS` refers to docs/SPECS.md (the canonical architecture specification).
 /// - `SCIFI` refers to the SCIFI compositional design methodology
 ///   (PHILOSOPHY.md §7.2).
-const KNOWN_CANONICAL_REFS: &[&str] = &["SPECS", "SCIFI"];
+const KNOWN_CANONICAL_REFS: &[&str] = &["SPECS", "docs/SPECS", "SCIFI"];
 
 /// Returns true if `inv` starts with any of the known category prefixes.
 ///
-/// Refs: SPECS.md §Book IV Ch 3 §3.4
+/// Refs: docs/SPECS.md §Book IV Ch 3 §3.4
 fn has_known_category(inv: &str) -> bool {
     KNOWN_CATEGORIES.iter().any(|cat| inv.starts_with(*cat))
 }
 
 /// Returns true if `inv` is a known canonical non-invariant reference.
 ///
-/// Refs: SPECS.md §Book IV Ch 3 §3.4
+/// Normalizes `docs/SPECS.md` → `docs/SPECS` before checking.
+///
+/// Refs: docs/SPECS.md §Book IV Ch 3 §3.4
 fn is_known_canonical_ref(inv: &str) -> bool {
-    KNOWN_CANONICAL_REFS.contains(&inv)
+    let normalized = match inv.strip_suffix(".md") {
+        Some(s) => s,
+        None => inv,
+    };
+    KNOWN_CANONICAL_REFS.contains(&normalized)
 }
 
 /// CLI arguments.
 ///
-/// Refs: SPECS.md §Book IV Ch 3 §3.4
+/// Refs: docs/SPECS.md §Book IV Ch 3 §3.4
 #[derive(Parser)]
 #[command(name = "cargo-brioche-lint-invariants")]
 #[command(about = "Check Brioche invariant references in source code")]
@@ -74,7 +81,7 @@ struct Cli {
 
 /// Subcommands.
 ///
-/// Refs: SPECS.md §Book IV Ch 3 §3.4
+/// Refs: docs/SPECS.md §Book IV Ch 3 §3.4
 #[derive(Subcommand)]
 enum Commands {
     /// Check that all `Refs:` entries match known invariant patterns.
@@ -85,7 +92,7 @@ enum Commands {
 
 /// A single invariant reference found in source.
 ///
-/// Refs: SPECS.md §Book IV Ch 3 §3.4
+/// Refs: docs/SPECS.md §Book IV Ch 3 §3.4
 #[derive(Debug, serde::Serialize)]
 struct RefEntry {
     file: String,
@@ -96,7 +103,7 @@ struct RefEntry {
 
 /// Lint result for a single file.
 ///
-/// Refs: SPECS.md §Book IV Ch 3 §3.4
+/// Refs: docs/SPECS.md §Book IV Ch 3 §3.4
 #[derive(Debug, serde::Serialize)]
 struct FileResult {
     file: String,
@@ -106,7 +113,7 @@ struct FileResult {
 
 /// Entry point.
 ///
-/// Refs: SPECS.md §Book IV Ch 3 §3.4
+/// Refs: docs/SPECS.md §Book IV Ch 3 §3.4
 fn main() {
     let cli = Cli::parse();
     let root = match cli.root {
@@ -154,9 +161,9 @@ fn main() {
 /// # Complexity
 /// O(n · m) where n = files scanned, m = lines per file.
 ///
-/// Refs: SPECS.md §Book IV Ch 3 §3.4
+/// Refs: docs/SPECS.md §Book IV Ch 3 §3.4
 fn check_refs(root: &PathBuf) -> Result<Vec<FileResult>, String> {
-    let ref_re = Regex::new(r"Refs:\s*([A-Za-z0-9_-]+(?:\s*,\s*[A-Za-z0-9_-]+)*)")
+    let ref_re = Regex::new(r"Refs:\s*([A-Za-z0-9_/.-]+(?:\s*,\s*[A-Za-z0-9_/.-]+)*)")
         .map_err(|e| format!("failed to compile ref regex: {e}"))?;
     let invariant_re = Regex::new(r"^I-[A-Za-z]+-[A-Za-z0-9_-]+$")
         .map_err(|e| format!("failed to compile invariant regex: {e}"))?;
@@ -228,7 +235,7 @@ fn check_refs(root: &PathBuf) -> Result<Vec<FileResult>, String> {
 /// Checks that no entries are duplicated and that every
 /// `Incompatible` entry carries an explanatory note.
 ///
-/// Refs: SPECS.md §Book IV Ch 3 §3.4
+/// Refs: docs/SPECS.md §Book IV Ch 3 §3.4
 fn check_matrix() -> Vec<String> {
     use brioche_governance_default::{CompatibilityLevel, GovernanceCompatibilityMatrix};
 
@@ -269,7 +276,7 @@ fn check_matrix() -> Vec<String> {
 
 /// Print results as human-readable text.
 ///
-/// Refs: SPECS.md §Book IV Ch 3 §3.4
+/// Refs: docs/SPECS.md §Book IV Ch 3 §3.4
 fn print_text(results: &[FileResult]) {
     let total_refs: usize = results.iter().map(|r| r.refs.len()).sum();
     let total_unknown: usize = results.iter().map(|r| r.unknown_refs.len()).sum();
@@ -295,7 +302,7 @@ fn print_text(results: &[FileResult]) {
 
 /// Print results as JSON.
 ///
-/// Refs: SPECS.md §Book IV Ch 3 §3.4
+/// Refs: docs/SPECS.md §Book IV Ch 3 §3.4
 fn print_json(results: &[FileResult]) {
     let json = match serde_json::to_string_pretty(results) {
         Ok(j) => j,

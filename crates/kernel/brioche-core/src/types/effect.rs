@@ -17,7 +17,7 @@ use super::tool::{ActiveToolCall, ToolResultDTO};
 /// High-level input to the synchronous kernel.
 ///
 /// System signals, async results, and governance notifications transit
-/// through **separate channels** (see SPECS.md §1.4) and are **not**
+/// through **separate channels** (see docs/SPECS.md §1.4) and are **not**
 /// variants of `EngineInput`.
 ///
 /// Refs: I-Core-EngineInput

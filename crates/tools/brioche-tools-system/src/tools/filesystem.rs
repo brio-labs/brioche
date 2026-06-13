@@ -47,7 +47,7 @@ fn object_schema(required: &[&str], properties: &[(&str, &str)]) -> serde_json::
 }
 
 /// Reads the contents of a text file.
-/// Refs: SPECS.md §Book III-C
+/// Refs: docs/SPECS.md §Book III-C
 pub struct ReadFileTool;
 
 #[async_trait::async_trait]
@@ -81,7 +81,7 @@ impl SystemTool for ReadFileTool {
 }
 
 /// Writes content to a text file.
-/// Refs: SPECS.md §Book III-C
+/// Refs: docs/SPECS.md §Book III-C
 pub struct WriteFileTool;
 
 #[async_trait::async_trait]
@@ -161,7 +161,7 @@ impl SystemTool for WriteFileTool {
 }
 
 /// Lists the contents of a directory.
-/// Refs: SPECS.md §Book III-C
+/// Refs: docs/SPECS.md §Book III-C
 pub struct ListDirTool;
 
 #[async_trait::async_trait]

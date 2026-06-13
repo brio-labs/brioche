@@ -7,7 +7,7 @@
 //! - I-Core-NoPanic: All helpers return `Result` or `Option`, never panic.
 //! - I-Core-Pure: No side effects; effects are appended to the buffer.
 //!
-//! Refs: SPECS.md §4
+//! Refs: docs/SPECS.md §4
 
 use super::{BriocheEngine, PreTransitionState};
 use crate::{

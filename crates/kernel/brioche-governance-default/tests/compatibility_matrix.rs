@@ -1,13 +1,13 @@
 //! Sprint 18: `GovernanceCompatibilityMatrix` full test coverage.
 //!
-//! Verifies all 5 composition invariants from SPECS.md Book V Ch 3:
+//! Verifies all 5 composition invariants from docs/SPECS.md Book V Ch 3:
 //! - I-Comp-Override-Rebuild
 //! - I-Comp-Epoch-First
 //! - I-Comp-Epoch-Subroutine
 //! - I-Gov-Profile-Agnostic
 //! - I-Comp-OverrideTrace
 //!
-//! Refs: SPECS.md §Book II Ch 7, §Book V Ch 3
+//! Refs: docs/SPECS.md §Book II Ch 7, §Book V Ch 3
 
 use brioche_governance_default::{CompatibilityLevel, GovernanceCompatibilityMatrix};
 

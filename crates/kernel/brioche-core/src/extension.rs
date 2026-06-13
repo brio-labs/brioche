@@ -5,7 +5,7 @@
 //! - I-Core-VTableClone: VTable provides `clone_box`, `serialize`, `deserialize` for COW rollback.
 //! - I-Core-ExtO1: O(log n) typed access by `TypeId` (n = registered types, typically < 20).
 //!
-//! Refs: SPECS.md §3.1, §3.2
+//! Refs: docs/SPECS.md §3.1, §3.2
 
 use std::any::{Any, TypeId};
 use std::collections::{BTreeMap, BTreeSet};

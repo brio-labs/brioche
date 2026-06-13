@@ -16,7 +16,7 @@
 //! - I-Persist-PluginBlob: Cold blobs written without engine blocking.
 //! - I-Persist-Cache: `SubRoutineCache` with L1 visible / L2 LRU tiers.
 //!
-//! Refs: SPECS.md §Book III-B
+//! Refs: docs/SPECS.md §Book III-B
 
 pub mod dto;
 pub mod storage;

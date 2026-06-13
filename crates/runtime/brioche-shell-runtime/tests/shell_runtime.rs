@@ -7,7 +7,7 @@
 //! - Backpressure regulator
 //! - System signal delivery
 //!
-//! Refs: SPECS.md §Book III-A
+//! Refs: docs/SPECS.md §Book III-A
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;

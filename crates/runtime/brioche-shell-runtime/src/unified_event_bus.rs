@@ -6,7 +6,7 @@
 //! between `SignalMultiplexer` (classic separate adapters) and
 //! `UnifiedEventBus` (unified channel).
 //!
-//! Refs: SPECS.md §Book III-A Ch 3.5
+//! Refs: docs/SPECS.md §Book III-A Ch 3.5
 
 use brioche_core::{
     AsyncTaskResult, EngineInput, GovernanceNotification, SignalDrainBatch, SignalDrainOrder,
@@ -20,7 +20,7 @@ use tokio::sync::mpsc;
 /// channels (plus direct `EngineInput`) into this enum before pushing
 /// them into the internal unified channel.
 ///
-/// Refs: SPECS.md §Book III-A Ch 3.5
+/// Refs: docs/SPECS.md §Book III-A Ch 3.5
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EngineEnvelope {
     /// Direct engine input (user message, LLM stream, tool results).
@@ -40,7 +40,7 @@ pub enum EngineEnvelope {
 /// channel is empty, it drains directly from the underlying adapters
 /// without the indirection of the intermediate channel.
 ///
-/// Refs: SPECS.md §Book III-A Ch 3.5
+/// Refs: docs/SPECS.md §Book III-A Ch 3.5
 pub struct UnifiedEventBus {
     envelope_tx: mpsc::Sender<Vec<EngineEnvelope>>,
     envelope_rx: std::sync::Mutex<mpsc::Receiver<Vec<EngineEnvelope>>>,
@@ -54,7 +54,7 @@ impl UnifiedEventBus {
     ///
     /// The producer half is returned so that the async runtime can
     /// spawn a task that feeds the bus from the separate channels.
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn new(
         system_rx: mpsc::Receiver<SystemSignal>,
         governance_rx: mpsc::Receiver<GovernanceNotification>,
