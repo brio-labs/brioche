@@ -5,7 +5,7 @@
 //! store with `SessionStoreEntry` (head DTO + full message history); the
 //! async `save_session` effect reads from this store and flushes to Redb.
 //!
-//! Refs: SPECS.md §Book III-B Ch 1–3, I-Persist-SaveSession, I-Persist-PluginBlob
+//! Refs: docs/SPECS.md §Book III-B Ch 1–3, I-Persist-SaveSession, I-Persist-PluginBlob
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -109,7 +109,7 @@ use brioche_core::Session;
 
 /// Size threshold above which a message or session head blob is Zstd-compressed.
 ///
-/// Refs: SPECS.md §Book III-B Ch 1.1
+/// Refs: docs/SPECS.md §Book III-B Ch 1.1
 pub const COMPRESSION_THRESHOLD: usize = 1024;
 
 /// Compression flag prefix: `0x00` = uncompressed, `0x01` = zstd-compressed.
@@ -122,7 +122,7 @@ const FLAG_COMPRESSED: u8 = 0x01;
 ///
 /// Complexity: O(1) slice creation; no allocation.
 ///
-/// Refs: SPECS.md §Book III-B Ch 3.1
+/// Refs: docs/SPECS.md §Book III-B Ch 3.1
 pub fn extract_delta(session: &Session) -> &[ChatMessage] {
     &session.history[session.persisted_msg_count..]
 }
@@ -130,25 +130,25 @@ pub fn extract_delta(session: &Session) -> &[ChatMessage] {
 /// Serialize a `SessionHeadDTO` to MessagePack.
 ///
 /// Complexity: O(serialization cost). Allocates one `Vec`.
-/// Refs: SPECS.md §Book III-A
+/// Refs: docs/SPECS.md §Book III-A
 pub fn serialize_head(dto: &SessionHeadDTO) -> Result<Vec<u8>, PersistenceError> {
     rmp_serde::to_vec(dto).map_err(|e| PersistenceError::Serialization(e.to_string()))
 }
 
 /// Deserialize a `SessionHeadDTO` from a MessagePack blob.
-/// Refs: SPECS.md §Book III-A
+/// Refs: docs/SPECS.md §Book III-A
 pub fn deserialize_head(blob: &[u8]) -> Result<SessionHeadDTO, PersistenceError> {
     rmp_serde::from_slice(blob).map_err(|e| PersistenceError::Serialization(e.to_string()))
 }
 
 /// Serialize a single `ChatMessage` to MessagePack.
-/// Refs: SPECS.md §Book III-A
+/// Refs: docs/SPECS.md §Book III-A
 pub fn serialize_message(msg: &ChatMessage) -> Result<Vec<u8>, PersistenceError> {
     rmp_serde::to_vec(msg).map_err(|e| PersistenceError::Serialization(e.to_string()))
 }
 
 /// Deserialize a single `ChatMessage` from a MessagePack blob.
-/// Refs: SPECS.md §Book III-A
+/// Refs: docs/SPECS.md §Book III-A
 pub fn deserialize_message(blob: &[u8]) -> Result<ChatMessage, PersistenceError> {
     rmp_serde::from_slice(blob).map_err(|e| PersistenceError::Serialization(e.to_string()))
 }
@@ -161,7 +161,7 @@ pub fn deserialize_message(blob: &[u8]) -> Result<ChatMessage, PersistenceError>
 ///
 /// This makes decompression deterministic and branch-free.
 ///
-/// Refs: SPECS.md §Book III-B Ch 1.1
+/// Refs: docs/SPECS.md §Book III-B Ch 1.1
 pub fn maybe_compress(data: Vec<u8>) -> Result<Vec<u8>, PersistenceError> {
     if data.len() > COMPRESSION_THRESHOLD {
         let compressed = zstd::encode_all(data.as_slice(), 3)
@@ -183,7 +183,7 @@ pub fn maybe_compress(data: Vec<u8>) -> Result<Vec<u8>, PersistenceError> {
 /// Falls back to returning the raw slice if no flag is recognized
 /// (backward compatibility for legacy data written without flag).
 ///
-/// Refs: SPECS.md §Book III-B Ch 1.1
+/// Refs: docs/SPECS.md §Book III-B Ch 1.1
 pub fn maybe_decompress(data: &[u8]) -> Result<Vec<u8>, PersistenceError> {
     match data.first() {
         Some(&FLAG_COMPRESSED) => {
@@ -204,14 +204,14 @@ pub fn maybe_decompress(data: &[u8]) -> Result<Vec<u8>, PersistenceError> {
 pub type SessionStore = Arc<RwLock<BTreeMap<String, SessionStoreEntry>>>;
 
 /// Create a new empty `SessionStore`.
-/// Refs: SPECS.md §Book III-A
+/// Refs: docs/SPECS.md §Book III-A
 pub fn new_session_store() -> SessionStore {
     Arc::new(RwLock::new(BTreeMap::new()))
 }
 
 /// A single entry in the `SessionStore`, holding both the head DTO and
 /// the full message history needed for delta persistence.
-/// Refs: SPECS.md §Book III-A
+/// Refs: docs/SPECS.md §Book III-A
 #[derive(Clone, Debug)]
 pub struct SessionStoreEntry {
     /// Flattened session head.
@@ -226,7 +226,7 @@ pub struct SessionStoreEntry {
 /// can be plugged into `DefaultEffectExecutor`.
 ///
 /// Clone is cheap (all fields are `Arc`-wrapped or `Copy`).
-/// Refs: SPECS.md §Book III-A
+/// Refs: docs/SPECS.md §Book III-A
 #[derive(Clone)]
 pub struct RedbStorage {
     db: Arc<Database>,
@@ -240,7 +240,7 @@ impl RedbStorage {
     /// from the engine thread (typically via `update_session`).
     ///
     /// Complexity: O(1). File creation is deferred to first write.
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn new(
         path: impl AsRef<Path>,
         session_store: SessionStore,
@@ -258,7 +258,7 @@ impl RedbStorage {
     /// table access.
     ///
     /// Complexity: O(1). Clones an `Arc`.
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub(crate) fn db(&self) -> Arc<Database> {
         Arc::clone(&self.db)
     }
@@ -585,7 +585,7 @@ use tokio_util::sync::CancellationToken;
 /// compaction watermark. Interruptible via `CancellationToken` so
 /// new user input never waits on I/O locks.
 ///
-/// Refs: SPECS.md §Book III-B Ch 5, I-Persist-GC-Interrupt
+/// Refs: docs/SPECS.md §Book III-B Ch 5, I-Persist-GC-Interrupt
 #[derive(Clone, Debug)]
 pub struct GcRunner {
     cancel: CancellationToken,
@@ -601,7 +601,7 @@ impl GcRunner {
     /// Create a new GC runner with a fresh cancellation token.
     ///
     /// Complexity: O(1).
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn new() -> Self {
         Self {
             cancel: CancellationToken::new(),
@@ -782,7 +782,7 @@ impl<'a> LazySessionLoader<'a> {
     /// Create a new lazy loader backed by the given storage.
     ///
     /// Complexity: O(1).
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn new(storage: &'a RedbStorage) -> Self {
         Self { storage }
     }
@@ -852,7 +852,7 @@ use lru::LruCache;
 ///
 /// `BTreeMap` is used for L1 to uphold deterministic ordering.
 ///
-/// Refs: SPECS.md §Book III-B Ch 2.1
+/// Refs: docs/SPECS.md §Book III-B Ch 2.1
 pub struct SubRoutineCache {
     /// UI-visible sub-routines (never evicted).
     l1_visible: BTreeMap<String, SessionHeadDTO>,
@@ -866,7 +866,7 @@ impl SubRoutineCache {
     /// L1 capacity is unbounded (managed explicitly by UI open/close).
     ///
     /// Complexity: O(1).
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn new(l2_capacity: NonZeroUsize) -> Self {
         Self {
             l1_visible: BTreeMap::new(),
@@ -880,7 +880,7 @@ impl SubRoutineCache {
     /// (use `promote_to_l1` for explicit promotion).
     ///
     /// Complexity: O(log n) for L1, O(1) for L2.
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn get(&self, id: &str) -> Option<&SessionHeadDTO> {
         self.l1_visible.get(id).or_else(|| self.l2_lru.peek(id))
     }
@@ -890,7 +890,7 @@ impl SubRoutineCache {
     /// Returns the previously held DTO if the ID was already in L1.
     ///
     /// Complexity: O(log n) for L1 insertion + O(1) for L2 removal.
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn promote_to_l1(&mut self, id: String) -> Option<SessionHeadDTO> {
         if let Some(dto) = self.l2_lru.pop(&id) {
             self.l1_visible.insert(id, dto)
@@ -904,7 +904,7 @@ impl SubRoutineCache {
     /// Returns the DTO if it was not in L1 (already evicted or never present).
     ///
     /// Complexity: O(log n) for L1 removal + O(1) for L2 insertion.
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn demote_to_l2(&mut self, id: String) {
         if let Some(dto) = self.l1_visible.remove(&id) {
             self.l2_lru.put(id, dto);
@@ -916,7 +916,7 @@ impl SubRoutineCache {
     /// Used when loading from Redb on demand.
     ///
     /// Complexity: O(1).
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn insert(&mut self, id: String, dto: SessionHeadDTO) {
         self.l2_lru.put(id, dto);
     }
@@ -924,7 +924,7 @@ impl SubRoutineCache {
     /// Returns `true` if the ID is present in either tier.
     ///
     /// Complexity: O(log n) for L1 + O(1) for L2.
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn contains(&self, id: &str) -> bool {
         self.l1_visible.contains_key(id) || self.l2_lru.contains(id)
     }
@@ -934,19 +934,19 @@ impl SubRoutineCache {
     /// Returns the removed DTO if present.
     ///
     /// Complexity: O(log n) for L1 + O(1) for L2.
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn remove(&mut self, id: &str) -> Option<SessionHeadDTO> {
         self.l1_visible.remove(id).or_else(|| self.l2_lru.pop(id))
     }
 
     /// Number of entries currently in L1.
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn l1_len(&self) -> usize {
         self.l1_visible.len()
     }
 
     /// Number of entries currently in L2.
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn l2_len(&self) -> usize {
         self.l2_lru.len()
     }

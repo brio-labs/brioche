@@ -19,7 +19,7 @@
 //! - I-Core-ActiveToolCall: `ActiveToolCall` is kernel-internal; plugins use `ToolCallDescriptor`.
 //! - I-Core-RetVecEffect: `Effect` is the sole output channel of `transition()`.
 //!
-//! Refs: SPECS.md §2, §5
+//! Refs: docs/SPECS.md §2, §5
 
 pub mod effect;
 pub mod fundamental;

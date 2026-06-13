@@ -5,7 +5,7 @@
 //! Asserts zero divergence between original and recovered sessions.
 //!
 //! Refs: I-Shell-TransitionJournal, I-Shell-TransitionJournal-Idempotent,
-//! SPECS.md §Book V Ch 12
+//! docs/SPECS.md §Book V Ch 12
 
 use brioche_core::{BriocheEngineBuilder, EngineInput, Session, StreamEvent};
 use brioche_governance_default::{LexicographicDecisionAggregator, SubRoutineCleanupGuard};

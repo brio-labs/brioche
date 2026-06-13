@@ -9,7 +9,7 @@
 //! - I-Core-Pure: Kernel never produces side effects.
 //! - I-Core-NoPanic: `transition()` returns `Vec<Effect>`, never panics.
 //!
-//! Refs: SPECS.md §Book I
+//! Refs: docs/SPECS.md §Book I
 
 // Allow proc-macro generated code to reference `::brioche_core` from
 // inside the crate itself.

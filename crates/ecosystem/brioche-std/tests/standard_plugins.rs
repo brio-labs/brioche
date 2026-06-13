@@ -5,7 +5,7 @@
 //! - I-Eco-OrderedCollections: All state uses ordered collections.
 //! - I-Eco-Decision-Isolation: Plugins only mutate their own state.
 //!
-//! Refs: SPECS.md §Book IV Ch 1
+//! Refs: docs/SPECS.md §Book IV Ch 1
 
 use brioche_core::{
     AgentState, BriocheEngineBuilder, BriochePlugin, ChatMessage, Effect, EngineInput,

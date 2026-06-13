@@ -4790,7 +4790,7 @@ The following configurations are the only officially supported and CI-tested pro
 | **UnifiedRoutingTable** | Internal kernel routing table unifying fundamental traits and pre-routed hooks. |
 | **brioche-docgen** | Interactive documentation generator from source code. |
 | **cargo-brioche-lint-invariants** | Linter verifying consistency of invariant references in source code. |
-| **UiWidget** | Structured domain enum for `Effect::ForwardToUi`. Replaces stringly-typed widget identifiers with exhaustively matchable variants (PHILOSOPHY.md §7.5, SPECS.md §2.4). |
+| **UiWidget** | Structured domain enum for `Effect::ForwardToUi`. Replaces stringly-typed widget identifiers with exhaustively matchable variants (PHILOSOPHY.md §7.5, docs/SPECS.md §2.4). |
 | **TruncatedToolResult** | Structured domain object for oversized tool result truncation. Replaces hand-rolled JSON `format!()` with typed serialization, upholding I-Comp-Pure-Logic and I-Comp-Typed-Effects. |
 | **RollbackEventLog** | Extension type written by `CycleRollbackPolicy` implementations during `commit_hook` and `rollback_hook`, consumed by `RollbackTelemetryEmitter`. Decouples telemetry from policy mechanics. |
 | **RollbackEvent** | Single COW rollback event: hook name, rollback vs commit, frame weight, budget exceeded flag. |

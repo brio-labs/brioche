@@ -8,7 +8,7 @@
 //! brioche-playground
 //! ```
 //!
-//! Refs: SPECS.md §Book IV Ch 3 §3.1
+//! Refs: docs/SPECS.md §Book IV Ch 3 §3.1
 
 use brioche_core::{
     ChatMessage, EngineInput, PluginCapabilities, PluginError, PluginResult, PolicyDecision,

@@ -3,7 +3,7 @@
 //! Provides a fluent API for constructing engines with plugins and
 //! governance traits, suitable for both production and test code.
 //!
-//! Refs: SPECS.md §Book IV Ch 3 §3.2
+//! Refs: docs/SPECS.md §Book IV Ch 3 §3.2
 
 use brioche_core::{
     BriocheEngine, BriocheEngineBuilder, BriochePlugin, ConsistencyVerifier, CycleRollbackPolicy,

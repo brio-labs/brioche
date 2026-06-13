@@ -157,7 +157,7 @@ pub struct StreamToolAccumulator {
 /// O(1) for construction and field/variant access.
 /// # Panics
 /// Never panics.
-/// Refs: SPECS.md §1.4, I-Shell-Network-Signal
+/// Refs: docs/SPECS.md §1.4, I-Shell-Network-Signal
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SystemSignal {
     /// Transport failure detected by the shell.
@@ -182,7 +182,7 @@ pub enum SystemSignal {
 /// O(1) for construction and field/variant access.
 /// # Panics
 /// Never panics.
-/// Refs: SPECS.md §1.4
+/// Refs: docs/SPECS.md §1.4
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AsyncTaskResult {
     /// Background summarization completed.
@@ -214,7 +214,7 @@ pub enum AsyncTaskResult {
 /// O(1). No heap allocation.
 /// # Panics
 /// Never panics.
-/// Refs: SPECS.md §1.4
+/// Refs: docs/SPECS.md §1.4
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ToolStatus {
     /// Tool is still executing.
@@ -232,7 +232,7 @@ pub enum ToolStatus {
 /// O(1). No heap allocation.
 /// # Panics
 /// Never panics.
-/// Refs: SPECS.md §1.4
+/// Refs: docs/SPECS.md §1.4
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GovernanceNotification {
     /// A plugin emitted a fatal error. The shell notifies governance
@@ -262,7 +262,7 @@ pub enum GovernanceNotification {
 /// O(1). No heap allocation.
 /// # Panics
 /// Never panics.
-/// Refs: SPECS.md §1.4, I-Shell-Drain-Atomic
+/// Refs: docs/SPECS.md §1.4, I-Shell-Drain-Atomic
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignalDrainBatch {
     /// Drained system signals (produced first in canonical order).

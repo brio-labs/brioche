@@ -2,7 +2,7 @@
 //!
 //! Covers idempotency of filesystem writes and sandboxing of shell commands.
 //!
-//! Refs: SPECS.md §Book III-C, I-Shell-Runtime-OnlyIO
+//! Refs: docs/SPECS.md §Book III-C, I-Shell-Runtime-OnlyIO
 
 use std::sync::Arc;
 

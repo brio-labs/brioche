@@ -3,7 +3,7 @@
 //! Records a sequence of `EngineInput`s via `AuditLogger`, then replays
 //! them through a fresh engine and asserts zero divergence.
 //!
-//! Refs: I-Eco-ExtensionOverMod, I-Core-Pure, SPECS.md §Book V Ch 12
+//! Refs: I-Eco-ExtensionOverMod, I-Core-Pure, docs/SPECS.md §Book V Ch 12
 
 use brioche_core::{AgentState, BriocheEngineBuilder, EngineInput, Session, StreamEvent};
 use brioche_governance_default::{LexicographicDecisionAggregator, SubRoutineCleanupGuard};

@@ -23,7 +23,7 @@ use tokio_util::sync::CancellationToken;
 pub type ConfirmHandler = std::sync::Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
 /// Sandbox policy for shell commands.
-/// Refs: SPECS.md §Book III-C
+/// Refs: docs/SPECS.md §Book III-C
 #[derive(Clone, Debug)]
 pub enum SandboxPolicy {
     /// Any command is allowed (dangerous mode, requires confirmation).
@@ -46,7 +46,7 @@ impl Default for SandboxPolicy {
 }
 
 /// Explicit list of allowed commands.
-/// Refs: SPECS.md §Book III-C
+/// Refs: docs/SPECS.md §Book III-C
 #[derive(Clone, Debug)]
 pub struct AllowList {
     commands: BTreeSet<String>,
@@ -54,7 +54,7 @@ pub struct AllowList {
 
 impl AllowList {
     /// Creates an empty allow-list.
-    /// Refs: SPECS.md §Book III-C
+    /// Refs: docs/SPECS.md §Book III-C
     pub fn new() -> Self {
         Self {
             commands: BTreeSet::new(),
@@ -62,14 +62,14 @@ impl AllowList {
     }
 
     /// Adds a command to the allow-list.
-    /// Refs: SPECS.md §Book III-C
+    /// Refs: docs/SPECS.md §Book III-C
     pub fn with_command(mut self, cmd: &str) -> Self {
         self.commands.insert(cmd.to_string());
         self
     }
 
     /// Checks whether a command is in the allow-list.
-    /// Refs: SPECS.md §Book III-C
+    /// Refs: docs/SPECS.md §Book III-C
     pub fn is_allowed(&self, command: &str) -> bool {
         let first_word = command.split_whitespace().next().map_or("", |s| s).trim();
         self.commands.contains(first_word)
@@ -99,7 +99,7 @@ impl Default for AllowList {
 // ---------------------------------------------------------------------------
 
 /// Error emitted by a system tool.
-/// Refs: SPECS.md §Book III-C
+/// Refs: docs/SPECS.md §Book III-C
 #[derive(Debug, thiserror::Error)]
 pub enum ToolError {
     /// Sandbox policy denied this command.
@@ -150,7 +150,7 @@ pub struct SystemToolExecutor {
 
 impl SystemToolExecutor {
     /// Creates an empty tool registry.
-    /// Refs: SPECS.md §Book III-C
+    /// Refs: docs/SPECS.md §Book III-C
     pub fn new() -> Self {
         Self {
             tools: BTreeMap::new(),
@@ -158,7 +158,7 @@ impl SystemToolExecutor {
     }
 
     /// Registers a tool, replacing any existing tool with the same name.
-    /// Refs: SPECS.md §Book III-C
+    /// Refs: docs/SPECS.md §Book III-C
     pub fn with_tool(mut self, tool: impl SystemTool + 'static) -> Self {
         let name = tool.name().to_string();
         self.tools.insert(name, Box::new(tool));
@@ -171,7 +171,7 @@ impl SystemToolExecutor {
     /// ```json
     /// [{"type": "function", "function": {"name": "...", "description": "...", "parameters": {...}}}]
     /// ```
-    /// Refs: SPECS.md §Book III-C
+    /// Refs: docs/SPECS.md §Book III-C
     pub fn schema_json(&self) -> Vec<serde_json::Value> {
         self.tools
             .values()

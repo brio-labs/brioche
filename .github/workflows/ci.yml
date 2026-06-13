@@ -159,7 +159,7 @@ jobs:
       - run: cargo test --workspace --doc --all-features
 
   # Property tests with a high case count to surface edge-case failures
-  # that unit tests miss (PHILOSOPHY.md §5.4, SPECS.md Book V Ch.10).
+  # that unit tests miss (PHILOSOPHY.md §5.4, docs/SPECS.md Book V Ch.10).
   proptest:
     runs-on: ubuntu-latest
     needs: [clippy, deny]
