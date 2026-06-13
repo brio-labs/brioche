@@ -24,14 +24,10 @@ tokio-util = { workspace = true }
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3"
-criterion = { version = "0.8", features = ["html_reports"] }
+divan = "=0.1.21"
 
 [[bench]]
-name = "redb_idempotence"
-harness = false
-
-[[bench]]
-name = "subroutine_cache_l1"
+name = "benchmarks"
 harness = false
 
 [lints]
