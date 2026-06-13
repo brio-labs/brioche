@@ -49,7 +49,7 @@ pub enum TraitGraphFormat {
 }
 
 impl TraitGraphFormat {
-    /// Parse a format identifier.
+    /// Parse a format identifier (`"json"`, `"html"`, anything else → Markdown).
     ///
     /// Refs: SPECS.md §Book IV Ch 3 §3.3
     pub fn parse(format: &str) -> Self {
@@ -188,6 +188,10 @@ pub fn graph_to_html(graph: &TraitGraph) -> String {
 
 /// Render a trait graph as pretty-printed JSON.
 ///
+/// # Panics
+/// Never panics. Serialization of this graph is infallible in practice;
+/// on the theoretical error path an empty JSON object is returned.
+///
 /// Refs: SPECS.md §Book IV Ch 3 §3.3
 pub fn graph_to_json(graph: &TraitGraph) -> String {
     match serde_json::to_string_pretty(graph) {
@@ -208,6 +212,8 @@ pub fn render_trait_graph(graph: &TraitGraph, format: TraitGraphFormat) -> Strin
 }
 
 /// All sequence diagram variants known to docgen.
+///
+/// Refs: SPECS.md §Book IV Ch 3 §3.3
 pub const SEQUENCE_DIAGRAM_VARIANTS: &[&str] = &[
     "UserMessage",
     "LlmStream",
