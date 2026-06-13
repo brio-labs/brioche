@@ -8,8 +8,6 @@
 //!
 //! Refs: SPECS.md §Book III-B, I-Shell-Network-Signal
 
-#![allow(clippy::disallowed_methods, clippy::unwrap_used)]
-
 use std::time::Duration;
 
 use brioche_core::{BriocheEngineBuilder, ChatMessage, Session};
@@ -44,12 +42,12 @@ fn test_shell() -> BriocheShell {
 #[tokio::test]
 async fn streams_text_chunks_to_kernel() {
     let mock_server = MockServer::start().await;
-    let _body = serde_json::json!({
+    let _body = r#"{
         "model": "gpt-4o-mini",
         "messages": [{"role": "user", "content": "hello"}],
         "max_tokens": 4096,
         "stream": true
-    });
+    }"#;
     let sse = "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\n\
                data: {\"choices\":[{\"delta\":{\"content\":\" there\"}}]}\n\n\
                data: [DONE]\n\n";
