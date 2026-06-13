@@ -11,6 +11,7 @@
 //! Refs: SPECS.md §4, §5
 
 use super::BriocheEngine;
+use crate::types::InconsistencySource;
 use crate::{
     AgentState, BriocheError, ChatMessage, Effect, EngineInput, ErrorCode, ErrorDetail,
     PolicyDecision, Session, StreamAction, StreamEvent, SubRoutineHandle, TaskId, ToolResultDTO,
@@ -327,7 +328,9 @@ impl BriocheEngine {
                 effects.push(Effect::Error {
                     code: ErrorCode::StateInconsistency,
                     detail: ErrorDetail::StateInconsistent {
-                        source: "ToolCallDone without Predicting state".into(),
+                        source: InconsistencySource::Kernel {
+                            module: "dispatch::finalize_prediction_with_tools".to_string(),
+                        },
                     },
                 });
                 return Ok(());

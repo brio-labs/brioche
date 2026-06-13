@@ -11,6 +11,7 @@
 //! Refs: SPECS.md §4.2
 
 use super::{BriocheEngine, InputResult};
+use crate::types::InconsistencySource;
 use crate::{
     BriocheError, BriochePlugin, Effect, EngineInput, ErrorCode, ErrorDetail, PluginError,
     PluginResult, PluginSource, PolicyDecision, Session,
@@ -137,7 +138,9 @@ impl BriocheEngine {
                 accumulated.push(Effect::Error {
                     code: ErrorCode::StateInconsistency,
                     detail: ErrorDetail::StateInconsistent {
-                        source: format!("plugin index {idx} out of bounds"),
+                        source: InconsistencySource::Kernel {
+                            module: "hooks::eval_on_input".to_string(),
+                        },
                     },
                 });
                 continue;

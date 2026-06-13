@@ -7,6 +7,7 @@
 //!
 //! Refs: I-Comp-Epoch-First, I-Core-NoPanic, I-Gov-Failover
 
+use brioche_core::types::InconsistencySource;
 use brioche_core::{
     AgentState, AgentStateTag, ConsistencyVerifier, Effect, EngineInput, EpochAction,
     EpochInterceptor, EpochState, ErrorCode, ErrorDetail, ExtensionStorage,
@@ -92,7 +93,9 @@ impl ConsistencyVerifier for StateConsistencyGuard {
                         Effect::Error {
                             code: ErrorCode::StateInconsistency,
                             detail: ErrorDetail::StateInconsistent {
-                                source: "active without stack context".into(),
+                                source: InconsistencySource::Kernel {
+                                    module: "guards::consistency_verifier".to_string(),
+                                },
                             },
                         },
                         Effect::SaveSession,
