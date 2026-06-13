@@ -18,22 +18,13 @@
 //!
 //! Refs: SPECS.md §Book III-B
 
-pub mod cache;
 pub mod dto;
-pub mod error;
-pub mod gc;
-pub mod load;
-pub mod save;
-pub mod schema;
 pub mod storage;
 
-pub use cache::SubRoutineCache;
 pub use dto::{FlattenedAgentState, SessionHeadDTO, SessionSchemaVersion};
-pub use error::PersistenceError;
-pub use gc::GcRunner;
-pub use load::{LazySessionLoader, load_session_full, load_subroutine};
-pub use save::{
-    COMPRESSION_THRESHOLD, deserialize_head, deserialize_message, extract_delta, maybe_compress,
-    maybe_decompress, serialize_head, serialize_message,
+pub use storage::{
+    COMPRESSION_THRESHOLD, GcRunner, PersistenceError, RedbStorage, SessionStore,
+    SessionStoreEntry, SubRoutineCache, deserialize_head, deserialize_message, extract_delta,
+    load_subroutine, maybe_compress, maybe_decompress, new_session_store, serialize_head,
+    serialize_message,
 };
-pub use storage::{RedbStorage, SessionStore, SessionStoreEntry, new_session_store};

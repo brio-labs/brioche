@@ -15,7 +15,72 @@
 
 use std::collections::BTreeMap;
 
-/// Anchor slots where UI widgets can be mounted in the frontend layout.
+// ---------------------------------------------------------------------------
+// Widget type constants (merged from widget.rs)
+// ---------------------------------------------------------------------------
+
+/// Warning banner displayed when a plugin has been quarantined.
+///
+/// Emitter: `QuarantineManager`
+///
+/// Refs: I-UI-NoUIType
+pub const WIDGET_SYSTEM_DEGRADED: &str = "system_degraded";
+
+/// Displayed when a `SystemSignal::NetworkUnavailable` is intercepted.
+///
+/// Emitter: `RecoveryPolicy`
+///
+/// Refs: I-UI-NoUIType
+pub const WIDGET_NETWORK_ERROR: &str = "network_error";
+
+/// Generic state widget (e.g. "cancelled").
+///
+/// Emitter: `RecoveryPolicy`
+///
+/// Refs: I-UI-NoUIType
+pub const WIDGET_STATUS: &str = "status";
+
+/// Generic widget for errors (`Effect::Error` transformed by the shell).
+///
+/// Emitter: Shell runtime
+///
+/// Refs: I-UI-NoUIType
+pub const WIDGET_ERROR: &str = "error";
+
+/// Displayed when a sub-routine exceeds its time limit.
+///
+/// Emitter: `SubRoutineTimeoutPolicy`
+///
+/// Refs: I-UI-NoUIType
+pub const WIDGET_SUBROUTINE_TIMEOUT: &str = "subroutine_timeout";
+
+/// Text chunk emitted during LLM streaming.
+///
+/// This is the primary content widget. It is never dropped by the
+/// `UiComposer` and always flushed with absolute priority.
+///
+/// Emitter: Shell runtime (from `LlmStream` events)
+///
+/// Refs: I-UI-NoUIType
+pub const WIDGET_TEXT_CHUNK: &str = "text_chunk";
+
+/// Displayed when a sub-routine has been successfully restored.
+///
+/// Emitter: Shell runtime (on `Effect::SubRoutineRestored`)
+///
+/// Refs: I-UI-NoUIType
+pub const WIDGET_SUBROUTINE_LOADED: &str = "subroutine_loaded";
+
+/// Pending task status widget for long-running tool calls.
+///
+/// Emitter: `PendingTaskManager`
+///
+/// Refs: I-UI-NoUIType
+pub const WIDGET_PENDING_TASK: &str = "pending_task";
+
+// ---------------------------------------------------------------------------
+// Anchor slots where UI widgets can be mounted in the frontend layout.
+// ---------------------------------------------------------------------------
 ///
 /// These slots correspond to fixed regions of the application chrome.
 /// The frontend is responsible for actual layout and rendering.
@@ -77,14 +142,11 @@ impl UiRegistry {
     /// Refs: SPECS.md §Book III-A
     pub fn with_special_widgets() -> Self {
         let mut reg = Self::new();
-        reg.register(crate::widget::WIDGET_SYSTEM_DEGRADED, AnchorSlot::TopBar);
-        reg.register(crate::widget::WIDGET_NETWORK_ERROR, AnchorSlot::TopBar);
-        reg.register(crate::widget::WIDGET_STATUS, AnchorSlot::StatusBar);
-        reg.register(crate::widget::WIDGET_ERROR, AnchorSlot::ContentRenderer);
-        reg.register(
-            crate::widget::WIDGET_SUBROUTINE_TIMEOUT,
-            AnchorSlot::ContentRenderer,
-        );
+        reg.register(WIDGET_SYSTEM_DEGRADED, AnchorSlot::TopBar);
+        reg.register(WIDGET_NETWORK_ERROR, AnchorSlot::TopBar);
+        reg.register(WIDGET_STATUS, AnchorSlot::StatusBar);
+        reg.register(WIDGET_ERROR, AnchorSlot::ContentRenderer);
+        reg.register(WIDGET_SUBROUTINE_TIMEOUT, AnchorSlot::ContentRenderer);
         reg
     }
 
@@ -124,11 +186,11 @@ impl UiRegistry {
     pub fn is_special_widget(widget_type: &str) -> bool {
         matches!(
             widget_type,
-            crate::widget::WIDGET_SYSTEM_DEGRADED
-                | crate::widget::WIDGET_NETWORK_ERROR
-                | crate::widget::WIDGET_STATUS
-                | crate::widget::WIDGET_ERROR
-                | crate::widget::WIDGET_SUBROUTINE_TIMEOUT
+            WIDGET_SYSTEM_DEGRADED
+                | WIDGET_NETWORK_ERROR
+                | WIDGET_STATUS
+                | WIDGET_ERROR
+                | WIDGET_SUBROUTINE_TIMEOUT
         )
     }
 

@@ -251,7 +251,9 @@ impl BriocheEngine {
         if let Err(err) = self.dispatch_input(session, input, &mut effects) {
             effects.push(Effect::Error {
                 code: ErrorCode::StateInconsistency,
-                detail: ErrorDetail::Generic(err.to_string()),
+                detail: ErrorDetail::TransitionFailed {
+                    reason: err.to_string(),
+                },
             });
         }
 

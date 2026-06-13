@@ -6,8 +6,7 @@ use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
 
-use crate::registry::{SystemTool, ToolError};
-use crate::sandbox::{AllowList, ConfirmHandler, SandboxPolicy};
+use crate::registry::{AllowList, ConfirmHandler, SandboxPolicy, SystemTool, ToolError};
 
 /// Executes a shell command with a sandbox policy.
 /// Refs: SPECS.md §Book III-C

@@ -1,4 +1,4 @@
-//! Blocking REPL thread (reedline) — Book III §3.1.
+//! Blocking REPL thread (reedline) and session manager — Book III §3.1.
 //!
 //! This module runs in `tokio::task::spawn_blocking`. It reads user
 //! lines and forwards them via an `mpsc::Sender<String>` to an async
@@ -12,12 +12,93 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
+use std::collections::BTreeMap;
+
+use brioche_shell_runtime::BriocheShell;
 use reedline::{
     Completer, DefaultHinter, DefaultPrompt, DefaultValidator, DescriptionMode, Emacs,
     ExternalPrinter, FileBackedHistory, IdeMenu, KeyCode, KeyModifiers, MenuBuilder, Reedline,
     ReedlineEvent, ReedlineMenu, Signal, Span, Suggestion, default_emacs_keybindings,
 };
 use tokio_util::sync::CancellationToken;
+
+// ---------------------------------------------------------------------------
+// SessionManager (merged from session.rs)
+// ---------------------------------------------------------------------------
+
+/// Manages multiple CLI sessions.
+///
+/// Each session is identified by a unique ID and has its own
+/// shell, history, and state.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+pub struct SessionManager {
+    current: String,
+    shells: BTreeMap<String, BriocheShell>,
+}
+
+impl SessionManager {
+    /// Creates a new manager with an initial session.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn new(initial_id: impl Into<String>, initial_shell: BriocheShell) -> Self {
+        let id = initial_id.into();
+        let mut shells = BTreeMap::new();
+        shells.insert(id.clone(), initial_shell);
+        Self {
+            current: id,
+            shells,
+        }
+    }
+
+    /// Reference to the current session's shell.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn current(&self) -> Option<&BriocheShell> {
+        self.shells.get(&self.current)
+    }
+
+    /// Returns the current session ID.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn current_id(&self) -> &str {
+        &self.current
+    }
+
+    /// Switches to another session.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn switch(&mut self, id: &str) {
+        if self.shells.contains_key(id) {
+            self.current = id.to_string();
+        }
+    }
+
+    /// Inserts a new session.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn insert(&mut self, id: String, shell: BriocheShell) {
+        self.shells.insert(id, shell);
+    }
+
+    /// Lists the IDs of all sessions in memory.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn list(&self) -> Vec<&String> {
+        self.shells.keys().collect()
+    }
+
+    /// Access to a session by its ID.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn get(&self, id: &str) -> Option<&BriocheShell> {
+        self.shells.get(id)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// REPL
+// ---------------------------------------------------------------------------
 
 /// Basic completer for Brioche terminal agents.
 ///
@@ -199,7 +280,7 @@ pub fn run(
                 let trimmed = line.trim();
                 // Immediate exit — does not go through the bridge.
                 if trimmed == "/quit" || trimmed == "/q" {
-                    println!("Goodbye.");
+                    tracing::info!("Goodbye.");
                     cancel.cancel();
                     break;
                 }
@@ -221,7 +302,7 @@ pub fn run(
             }
             Ok(_) => continue,
             Err(err) => {
-                eprintln!("Reedline error: {err}");
+                tracing::warn!("Reedline error: {}", err);
                 cancel.cancel();
                 break;
             }

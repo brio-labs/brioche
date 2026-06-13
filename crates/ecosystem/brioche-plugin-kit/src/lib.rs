@@ -37,16 +37,14 @@ pub use brioche_governance_default::{
     AdaptiveUndoFrameGuard, BriocheEngineBuilderExt, CompatibilityEntry, CompatibilityLevel,
     DecisionCondition, DecisionNode, DecisionTreeState, DepthGuard, DepthState, EpochGuard,
     FastHookEffectConstraint, GovernanceCompatibilityMatrix, GovernanceProfile,
-    HistoricalCowBudgetPolicy, JsonArgumentAccumulator, JsonArgumentAccumulatorState,
-    LexicographicDecisionAggregator, NegotiationBroker, NegotiationState, NoopCowBudgetPolicy,
-    NoopCycleRollbackPolicy, NoopGovernanceFailoverHandler, NoopHookEffectConstraint,
-    PermissiveHookEffectConstraint, PluginFaultKey, QuarantineManager, QuarantineState,
-    RecoveryPolicy, RecoveryState, RollbackTelemetryEmitter, RollbackTelemetryState,
-    StateConsistencyGuard, SubRoutineCleanupGuard, SubRoutineOrchestrator, SubRoutineTimeoutPolicy,
-    SubRoutineTimerState, SystemFailoverGuard, TieredUndoFrameGuard, ToolCallDetector,
-    ToolCallDetectorState, ToolExecutionTelemetry, ToolExecutionTracker, ToolResultFormatter,
-    ToolResultFormatterState, ToolTimeoutPolicy, TransitionConflictLogger, TreeDecisionAggregator,
-    UndoFrameGuard,
+    JsonArgumentAccumulator, JsonArgumentAccumulatorState, LexicographicDecisionAggregator,
+    NegotiationBroker, NegotiationState, NoopCowBudgetPolicy, NoopCycleRollbackPolicy,
+    NoopGovernanceFailoverHandler, NoopHookEffectConstraint, PermissiveHookEffectConstraint,
+    PluginFaultKey, QuarantineManager, QuarantineState, RecoveryPolicy, RecoveryState,
+    RollbackTelemetryState, StateConsistencyGuard, SubRoutineCleanupGuard, SubRoutineOrchestrator,
+    SubRoutineTimeoutPolicy, SubRoutineTimerState, SystemFailoverGuard, TelemetryPlugin,
+    TieredUndoFrameGuard, ToolExecutionTelemetry, ToolExecutionTracker, ToolResultFormatter,
+    ToolResultFormatterState, ToolTimeoutPolicy, TransitionConflictState, TreeDecisionAggregator,
 };
 // Also re-export BriocheExtensionType derive for convenience.
 pub use brioche_macro::BriocheExtensionType;
@@ -60,10 +58,96 @@ pub use brioche_std::{
 };
 
 pub mod builder;
-pub mod mock_engine;
 
+// ---------------------------------------------------------------------------
+// MockEngine (merged from mock_engine.rs)
+// ---------------------------------------------------------------------------
+use brioche_core::BriocheEngine;
 pub use builder::PluginBuilder;
-pub use mock_engine::MockEngine;
+
+/// Pre-wired test engine with a fresh session.
+///
+/// Uses the `Permissive` governance profile so that policy plugins do
+/// not interfere with the behavior under test. All mandatory governance
+/// traits are injected with no-op or permissive implementations.
+/// Refs: SPECS.md §Book V
+pub struct MockEngine {
+    engine: BriocheEngine,
+    session: Session,
+}
+
+impl Default for MockEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MockEngine {
+    /// Create a new `MockEngine` with the `Permissive` profile.
+    ///
+    /// The session id is `"test"`.
+    ///
+    /// Refs: I-Eco-ExtensionOverMod
+    pub fn new() -> Self {
+        let (engine, session) = PluginBuilder::permissive().build_with_session("test");
+        Self { engine, session }
+    }
+
+    /// Create a new `MockEngine` with the `Standard` profile.
+    ///
+    /// Refs: I-Eco-ExtensionOverMod
+    pub fn standard() -> Self {
+        let (engine, session) = PluginBuilder::standard().build_with_session("test");
+        Self { engine, session }
+    }
+
+    /// Create a new `MockEngine` with the `Strict` profile.
+    ///
+    /// Refs: I-Eco-ExtensionOverMod
+    pub fn strict() -> Self {
+        let (engine, session) = PluginBuilder::strict().build_with_session("test");
+        Self { engine, session }
+    }
+
+    /// Execute one transition cycle.
+    ///
+    /// # Panics
+    /// Never panics under normal operation. A panic indicates a bug in
+    /// `brioche-core` (violating I-Core-NoPanic).
+    ///
+    /// Refs: I-Eco-ExtensionOverMod
+    pub fn transition(&mut self, input: EngineInput) -> Vec<Effect> {
+        self.engine.transition(&mut self.session, &input)
+    }
+
+    /// Mutable access to the underlying engine.
+    ///
+    /// Refs: I-Eco-ExtensionOverMod
+    pub fn engine(&mut self) -> &mut BriocheEngine {
+        &mut self.engine
+    }
+
+    /// Mutable access to the session.
+    ///
+    /// Refs: I-Eco-ExtensionOverMod
+    pub fn session(&mut self) -> &mut Session {
+        &mut self.session
+    }
+
+    /// Immutable access to the session.
+    ///
+    /// Refs: I-Eco-ExtensionOverMod
+    pub fn session_ref(&self) -> &Session {
+        &self.session
+    }
+
+    /// Consume the mock, returning the engine and session.
+    ///
+    /// Refs: I-Eco-ExtensionOverMod
+    pub fn into_parts(self) -> (BriocheEngine, Session) {
+        (self.engine, self.session)
+    }
+}
 
 /// Convenience prelude for plugin authors.
 ///

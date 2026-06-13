@@ -59,7 +59,9 @@ impl BriocheEngine {
             Ok(EpochAction::Block { reason }) => {
                 effects.push(Effect::Error {
                     code: ErrorCode::EpochMismatch,
-                    detail: ErrorDetail::Generic(reason),
+                    detail: ErrorDetail::EpochGuardRejected {
+                        reason: reason.clone(),
+                    },
                 });
                 effects.push(Effect::SystemIdle);
                 Some(())
