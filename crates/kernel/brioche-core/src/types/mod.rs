@@ -32,8 +32,8 @@ pub mod trace;
 // All downstream consumers import from `brioche_core::types::*` or
 // `brioche_core::{AgentState, Effect, ...}`.
 pub use effect::{
-    Effect, EffectBit, EngineInput, ErrorCode, ErrorDetail, HistoryEdit, PolicyDecision, UiWidget,
-    effect_to_bitmask,
+    Effect, EffectBit, EngineInput, ErrorCode, ErrorDetail, HistoryEdit, HistoryOperation,
+    InconsistencySource, PolicyDecision, UiWidget, effect_to_bitmask,
 };
 pub use fundamental::{
     BriocheError, EpochAction, PluginError, PluginResult, PluginSource, SubRoutineHandle, TaskId,
