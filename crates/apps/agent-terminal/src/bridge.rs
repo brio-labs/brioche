@@ -26,8 +26,11 @@ use crate::shell_builder::build_shell;
 /// Refs: SPECS.md §Book IV
 #[derive(Clone)]
 pub struct ShellFactory {
+    /// Redb storage for session persistence.
     pub redb: RedbStorage,
+    /// Session store for in-memory state.
     pub store: SessionStore,
+    /// CLI configuration (provider, timeouts, etc.).
     pub config: CliConfig,
 }
 

@@ -12,6 +12,10 @@ description = "Minimal terminal agent for Brioche"
 name = "agent-terminal"
 path = "src/main.rs"
 
+[lib]
+name = "agent_terminal"
+path = "src/lib.rs"
+
 [dependencies]
 brioche-core = { workspace = true }
 brioche-plugin-kit = { workspace = true }

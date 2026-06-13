@@ -103,8 +103,8 @@ impl BriocheEngine {
                 *effect = Effect::Error {
                     code: ErrorCode::StateInconsistency,
                     detail: ErrorDetail::EffectNotAllowed {
-                        hook: "transition".into(),
-                        effect_variant: variant,
+                        hook: "transition".to_string(),
+                        effect_variant: "Effect::Error".to_string(),
                     },
                 };
             }

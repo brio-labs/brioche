@@ -264,38 +264,41 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::panic)]
     fn manager_mark_error_and_timeout() {
         let mut mgr = SubRoutineManager::new();
         let handle = SubRoutineHandle::new("sub-1");
         mgr.begin_load(handle.clone());
 
-        let state = match mgr.mark_error(&handle) {
-            Some(v) => v,
-            None => unreachable!("handle must exist"),
-        };
-        assert_eq!(state.accordion, SubRoutineAccordionState::Error);
+        if let Some(state) = mgr.mark_error(&handle) {
+            assert_eq!(state.accordion, SubRoutineAccordionState::Error);
+        } else {
+            panic!("mark_error should return Some");
+        }
 
-        let state = match mgr.mark_timeout(&handle) {
-            Some(v) => v,
-            None => unreachable!("handle must exist"),
-        };
-        assert_eq!(state.accordion, SubRoutineAccordionState::Timeout);
+        if let Some(state) = mgr.mark_timeout(&handle) {
+            assert_eq!(state.accordion, SubRoutineAccordionState::Timeout);
+        } else {
+            panic!("mark_timeout should return Some");
+        }
     }
 
     #[test]
+    #[allow(clippy::panic)]
     fn manager_remove_clears_entry() {
         let mut mgr = SubRoutineManager::new();
         let handle = SubRoutineHandle::new("sub-1");
         mgr.begin_load(handle.clone());
-        let removed = match mgr.remove(&handle) {
-            Some(v) => v,
-            None => unreachable!("handle must exist"),
-        };
-        assert_eq!(removed.accordion, SubRoutineAccordionState::Loading);
+        if let Some(removed) = mgr.remove(&handle) {
+            assert_eq!(removed.accordion, SubRoutineAccordionState::Loading);
+        } else {
+            panic!("remove should return Some");
+        }
         assert!(mgr.is_empty());
     }
 
     #[test]
+    #[allow(clippy::panic)]
     fn manager_isolated_renderers() {
         let mut mgr = SubRoutineManager::new();
         let h1 = SubRoutineHandle::new("sub-1");
@@ -305,19 +308,19 @@ mod tests {
         mgr.begin_load(h2.clone());
 
         // Each sub-routine has its own ContentRenderer.
-        let state1 = match mgr.get_mut(&h1) {
-            Some(v) => v,
-            None => unreachable!("h1 must exist"),
-        };
-        let r1 = &mut state1.renderer;
-        r1.buffer_mut().append("trace", "alpha");
+        if let Some(state1) = mgr.get_mut(&h1) {
+            let r1 = &mut state1.renderer;
+            r1.buffer_mut().append("trace", "alpha");
+        } else {
+            panic!("h1 must exist");
+        }
 
-        let state2 = match mgr.get(&h2) {
-            Some(v) => v,
-            None => unreachable!("h2 must exist"),
-        };
-        let r2 = &state2.renderer;
-        assert!(r2.buffer().is_empty());
+        if let Some(state2) = mgr.get(&h2) {
+            let r2 = &state2.renderer;
+            assert!(r2.buffer().is_empty());
+        } else {
+            panic!("h2 must exist");
+        }
     }
 
     #[test]
