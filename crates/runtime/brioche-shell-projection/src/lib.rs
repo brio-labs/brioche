@@ -10,12 +10,11 @@
 //! - [`ContentRenderer`]: Streaming text accumulation by trace ID.
 //! - [`UiComposer`]: Per-frame effect scheduler with priority tiers.
 //! - [`UiPerformancePolicy`]: Shell-side policy that configures the composer
-//!   budget via [`UiPerformanceState`] in `ExtensionStorage`.
+//!   frame budget.
 //! - [`StreamBatchEmitter`]: MessagePack batch emitter for streaming text.
 //! - [`SubRoutineManager`]: Accordion states and isolated renderers per sub-routine.
 //! - [`IpcCommandService`]: Tauri-agnostic IPC command handlers.
 //! - [`IpcRateLimiter`]: Frame-based IPC rate limiter.
-//! - [`widget`]: Special governance widget type constants.
 //!
 //! ## Invariants upheld
 //! - I-UI-NoUIType: No UI crate types in kernel-facing data structures.
@@ -29,23 +28,21 @@
 //!
 //! Refs: SPECS.md §Book III-C
 
-pub mod content_renderer;
 pub mod ipc_command;
-pub mod ipc_rate_limiter;
 pub mod stream_batch;
 pub mod stream_buffer;
 pub mod subroutine_manager;
 pub mod ui_composer;
 pub mod ui_performance_policy;
 pub mod ui_registry;
-pub mod widget;
 
-pub use content_renderer::ContentRenderer;
-pub use ipc_command::IpcCommandService;
-pub use ipc_rate_limiter::IpcRateLimiter;
+pub use ipc_command::{IpcCommandService, IpcRateLimiter};
 pub use stream_batch::{StreamBatch, StreamBatchEmitter};
-pub use stream_buffer::StreamBuffer;
+pub use stream_buffer::{ContentRenderer, StreamBuffer};
 pub use subroutine_manager::{SubRoutineAccordionState, SubRoutineManager, SubRoutineUiState};
 pub use ui_composer::{EffectPriority, ScheduledEffect, UiComposer};
-pub use ui_performance_policy::{UiPerformancePolicy, UiPerformanceState};
-pub use ui_registry::{AnchorSlot, UiRegistry};
+pub use ui_performance_policy::UiPerformancePolicy;
+pub use ui_registry::{
+    AnchorSlot, UiRegistry, WIDGET_ERROR, WIDGET_NETWORK_ERROR, WIDGET_STATUS,
+    WIDGET_SUBROUTINE_TIMEOUT, WIDGET_SYSTEM_DEGRADED, WIDGET_TEXT_CHUNK,
+};

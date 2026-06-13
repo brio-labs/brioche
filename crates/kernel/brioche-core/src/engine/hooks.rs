@@ -158,14 +158,18 @@ impl BriocheEngine {
                 Ok(PolicyDecision::Allow) => {}
                 Ok(PolicyDecision::Block { reason }) => {
                     return InputResult::Block {
-                        detail: ErrorDetail::Generic(reason),
+                        detail: ErrorDetail::HookConstraintFailed {
+                            reason: reason.clone(),
+                        },
                     };
                 }
                 Ok(PolicyDecision::MutateHistory(edits)) => {
                     if let Err(err) = session.apply_history_edits(&edits) {
                         accumulated.push(Effect::Error {
                             code: ErrorCode::StateInconsistency,
-                            detail: ErrorDetail::Generic(err.to_string()),
+                            detail: ErrorDetail::HookConstraintFailed {
+                                reason: err.to_string(),
+                            },
                         });
                     }
                 }

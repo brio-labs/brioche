@@ -13,9 +13,9 @@
 //! Refs: SPECS.md §Book III-A
 
 pub mod registry;
-pub mod sandbox;
 pub mod tools;
 
-pub use registry::{SystemTool, SystemToolExecutor, ToolError};
-pub use sandbox::{AllowList, SandboxPolicy};
+pub use registry::{
+    AllowList, ConfirmHandler, SandboxPolicy, SystemTool, SystemToolExecutor, ToolError,
+};
 pub use tools::{ExecuteCommandTool, FetchUrlTool, ListDirTool, ReadFileTool, WriteFileTool};

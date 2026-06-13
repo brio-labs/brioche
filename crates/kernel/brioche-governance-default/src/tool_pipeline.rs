@@ -150,6 +150,8 @@ pub struct ToolExecutionTelemetry {
     pub total_duration_ms: u64,
     /// Start timestamp per tool_id (for duration calculation).
     pub start_timestamps: BTreeMap<String, u64>,
+    /// Total number of tool calls observed (including pending).
+    pub total_calls: u64,
 }
 
 /// Tool execution tracker.

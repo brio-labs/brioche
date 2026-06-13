@@ -1,15 +1,15 @@
 //! Benchmark: `cow_rollback` — Sprint 18.
 //!
-//! Target: < 10 µs for `UndoFrameGuard::rollback_hook`.
+//! Target: < 10 µs for `AdaptiveUndoFrameGuard::rollback_hook`.
 //!
 //! Refs: I-Gov-Rollback-BestEffort
 
 use brioche_core::{BriocheExtensionType, CycleRollbackPolicy, EpochState, ExtensionStorage};
-use brioche_governance_default::UndoFrameGuard;
+use brioche_governance_default::AdaptiveUndoFrameGuard;
 use criterion::{Criterion, criterion_group, criterion_main};
 
 fn bench_cow_rollback(c: &mut Criterion) {
-    let mut guard = UndoFrameGuard::new();
+    let mut guard = AdaptiveUndoFrameGuard::new();
     let mut ext = ExtensionStorage::new();
     ext.insert(EpochState {
         current_generation: 42,

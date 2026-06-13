@@ -1,7 +1,6 @@
 //! UiPerformancePolicy — Book III-C §6
 //!
-//! Shell-side policy that configures the [`UiComposer`] frame budget
-//! via [`UiPerformanceState`] stored in `ExtensionStorage`.
+//! Shell-side policy that configures the [`UiComposer`] frame budget.
 //!
 //! `UiPerformancePolicy` is **not** a kernel plugin; it runs in the
 //! shell's effect consumption path, intercepting `ForwardToUi` effects
@@ -9,53 +8,14 @@
 //!
 //! ## Invariants upheld
 //! - I-UI-Composer-FrameSync: Budget is configurable without kernel changes.
-//! - I-UI-NoUIType: State is a plain `u8`, no frontend types.
 //!
 //! Refs: SPECS.md §Book III-C Ch 6
 
-use brioche_core::{BriocheExtensionType, Effect, ExtensionStorage};
+use brioche_core::Effect;
 
 use crate::UiComposer;
 
-/// User-configurable rendering performance state.
-///
-/// Stored in `ExtensionStorage` under `EXT_ID = "shell::ui_performance"`.
-/// The shell reads this value before each frame to configure the
-/// `UiComposer` budget.
-///
-/// Refs: SPECS.md §Book III-C Ch 6.1
-#[derive(
-    Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, BriocheExtensionType,
-)]
-#[brioche(ext_id = "shell::ui_performance")]
-pub struct UiPerformanceState {
-    /// Per-frame budget in milliseconds.
-    ///
-    /// Default: 2. Range: 1–16.
-    ///
-    /// Refs: I-UI-Composer-FrameSync
-    pub frame_budget_ms: u8,
-}
-
-impl Default for UiPerformanceState {
-    fn default() -> Self {
-        Self::with_budget(2)
-    }
-}
-
-impl UiPerformanceState {
-    /// Create state with a specific budget.
-    ///
-    /// Values are clamped to the range 1–16.
-    /// Refs: SPECS.md §Book III-A
-    pub fn with_budget(frame_budget_ms: u8) -> Self {
-        Self {
-            frame_budget_ms: frame_budget_ms.clamp(1, 16),
-        }
-    }
-}
-
-/// Shell-side interceptor that applies `UiPerformanceState` to `UiComposer`.
+/// Shell-side interceptor that configures `UiComposer` frame budget.
 ///
 /// `UiPerformancePolicy` wraps a [`UiComposer`] and synchronizes its
 /// frame budget from `ExtensionStorage` on demand. It also filters
@@ -94,18 +54,6 @@ impl UiPerformancePolicy {
         Self {
             composer: UiComposer::with_budget(frame_budget_ms),
         }
-    }
-
-    /// Synchronize the composer budget from `ExtensionStorage`.
-    ///
-    /// Reads `UiPerformanceState` (inserting default if absent) and
-    /// applies `frame_budget_ms` to the internal `UiComposer`.
-    ///
-    /// Complexity: O(log n) where n = registered extension types.
-    /// Refs: SPECS.md §Book III-A
-    pub fn sync_from_storage(&mut self, ext: &mut ExtensionStorage) {
-        let state: &UiPerformanceState = ext.get_or_insert_default();
-        self.composer.set_frame_budget(state.frame_budget_ms);
     }
 
     /// Enqueue a batch of effects and compose the next frame.
