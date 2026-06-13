@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::effect::HistoryEdit;
+use super::effect::{HistoryEdit, HistoryOperation};
 use super::fundamental::{BriocheError, SubRoutineHandle};
 use super::tool::{ActiveToolCall, ToolCallDescriptor};
 use crate::BriocheExtensionType;
@@ -295,21 +295,21 @@ impl Session {
             match edit {
                 HistoryEdit::Insert { index, message } => {
                     if *index > self.history.len() {
-                        return Err(BriocheError::InvalidStateTransition(format!(
-                            "history insert index {} out of bounds (len={})",
-                            index,
-                            self.history.len()
-                        )));
+                        return Err(BriocheError::HistoryIndexOutOfBounds {
+                            operation: HistoryOperation::Insert,
+                            index: *index,
+                            len: self.history.len(),
+                        });
                     }
                     self.history.insert(*index, message.clone());
                 }
                 HistoryEdit::Replace { index, message } => {
                     if *index >= self.history.len() {
-                        return Err(BriocheError::InvalidStateTransition(format!(
-                            "history replace index {} out of bounds (len={})",
-                            index,
-                            self.history.len()
-                        )));
+                        return Err(BriocheError::HistoryIndexOutOfBounds {
+                            operation: HistoryOperation::Replace,
+                            index: *index,
+                            len: self.history.len(),
+                        });
                     }
                     // Invariant: index validated above.
                     if let Some(slot) = self.history.get_mut(*index) {

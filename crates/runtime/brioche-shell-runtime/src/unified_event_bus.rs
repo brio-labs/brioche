@@ -177,7 +177,8 @@ impl SignalDrainOrder for UnifiedEventBus {
                         EngineEnvelope::TaskResult(r) => async_task_results.push(r),
                         EngineEnvelope::Input(_) => {
                             // EngineInput should not appear in the signal
-                            // drain path; ignore or log.
+                            // drain path; log at debug level.
+                            tracing::debug!("EngineEnvelope::Input discarded in signal drain");
                         }
                     }
                 }

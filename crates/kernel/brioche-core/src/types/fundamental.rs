@@ -156,6 +156,16 @@ pub enum BriocheError {
     #[error("invalid state transition: {0}")]
     /// Transition violates the automaton rules.
     InvalidStateTransition(String),
+    #[error("history index out of bounds: {operation} at {index} (len={len})")]
+    /// History edit index out of bounds.
+    HistoryIndexOutOfBounds {
+        /// Which operation failed.
+        operation: crate::types::effect::HistoryOperation,
+        /// The index that was out of bounds.
+        index: usize,
+        /// Current history length.
+        len: usize,
+    },
     #[error("storage access failed: {0}")]
     /// ExtensionStorage lookup or mutation failed.
     StorageAccess(String),

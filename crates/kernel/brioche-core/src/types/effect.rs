@@ -112,6 +112,69 @@ pub enum HistoryEdit {
     },
 }
 
+/// Discriminated history operation for typed error reporting.
+///
+/// Replaces the previous `String` anti-pattern in `ErrorDetail`.
+///
+/// Refs: I-Comp-Typed-Effects
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum HistoryOperation {
+    /// Insert a message at a specific history index.
+    Insert,
+    /// Overwrite a message at a specific history index.
+    Replace,
+    /// Discard all but the most recent N messages.
+    Truncate,
+}
+
+impl std::fmt::Display for HistoryOperation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HistoryOperation::Insert => write!(f, "insert"),
+            HistoryOperation::Replace => write!(f, "replace"),
+            HistoryOperation::Truncate => write!(f, "truncate"),
+        }
+    }
+}
+
+/// Structured source of a state inconsistency.
+///
+/// Replaces bare `String` in `ErrorDetail::StateInconsistent`.
+///
+/// Refs: I-Comp-Typed-Effects
+/// # Complexity
+/// O(1). No heap allocation.
+/// # Panics
+/// Never panics.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum InconsistencySource {
+    /// Internal kernel module.
+    Kernel {
+        /// Name of the kernel module that detected the inconsistency.
+        module: String,
+    },
+    /// Governance plugin.
+    Plugin {
+        /// Name of the plugin that detected the inconsistency.
+        name: String,
+    },
+}
+
+impl std::fmt::Display for InconsistencySource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InconsistencySource::Kernel { module } => write!(f, "kernel::{}", module),
+            InconsistencySource::Plugin { name } => write!(f, "plugin::{}", name),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // UiWidget
 // ---------------------------------------------------------------------------
@@ -253,7 +316,7 @@ pub enum ErrorDetail {
     /// History edit index out of bounds.
     HistoryIndexOutOfBounds {
         /// Which edit failed: insert, replace, or truncate.
-        operation: String,
+        operation: HistoryOperation,
         /// Position in history for the edit operation.
         index: usize,
         /// Current history length at the time of the failed edit.
@@ -284,7 +347,7 @@ pub enum ErrorDetail {
     /// State inconsistency detected by a governance plugin or internal check.
     StateInconsistent {
         /// Source of the inconsistency (plugin name or internal module).
-        source: String,
+        source: InconsistencySource,
     },
     /// Plugin evaluation failed with a reason string.
     PluginEvalFailed {
@@ -503,24 +566,24 @@ impl EffectBit {
 ///
 /// Complexity: O(1). Match on enum variant.
 /// # Panics
-/// Never panics.
+/// Never panics. The match is exhaustive over all `Effect` variants.
 ///
 /// Refs: I-Core-HookEffect-O1
-pub fn effect_to_bitmask(effect: &Effect) -> u64 {
+pub const fn effect_to_bitmask(effect: &Effect) -> u64 {
     match effect {
-        Effect::CallLlmNetwork => EffectBit::CALL_LLM_NETWORK,
-        Effect::ExecuteTools(_) => EffectBit::EXECUTE_TOOLS,
-        Effect::ForwardToUi(_) => EffectBit::FORWARD_TO_UI,
-        Effect::Error { .. } => EffectBit::ERROR,
-        Effect::SaveSession => EffectBit::SAVE_SESSION,
-        Effect::SavePluginBlob { .. } => EffectBit::SAVE_PLUGIN_BLOB,
-        Effect::TriggerSummarization => EffectBit::TRIGGER_SUMMARIZATION,
-        Effect::ExecuteCpuTask { .. } => EffectBit::EXECUTE_CPU_TASK,
-        Effect::TriggerGc => EffectBit::TRIGGER_GC,
-        Effect::SystemIdle => EffectBit::SYSTEM_IDLE,
-        Effect::PluginFault { .. } => EffectBit::PLUGIN_FAULT,
-        Effect::RebuildRoutes => EffectBit::REBUILD_ROUTES,
-        Effect::SubRoutineRestored { .. } => EffectBit::SUB_ROUTINE_RESTORED,
+        Effect::CallLlmNetwork => 1 << 0,
+        Effect::ExecuteTools(_) => 1 << 1,
+        Effect::ForwardToUi(_) => 1 << 2,
+        Effect::Error { .. } => 1 << 3,
+        Effect::SaveSession => 1 << 4,
+        Effect::SavePluginBlob { .. } => 1 << 5,
+        Effect::TriggerSummarization => 1 << 6,
+        Effect::ExecuteCpuTask { .. } => 1 << 7,
+        Effect::TriggerGc => 1 << 8,
+        Effect::SystemIdle => 1 << 9,
+        Effect::PluginFault { .. } => 1 << 10,
+        Effect::RebuildRoutes => 1 << 11,
+        Effect::SubRoutineRestored { .. } => 1 << 12,
     }
 }
 
