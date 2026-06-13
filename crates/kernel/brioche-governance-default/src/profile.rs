@@ -14,7 +14,7 @@ use crate::{
     LexicographicDecisionAggregator, NoopCycleRollbackPolicy, NoopGovernanceFailoverHandler,
     PermissiveHookEffectConstraint, QuarantineManager, RecoveryPolicy, StateConsistencyGuard,
     SubRoutineCleanupGuard, SubRoutineOrchestrator, SubRoutineTimeoutPolicy, SystemFailoverGuard,
-    TelemetryPlugin, TieredUndoFrameGuard, ToolTimeoutPolicy,
+    TelemetryPlugin, TieredUndoFrameGuard, ToolResultFormatter, ToolTimeoutPolicy,
 };
 
 /// Extension trait providing `with_profile` on `BriocheEngineBuilder`.
@@ -127,6 +127,7 @@ impl GovernanceProfile {
             .with_plugin(Box::new(RecoveryPolicy::new()))
             .with_plugin(Box::new(DepthGuard::with_max_depth(10)))
             .with_plugin(Box::new(TelemetryPlugin::new()))
+            .with_plugin(Box::new(ToolResultFormatter::new()))
             .with_plugin(Box::new(ToolTimeoutPolicy::with_default_timeout(30000)))
             .with_plugin(Box::new(SubRoutineTimeoutPolicy::with_default_timeout(
                 300000,
@@ -149,6 +150,7 @@ impl GovernanceProfile {
             .with_plugin(Box::new(RecoveryPolicy::new()))
             .with_plugin(Box::new(DepthGuard::with_max_depth(5)))
             .with_plugin(Box::new(TelemetryPlugin::new()))
+            .with_plugin(Box::new(ToolResultFormatter::new()))
             .with_plugin(Box::new(ToolTimeoutPolicy::with_default_timeout(10000)))
             .with_plugin(Box::new(SubRoutineTimeoutPolicy::with_default_timeout(
                 60000,

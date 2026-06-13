@@ -2,7 +2,7 @@
 //!
 //! Reference implementations for event tracking and logging:
 //! - `TelemetryPlugin`: unified telemetry observer (merged from
-//!   `ToolCallDetector`, `TransitionConflictLogger`, `ToolResultFormatter`,
+//!   `ToolCallDetector`, `TransitionConflictLogger`,
 //!   `ToolExecutionTracker`, and `RollbackTelemetryEmitter`)
 //!
 //! Refs: I-Core-ActiveToolCall, I-Gov-OverrideTrace, I-Gov-Rollback-BestEffort
@@ -93,8 +93,7 @@ pub struct RollbackTelemetryState {
 /// Unified telemetry plugin.
 ///
 /// Combines `ToolCallDetector`, `TransitionConflictLogger`,
-/// `ToolResultFormatter`, `ToolExecutionTracker`, and
-/// `RollbackTelemetryEmitter` into a single plugin.
+/// `ToolExecutionTracker`, and `RollbackTelemetryEmitter` into a single plugin.
 ///
 /// Refs: I-Gov-TraitAtomic
 pub struct TelemetryPlugin;
@@ -225,12 +224,13 @@ impl BriochePlugin for TelemetryPlugin {
     /// Counts tool calls.
     fn on_tool_calls(
         &self,
-        calls: &mut Vec<ToolCallDescriptor>,
-        ext: &mut ExtensionStorage,
+        _calls: &mut Vec<ToolCallDescriptor>,
+        _ext: &mut ExtensionStorage,
     ) -> PluginResult<()> {
-        let tracker = ext.get_or_insert_default::<crate::tool_pipeline::ToolExecutionTelemetry>();
-        tracker.total_calls += calls.len() as u64;
-
+        // Tool call counting is handled by `ToolExecutionTracker` in
+        // `tool_pipeline.rs` to preserve the "one concern per plugin" rule.
+        // TelemetryPlugin only observes stream events, transition conflicts,
+        // and rollback metrics.
         Ok(())
     }
 }
