@@ -23,7 +23,7 @@ use crate::shell_builder::build_shell;
 
 /// Dependencies needed to create new shells (shared between
 /// `run`, `handle_slash_command`, and `handle_session_command`).
-/// Refs: SPECS.md §Book IV
+/// Refs: docs/SPECS.md §Book IV
 #[derive(Clone)]
 pub struct ShellFactory {
     /// Redb storage for session persistence.
@@ -261,7 +261,7 @@ async fn handle_session_command(
 }
 
 /// Help text displayed by `/help`.
-/// Refs: SPECS.md §Book IV
+/// Refs: docs/SPECS.md §Book IV
 pub fn print_repl_help() -> String {
     let mut lines = Vec::new();
     lines.push(format!("{}", Style::new().bold().paint("Commands:")));

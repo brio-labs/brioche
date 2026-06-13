@@ -17,7 +17,7 @@
 //! - `BriocheEngine::transition()`: Main state transition function.
 //! - `BriocheEngineBuilder`: Compile-time wiring of traits and plugins.
 //!
-//! Refs: SPECS.md §4, §5; PHILOSOPHY.md §1, §2, §7
+//! Refs: docs/SPECS.md §4, §5; PHILOSOPHY.md §1, §2, §7
 
 use crate::{
     ConsistencyVerifier, CycleRollbackPolicy, DecisionAggregator, Effect, EngineInput,

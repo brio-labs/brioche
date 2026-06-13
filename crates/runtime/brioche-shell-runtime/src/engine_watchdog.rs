@@ -6,7 +6,7 @@
 //!
 //! The watchdog **never** attempts to forcibly kill the engine thread.
 //!
-//! Refs: SPECS.md §Book III-A Ch 4, I-Shell-Watchdog-NoKill
+//! Refs: docs/SPECS.md §Book III-A Ch 4, I-Shell-Watchdog-NoKill
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -36,7 +36,7 @@ pub struct WatchdogPong {
 /// The shell configures this at startup. The default implementation
 /// logs a critical error and emits a telemetry event.
 ///
-/// Refs: SPECS.md §Book III-A Ch 4
+/// Refs: docs/SPECS.md §Book III-A Ch 4
 #[derive(Clone, Debug)]
 pub enum RecoveryProcedure {
     /// Emergency serialization + engine restart with session restored
@@ -97,7 +97,7 @@ impl EngineWatchdog {
 
 impl EngineWatchdog {
     /// Create a watchdog with the given configuration.
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn new(
         heartbeat_interval_ms: u64,
         max_response_delay_ms: u64,
@@ -187,7 +187,7 @@ impl EngineWatchdog {
 ///
 /// The engine thread loop should check `respond_if_pinged()` between
 /// transition cycles.
-/// Refs: SPECS.md §Book III-A
+/// Refs: docs/SPECS.md §Book III-A
 pub struct EngineWatchdogHandle {
     ping_rx: mpsc::Receiver<WatchdogPing>,
     pong_tx: mpsc::Sender<WatchdogPong>,
@@ -196,7 +196,7 @@ pub struct EngineWatchdogHandle {
 
 impl EngineWatchdogHandle {
     /// Create a new handle and the associated watchdog channels.
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn new(
         pending_inputs_counter: std::sync::Arc<AtomicU64>,
     ) -> (
@@ -220,7 +220,7 @@ impl EngineWatchdogHandle {
     ///
     /// This method is non-blocking. It should be called by the engine
     /// thread loop between transition cycles.
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn respond_if_pinged(&mut self, last_epoch: u64) {
         if let Ok(_ping) = self.ping_rx.try_recv() {
             let pending_inputs = self.pending_inputs_counter.load(Ordering::Relaxed) as usize;

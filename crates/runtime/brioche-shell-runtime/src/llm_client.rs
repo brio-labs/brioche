@@ -68,7 +68,7 @@ pub enum LlmChunk {
 /// and payload segmentation. The shell runtime drives the loop that
 /// converts provider chunks into `StreamEvent`s.
 ///
-/// Refs: SPECS.md §Book III-A Ch 1
+/// Refs: docs/SPECS.md §Book III-A Ch 1
 #[async_trait::async_trait]
 pub trait LlmClient: Send + Sync {
     /// Initiate an LLM call and stream fragments back via `shell.send_input`.
@@ -98,7 +98,7 @@ pub trait LlmClient: Send + Sync {
 // ---------------------------------------------------------------------------
 
 /// A mock LLM client that yields a fixed sequence of text chunks.
-/// Refs: SPECS.md §Book III-A
+/// Refs: docs/SPECS.md §Book III-A
 #[derive(Clone, Debug)]
 pub struct MockLlmClient {
     /// Fixed sequence of text chunks yielded by the mock client.

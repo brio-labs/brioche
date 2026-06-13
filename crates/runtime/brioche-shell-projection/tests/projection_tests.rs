@@ -7,7 +7,7 @@
 //! - UiComposer priority scheduling and frame budget
 //! - UiPerformancePolicy storage synchronization
 //!
-//! Refs: SPECS.md §Book III-C
+//! Refs: docs/SPECS.md §Book III-C
 
 use brioche_core::{Effect, SubRoutineHandle};
 use brioche_shell_projection::{

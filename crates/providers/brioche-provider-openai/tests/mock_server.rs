@@ -6,7 +6,7 @@
 //! - Network errors emit `SystemSignal::NetworkUnavailable`.
 //! - HTTP 4xx/5xx errors emit `SystemSignal::NetworkUnavailable`.
 //!
-//! Refs: SPECS.md §Book III-B, I-Shell-Network-Signal
+//! Refs: docs/SPECS.md §Book III-B, I-Shell-Network-Signal
 
 use std::time::Duration;
 

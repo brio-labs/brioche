@@ -28,7 +28,7 @@
 //! - I-Gov-TraitAtomic: Each plugin implements exactly one trait.
 //! - I-Gov-NoCoreMutation: Plugins only mutate their own `ExtensionStorage` state.
 //!
-//! Refs: SPECS.md §Book II
+//! Refs: docs/SPECS.md §Book II
 
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 

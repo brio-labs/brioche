@@ -4,7 +4,7 @@
 //! `Session` used by the Redb persistence layer. It flattens the
 //! hierarchical automaton state and strips runtime-only pointers.
 //!
-//! Refs: SPECS.md §Book III-B Ch 1.1, I-Persist-Idempotence
+//! Refs: docs/SPECS.md §Book III-B Ch 1.1, I-Persist-Idempotence
 
 use std::collections::BTreeMap;
 
@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 /// Read-Upgrade-Write: a `V1` blob loaded from disk is upgraded to `V2`
 /// in memory before the next write.
 ///
-/// Refs: SPECS.md §Book III-B Ch 1.1
+/// Refs: docs/SPECS.md §Book III-B Ch 1.1
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SessionSchemaVersion {
     /// Initial schema (Sprint 12).
@@ -94,7 +94,7 @@ impl From<FlattenedAgentState> for AgentState {
 ///   `ExtensionStorage`, never hot-map pointers.
 /// - `state_stack` is fully flattened; no live `Session` references.
 ///
-/// Refs: SPECS.md §Book III-B Ch 1.1, I-Persist-SaveSession
+/// Refs: docs/SPECS.md §Book III-B Ch 1.1, I-Persist-SaveSession
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionHeadDTO {
     /// Schema version for migration support.

@@ -10,7 +10,7 @@
 //! - I-UI-IPC-Rate: Rate limiting is applied at the caller boundary.
 //! - I-Shell-Load-Batch: `load_subroutine` checks cache before Redb.
 //!
-//! Refs: SPECS.md §Book III-C Ch 4
+//! Refs: docs/SPECS.md §Book III-C Ch 4
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -127,7 +127,7 @@ impl IpcCommandService {
     /// await points. Dropping it releases the guard without modifying
     /// cache state; callers should retry the load on recovery.
     ///
-    /// Refs: SPECS.md §Book III-C Ch 5, I-Shell-Load-Batch
+    /// Refs: docs/SPECS.md §Book III-C Ch 5, I-Shell-Load-Batch
     pub async fn load_subroutine(&self, handle: SubRoutineHandle) -> Result<(), ShellError> {
         let storage = self.storage.as_ref().ok_or_else(|| {
             ShellError::EffectExecution("load_subroutine requires persistence".into())

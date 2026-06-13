@@ -76,10 +76,10 @@ Network failures are handled entirely within `DefaultEffectExecutor::call_llm()`
 
 ## Book References
 
-- SPECS.md §Book I Ch 6.2 — Interface contract with Governance layer (mandatory traits)
-- SPECS.md §Book I Ch 6.3 — Interface contract with Shell (SignalDrainOrder, TransitionJournal)
-- SPECS.md §Book III-A Ch 1.1 — Shell startup procedure (9 steps)
-- SPECS.md §Book III-A Ch 1.3 — Effect execution (`RebuildRoutes` as transactional barrier)
-- SPECS.md §Book III-A Ch 4 — EngineWatchdog bi-directional heartbeat
+- docs/SPECS.md §Book I Ch 6.2 — Interface contract with Governance layer (mandatory traits)
+- docs/SPECS.md §Book I Ch 6.3 — Interface contract with Shell (SignalDrainOrder, TransitionJournal)
+- docs/SPECS.md §Book III-A Ch 1.1 — Shell startup procedure (9 steps)
+- docs/SPECS.md §Book III-A Ch 1.3 — Effect execution (`RebuildRoutes` as transactional barrier)
+- docs/SPECS.md §Book III-A Ch 4 — EngineWatchdog bi-directional heartbeat
 - PHILOSOPHY.md §2.1 — Mechanism vs Policy in Code
 - PHILOSOPHY.md §4.4 — Architecture Decision Records in Code

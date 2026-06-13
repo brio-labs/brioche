@@ -15,7 +15,7 @@
 //! - I-Shell-TransitionJournal-Idempotent: Replaying a journal entry
 //!   produces the same effects as the original transition.
 //!
-//! Refs: SPECS.md §Book III-A Ch 1, §Book III-A Ch 4
+//! Refs: docs/SPECS.md §Book III-A Ch 1, §Book III-A Ch 4
 
 use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -77,7 +77,7 @@ impl std::fmt::Debug for TransitionJournal {
 }
 
 /// Recorded journal entry.
-/// Refs: SPECS.md §Book III-A
+/// Refs: docs/SPECS.md §Book III-A
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum JournalEntry {
     /// A persisted `EngineInput`.
@@ -95,7 +95,7 @@ impl TransitionJournal {
     /// Create a new empty journal with 1 MB pre-allocated.
     ///
     /// Complexity: O(1). Allocates one heap block.
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn new() -> Self {
         Self {
             buffer: UnsafeCell::new(Box::new([0u8; JOURNAL_CAPACITY_BYTES])),

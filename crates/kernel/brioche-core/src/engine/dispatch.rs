@@ -8,7 +8,7 @@
 //! - I-Core-RetVecEffect: Effects are appended to a mutable `Vec`.
 //! - I-Core-ActiveToolCall: Tool descriptors are sealed before storage.
 //!
-//! Refs: SPECS.md §4, §5
+//! Refs: docs/SPECS.md §4, §5
 
 use super::BriocheEngine;
 use crate::types::InconsistencySource;

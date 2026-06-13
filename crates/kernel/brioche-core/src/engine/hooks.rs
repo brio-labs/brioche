@@ -8,7 +8,7 @@
 //! - I-Gov-Rollback-BestEffort: Rollback per plugin via `CycleRollbackPolicy`.
 //! - I-Core-PluginOrder: Total order via `(priority, name)`.
 //!
-//! Refs: SPECS.md §4.2
+//! Refs: docs/SPECS.md §4.2
 
 use super::{BriocheEngine, InputResult};
 use crate::types::InconsistencySource;

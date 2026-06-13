@@ -7,13 +7,13 @@
 //! - `brioche-docgen` CLI for spec and ADR generation.
 //! - `trait_graph` renderer for governance compatibility tables.
 //!
-//! Refs: SPECS.md §Book IV Ch 3 §3.3
+//! Refs: docs/SPECS.md §Book IV Ch 3 §3.3
 
 use serde::{Deserialize, Serialize};
 
 /// A node in the trait dependency graph.
 ///
-/// Refs: SPECS.md §Book IV Ch 3 §3.3
+/// Refs: docs/SPECS.md §Book IV Ch 3 §3.3
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TraitNode {
     /// Trait name (e.g. `BriochePlugin`).
@@ -26,7 +26,7 @@ pub struct TraitNode {
 
 /// Trait dependency graph.
 ///
-/// Refs: SPECS.md §Book IV Ch 3 §3.3
+/// Refs: docs/SPECS.md §Book IV Ch 3 §3.3
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TraitGraph {
     /// Trait nodes in the graph.
@@ -37,7 +37,7 @@ pub struct TraitGraph {
 
 /// Supported output formats for the trait graph.
 ///
-/// Refs: SPECS.md §Book IV Ch 3 §3.3
+/// Refs: docs/SPECS.md §Book IV Ch 3 §3.3
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TraitGraphFormat {
     /// Markdown output with an embedded Mermaid diagram.
@@ -51,7 +51,7 @@ pub enum TraitGraphFormat {
 impl TraitGraphFormat {
     /// Parse a format identifier (`"json"`, `"html"`, anything else → Markdown).
     ///
-    /// Refs: SPECS.md §Book IV Ch 3 §3.3
+    /// Refs: docs/SPECS.md §Book IV Ch 3 §3.3
     pub fn parse(format: &str) -> Self {
         match format {
             "json" => TraitGraphFormat::Json,
@@ -62,7 +62,7 @@ impl TraitGraphFormat {
 
     /// File extension for this format.
     ///
-    /// Refs: SPECS.md §Book IV Ch 3 §3.3
+    /// Refs: docs/SPECS.md §Book IV Ch 3 §3.3
     pub fn extension(self) -> &'static str {
         match self {
             TraitGraphFormat::Json => "json",
@@ -72,9 +72,9 @@ impl TraitGraphFormat {
     }
 }
 
-/// Build the canonical trait graph derived from SPECS.md.
+/// Build the canonical trait graph derived from docs/SPECS.md.
 ///
-/// Refs: SPECS.md §Book IV Ch 3 §3.3
+/// Refs: docs/SPECS.md §Book IV Ch 3 §3.3
 pub fn build_trait_graph() -> TraitGraph {
     let mut graph = TraitGraph::default();
 
@@ -137,7 +137,7 @@ pub fn build_trait_graph() -> TraitGraph {
 
 /// Render a trait graph as Markdown (Mermaid + trait table).
 ///
-/// Refs: SPECS.md §Book IV Ch 3 §3.3
+/// Refs: docs/SPECS.md §Book IV Ch 3 §3.3
 pub fn graph_to_markdown(graph: &TraitGraph) -> String {
     let mut out = String::new();
     out.push_str("# Brioche Trait Dependency Graph\n\n");
@@ -168,7 +168,7 @@ pub fn graph_to_markdown(graph: &TraitGraph) -> String {
 
 /// Render a trait graph as a minimal HTML page.
 ///
-/// Refs: SPECS.md §Book IV Ch 3 §3.3
+/// Refs: docs/SPECS.md §Book IV Ch 3 §3.3
 pub fn graph_to_html(graph: &TraitGraph) -> String {
     let mut out = String::new();
     out.push_str("<html><head><title>Brioche Trait Graph</title></head><body>");
@@ -192,7 +192,7 @@ pub fn graph_to_html(graph: &TraitGraph) -> String {
 /// Never panics. Serialization of this graph is infallible in practice;
 /// on the theoretical error path an empty JSON object is returned.
 ///
-/// Refs: SPECS.md §Book IV Ch 3 §3.3
+/// Refs: docs/SPECS.md §Book IV Ch 3 §3.3
 pub fn graph_to_json(graph: &TraitGraph) -> String {
     match serde_json::to_string_pretty(graph) {
         Ok(json) => json,
@@ -202,7 +202,7 @@ pub fn graph_to_json(graph: &TraitGraph) -> String {
 
 /// Render a trait graph in the requested format.
 ///
-/// Refs: SPECS.md §Book IV Ch 3 §3.3
+/// Refs: docs/SPECS.md §Book IV Ch 3 §3.3
 pub fn render_trait_graph(graph: &TraitGraph, format: TraitGraphFormat) -> String {
     match format {
         TraitGraphFormat::Json => graph_to_json(graph),
@@ -213,7 +213,7 @@ pub fn render_trait_graph(graph: &TraitGraph, format: TraitGraphFormat) -> Strin
 
 /// All sequence diagram variants known to docgen.
 ///
-/// Refs: SPECS.md §Book IV Ch 3 §3.3
+/// Refs: docs/SPECS.md §Book IV Ch 3 §3.3
 pub const SEQUENCE_DIAGRAM_VARIANTS: &[&str] = &[
     "UserMessage",
     "LlmStream",
@@ -223,7 +223,7 @@ pub const SEQUENCE_DIAGRAM_VARIANTS: &[&str] = &[
 
 /// Build a sequence diagram for an `EngineInput` variant.
 ///
-/// Refs: SPECS.md §Book IV Ch 3 §3.3
+/// Refs: docs/SPECS.md §Book IV Ch 3 §3.3
 pub fn build_sequence_diagram(variant: &str) -> String {
     let mut out = String::new();
     out.push_str(&format!("# Sequence Diagram: `{}`\n\n", variant));

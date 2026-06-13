@@ -16,4 +16,4 @@
 //! - I-Gov-NoCoreMutation: Plugins never mutate `Session` directly.
 //! - I-Gov-EffectExplicit: All policy decisions return typed effects.
 //!
-//! Refs: SPECS.md §Book II
+//! Refs: docs/SPECS.md §Book II

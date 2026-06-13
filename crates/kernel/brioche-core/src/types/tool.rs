@@ -135,7 +135,7 @@ pub fn tool_outcome_to_string(outcome: &ToolOutcome) -> String {
 /// These are **data**, not failures. The LLM receives them in context
 /// and can react accordingly.
 ///
-/// Refs: SPECS.md §1.5
+/// Refs: docs/SPECS.md §1.5
 /// # Complexity
 /// O(1). No heap allocation.
 /// # Panics

@@ -3,7 +3,7 @@
 //! Covers DTO roundtrips, Redb storage, compression, delta protocol,
 //! sub-routine cache, lazy loading, GC, and idempotence.
 //!
-//! Refs: SPECS.md §Book III-B, I-Persist-Idempotence, I-Persist-GC-Interrupt
+//! Refs: docs/SPECS.md §Book III-B, I-Persist-Idempotence, I-Persist-GC-Interrupt
 
 use std::num::NonZeroUsize;
 
