@@ -8,7 +8,7 @@
 //! - I-UI-IPC-Rate: Emission is gated by [`IpcRateLimiter`].
 //! - I-Eco-OrderedCollections: Uses `BTreeMap` for deterministic trace ordering.
 //!
-//! Refs: SPECS.md §Book III-C Ch 2
+//! Refs: docs/SPECS.md §Book III-C Ch 2
 
 use std::collections::BTreeMap;
 

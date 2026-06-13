@@ -68,7 +68,7 @@ fn openai_tool_call(id: &str, name: &str, arguments: &str) -> serde_json::Value 
 ///
 /// # Complexity
 /// O(n) where n = number of messages. One `Vec` allocation.
-/// Refs: SPECS.md §Book III-B
+/// Refs: docs/SPECS.md §Book III-B
 pub fn build_messages(history: &[ChatMessage]) -> Vec<serde_json::Value> {
     let (start_idx, keep_first) = if history.len() > MAX_MESSAGES_PER_REQUEST {
         let first_is_system = matches!(&history.first(), Some(ChatMessage::System { .. }));
@@ -155,7 +155,7 @@ pub fn build_messages(history: &[ChatMessage]) -> Vec<serde_json::Value> {
 ///
 /// `tools` is optional. When provided, the `tools` field is injected
 /// into the payload to enable function calling mode.
-/// Refs: SPECS.md §Book III-B
+/// Refs: docs/SPECS.md §Book III-B
 pub fn build_request_body(
     model: &str,
     messages: Vec<serde_json::Value>,

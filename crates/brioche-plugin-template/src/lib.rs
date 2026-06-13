@@ -10,7 +10,7 @@
 //! - I-Eco-ExtensionOverMod: Plugin is pure policy, never modifies mechanism.
 //! - I-Eco-OrderedCollections: State uses `BTreeMap` for determinism.
 //!
-//! Refs: SPECS.md §Book IV
+//! Refs: docs/SPECS.md §Book IV
 
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 

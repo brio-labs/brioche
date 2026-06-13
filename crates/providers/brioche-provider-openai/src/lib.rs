@@ -21,7 +21,7 @@
 //! - I-Core-ChunkBudget: any fragment > 4096 bytes is segmented.
 //! - I-Shell-Network-Signal: network error → SystemSignal::NetworkUnavailable.
 //!
-//! Refs: SPECS.md §Book III-A
+//! Refs: docs/SPECS.md §Book III-A
 
 pub mod client;
 pub mod config;

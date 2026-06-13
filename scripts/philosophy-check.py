@@ -238,6 +238,7 @@ INVARIANT_CRATES = [
 INVARIANT_PATTERNS = [
     "Refs: I-",
     "Refs: SPECS",
+    "Refs: docs/SPECS",
     "# Invariants",
     "# Invariant",
 ]
@@ -1285,7 +1286,7 @@ def check_language_consistency() -> CheckResult:
 
 # ---------------------------------------------------------------------------
 # 10. Session !Send / !Sync marker
-#     SPECS.md §2.1: Session is !Send and !Sync.
+#     docs/SPECS.md §2.1: Session is !Send and !Sync.
 #     Rust stable uses PhantomData<*mut ()> since negative impls are unstable.
 # ---------------------------------------------------------------------------
 
@@ -1322,7 +1323,7 @@ def check_session_send_sync() -> CheckResult:
 
 # ---------------------------------------------------------------------------
 # 11. critical_state annotation on fundamental governance types
-#     SPECS.md §3.2: EpochState, QuarantineState, DepthState, TransitionTraceLog,
+#     docs/SPECS.md §3.2: EpochState, QuarantineState, DepthState, TransitionTraceLog,
 #     SupersededTransitionTraceLog, SubRoutineTimerState, HookEffectConstraintState
 #     must carry #[brioche(critical_state)].
 # ---------------------------------------------------------------------------
@@ -1367,7 +1368,7 @@ def check_critical_state() -> CheckResult:
                         path,
                         i + 1,
                         f"`{struct_name}` is a fundamental governance type and must carry "
-                        f"`#[brioche(critical_state)]` (SPECS.md §3.2)",
+                        f"`#[brioche(critical_state)]` (docs/SPECS.md §3.2)",
                     )
 
     return result

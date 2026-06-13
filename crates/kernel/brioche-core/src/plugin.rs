@@ -10,7 +10,7 @@
 //! - I-Core-StreamNoBranch: Pre-routed `UnifiedRoutingTable` eliminates hot-path branching.
 //! - I-Gov-TraitAtomic: Each trait is a standalone capability.
 //!
-//! Refs: SPECS.md §4, §Book II
+//! Refs: docs/SPECS.md §4, §Book II
 
 use std::any::{Any, TypeId};
 
@@ -336,7 +336,7 @@ pub trait DecisionAggregator: Send + Sync {
 ///
 /// Canonical order: `SystemSignal` → `GovernanceNotification` → `AsyncTaskResult`.
 ///
-/// Refs: SPECS.md §1.4, I-Shell-Drain-Atomic
+/// Refs: docs/SPECS.md §1.4, I-Shell-Drain-Atomic
 /// # Complexity
 /// O(1). No heap allocation.
 /// # Panics
@@ -411,7 +411,7 @@ pub trait SubRoutineLifecycleGuard: Send + Sync {
 ///
 /// Without injection, the kernel returns the raw `PluginFault`.
 ///
-/// Refs: SPECS.md §2.10
+/// Refs: docs/SPECS.md §2.10
 /// # Complexity
 /// O(1). No heap allocation.
 /// # Panics
@@ -429,7 +429,7 @@ pub trait GovernanceFailoverHandler: Send + Sync {
 ///
 /// Without injection, the default value is 65536 bytes (64 KB).
 ///
-/// Refs: SPECS.md §2.11
+/// Refs: docs/SPECS.md §2.11
 /// # Complexity
 /// O(1). No heap allocation.
 /// # Panics

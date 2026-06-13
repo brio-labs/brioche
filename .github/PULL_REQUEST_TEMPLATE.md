@@ -2,7 +2,7 @@
 <!-- What changed and why? -->
 
 ## Invariant Impact
-<!-- List affected invariants. Update SPECS.md if behavior changes. -->
+<!-- List affected invariants. Update docs/SPECS.md if behavior changes. -->
 -
 
 ## Human Checks (not enforced by CI)

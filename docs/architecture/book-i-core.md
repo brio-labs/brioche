@@ -1,7 +1,7 @@
 # Book I — The Core Book
 
 > Living specification of the synchronous kernel and pure mechanisms.
-> Canonical source: `SPECS.md` §BOOK I. This document is updated incrementally.
+> Canonical source: `docs/SPECS.md` §BOOK I. This document is updated incrementally.
 
 ---
 

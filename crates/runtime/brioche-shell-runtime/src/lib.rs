@@ -16,7 +16,7 @@
 //! - I-Shell-Backpressure-NoOverflow: `BackpressureRegulator` never exceeds capacity.
 //! - I-Shell-ToolResult-PassThrough: Shell does not transform tool results by policy.
 //!
-//! Refs: SPECS.md §Book III-A
+//! Refs: docs/SPECS.md §Book III-A
 
 pub mod effect_executor;
 pub mod engine_watchdog;

@@ -9,7 +9,7 @@
 //!   no effect is applied outside it.
 //! - I-UI-StreamBuffer: `TextChunk` effects are never dropped.
 //!
-//! Refs: SPECS.md §Book III-C Ch 3
+//! Refs: docs/SPECS.md §Book III-C Ch 3
 
 use std::collections::VecDeque;
 
@@ -36,7 +36,7 @@ pub enum EffectPriority {
 /// An `Effect` paired with its computed priority.
 ///
 /// Used internally by [`UiComposer`] to sort the pending frame.
-/// Refs: SPECS.md §Book III-A
+/// Refs: docs/SPECS.md §Book III-A
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScheduledEffect {
     /// The effect to schedule.
@@ -76,7 +76,7 @@ impl UiComposer {
     /// Create a composer with the default 2 ms frame budget.
     ///
     /// Complexity: O(1).
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn new() -> Self {
         Self::with_budget(2)
     }
@@ -84,7 +84,7 @@ impl UiComposer {
     /// Create a composer with a custom frame budget.
     ///
     /// Complexity: O(1).
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn with_budget(frame_budget_ms: u8) -> Self {
         Self {
             frame_budget_ms,
@@ -98,7 +98,7 @@ impl UiComposer {
     /// This is called by the shell when `UiPerformanceState` changes.
     ///
     /// Complexity: O(1).
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn set_frame_budget(&mut self, ms: u8) {
         self.frame_budget_ms = ms;
     }
@@ -106,7 +106,7 @@ impl UiComposer {
     /// Current frame budget in milliseconds.
     ///
     /// Complexity: O(1).
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn frame_budget(&self) -> u8 {
         self.frame_budget_ms
     }
@@ -117,7 +117,7 @@ impl UiComposer {
     /// ignored and should be handled by the shell's main effect executor.
     ///
     /// Complexity: O(1) amortized.
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn enqueue(&mut self, effect: Effect) {
         if let Effect::ForwardToUi(widget) = &effect {
             let priority = classify_widget(widget);
@@ -141,7 +141,7 @@ impl UiComposer {
     ///
     /// Complexity: O(n log n) where n = pending effects (sorting).
     /// No heap allocation beyond the output `Vec`.
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn compose_frame(&mut self) -> Vec<Effect> {
         let budget = self.frame_budget_ms as u16;
         let mut cost: u16 = 0;
@@ -192,7 +192,7 @@ impl UiComposer {
     /// Number of effects still pending for future frames.
     ///
     /// Complexity: O(1).
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn pending_count(&self) -> usize {
         self.pending.len()
     }
@@ -202,7 +202,7 @@ impl UiComposer {
     /// Called by the shell on session reset.
     ///
     /// Complexity: O(1) (drops the VecDeque).
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn clear(&mut self) {
         self.pending.clear();
     }

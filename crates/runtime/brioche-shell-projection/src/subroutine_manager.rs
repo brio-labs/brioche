@@ -8,7 +8,7 @@
 //! - I-UI-StreamBuffer: Each sub-routine has its own renderer.
 //! - I-Eco-OrderedCollections: `BTreeMap` for deterministic ordering.
 //!
-//! Refs: SPECS.md §Book III-C Ch 5
+//! Refs: docs/SPECS.md §Book III-C Ch 5
 
 use std::collections::BTreeMap;
 

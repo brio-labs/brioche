@@ -90,7 +90,7 @@ pub enum ShellError {
 /// Configuration for `BriocheShell`.
 ///
 /// All fields have sensible defaults.
-/// Refs: SPECS.md §Book III-A
+/// Refs: docs/SPECS.md §Book III-A
 #[derive(Clone, Debug)]
 pub struct ShellConfig {
     /// Capacity of the bounded channel to the engine.
@@ -149,7 +149,7 @@ pub struct TaskTracker {
 
 impl TaskTracker {
     /// Creates a new empty tracker.
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn new() -> Self {
         Self {
             handles: Arc::new(std::sync::Mutex::new(Vec::new())),
@@ -157,7 +157,7 @@ impl TaskTracker {
     }
 
     /// Spawns a task and retains its `JoinHandle`.
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn spawn<F>(&self, future: F)
     where
         F: std::future::Future<Output = ()> + Send + 'static,
@@ -172,7 +172,7 @@ impl TaskTracker {
     ///
     /// Returns `true` if all tasks are still active.
     /// For each finished task, emits a `tracing::error`.
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn health_check(&self) -> bool {
         let mut all_healthy = true;
         if let Ok(handles) = self.handles.lock() {
@@ -281,7 +281,7 @@ impl BriocheShell {
     /// 9. Launch effect consumption loop, IPC batching regulator,
     ///    backpressure worker.
     ///
-    /// Refs: SPECS.md §Book III-A Ch 1.1, I-Shell-Session-NoSend
+    /// Refs: docs/SPECS.md §Book III-A Ch 1.1, I-Shell-Session-NoSend
     pub fn new<F, E>(
         engine_factory: F,
         config: ShellConfig,
@@ -495,7 +495,7 @@ impl BriocheShell {
     /// Returns `true` if healthy; logs an error for each finished task.
     ///
     /// Refs: SCIFI — Connect
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn health_check(&self) -> bool {
         self.task_tracker.health_check()
     }
@@ -707,7 +707,7 @@ where
             //    the GovernanceNotificationAdapter and returns
             //    OverrideTransition([RebuildRoutes, ...]).
             //
-            // Refs: SPECS.md §Book III-A Ch 1.3
+            // Refs: docs/SPECS.md §Book III-A Ch 1.3
             let notification = GovernanceNotification::PluginFaulted {
                 plugin_name: plugin_name.0,
                 error,
@@ -803,7 +803,7 @@ use tokio::time::{Duration, Instant, interval};
 /// emitter.run().await;
 /// # }
 /// ```
-/// Refs: SPECS.md §Book III-A
+/// Refs: docs/SPECS.md §Book III-A
 #[derive(Clone, Debug)]
 pub struct TickEmitter {
     tx: mpsc::Sender<brioche_core::SystemSignal>,
@@ -816,7 +816,7 @@ impl TickEmitter {
     ///
     /// `tx` — sender wired to the `SystemSignal` channel consumed by the shell.
     /// `interval_ms` — tick period in milliseconds (default: 1000).
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn new(tx: mpsc::Sender<brioche_core::SystemSignal>, interval_ms: u64) -> Self {
         Self {
             tx,
@@ -876,7 +876,7 @@ pub trait ToolExecutor: Send + Sync {
 }
 
 /// A tool executor that always returns success with the argument string echoed.
-/// Refs: SPECS.md §Book III-A
+/// Refs: docs/SPECS.md §Book III-A
 #[derive(Clone, Debug, Default)]
 pub struct EchoToolExecutor;
 
@@ -903,7 +903,7 @@ use brioche_core::StreamEvent;
 
 /// Drop policy when the engine channel is under pressure.
 ///
-/// Refs: SPECS.md §Book III-A Ch 2
+/// Refs: docs/SPECS.md §Book III-A Ch 2
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DropPolicy {
     /// Drop intermediate text chunks, keep structural boundaries.
@@ -941,7 +941,7 @@ impl BackpressureRegulator {
     ///
     /// Returns the regulator handle and the receiver end that should be
     /// wired into the engine thread's input loop.
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn new(capacity: usize, drop_policy: DropPolicy) -> (Self, mpsc::Receiver<EngineInput>) {
         let (tx, rx) = mpsc::channel(capacity);
         let regulator = Self {
@@ -994,7 +994,7 @@ impl BackpressureRegulator {
     }
 
     /// Returns the configured capacity of the channel.
-    /// Refs: SPECS.md §Book III-A
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn capacity(&self) -> usize {
         self.capacity
     }

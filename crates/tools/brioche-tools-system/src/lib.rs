@@ -10,7 +10,7 @@
 //! - I-Shell-ToolResult-PassThrough: results are not transformed.
 //! - I-Shell-Runtime-OnlyIO: all I/O stays in the Shell.
 //!
-//! Refs: SPECS.md §Book III-A
+//! Refs: docs/SPECS.md §Book III-A
 
 pub mod registry;
 pub mod tools;
