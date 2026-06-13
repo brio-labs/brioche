@@ -11,7 +11,7 @@ use brioche_core::{ChatMessage, EngineInput};
 use brioche_provider_openai::LlmChunk;
 use brioche_shell_persistence::{RedbStorage, SessionStore};
 
-use crate::config::CliConfig;
+use crate::CliConfig;
 use crate::shell_builder::build_shell;
 
 /// Print accumulated reasoning to stderr, or silently discard it.

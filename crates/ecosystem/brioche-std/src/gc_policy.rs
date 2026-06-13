@@ -1,15 +1,13 @@
-//! GcPolicy — Book IV §1.7.
+//! GcPolicy and ContextOptimizer — Book IV §1.7, §1.3.
 //!
-//! Decides whether to trigger opportunistic garbage collection.
-//! On `after_prediction`, if the session has reached `Idle` state
-//! and a configurable number of cycles has passed since the last GC,
-//! requests `TriggerGc`.
+//! `GcPolicy` decides whether to trigger opportunistic garbage collection.
+//! `ContextOptimizer` monitors history size and triggers summarization.
 //!
 //! Refs: I-Eco-ExtensionOverMod, I-Eco-OrderedCollections
 
 use brioche_core::{
-    AgentStateTag, BriocheExtensionType, BriochePlugin, ExtensionStorage, PluginCapabilities,
-    PluginResult, SessionSnapshot,
+    AgentStateTag, BriocheExtensionType, BriochePlugin, ChatMessage, Effect, ExtensionStorage,
+    PluginCapabilities, PluginResult, PolicyDecision, SessionSnapshot,
 };
 
 /// GC policy state.
@@ -120,5 +118,97 @@ impl BriochePlugin for GcPolicy {
         }
 
         Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ContextOptimizer (merged from context_optimizer.rs)
+// ---------------------------------------------------------------------------
+
+/// Context optimizer state.
+///
+/// ## Snapshot strategy
+/// COW: full clone (~24 bytes). Three scalar fields.
+///
+/// Refs: I-Eco-OrderedCollections
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, BriocheExtensionType,
+)]
+pub struct ContextOptimizerState {
+    /// Maximum desired messages before summarization.
+    pub max_messages: usize,
+    /// Threshold percentage (0–100) at which to trigger summarization.
+    pub threshold_percent: u8,
+    /// Number of times summarization has been triggered.
+    pub summarizations_triggered: u64,
+}
+
+/// Context optimizer plugin.
+///
+/// Requests `TriggerSummarization` when history length exceeds
+/// `max_messages * threshold_percent / 100`.
+///
+/// Refs: I-Eco-ExtensionOverMod
+pub struct ContextOptimizer {
+    max_messages: usize,
+    threshold_percent: u8,
+}
+
+impl ContextOptimizer {
+    /// Creates an optimizer with a message limit and threshold.
+    ///
+    /// Refs: I-Eco-ExtensionOverMod
+    pub fn with_threshold(max_messages: usize, threshold_percent: u8) -> Self {
+        Self {
+            max_messages,
+            threshold_percent: threshold_percent.min(100),
+        }
+    }
+}
+
+impl Default for ContextOptimizer {
+    fn default() -> Self {
+        Self::with_threshold(100, 85)
+    }
+}
+
+impl BriochePlugin for ContextOptimizer {
+    fn name(&self) -> &'static str {
+        "context_optimizer"
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::BEFORE_PREDICTION
+    }
+
+    fn priority(&self) -> i16 {
+        -5 // After interceptors, before prediction
+    }
+
+    /// Triggers summarization if history exceeds the threshold.
+    ///
+    /// # Complexity
+    /// O(1). Only checks history length.
+    ///
+    /// # Panics
+    /// Never panics. No indexing or allocation on the hot path.
+    ///
+    /// Refs: I-Eco-ExtensionOverMod
+    fn before_prediction(
+        &self,
+        history: &[ChatMessage],
+        ext: &mut ExtensionStorage,
+    ) -> PluginResult<PolicyDecision> {
+        let state = ext.get_or_insert_default::<ContextOptimizerState>();
+        state.max_messages = self.max_messages;
+        state.threshold_percent = self.threshold_percent;
+
+        let threshold = (self.max_messages * self.threshold_percent as usize) / 100;
+        if threshold > 0 && history.len() >= threshold {
+            state.summarizations_triggered += 1;
+            return Ok(PolicyDecision::RequestEffect(Effect::TriggerSummarization));
+        }
+
+        Ok(PolicyDecision::Allow)
     }
 }

@@ -12,10 +12,9 @@ use brioche_core::{BriocheEngineBuilder, Missing, Present};
 use crate::{
     AdaptiveUndoFrameGuard, DepthGuard, EpochGuard, FastHookEffectConstraint,
     LexicographicDecisionAggregator, NoopCycleRollbackPolicy, NoopGovernanceFailoverHandler,
-    PermissiveHookEffectConstraint, QuarantineManager, RecoveryPolicy, RollbackTelemetryEmitter,
-    StateConsistencyGuard, SubRoutineCleanupGuard, SubRoutineOrchestrator, SubRoutineTimeoutPolicy,
-    SystemFailoverGuard, TieredUndoFrameGuard, ToolCallDetector, ToolExecutionTracker,
-    ToolResultFormatter, ToolTimeoutPolicy, TransitionConflictLogger,
+    PermissiveHookEffectConstraint, QuarantineManager, RecoveryPolicy, StateConsistencyGuard,
+    SubRoutineCleanupGuard, SubRoutineOrchestrator, SubRoutineTimeoutPolicy, SystemFailoverGuard,
+    TelemetryPlugin, TieredUndoFrameGuard, ToolTimeoutPolicy,
 };
 
 /// Extension trait providing `with_profile` on `BriocheEngineBuilder`.
@@ -109,9 +108,7 @@ impl GovernanceProfile {
             .with_hook_effect_constraint(Box::new(PermissiveHookEffectConstraint::new()))
             .with_cycle_rollback_policy(Box::new(NoopCycleRollbackPolicy))
             .with_governance_failover_handler(Box::new(NoopGovernanceFailoverHandler))
-            .with_plugin(Box::new(ToolCallDetector::new()))
-            .with_plugin(Box::new(ToolResultFormatter::new()))
-            .with_plugin(Box::new(ToolExecutionTracker::new()))
+            .with_plugin(Box::new(TelemetryPlugin::new()))
     }
 
     fn apply_standard(
@@ -129,15 +126,11 @@ impl GovernanceProfile {
             .with_plugin(Box::new(QuarantineManager::new()))
             .with_plugin(Box::new(RecoveryPolicy::new()))
             .with_plugin(Box::new(DepthGuard::with_max_depth(10)))
-            .with_plugin(Box::new(TransitionConflictLogger::new()))
-            .with_plugin(Box::new(ToolCallDetector::new()))
-            .with_plugin(Box::new(ToolResultFormatter::new()))
+            .with_plugin(Box::new(TelemetryPlugin::new()))
             .with_plugin(Box::new(ToolTimeoutPolicy::with_default_timeout(30000)))
             .with_plugin(Box::new(SubRoutineTimeoutPolicy::with_default_timeout(
                 300000,
             )))
-            .with_plugin(Box::new(ToolExecutionTracker::new()))
-            .with_plugin(Box::new(RollbackTelemetryEmitter::new()))
     }
 
     fn apply_strict(
@@ -155,14 +148,10 @@ impl GovernanceProfile {
             .with_plugin(Box::new(QuarantineManager::new()))
             .with_plugin(Box::new(RecoveryPolicy::new()))
             .with_plugin(Box::new(DepthGuard::with_max_depth(5)))
-            .with_plugin(Box::new(TransitionConflictLogger::new()))
-            .with_plugin(Box::new(ToolCallDetector::new()))
-            .with_plugin(Box::new(ToolResultFormatter::new()))
+            .with_plugin(Box::new(TelemetryPlugin::new()))
             .with_plugin(Box::new(ToolTimeoutPolicy::with_default_timeout(10000)))
             .with_plugin(Box::new(SubRoutineTimeoutPolicy::with_default_timeout(
                 60000,
             )))
-            .with_plugin(Box::new(ToolExecutionTracker::new()))
-            .with_plugin(Box::new(RollbackTelemetryEmitter::new()))
     }
 }

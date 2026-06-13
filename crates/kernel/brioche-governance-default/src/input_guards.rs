@@ -114,10 +114,12 @@ impl BriochePlugin for DepthGuard {
             return Ok(PolicyDecision::OverrideTransition(vec![
                 Effect::Error {
                     code: ErrorCode::StateInconsistency,
-                    detail: ErrorDetail::Generic(format!(
-                        "sub-routine depth limit exceeded: {} >= {}",
-                        current_depth, self.max_depth
-                    )),
+                    detail: ErrorDetail::EpochGuardRejected {
+                        reason: format!(
+                            "sub-routine depth limit exceeded: {} >= {}",
+                            current_depth, self.max_depth
+                        ),
+                    },
                 },
                 Effect::ForwardToUi(brioche_core::UiWidget::Error {
                     code: "DEPTH_LIMIT_EXCEEDED".into(),

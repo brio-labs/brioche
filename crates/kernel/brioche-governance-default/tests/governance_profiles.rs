@@ -14,8 +14,8 @@ use brioche_core::{
 };
 use brioche_governance_default::{
     AdaptiveUndoFrameGuard, BriocheEngineBuilderExt, GovernanceCompatibilityMatrix,
-    GovernanceProfile, QuarantineManager, QuarantineState, TieredUndoFrameGuard, ToolCallDetector,
-    ToolCallDetectorState, ToolTimeoutPolicy, TransitionConflictLogger, TreeDecisionAggregator,
+    GovernanceProfile, QuarantineManager, QuarantineState, TelemetryPlugin, TieredUndoFrameGuard,
+    ToolTimeoutPolicy, TreeDecisionAggregator,
 };
 
 // ---------------------------------------------------------------------------
@@ -135,12 +135,12 @@ fn tool_timeout_policy_bounds_max() {
 }
 
 // ---------------------------------------------------------------------------
-// ToolCallDetector
+// TelemetryPlugin
 // ---------------------------------------------------------------------------
 
 #[test]
-fn tool_call_detector_counts_events() {
-    let detector = ToolCallDetector::new();
+fn telemetry_plugin_counts_tool_calls() {
+    let plugin = TelemetryPlugin::new();
     let mut ext = ExtensionStorage::new();
 
     let start = StreamEvent::ToolCallStart {
@@ -148,27 +148,24 @@ fn tool_call_detector_counts_events() {
         id: "tc1".into(),
         name: "calc".into(),
     };
-    assert!(detector.on_stream_event(&start, &mut ext).is_ok());
+    assert!(plugin.on_stream_event(&start, &mut ext).is_ok());
 
     let done = StreamEvent::ToolCallDone {
         path: Default::default(),
     };
-    assert!(detector.on_stream_event(&done, &mut ext).is_ok());
+    assert!(plugin.on_stream_event(&done, &mut ext).is_ok());
 
-    let state = ext.get_or_insert_default::<ToolCallDetectorState>();
+    let state =
+        ext.get_or_insert_default::<brioche_governance_default::telemetry::ToolCallDetectorState>();
     assert_eq!(state.total_detected, 1);
     assert_eq!(state.total_completed, 1);
 }
 
-// ---------------------------------------------------------------------------
-// TransitionConflictLogger
-// ---------------------------------------------------------------------------
-
 #[test]
-fn transition_conflict_logger_observes_after_prediction() {
-    let logger = TransitionConflictLogger::new();
+fn telemetry_plugin_observes_after_prediction() {
+    let plugin = TelemetryPlugin::new();
     let mut ext = ExtensionStorage::new();
-    assert!(logger.after_prediction(&mut ext).is_ok());
+    assert!(plugin.after_prediction(&mut ext).is_ok());
 }
 
 // ---------------------------------------------------------------------------

@@ -1,20 +1,16 @@
 //! Telemetry observers — Book II §5.
 //!
 //! Reference implementations for event tracking and logging:
-//! - `ToolCallDetector`: counts tool call stream events
-//! - `TransitionConflictLogger`: archives transition conflict traces
-//! - `RollbackTelemetryEmitter`: aggregates rollback event metrics
+//! - `TelemetryPlugin`: unified telemetry observer (merged from
+//!   `ToolCallDetector`, `TransitionConflictLogger`, `ToolResultFormatter`,
+//!   `ToolExecutionTracker`, and `RollbackTelemetryEmitter`)
 //!
 //! Refs: I-Core-ActiveToolCall, I-Gov-OverrideTrace, I-Gov-Rollback-BestEffort
 
 use brioche_core::{
     BriochePlugin, ExtensionStorage, PluginCapabilities, PluginResult, RollbackEventLog,
-    StreamAction, StreamEvent, SupersededTransitionTraceLog,
+    StreamAction, StreamEvent, SupersededTransitionTraceLog, ToolCallDescriptor,
 };
-
-// ---------------------------------------------------------------------------
-// ToolCallDetector
-// ---------------------------------------------------------------------------
 
 /// Detected tool call counter.
 ///
@@ -36,71 +32,6 @@ pub struct ToolCallDetectorState {
     /// Total tool call completions detected.
     pub total_completed: u64,
 }
-
-/// Tool call detector in the stream.
-///
-/// On `on_stream_event`, increments counters during
-/// `ToolCallStart` and `ToolCallDone` events.
-///
-/// Refs: I-Core-ActiveToolCall
-pub struct ToolCallDetector;
-
-impl ToolCallDetector {
-    /// Creates a new instance.
-    ///
-    /// Refs: I-Gov-TraitAtomic
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for ToolCallDetector {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl BriochePlugin for ToolCallDetector {
-    fn name(&self) -> &'static str {
-        "tool_call_detector"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_STREAM_EVENT
-    }
-
-    fn priority(&self) -> i16 {
-        10
-    }
-
-    /// Counts `ToolCallStart` and `ToolCallDone` events.
-    ///
-    /// # Complexity
-    /// O(1). One `ExtensionStorage` read + integer increment.
-    fn on_stream_event(
-        &self,
-        event: &StreamEvent,
-        ext: &mut ExtensionStorage,
-    ) -> PluginResult<StreamAction> {
-        let state = ext.get_or_insert_default::<ToolCallDetectorState>();
-
-        match event {
-            StreamEvent::ToolCallStart { .. } => {
-                state.total_detected += 1;
-            }
-            StreamEvent::ToolCallDone { .. } => {
-                state.total_completed += 1;
-            }
-            _ => {}
-        }
-
-        Ok(StreamAction::Pass)
-    }
-}
-
-// ---------------------------------------------------------------------------
-// TransitionConflictLogger
-// ---------------------------------------------------------------------------
 
 /// Archived transition conflict summary.
 ///
@@ -124,72 +55,6 @@ pub struct TransitionConflictState {
     /// Last preempted plugin name (if any).
     pub last_preempted_plugin: Option<String>,
 }
-
-/// Transition conflict logger.
-///
-/// On `after_prediction`, inspects `SupersededTransitionTraceLog` to
-/// detect `OverrideTransition`s that have been preempted, archives the
-/// summary into `TransitionConflictState`, and clears the trace log.
-///
-/// Refs: I-Gov-TraitAtomic
-/// Refs: I-Gov-OverrideTrace
-pub struct TransitionConflictLogger;
-
-impl TransitionConflictLogger {
-    /// Creates a new instance.
-    ///
-    /// Refs: I-Gov-TraitAtomic
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for TransitionConflictLogger {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl BriochePlugin for TransitionConflictLogger {
-    fn name(&self) -> &'static str {
-        "transition_conflict_logger"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::AFTER_PREDICTION
-    }
-
-    fn priority(&self) -> i16 {
-        100
-    }
-
-    fn after_prediction(&self, ext: &mut ExtensionStorage) -> PluginResult<()> {
-        let entries = {
-            let log = ext.get_or_insert_default::<SupersededTransitionTraceLog>();
-            log.take_entries()
-        };
-
-        if entries.is_empty() {
-            return Ok(());
-        }
-
-        let state = ext.get_or_insert_default::<TransitionConflictState>();
-        state.total_conflicts += entries.len() as u64;
-
-        let mut seen = std::collections::BTreeSet::new();
-        for entry in &entries {
-            seen.insert(entry.preempted_by.clone());
-            state.last_preempted_plugin = Some(entry.preempted_by.clone());
-        }
-        state.unique_preempted_plugins = seen.len() as u64;
-
-        Ok(())
-    }
-}
-
-// ---------------------------------------------------------------------------
-// RollbackTelemetryEmitter
-// ---------------------------------------------------------------------------
 
 /// Observed rollback metrics.
 ///
@@ -221,17 +86,20 @@ pub struct RollbackTelemetryState {
     pub per_hook_stats: Vec<(String, u64, u64)>,
 }
 
-/// Rollback telemetry emitter.
-///
-/// Reads `RollbackEventLog` from `ExtensionStorage`, aggregates metrics,
-/// and stores them in `RollbackTelemetryState`. Clears the log after
-/// consumption to avoid double-counting.
-/// Refs: I-Gov-TraitAtomic
-///
-/// Refs: I-Gov-Rollback-BestEffort
-pub struct RollbackTelemetryEmitter;
+// ---------------------------------------------------------------------------
+// TelemetryPlugin — unified telemetry observer
+// ---------------------------------------------------------------------------
 
-impl RollbackTelemetryEmitter {
+/// Unified telemetry plugin.
+///
+/// Combines `ToolCallDetector`, `TransitionConflictLogger`,
+/// `ToolResultFormatter`, `ToolExecutionTracker`, and
+/// `RollbackTelemetryEmitter` into a single plugin.
+///
+/// Refs: I-Gov-TraitAtomic
+pub struct TelemetryPlugin;
+
+impl TelemetryPlugin {
     /// Creates a new instance.
     ///
     /// Refs: I-Gov-TraitAtomic
@@ -240,27 +108,72 @@ impl RollbackTelemetryEmitter {
     }
 }
 
-impl Default for RollbackTelemetryEmitter {
+impl Default for TelemetryPlugin {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl BriochePlugin for RollbackTelemetryEmitter {
+impl BriochePlugin for TelemetryPlugin {
     fn name(&self) -> &'static str {
-        "rollback_telemetry_emitter"
+        "telemetry_plugin"
     }
 
     fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::AFTER_PREDICTION
+        PluginCapabilities::ON_STREAM_EVENT
+            | PluginCapabilities::AFTER_PREDICTION
+            | PluginCapabilities::ON_TOOL_CALLS
     }
 
     fn priority(&self) -> i16 {
-        200 // Very late observer
+        100
     }
 
+    /// Counts `ToolCallStart` and `ToolCallDone` events.
+    ///
+    /// # Complexity
+    /// O(1). One `ExtensionStorage` read + integer increment.
+    fn on_stream_event(
+        &self,
+        event: &StreamEvent,
+        ext: &mut ExtensionStorage,
+    ) -> PluginResult<StreamAction> {
+        let state = ext.get_or_insert_default::<ToolCallDetectorState>();
+
+        match event {
+            StreamEvent::ToolCallStart { .. } => {
+                state.total_detected += 1;
+            }
+            StreamEvent::ToolCallDone { .. } => {
+                state.total_completed += 1;
+            }
+            _ => {}
+        }
+
+        Ok(StreamAction::Pass)
+    }
+
+    /// Archives transition conflicts and aggregates rollback metrics.
     fn after_prediction(&self, ext: &mut ExtensionStorage) -> PluginResult<()> {
-        // Steal events to avoid double mutable borrow of ext.
+        // Transition conflict logging
+        let entries = {
+            let log = ext.get_or_insert_default::<SupersededTransitionTraceLog>();
+            log.take_entries()
+        };
+
+        if !entries.is_empty() {
+            let state = ext.get_or_insert_default::<TransitionConflictState>();
+            state.total_conflicts += entries.len() as u64;
+
+            let mut seen = std::collections::BTreeSet::new();
+            for entry in &entries {
+                seen.insert(entry.preempted_by.clone());
+                state.last_preempted_plugin = Some(entry.preempted_by.clone());
+            }
+            state.unique_preempted_plugins = seen.len() as u64;
+        }
+
+        // Rollback telemetry
         let events = {
             let log = ext.get_or_insert_default::<RollbackEventLog>();
             std::mem::take(&mut log.events)
@@ -278,7 +191,6 @@ impl BriochePlugin for RollbackTelemetryEmitter {
                 }
             }
 
-            // Update per-hook stats using linear scan (n < 20).
             let hook_name = event.hook_name.clone();
             if let Some(entry) = state
                 .per_hook_stats
@@ -306,6 +218,18 @@ impl BriochePlugin for RollbackTelemetryEmitter {
                     .push((hook_name, abandonments, restorations));
             }
         }
+
+        Ok(())
+    }
+
+    /// Counts tool calls.
+    fn on_tool_calls(
+        &self,
+        calls: &mut Vec<ToolCallDescriptor>,
+        ext: &mut ExtensionStorage,
+    ) -> PluginResult<()> {
+        let tracker = ext.get_or_insert_default::<crate::tool_pipeline::ToolExecutionTelemetry>();
+        tracker.total_calls += calls.len() as u64;
 
         Ok(())
     }

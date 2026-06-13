@@ -9,15 +9,12 @@
 //!
 //! Refs: SPECS.md §Book III-C
 
-use brioche_core::{Effect, ExtensionStorage, SubRoutineHandle};
-use brioche_shell_projection::widget::{
-    WIDGET_ERROR, WIDGET_NETWORK_ERROR, WIDGET_STATUS, WIDGET_SUBROUTINE_TIMEOUT,
-    WIDGET_SYSTEM_DEGRADED, WIDGET_TEXT_CHUNK,
-};
+use brioche_core::{Effect, SubRoutineHandle};
 use brioche_shell_projection::{
     AnchorSlot, ContentRenderer, IpcRateLimiter, StreamBatch, StreamBatchEmitter, StreamBuffer,
-    SubRoutineAccordionState, SubRoutineManager, UiComposer, UiPerformancePolicy,
-    UiPerformanceState, UiRegistry,
+    SubRoutineAccordionState, SubRoutineManager, UiComposer, UiPerformancePolicy, UiRegistry,
+    WIDGET_ERROR, WIDGET_NETWORK_ERROR, WIDGET_STATUS, WIDGET_SUBROUTINE_TIMEOUT,
+    WIDGET_SYSTEM_DEGRADED, WIDGET_TEXT_CHUNK,
 };
 
 // ---------------------------------------------------------------------------
@@ -330,22 +327,6 @@ fn ui_composer_clear_empties_pending() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn ui_performance_state_default_budget() {
-    let state = UiPerformanceState::default();
-    assert_eq!(state.frame_budget_ms, 2);
-}
-
-#[test]
-fn ui_performance_state_with_budget_clamps() {
-    let state = UiPerformanceState::with_budget(0);
-    assert_eq!(state.frame_budget_ms, 1);
-    let state = UiPerformanceState::with_budget(20);
-    assert_eq!(state.frame_budget_ms, 16);
-    let state = UiPerformanceState::with_budget(5);
-    assert_eq!(state.frame_budget_ms, 5);
-}
-
-#[test]
 fn ui_performance_policy_new_has_default_budget() {
     let policy = UiPerformancePolicy::new();
     assert_eq!(policy.composer().frame_budget(), 2);
@@ -355,25 +336,6 @@ fn ui_performance_policy_new_has_default_budget() {
 fn ui_performance_policy_with_budget() {
     let policy = UiPerformancePolicy::with_budget(8);
     assert_eq!(policy.composer().frame_budget(), 8);
-}
-
-#[test]
-fn ui_performance_policy_sync_from_storage() {
-    let mut ext = ExtensionStorage::new();
-    ext.insert(UiPerformanceState::with_budget(7));
-
-    let mut policy = UiPerformancePolicy::new();
-    policy.sync_from_storage(&mut ext);
-    assert_eq!(policy.composer().frame_budget(), 7);
-}
-
-#[test]
-fn ui_performance_policy_sync_inserts_default_if_absent() {
-    let mut ext = ExtensionStorage::new();
-    let mut policy = UiPerformancePolicy::new();
-    policy.sync_from_storage(&mut ext);
-    // Default state has frame_budget_ms = 2.
-    assert_eq!(policy.composer().frame_budget(), 2);
 }
 
 #[test]

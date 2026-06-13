@@ -94,7 +94,9 @@ impl BriocheEngine {
                     PolicyDecision::Block { reason } => {
                         effects.push(Effect::Error {
                             code: ErrorCode::StateInconsistency,
-                            detail: ErrorDetail::Generic(reason),
+                            detail: ErrorDetail::HookConstraintFailed {
+                                reason: reason.clone(),
+                            },
                         });
                         effects.push(Effect::SystemIdle);
                         return Ok(());

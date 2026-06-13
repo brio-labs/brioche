@@ -21,22 +21,21 @@
 
 pub mod audit_logger;
 pub mod circuit_breaker;
-pub mod context_optimizer;
 pub mod gc_policy;
 pub mod pending_task_manager;
 pub mod token_tracker;
-pub mod tool_timeout_policy;
 
 // ---------------------------------------------------------------------------
 // Re-exports
 // ---------------------------------------------------------------------------
-
 pub use audit_logger::{AuditEntry, AuditLogger, AuditLoggerState};
+// Re-export standard timeout policy from governance-default.
+//
+// Refs: I-Eco-ExtensionOverMod
+pub use brioche_governance_default::ToolTimeoutPolicy;
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerState};
-pub use context_optimizer::{ContextOptimizer, ContextOptimizerState};
-pub use gc_policy::{GcPolicy, GcPolicyState};
+pub use gc_policy::{ContextOptimizer, ContextOptimizerState, GcPolicy, GcPolicyState};
 pub use pending_task_manager::{
     PendingTaskInfo, PendingTaskManager, PendingTaskState, PendingTaskStatus,
 };
 pub use token_tracker::{TokenTracker, TokenTrackerState};
-pub use tool_timeout_policy::ToolTimeoutPolicy;
