@@ -11,14 +11,14 @@ use std::sync::Arc;
 
 use brioche_core::{ChatMessage, EngineInput};
 use brioche_provider_openai::OpenAiLlmClient;
-use brioche_reedline::session::SessionManager;
+use brioche_reedline::SessionManager;
 use brioche_shell_persistence::{RedbStorage, SessionStore};
 use nu_ansi_term::{Color, Style};
 use reedline::ExternalPrinter;
 use tokio::sync::{RwLock, mpsc};
 use tokio_util::sync::CancellationToken;
 
-use crate::config::CliConfig;
+use crate::CliConfig;
 use crate::shell_builder::build_shell;
 
 /// Dependencies needed to create new shells (shared between

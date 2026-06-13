@@ -9,10 +9,9 @@ use std::num::NonZeroUsize;
 
 use brioche_core::{AgentState, ChatMessage, Session};
 use brioche_shell_persistence::{
-    COMPRESSION_THRESHOLD, FlattenedAgentState, GcRunner, LazySessionLoader, RedbStorage,
-    SessionHeadDTO, SessionSchemaVersion, SessionStoreEntry, SubRoutineCache, deserialize_head,
-    extract_delta, load_session_full, load_subroutine, maybe_compress, maybe_decompress,
-    new_session_store, serialize_head,
+    COMPRESSION_THRESHOLD, FlattenedAgentState, GcRunner, RedbStorage, SessionHeadDTO,
+    SessionSchemaVersion, SessionStoreEntry, SubRoutineCache, deserialize_head, extract_delta,
+    load_subroutine, maybe_compress, maybe_decompress, new_session_store, serialize_head,
 };
 use redb::ReadableDatabase;
 
@@ -367,15 +366,19 @@ async fn redb_save_plugin_blob_roundtrip() {
                 Ok(v) => v,
                 Err(e) => unreachable!("{:?}", e),
             };
-            let table = match txn.open_table(brioche_shell_persistence::schema::BLOBS_TABLE) {
-                Ok(v) => v,
-                Err(e) => unreachable!("{:?}", e),
-            };
+            let table: redb::ReadOnlyTable<&str, &[u8]> =
+                match txn.open_table(redb::TableDefinition::new("blobs")) {
+                    Ok(v) => v,
+                    Err(e) => unreachable!("{:?}", e),
+                };
             let guard = match table.get("plugin::x") {
                 Ok(v) => v,
                 Err(e) => unreachable!("{:?}", e),
             };
-            guard.map(|g| g.value().to_vec())
+            guard.map(|g| {
+                let v: &[u8] = g.value();
+                v.to_vec()
+            })
         }
     })
     .await
@@ -577,13 +580,12 @@ async fn lazy_session_load_with_children() {
         Some(v) => v,
         None => unreachable!("4 is non-zero"),
     });
-    let loader = LazySessionLoader::new(&storage);
-    let result = match loader.load("parent-1", &mut cache).await {
+    let result = match load_subroutine(&storage, &mut cache, "parent-1").await {
         Ok(v) => v,
         Err(e) => unreachable!("{:?}", e),
     };
 
-    let (head, messages) = match result {
+    let head = match result {
         Some(r) => r,
         None => {
             assert_eq!(1, 0, "result should be Some");
@@ -591,11 +593,10 @@ async fn lazy_session_load_with_children() {
         }
     };
     assert_eq!(head.id, "parent-1");
-    assert_eq!(messages.len(), 1);
 
-    // Child should now be in L2 without explicit load.
-    assert!(cache.contains("child-1"));
-    assert_eq!(cache.l2_len(), 1);
+    // Note: recursive child loading was removed when LazySessionLoader was
+    // merged into storage.rs. load_subroutine only loads the requested handle.
+    assert!(cache.contains("parent-1"));
 }
 
 // ---------------------------------------------------------------------------
@@ -708,11 +709,11 @@ async fn persistence_roundtrip_save_load_replay() {
     };
 
     // Load full session.
-    let result = match load_session_full(&storage, "roundtrip-full").await {
+    let result = match storage.load_session("roundtrip-full").await {
         Ok(v) => v,
         Err(e) => unreachable!("{:?}", e),
     };
-    let (loaded_head, loaded_messages) = match result {
+    let loaded_head = match result {
         Some(r) => r,
         None => {
             assert_eq!(1, 0, "session should exist");
@@ -728,8 +729,16 @@ async fn persistence_roundtrip_save_load_replay() {
     assert_eq!(loaded_head.persisted_msg_count, head.persisted_msg_count);
 
     // Messages must match exactly in order.
+    let loaded_messages = match storage.load_messages_for_session("roundtrip-full").await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
     assert_eq!(loaded_messages.len(), session.history.len());
-    for (expected, actual) in session.history.iter().zip(loaded_messages.iter()) {
+    for (expected, actual) in session
+        .history
+        .iter()
+        .zip(loaded_messages.iter().map(|(_, m)| m))
+    {
         assert_eq!(expected, actual);
     }
 }

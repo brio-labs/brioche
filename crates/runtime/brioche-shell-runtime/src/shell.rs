@@ -29,8 +29,7 @@ use brioche_core::{
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-    EffectExecutor, EngineWatchdog, EngineWatchdogHandle, PersistenceMode, TelemetryChannel,
-    TickEmitter, TransitionJournal,
+    EffectExecutor, EngineWatchdog, EngineWatchdogHandle, TelemetryChannel, TransitionJournal,
 };
 
 /// Lightweight snapshot of session mechanical state sent from the
@@ -737,4 +736,266 @@ where
         }
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// PersistenceMode (merged from persistence_mode.rs)
+// ---------------------------------------------------------------------------
+
+/// Controls the flush behavior of `SaveSession` effects.
+///
+/// Injected into the shell at startup via `ShellConfig`.
+///
+/// Refs: I-Shell-Persistence-Mode
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PersistenceMode {
+    /// Non-blocking save (default).
+    ///
+    /// The effect handler spawns a background task and returns
+    /// immediately.  Best for interactive latency.
+    #[default]
+    Async,
+    /// Blocking save.
+    ///
+    /// The effect handler awaits the Redb commit before returning.
+    /// Best for strict durability guarantees.
+    Sync,
+}
+
+impl PersistenceMode {
+    /// Returns `true` if this mode requires synchronous flush.
+    ///
+    /// Complexity: O(1).
+    ///
+    /// Refs: I-Shell-Persistence-Mode
+    pub fn is_sync(self) -> bool {
+        matches!(self, PersistenceMode::Sync)
+    }
+
+    /// Returns `true` if this mode allows asynchronous flush.
+    ///
+    /// Complexity: O(1).
+    ///
+    /// Refs: I-Shell-Persistence-Mode
+    pub fn is_async(self) -> bool {
+        matches!(self, PersistenceMode::Async)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// TickEmitter (merged from tick_emitter.rs)
+// ---------------------------------------------------------------------------
+
+use tokio::time::{Duration, Instant, interval};
+
+/// Emits periodic ticks into a `SystemSignal` channel.
+///
+/// # Example
+///
+/// ```no_run
+/// # async fn example() {
+/// use brioche_core::SystemSignal;
+/// use brioche_shell_runtime::TickEmitter;
+/// use tokio::sync::mpsc;
+///
+/// let (tx, _rx) = mpsc::channel(64);
+/// let emitter = TickEmitter::new(tx, 1000);
+/// emitter.run().await;
+/// # }
+/// ```
+/// Refs: SPECS.md §Book III-A
+#[derive(Clone, Debug)]
+pub struct TickEmitter {
+    tx: mpsc::Sender<brioche_core::SystemSignal>,
+    interval_ms: u64,
+    start: Instant,
+}
+
+impl TickEmitter {
+    /// Create a tick emitter from a sender.
+    ///
+    /// `tx` — sender wired to the `SystemSignal` channel consumed by the shell.
+    /// `interval_ms` — tick period in milliseconds (default: 1000).
+    /// Refs: SPECS.md §Book III-A
+    pub fn new(tx: mpsc::Sender<brioche_core::SystemSignal>, interval_ms: u64) -> Self {
+        Self {
+            tx,
+            interval_ms,
+            start: Instant::now(),
+        }
+    }
+
+    /// Run the emitter loop until the receiver is dropped.
+    ///
+    /// This future never completes unless the channel closes.
+    ///
+    /// # Cancel safety
+    /// This loop holds no state across await points. Dropping it stops
+    /// tick emission; no recovery action is required.
+    pub async fn run(self) {
+        let mut ticker = interval(Duration::from_millis(self.interval_ms));
+        let start = self.start;
+
+        loop {
+            ticker.tick().await;
+            let elapsed_ms = start.elapsed().as_millis() as u64;
+            let signal = brioche_core::SystemSignal::Tick { elapsed_ms };
+            if self.tx.send(signal).await.is_err() {
+                break;
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ToolExecutor (merged from tool_executor.rs)
+// ---------------------------------------------------------------------------
+
+use tokio_util::sync::CancellationToken;
+
+/// Execute a single tool call asynchronously.
+///
+/// The shell is responsible for timeout enforcement (via `tokio::select!`)
+/// and cancellation (via `CancellationToken`). The trait implementation
+/// should perform the actual tool invocation and return the raw
+/// `ToolResultDTO` without business-level transformation.
+///
+/// Refs: I-Shell-ToolResult-PassThrough
+#[async_trait::async_trait]
+pub trait ToolExecutor: Send + Sync {
+    /// Execute one `ActiveToolCall`.
+    ///
+    /// The `cancel` token is triggered by the shell on user cancellation
+    /// or engine shutdown. Implementations should respect it at
+    /// coarse-grained boundaries.
+    async fn execute(
+        &self,
+        call: &brioche_core::ActiveToolCall,
+        cancel: CancellationToken,
+    ) -> brioche_core::ToolResultDTO;
+}
+
+/// A tool executor that always returns success with the argument string echoed.
+/// Refs: SPECS.md §Book III-A
+#[derive(Clone, Debug, Default)]
+pub struct EchoToolExecutor;
+
+#[async_trait::async_trait]
+impl ToolExecutor for EchoToolExecutor {
+    async fn execute(
+        &self,
+        call: &brioche_core::ActiveToolCall,
+        _cancel: CancellationToken,
+    ) -> brioche_core::ToolResultDTO {
+        brioche_core::ToolResultDTO {
+            tool_id: call.tool_id.clone(),
+            tool_name: call.tool_name.clone(),
+            outcome: brioche_core::ToolOutcome::Success(call.arguments.clone()),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// BackpressureRegulator (merged from backpressure.rs)
+// ---------------------------------------------------------------------------
+
+use brioche_core::StreamEvent;
+
+/// Drop policy when the engine channel is under pressure.
+///
+/// Refs: SPECS.md §Book III-A Ch 2
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DropPolicy {
+    /// Drop intermediate text chunks, keep structural boundaries.
+    Conservative,
+    /// Never drop — blocks the SSE producer.
+    Strict,
+}
+
+/// Regulates flow into the engine's `EngineInput` channel.
+///
+/// # Example
+///
+/// ```
+/// use brioche_core::EngineInput;
+/// use brioche_shell_runtime::{BackpressureRegulator, DropPolicy};
+///
+/// # async fn example() {
+/// let (tx, mut rx) = BackpressureRegulator::new(128, DropPolicy::Conservative);
+/// tx.send(EngineInput::UserMessage("hello".into()))
+///     .await
+///     .unwrap();
+/// # }
+/// ```
+///
+/// Refs: I-Shell-Backpressure-NoOverflow
+#[derive(Clone)]
+pub struct BackpressureRegulator {
+    tx: mpsc::Sender<EngineInput>,
+    capacity: usize,
+    drop_policy: DropPolicy,
+}
+
+impl BackpressureRegulator {
+    /// Create a new regulator with the given channel capacity and drop policy.
+    ///
+    /// Returns the regulator handle and the receiver end that should be
+    /// wired into the engine thread's input loop.
+    /// Refs: SPECS.md §Book III-A
+    pub fn new(capacity: usize, drop_policy: DropPolicy) -> (Self, mpsc::Receiver<EngineInput>) {
+        let (tx, rx) = mpsc::channel(capacity);
+        let regulator = Self {
+            tx,
+            capacity,
+            drop_policy,
+        };
+        (regulator, rx)
+    }
+
+    /// Send an input into the engine channel.
+    ///
+    /// - In `Conservative` mode: attempts a non-blocking send first.
+    ///   If the channel is full and the input is an intermediate
+    ///   `LlmStream::TextChunk`, it is silently dropped. Structural
+    ///   events are never dropped.
+    /// - In `Strict` mode: waits for capacity unconditionally.
+    ///
+    /// Returns `Err` only if the receiver has been dropped.
+    ///
+    /// # Cancel safety
+    /// In `Conservative` mode, the non-blocking path is cancellation-safe.
+    /// In `Strict` mode, this future holds no locks across await points;
+    /// dropping it before completion only fails to enqueue the input.
+    pub async fn send(
+        &self,
+        input: EngineInput,
+    ) -> Result<(), mpsc::error::SendError<EngineInput>> {
+        match self.drop_policy {
+            DropPolicy::Conservative => {
+                // Try non-blocking first.
+                match self.tx.try_send(input) {
+                    Ok(()) => Ok(()),
+                    Err(mpsc::error::TrySendError::Full(input)) => {
+                        // Under pressure: drop intermediate text chunks only.
+                        if let EngineInput::LlmStream(StreamEvent::TextChunk { .. }) = &input {
+                            Ok(())
+                        } else {
+                            // Structural event: block until capacity.
+                            self.tx.send(input).await
+                        }
+                    }
+                    Err(mpsc::error::TrySendError::Closed(input)) => {
+                        Err(mpsc::error::SendError(input))
+                    }
+                }
+            }
+            DropPolicy::Strict => self.tx.send(input).await,
+        }
+    }
+
+    /// Returns the configured capacity of the channel.
+    /// Refs: SPECS.md §Book III-A
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
 }

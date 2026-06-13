@@ -31,16 +31,16 @@ fn compatibility_override_rebuild_is_recommended() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn compatibility_epoch_guard_with_undo_frame_guard() {
+fn compatibility_epoch_guard_with_adaptive_undo_frame_guard() {
     let level = GovernanceCompatibilityMatrix::lookup(
         "EpochInterceptor",
         "EpochGuard",
         "CycleRollbackPolicy",
-        "UndoFrameGuard",
+        "AdaptiveUndoFrameGuard",
     );
     assert!(
         matches!(level, Some(CompatibilityLevel::Recommended)),
-        "EpochGuard + UndoFrameGuard should be Recommended"
+        "EpochGuard + AdaptiveUndoFrameGuard should be Recommended"
     );
 }
 
@@ -130,7 +130,7 @@ fn compatibility_matrix_caution_on_noop_with_budget() {
         "CycleRollbackPolicy",
         "NoopCycleRollbackPolicy",
         "CowBudgetPolicy",
-        "HistoricalCowBudgetPolicy",
+        "NoopCowBudgetPolicy",
     );
     assert_eq!(level, Some(CompatibilityLevel::Caution));
 }
@@ -141,7 +141,7 @@ fn compatibility_matrix_lookup_unknown_returns_none() {
         "UnknownTrait",
         "UnknownImpl",
         "CycleRollbackPolicy",
-        "UndoFrameGuard",
+        "AdaptiveUndoFrameGuard",
     );
     assert!(level.is_none());
 }

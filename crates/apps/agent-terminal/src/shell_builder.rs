@@ -17,7 +17,7 @@ use brioche_tools_system::{
 };
 use tokio::sync::broadcast;
 
-use crate::config::CliConfig;
+use crate::CliConfig;
 
 /// Builds a complete `BriocheShell` with all its components.
 ///

@@ -250,8 +250,6 @@ impl UiWidget {
 /// Refs: I-Comp-Typed-Effects
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ErrorDetail {
-    /// Fallback for errors that do not yet have a structured variant.
-    Generic(String),
     /// History edit index out of bounds.
     HistoryIndexOutOfBounds {
         /// Which edit failed: insert, replace, or truncate.
@@ -288,12 +286,33 @@ pub enum ErrorDetail {
         /// Source of the inconsistency (plugin name or internal module).
         source: String,
     },
+    /// Plugin evaluation failed with a reason string.
+    PluginEvalFailed {
+        /// Name of the plugin that failed.
+        plugin_name: String,
+        /// Reason for failure.
+        reason: String,
+    },
+    /// Engine transition failed with a reason string.
+    TransitionFailed {
+        /// Reason for the transition failure.
+        reason: String,
+    },
+    /// Hook effect constraint evaluation failed.
+    HookConstraintFailed {
+        /// Reason for the constraint failure.
+        reason: String,
+    },
+    /// Epoch guard rejected the transition.
+    EpochGuardRejected {
+        /// Reason for rejection.
+        reason: String,
+    },
 }
 
 impl std::fmt::Display for ErrorDetail {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ErrorDetail::Generic(s) => write!(f, "{}", s),
             ErrorDetail::HistoryIndexOutOfBounds {
                 operation,
                 index,
@@ -326,6 +345,21 @@ impl std::fmt::Display for ErrorDetail {
             }
             ErrorDetail::StateInconsistent { source } => {
                 write!(f, "State inconsistent: {}", source)
+            }
+            ErrorDetail::PluginEvalFailed {
+                plugin_name,
+                reason,
+            } => {
+                write!(f, "Plugin '{}' eval failed: {}", plugin_name, reason)
+            }
+            ErrorDetail::TransitionFailed { reason } => {
+                write!(f, "Transition failed: {}", reason)
+            }
+            ErrorDetail::HookConstraintFailed { reason } => {
+                write!(f, "Hook constraint failed: {}", reason)
+            }
+            ErrorDetail::EpochGuardRejected { reason } => {
+                write!(f, "Epoch guard rejected: {}", reason)
             }
         }
     }

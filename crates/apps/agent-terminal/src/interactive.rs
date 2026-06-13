@@ -9,16 +9,15 @@
 
 use std::sync::Arc;
 
-use brioche_reedline::session::SessionManager;
+use brioche_reedline::SessionManager;
 use brioche_shell_persistence::{RedbStorage, SessionStore};
 use nu_ansi_term::Color;
 use reedline::ExternalPrinter;
 use tokio::sync::{RwLock, mpsc};
 use tokio_util::sync::CancellationToken;
 
-use crate::bridge;
-use crate::config::CliConfig;
 use crate::shell_builder::build_shell;
+use crate::{CliConfig, bridge};
 
 /// Launches the full interactive mode.
 ///
