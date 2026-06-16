@@ -98,14 +98,8 @@ impl Default for Settings {
             Value::Object(
                 [
                     ("enabled".into(), Value::Bool(true)),
-                    (
-                        "trigger_percentage".into(),
-                        Value::Number(75.into()),
-                    ),
-                    (
-                        "target_percentage".into(),
-                        Value::Number(50.into()),
-                    ),
+                    ("trigger_percentage".into(), Value::Number(75.into())),
+                    ("target_percentage".into(), Value::Number(50.into())),
                     ("preserve_recent".into(), Value::Number(6.into())),
                 ]
                 .into_iter()
@@ -127,10 +121,7 @@ impl Default for Settings {
             "ui".into(),
             Value::Object(
                 [
-                    (
-                        "working_dir".into(),
-                        Value::String(home_or_tmp()),
-                    ),
+                    ("working_dir".into(), Value::String(home_or_tmp())),
                     ("stream".into(), Value::Bool(true)),
                 ]
                 .into_iter()

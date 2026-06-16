@@ -31,12 +31,19 @@ export default function Footer() {
 
     return (
         <footer className="footer">
-            {metrics.map((m) => (
-                <div key={m.id} className="footer-metric" title={m.tooltip || undefined}>
-                    <span className="footer-label">{m.label}</span>
-                    <span className="footer-value">{m.value}</span>
+            {metrics.length === 0 ? (
+                <div className="footer-metric">
+                    <span className="footer-label">Brioche</span>
+                    <span className="footer-value">0.1.0</span>
                 </div>
-            ))}
+            ) : (
+                metrics.map((m) => (
+                    <div key={m.id} className="footer-metric" title={m.tooltip || undefined}>
+                        <span className="footer-label">{m.label}</span>
+                        <span className="footer-value">{m.value}</span>
+                    </div>
+                ))
+            )}
         </footer>
     );
 }
