@@ -37,6 +37,8 @@ fn main() {
     };
 
     if let Err(e) = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             commands::send_message,
@@ -66,8 +68,21 @@ fn main() {
             commands::list_skills,
             commands::get_skill_content,
             commands::get_skill_file,
+            commands::set_skill_enabled,
             // Model fetching
             commands::fetch_models,
+            // Extension commands
+            commands::list_extensions,
+            commands::list_settings_sections,
+            commands::get_footer_metrics,
+            // Tool commands
+            commands::list_tools,
+            commands::set_tool_enabled,
+            commands::add_user_tool,
+            commands::remove_user_tool,
+            // Attachment commands
+            commands::attach_reference,
+            commands::send_image,
         ])
         .run(tauri::generate_context!())
     {

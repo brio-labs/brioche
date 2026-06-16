@@ -1,37 +1,82 @@
-import { useCallback, useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSettingsStore } from '../stores/settingsStore';
-import type { Settings } from '../ipc';
-import { XIcon } from './Icons';
+import { listSettingsSections, setSettings } from '../ipc';
+import type { SettingsSection, SettingsField } from '../ipc';
+import { XIcon, SearchIcon } from './Icons';
 
 interface SettingsPanelProps {
     onClose: () => void;
 }
 
-export default function SettingsPanel({ onClose }: SettingsPanelProps) {
-    const { settings, saveSettings, hasLoaded } = useSettingsStore();
-    const [localSettings, setLocalSettings] = useState<Settings>(settings);
-    const [isSaving, setIsSaving] = useState(false);
-
-    // Sync local settings when store loads
-    useEffect(() => {
-        if (hasLoaded) {
-            setLocalSettings(settings);
+function getFieldValue(settings: Record<string, unknown>, key: string): unknown {
+    const parts = key.split('.');
+    let current: unknown = settings;
+    for (const part of parts) {
+        if (current && typeof current === 'object' && !Array.isArray(current)) {
+            current = (current as Record<string, unknown>)[part];
+        } else {
+            return undefined;
         }
-    }, [hasLoaded, settings]);
+    }
+    return current;
+}
 
-    const handleChange = useCallback(
-        (field: keyof Settings, value: string | boolean) => {
-            setLocalSettings((prev) => ({ ...prev, [field]: value }));
-        },
-        []
-    );
+export default function SettingsPanel({ onClose }: SettingsPanelProps) {
+    const { settings, loadSettings, updateSetting } = useSettingsStore();
+    const [sections, setSections] = useState<SettingsSection[]>([]);
+    const [search, setSearch] = useState('');
+    const [editingProtected, setEditingProtected] = useState<Set<string>>(new Set());
+
+    useEffect(() => {
+        loadSettings();
+        listSettingsSections().then(setSections).catch(console.error);
+    }, [loadSettings]);
+
+    const filteredSections = useMemo(() => {
+        if (!search.trim()) return sections;
+        const q = search.toLowerCase();
+        return sections
+            .map((s) => {
+                const matches =
+                    s.title.toLowerCase().includes(q) ||
+                    s.keywords.some((k) => k.toLowerCase().includes(q)) ||
+                    s.fields.some(
+                        (f) =>
+                            f.label.toLowerCase().includes(q) ||
+                            (f.description || '').toLowerCase().includes(q) ||
+                            f.keywords.some((k) => k.toLowerCase().includes(q)),
+                    );
+                if (matches) {
+                    const fields = s.fields.filter(
+                        (f) =>
+                            f.label.toLowerCase().includes(q) ||
+                            (f.description || '').toLowerCase().includes(q) ||
+                            f.keywords.some((k) => k.toLowerCase().includes(q)) ||
+                            s.title.toLowerCase().includes(q) ||
+                            s.keywords.some((k) => k.toLowerCase().includes(q)),
+                    );
+                    return { ...s, fields };
+                }
+                return null;
+            })
+            .filter(Boolean) as SettingsSection[];
+    }, [sections, search]);
 
     const handleSave = useCallback(async () => {
-        setIsSaving(true);
-        await saveSettings(localSettings);
-        setIsSaving(false);
-        onClose();
-    }, [localSettings, saveSettings, onClose]);
+        try {
+            await setSettings(settings);
+            onClose();
+        } catch (err) {
+            console.error('Failed to save settings:', err);
+        }
+    }, [settings, onClose]);
+
+    const handleReset = useCallback(
+        (field: SettingsField) => {
+            updateSetting(field.key, field.default_value);
+        },
+        [updateSetting],
+    );
 
     return (
         <div className="settings-overlay" onClick={onClose}>
@@ -42,66 +87,200 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
                         <XIcon />
                     </button>
                 </div>
-                <div className="settings-body">
-                    <div className="setting-group">
-                        <label htmlFor="api-key">API Key</label>
-                        <input
-                            id="api-key"
-                            type="password"
-                            value={localSettings.api_key}
-                            onChange={(e) => handleChange('api_key', e.target.value)}
-                            placeholder="sk-..."
-                        />
-                        <span className="setting-hint">OpenAI or OpenRouter API key</span>
-                    </div>
-                    <div className="setting-group">
-                        <label htmlFor="model">Model</label>
-                        <input
-                            id="model"
-                            type="text"
-                            value={localSettings.model}
-                            onChange={(e) => handleChange('model', e.target.value)}
-                            placeholder="gpt-4o-mini"
-                        />
-                        <span className="setting-hint">e.g. gpt-4o-mini, claude-3.5-sonnet</span>
-                    </div>
-                    <div className="setting-group">
-                        <label htmlFor="base-url">Base URL</label>
-                        <input
-                            id="base-url"
-                            type="text"
-                            value={localSettings.base_url}
-                            onChange={(e) => handleChange('base_url', e.target.value)}
-                            placeholder="https://api.openai.com/v1"
-                        />
-                        <span className="setting-hint">Use https://openrouter.ai/api/v1 for OpenRouter</span>
-                    </div>
-                    <div className="setting-group">
-                        <label htmlFor="working-dir">Working Directory</label>
-                        <input
-                            id="working-dir"
-                            type="text"
-                            value={localSettings.working_dir}
-                            onChange={(e) => handleChange('working_dir', e.target.value)}
-                            placeholder="/home/user/project"
-                        />
-                        <span className="setting-hint">Project directory for file operations</span>
-                    </div>
+
+                <div className="settings-search">
+                    <SearchIcon />
+                    <input
+                        type="text"
+                        placeholder="Search settings..."
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                    />
                 </div>
+
+                <div className="settings-body">
+                    {filteredSections.map((section) => (
+                        <div key={section.id} className="settings-section">
+                            <h3>{section.title}</h3>
+                            <div className="settings-fields">
+                                {section.fields.map((field) => (
+                                    <FieldEditor
+                                        key={field.key}
+                                        field={field}
+                                        value={getFieldValue(settings, field.key)}
+                                        editingProtected={editingProtected}
+                                        setEditingProtected={setEditingProtected}
+                                        onChange={(value) => updateSetting(field.key, value)}
+                                        onReset={() => handleReset(field)}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
                 <div className="settings-footer">
                     <button type="button" className="btn-secondary" onClick={onClose}>
                         Cancel
                     </button>
-                    <button
-                        type="button"
-                        className="btn-primary"
-                        onClick={handleSave}
-                        disabled={isSaving}
-                    >
-                        {isSaving ? 'Saving...' : 'Save'}
+                    <button type="button" className="btn-primary" onClick={handleSave}>
+                        Save
                     </button>
                 </div>
             </div>
+        </div>
+    );
+}
+
+interface FieldEditorProps {
+    field: SettingsField;
+    value: unknown;
+    editingProtected: Set<string>;
+    setEditingProtected: React.Dispatch<React.SetStateAction<Set<string>>>;
+    onChange: (value: unknown) => void;
+    onReset: () => void;
+}
+
+function FieldEditor({
+    field,
+    value,
+    editingProtected,
+    setEditingProtected,
+    onChange,
+    onReset,
+}: FieldEditorProps) {
+    const isProtected = field.protected && !editingProtected.has(field.key);
+    const currentValue = value !== undefined ? value : field.default_value;
+
+    const input = (() => {
+        switch (field.field_type) {
+            case 'boolean':
+                return (
+                    <label className="setting-toggle">
+                        <input
+                            type="checkbox"
+                            checked={Boolean(currentValue)}
+                            onChange={(e) => onChange(e.target.checked)}
+                        />
+                        <span>{field.label}</span>
+                    </label>
+                );
+            case 'select':
+                return (
+                    <select
+                        value={String(currentValue || '')}
+                        onChange={(e) => onChange(e.target.value)}
+                    >
+                        {field.options.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                            </option>
+                        ))}
+                    </select>
+                );
+            case 'multi_select': {
+                const selected = Array.isArray(currentValue)
+                    ? currentValue.map(String)
+                    : [];
+                return (
+                    <select
+                        multiple
+                        value={selected}
+                        onChange={(e) => {
+                            const values = Array.from(e.target.selectedOptions).map(
+                                (o) => o.value,
+                            );
+                            onChange(values);
+                        }}
+                    >
+                        {field.options.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                            </option>
+                        ))}
+                    </select>
+                );
+            }
+            case 'number':
+                return (
+                    <input
+                        type="number"
+                        value={Number(currentValue || 0)}
+                        onChange={(e) => onChange(Number(e.target.value))}
+                        placeholder={field.placeholder || undefined}
+                    />
+                );
+            case 'password':
+                return (
+                    <input
+                        type="password"
+                        value={String(currentValue || '')}
+                        onChange={(e) => onChange(e.target.value)}
+                        placeholder={field.placeholder || undefined}
+                    />
+                );
+            case 'text':
+            case 'protected_markdown':
+                return (
+                    <textarea
+                        value={String(currentValue || '')}
+                        onChange={(e) => onChange(e.target.value)}
+                        rows={field.field_type === 'protected_markdown' ? 8 : 4}
+                        disabled={isProtected}
+                        placeholder={field.placeholder || undefined}
+                    />
+                );
+            case 'path':
+                return (
+                    <input
+                        type="text"
+                        value={String(currentValue || '')}
+                        onChange={(e) => onChange(e.target.value)}
+                        placeholder={field.placeholder || undefined}
+                    />
+                );
+            default:
+                return (
+                    <input
+                        type="text"
+                        value={String(currentValue || '')}
+                        onChange={(e) => onChange(e.target.value)}
+                        placeholder={field.placeholder || undefined}
+                    />
+                );
+        }
+    })();
+
+    return (
+        <div className={`setting-group ${field.protected ? 'protected' : ''}`}>
+            <label htmlFor={field.key}>{field.label}</label>
+            {field.protected && (
+                <div className="protected-warning">
+                    {isProtected ? (
+                        <>
+                            <span>Editing this field can change model behavior.</span>
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    setEditingProtected((prev) => {
+                                        const next = new Set(prev);
+                                        next.add(field.key);
+                                        return next;
+                                    })
+                                }
+                            >
+                                Edit
+                            </button>
+                        </>
+                    ) : (
+                        <button type="button" onClick={onReset}>Reset to default</button>
+                    )}
+                </div>
+            )}
+            {input}
+            {field.description && (
+                <span className="setting-hint">{field.description}</span>
+            )}
         </div>
     );
 }

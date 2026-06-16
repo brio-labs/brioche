@@ -1,0 +1,219 @@
+//! Modular memory provider extension point.
+//!
+//! Memory systems such as Honcho, Hindsight or Mem0 can be added by
+//! implementing [`MemoryProvider`]. The desktop ships with [`LocalMemoryProvider`]
+//! as the default, backed by a JSON file in the user's config directory.
+//!
+//! Refs: I-Shell-Runtime-OnlyIO
+
+use super::{ExtensionMetadata, PanelSlot};
+use serde::{Deserialize, Serialize};
+
+/// A memory entry returned by a provider.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MemoryEntry {
+    /// Unique key for the memory entry.
+    pub key: String,
+    /// Value/content of the memory entry.
+    pub value: String,
+    /// Category for grouping (e.g., "user", "project").
+    pub category: String,
+    /// Unix timestamp when the entry was created.
+    pub created_at: u64,
+    /// Unix timestamp when the entry was last updated.
+    pub updated_at: u64,
+    /// Number of times this entry has been accessed.
+    pub access_count: u32,
+    /// Provider that owns this entry.
+    pub provider_id: String,
+}
+
+/// Query sent to a memory provider.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+#[derive(Clone, Debug, Default)]
+pub struct MemoryQuery {
+    /// Optional category filter.
+    pub category: Option<String>,
+    /// Optional free-text search query.
+    pub query: Option<String>,
+}
+
+/// A memory-provider extension.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+pub trait MemoryProvider: Send + Sync {
+    /// Returns the extension metadata.
+    fn metadata(&self) -> ExtensionMetadata;
+
+    /// Lists entries matching the query.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    fn list(&self, query: &MemoryQuery) -> Result<Vec<MemoryEntry>, String>;
+
+    /// Sets (adds or updates) an entry.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    fn set(&mut self, key: String, value: String, category: String) -> Result<(), String>;
+
+    /// Deletes an entry by key.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    fn delete(&mut self, key: &str) -> Result<bool, String>;
+
+    /// Returns entries that may be relevant for the current conversation.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    fn recall(&self, conversation_summary: &str, limit: usize) -> Result<Vec<MemoryEntry>, String>;
+}
+
+/// Default local memory provider.
+///
+/// Stores memories as JSON in the user's config directory. This is the same
+/// implementation previously found in `crate::memory`, now exposed through the
+/// provider trait.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct LocalMemoryProvider {
+    entries: Vec<MemoryEntry>,
+}
+
+impl LocalMemoryProvider {
+    /// Loads the local memory store from disk.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn load() -> Self {
+        let path = memory_path();
+        if let Ok(data) = std::fs::read_to_string(&path)
+            && let Ok(store) = serde_json::from_str::<LocalMemoryProvider>(&data)
+        {
+            return store;
+        }
+        Self::default()
+    }
+
+    /// Saves the local memory store to disk.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn save(&self) -> Result<(), String> {
+        let path = memory_path();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create memory dir: {e}"))?;
+        }
+        let data = serde_json::to_string_pretty(self)
+            .map_err(|e| format!("Failed to serialize memory: {e}"))?;
+        std::fs::write(&path, data).map_err(|e| format!("Failed to write memory: {e}"))
+    }
+}
+
+impl MemoryProvider for LocalMemoryProvider {
+    fn metadata(&self) -> ExtensionMetadata {
+        ExtensionMetadata {
+            id: "memory-local".into(),
+            name: "Local memory".into(),
+            version: "0.1.0".into(),
+            default_panel: Some(PanelSlot::Right),
+            enabled: true,
+        }
+    }
+
+    fn list(&self, query: &MemoryQuery) -> Result<Vec<MemoryEntry>, String> {
+        let q = query
+            .query
+            .as_ref()
+            .map(|s| s.to_lowercase())
+            .unwrap_or_default();
+        Ok(self
+            .entries
+            .iter()
+            .filter(|e| {
+                let matches_category = query
+                    .category
+                    .as_ref()
+                    .is_none_or(|c| e.category.eq_ignore_ascii_case(c));
+                let matches_query = q.is_empty()
+                    || e.key.to_lowercase().contains(&q)
+                    || e.value.to_lowercase().contains(&q);
+                matches_category && matches_query
+            })
+            .cloned()
+            .collect())
+    }
+
+    fn set(&mut self, key: String, value: String, category: String) -> Result<(), String> {
+        let now = system_time_secs();
+        if let Some(entry) = self.entries.iter_mut().find(|e| e.key == key) {
+            entry.value = value;
+            entry.category = category;
+            entry.updated_at = now;
+        } else {
+            self.entries.push(MemoryEntry {
+                key,
+                value,
+                category,
+                created_at: now,
+                updated_at: now,
+                access_count: 0,
+                provider_id: "memory-local".into(),
+            });
+        }
+        self.save()
+    }
+
+    fn delete(&mut self, key: &str) -> Result<bool, String> {
+        let len = self.entries.len();
+        self.entries.retain(|e| e.key != key);
+        let removed = self.entries.len() < len;
+        if removed {
+            self.save()?;
+        }
+        Ok(removed)
+    }
+
+    fn recall(&self, conversation_summary: &str, limit: usize) -> Result<Vec<MemoryEntry>, String> {
+        let q = conversation_summary.to_lowercase();
+        let mut scored: Vec<(usize, &MemoryEntry)> = self
+            .entries
+            .iter()
+            .map(|e| {
+                let score = if e.value.to_lowercase().contains(&q) {
+                    2
+                } else if e.key.to_lowercase().contains(&q) {
+                    1
+                } else {
+                    0
+                };
+                (score, e)
+            })
+            .filter(|(s, _)| *s > 0)
+            .collect();
+        scored.sort_by(|a, b| {
+            b.0.cmp(&a.0)
+                .then_with(|| b.1.access_count.cmp(&a.1.access_count))
+        });
+        Ok(scored
+            .into_iter()
+            .take(limit)
+            .map(|(_, e)| e.clone())
+            .collect())
+    }
+}
+
+fn system_time_secs() -> u64 {
+    match std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH) {
+        Ok(d) => d.as_secs(),
+        Err(_) => 0,
+    }
+}
+
+fn memory_path() -> std::path::PathBuf {
+    let config_dir = match dirs::config_dir() {
+        Some(d) => d,
+        None => std::env::temp_dir(),
+    };
+    config_dir.join("brioche-desktop").join("memory.json")
+}

@@ -16,7 +16,31 @@ use brioche_tools_system::{
     ExecuteCommandTool, FetchUrlTool, ListDirTool, ReadFileTool, SandboxPolicy, SystemToolExecutor,
     WriteFileTool,
 };
+use lazy_static::lazy_static;
 use tokio::sync::broadcast;
+
+lazy_static! {
+    /// Global session start timestamp, captured the first time a shell is built.
+    static ref SESSION_START: std::sync::Mutex<u64> = std::sync::Mutex::new(system_time_secs());
+}
+
+/// Returns seconds since the UNIX epoch.
+fn system_time_secs() -> u64 {
+    match std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH) {
+        Ok(d) => d.as_secs(),
+        Err(_) => 0,
+    }
+}
+
+/// Returns the timestamp when the first shell was built in this process.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+pub fn session_started_at() -> u64 {
+    match SESSION_START.lock() {
+        Ok(guard) => *guard,
+        Err(_) => system_time_secs(),
+    }
+}
 
 /// Configuration for the desktop shell.
 ///
@@ -34,20 +58,42 @@ pub struct DesktopConfig {
 
 impl Default for DesktopConfig {
     fn default() -> Self {
-        let api_key = std::env::var("BRIOCHE_API_KEY")
-            .ok()
-            .map_or(String::new(), |v| v);
-        let model = std::env::var("BRIOCHE_MODEL")
-            .ok()
-            .map_or("gpt-4o-mini".into(), |v| v);
-        let base_url = std::env::var("BRIOCHE_BASE_URL")
-            .ok()
-            .map_or("https://api.openai.com/v1".into(), |v| v);
-        let max_tokens = std::env::var("BRIOCHE_MAX_TOKENS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .map_or(4096u32, |v| v);
-        let reasoning_effort = std::env::var("BRIOCHE_REASONING_EFFORT").ok();
+        Self::from_settings(&crate::settings::Settings::load())
+    }
+}
+
+impl DesktopConfig {
+    /// Builds a desktop configuration from modular settings.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn from_settings(settings: &crate::settings::Settings) -> Self {
+        let api_key = if settings.api_key().is_empty() {
+            std::env::var("BRIOCHE_API_KEY").unwrap_or_default()
+        } else {
+            settings.api_key()
+        };
+        let model = match std::env::var("BRIOCHE_MODEL") {
+            Ok(v) => v,
+            Err(_) => settings.chat_model(),
+        };
+        let base_url = match std::env::var("BRIOCHE_BASE_URL") {
+            Ok(v) => v,
+            Err(_) => settings.base_url(),
+        };
+        let max_tokens = settings.max_tokens();
+        let reasoning_enabled = match settings.get("chat.reasoning_enabled") {
+            Some(serde_json::Value::Bool(b)) => b,
+            _ => false,
+        };
+        let reasoning_effort = if reasoning_enabled {
+            let effort = match settings.get("chat.reasoning_effort") {
+                Some(serde_json::Value::String(s)) => s,
+                _ => "medium".to_string(),
+            };
+            Some(effort)
+        } else {
+            std::env::var("BRIOCHE_REASONING_EFFORT").ok()
+        };
 
         Self {
             openai: OpenAiConfig {
