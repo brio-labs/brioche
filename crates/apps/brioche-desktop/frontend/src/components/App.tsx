@@ -397,7 +397,12 @@ export default function App() {
 						disabled={isLoading}
 						rows={1}
 					/>
-					<button type="submit" disabled={isLoading || !input.trim()}>
+					<button
+						type="submit"
+						className="send-btn"
+						disabled={isLoading || !input.trim()}
+						aria-label="Send message"
+					>
 						<SendIcon />
 					</button>
 				</form>

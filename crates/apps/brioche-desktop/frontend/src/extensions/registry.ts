@@ -28,6 +28,12 @@ const panelContributions: PanelContribution[] = [
         title: 'Explorer',
         component: () => import('../components/FileExplorer'),
     },
+    {
+        id: 'tools',
+        slot: 'bottom',
+        title: 'Tools',
+        component: () => import('../components/ToolsPanel'),
+    },
 ];
 
 export function registerPanel(contribution: PanelContribution) {

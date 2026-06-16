@@ -1,6 +1,7 @@
 ---
 // Astro index page — loads the React app as a client-only island
 import App from '../components/App';
+import '../styles/global.css';
 ---
 
 <!DOCTYPE html>
@@ -9,7 +10,6 @@ import App from '../components/App';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Brioche Desktop</title>
-    <link rel="stylesheet" href="/styles/global.css">
 </head>
 <body>
     <App client:only="react" />
