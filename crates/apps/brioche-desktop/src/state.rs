@@ -23,6 +23,7 @@ use brioche_shell_runtime::BriocheShell;
 use tokio::sync::{RwLock, broadcast};
 
 use crate::commands::shell::{DesktopConfig, ShellFactory, build_shell};
+use crate::extensions::ExtensionRegistry;
 
 /// Shared history mirror type.
 ///
@@ -186,6 +187,8 @@ pub struct DesktopState {
     pub config: RwLock<DesktopConfig>,
     /// Factory for creating new shells (shared dependencies).
     pub factory: RwLock<ShellFactory>,
+    /// Loaded desktop extensions (context engine, memory, tools, skills, ...).
+    pub extensions: RwLock<ExtensionRegistry>,
 }
 
 impl DesktopState {
@@ -217,11 +220,13 @@ impl DesktopState {
             store: store.clone(),
             config: config.clone(),
         };
+        let extensions = ExtensionRegistry::default_set();
 
         Ok(Self {
             manager: RwLock::new(None),
             config: RwLock::new(config),
             factory: RwLock::new(factory),
+            extensions: RwLock::new(extensions),
         })
     }
 

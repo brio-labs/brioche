@@ -29,6 +29,11 @@ use brioche_core::{ChatMessage, EngineInput};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
+use std::sync::Arc;
+
+use crate::extensions::footer::FooterContext;
+use crate::extensions::memory_provider::MemoryProvider;
+use crate::extensions::tool_provider::{ToolDescriptor, UserToolDefinition};
 use crate::settings::Settings;
 use crate::state::DesktopState;
 
@@ -718,8 +723,8 @@ pub struct MemoryEntryPayload {
     pub access_count: u32,
 }
 
-impl From<&crate::memory::MemoryEntry> for MemoryEntryPayload {
-    fn from(entry: &crate::memory::MemoryEntry) -> Self {
+impl From<&crate::extensions::memory_provider::MemoryEntry> for MemoryEntryPayload {
+    fn from(entry: &crate::extensions::memory_provider::MemoryEntry) -> Self {
         Self {
             key: entry.key.clone(),
             value: entry.value.clone(),
@@ -734,35 +739,42 @@ impl From<&crate::memory::MemoryEntry> for MemoryEntryPayload {
 /// Lists all memory entries, optionally filtered by category.
 #[tauri::command]
 pub async fn list_memories(category: Option<String>) -> Result<Vec<MemoryEntryPayload>, String> {
-    let store = crate::memory::MemoryStore::load();
-    let entries = store.list(category.as_deref());
-    Ok(entries.into_iter().map(MemoryEntryPayload::from).collect())
+    let store = crate::extensions::memory_provider::LocalMemoryProvider::load();
+    let query = crate::extensions::memory_provider::MemoryQuery {
+        category,
+        query: None,
+    };
+    let entries = store.list(&query)?;
+    Ok(entries.iter().map(MemoryEntryPayload::from).collect())
 }
 
 /// Sets (adds or updates) a memory entry.
 #[tauri::command]
 pub async fn set_memory(key: String, value: String, category: String) -> Result<(), String> {
-    let mut store = crate::memory::MemoryStore::load();
-    store.set(key, value, category);
-    store.save()
+    let mut store = crate::extensions::memory_provider::LocalMemoryProvider::load();
+    store.set(key, value, category)
 }
 
 /// Deletes a memory entry by key.
 #[tauri::command]
 pub async fn delete_memory(key: String) -> Result<(), String> {
-    let mut store = crate::memory::MemoryStore::load();
-    if !store.delete(&key) {
+    let mut store = crate::extensions::memory_provider::LocalMemoryProvider::load();
+    if !store.delete(&key)? {
         return Err(format!("Memory '{}' not found", key));
     }
-    store.save()
+    Ok(())
 }
 
 /// Searches memory entries by key or value.
 #[tauri::command]
 pub async fn search_memories(query: String) -> Result<Vec<MemoryEntryPayload>, String> {
-    let store = crate::memory::MemoryStore::load();
-    let results = store.search(&query);
-    Ok(results.into_iter().map(MemoryEntryPayload::from).collect())
+    let store = crate::extensions::memory_provider::LocalMemoryProvider::load();
+    let query = crate::extensions::memory_provider::MemoryQuery {
+        category: None,
+        query: Some(query),
+    };
+    let results = store.list(&query)?;
+    Ok(results.iter().map(MemoryEntryPayload::from).collect())
 }
 
 // ---------------------------------------------------------------------------
@@ -1058,6 +1070,199 @@ pub async fn read_directory(path: String) -> Result<Vec<DirEntry>, String> {
         }
     });
     Ok(entries)
+}
+
+// ---------------------------------------------------------------------------
+// Extension commands
+// ---------------------------------------------------------------------------
+
+/// Returns metadata for all registered desktop extensions.
+#[tauri::command]
+pub async fn list_extensions(
+    state: State<'_, DesktopState>,
+) -> Result<Vec<crate::extensions::ExtensionMetadata>, String> {
+    let registry = state.extensions.read().await;
+    Ok(registry.metadata().to_vec())
+}
+
+/// Returns all settings sections contributed by extensions.
+#[tauri::command]
+pub async fn list_settings_sections(
+    state: State<'_, DesktopState>,
+) -> Result<Vec<crate::extensions::settings_sections::SettingsSection>, String> {
+    let registry = state.extensions.read().await;
+    let mut sections: Vec<_> = registry
+        .settings_sections()
+        .iter()
+        .flat_map(|p| p.sections())
+        .collect();
+    sections.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.id.cmp(&b.id)));
+    Ok(sections)
+}
+
+/// Computes footer metrics from all registered providers.
+#[tauri::command]
+pub async fn get_footer_metrics(
+    state: State<'_, DesktopState>,
+) -> Result<Vec<crate::extensions::footer::FooterMetric>, String> {
+    let settings = Settings::load();
+    let registry = state.extensions.read().await;
+    let mgr = state.manager.read().await;
+    let current_model = settings.chat_model();
+
+    let estimated_tokens: usize = if let Some(manager) = mgr.as_ref() {
+        if let Some(entry) = manager.get(manager.current_id()) {
+            let history = entry.history.read().await;
+            crate::extensions::context::CompressorContextEngine::estimate_tokens(&history)
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+    let context_remaining = settings.context_window().saturating_sub(estimated_tokens) as i64;
+
+    let ctx = FooterContext {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        session_started_at: crate::commands::shell::session_started_at(),
+        current_model,
+        context_remaining,
+    };
+
+    let mut metrics: Vec<_> = registry
+        .footer_metrics()
+        .iter()
+        .map(|m| m.compute(&ctx))
+        .collect();
+    metrics.sort_by(|a, b| a.priority.cmp(&b.priority).then_with(|| a.id.cmp(&b.id)));
+    Ok(metrics)
+}
+
+/// Returns all tools from all registered providers.
+#[tauri::command]
+pub async fn list_tools(state: State<'_, DesktopState>) -> Result<Vec<ToolDescriptor>, String> {
+    let registry = state.extensions.read().await;
+    let mut tools = Vec::new();
+    for provider in registry.tool_providers() {
+        tools.extend(provider.tools());
+    }
+    tools.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(tools)
+}
+
+/// Enables or disables a tool.
+#[tauri::command]
+pub async fn set_tool_enabled(
+    state: State<'_, DesktopState>,
+    id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut registry = state.extensions.write().await;
+    for provider in registry.tool_providers_mut() {
+        if let Some(provider) = Arc::get_mut(provider) {
+            provider.set_enabled(&id, enabled)?;
+            return Ok(());
+        }
+    }
+    Err(format!("Tool provider not available for '{}'", id))
+}
+
+/// Adds a user-defined tool.
+#[tauri::command]
+pub async fn add_user_tool(
+    state: State<'_, DesktopState>,
+    tool: UserToolDefinition,
+) -> Result<(), String> {
+    let mut registry = state.extensions.write().await;
+    for provider in registry.tool_providers_mut() {
+        if let Some(provider) = Arc::get_mut(provider) {
+            return provider.add_user_tool(tool);
+        }
+    }
+    Err("No mutable tool provider available".into())
+}
+
+/// Removes a user-defined tool.
+#[tauri::command]
+pub async fn remove_user_tool(state: State<'_, DesktopState>, id: String) -> Result<(), String> {
+    let mut registry = state.extensions.write().await;
+    for provider in registry.tool_providers_mut() {
+        if let Some(provider) = Arc::get_mut(provider) {
+            return provider.remove_user_tool(&id);
+        }
+    }
+    Err("No mutable tool provider available".into())
+}
+
+/// Enables or disables a skill.
+#[tauri::command]
+pub async fn set_skill_enabled(
+    state: State<'_, DesktopState>,
+    name: String,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut registry = state.extensions.write().await;
+    for provider in registry.skill_providers_mut() {
+        if let Some(provider) = Arc::get_mut(provider) {
+            return provider.set_enabled(&name, enabled);
+        }
+    }
+    Err("No mutable skill provider available".into())
+}
+
+/// Attaches a file or folder reference to the current conversation.
+///
+/// The reference is emitted as a system message so the model sees it.
+#[tauri::command]
+pub async fn attach_reference(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    path: String,
+) -> Result<(), String> {
+    state.ensure_manager().await?;
+    let metadata = tokio::fs::metadata(&path)
+        .await
+        .map_err(|e| format!("Failed to read reference: {e}"))?;
+    let kind = if metadata.is_dir() { "folder" } else { "file" };
+    let content = format!("User attached {kind}: {path}");
+    let _ = app.emit(
+        "chat-message",
+        ChatMessagePayload::from(ChatMessage::System { content }),
+    );
+    Ok(())
+}
+
+/// Sends an image attachment for multimodal models.
+///
+/// The image bytes are read from disk and encoded as a data URL.
+#[tauri::command]
+pub async fn send_image(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    path: String,
+) -> Result<String, String> {
+    state.ensure_manager().await?;
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|e| format!("Failed to read image: {e}"))?;
+    let mime = match std::path::Path::new(&path)
+        .extension()
+        .and_then(|e| e.to_str())
+    {
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        _ => "image/png",
+    };
+    let b64 = base64_simd::STANDARD.encode_to_string(&bytes);
+    let data_url = format!("data:{mime};base64,{b64}");
+    let content = format!("User sent an image: {path}\n\n![image]({data_url})");
+    let _ = app.emit(
+        "chat-message",
+        ChatMessagePayload::from(ChatMessage::System { content }),
+    );
+    Ok(data_url)
 }
 
 #[cfg(test)]
