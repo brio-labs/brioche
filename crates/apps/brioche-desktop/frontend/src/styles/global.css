@@ -2557,6 +2557,280 @@ body {
 	color: var(--text-primary);
 }
 
+/* === SESSION SIDEBAR ENHANCEMENTS === */
+.session-sort-bar {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-2) var(--space-3);
+	border-bottom: 1px solid var(--border);
+	background: rgba(10, 10, 15, 0.6);
+}
+
+.session-sort-bar label {
+	font-size: 10px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--text-muted);
+}
+
+.session-sort-bar select {
+	flex: 1;
+	background: var(--bg-2);
+	border: 1px solid var(--border);
+	color: var(--text-secondary);
+	padding: 4px 8px;
+	border-radius: var(--radius-sm);
+	font-size: 12px;
+	outline: none;
+	cursor: pointer;
+}
+
+.session-sort-bar select:focus {
+	border-color: var(--accent-dim);
+}
+
+.session-group {
+	margin-bottom: var(--space-2);
+}
+
+.session-group-title {
+	font-size: 10px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--text-muted);
+	padding: var(--space-2) var(--space-3);
+	user-select: none;
+}
+
+.session-info {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+}
+
+.session-meta {
+	font-size: 10px;
+	color: var(--text-muted);
+	font-family: var(--font-mono);
+	margin-top: 2px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.session-workspace {
+	color: var(--text-tertiary);
+}
+
+/* === TOOL CALL CARDS === */
+.tool-call-card {
+	background: var(--bg-2);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	overflow: hidden;
+	margin: var(--space-2) 0;
+	max-width: 600px;
+}
+
+.tool-call-card.request {
+	border-left: 3px solid var(--accent);
+}
+
+.tool-call-card.result {
+	border-left: 3px solid #2a6;
+}
+
+.tool-call-header {
+	width: 100%;
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-2) var(--space-3);
+	background: transparent;
+	border: none;
+	color: var(--text-secondary);
+	cursor: pointer;
+	font-size: 12px;
+	font-family: var(--font-mono);
+	text-align: left;
+}
+
+.tool-call-header:hover {
+	background: rgba(139, 26, 43, 0.06);
+}
+
+.tool-call-icon {
+	font-size: 12px;
+}
+
+.tool-call-name {
+	font-weight: 600;
+	color: var(--text-primary);
+}
+
+.tool-call-id {
+	color: var(--text-muted);
+	font-size: 10px;
+	margin-left: auto;
+}
+
+.tool-call-toggle {
+	color: var(--text-muted);
+	font-size: 10px;
+}
+
+.tool-call-body {
+	padding: var(--space-2) var(--space-3);
+	border-top: 1px solid var(--border);
+}
+
+.tool-call-section {
+	margin-bottom: var(--space-2);
+}
+
+.tool-call-section:last-child {
+	margin-bottom: 0;
+}
+
+.tool-call-section-title {
+	font-size: 10px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--text-muted);
+	margin-bottom: var(--space-1);
+}
+
+.tool-call-body pre {
+	background: var(--bg-1);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	padding: var(--space-2);
+	font-size: 11px;
+	font-family: var(--font-mono);
+	color: var(--text-secondary);
+	overflow-x: auto;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.tool-call-empty {
+	font-size: 12px;
+	color: var(--text-muted);
+	font-style: italic;
+}
+
+/* === FILE EXPLORER ENHANCEMENTS === */
+.file-actions {
+	display: flex;
+	gap: var(--space-1);
+}
+
+.file-new-bar {
+	display: flex;
+	gap: var(--space-2);
+	padding: var(--space-2) var(--space-3);
+	border-bottom: 1px solid var(--border);
+	background: rgba(10, 10, 15, 0.6);
+}
+
+.file-new-bar input {
+	flex: 1;
+	background: var(--bg-2);
+	border: 1px solid var(--border);
+	color: var(--text-primary);
+	padding: 4px 8px;
+	border-radius: var(--radius-sm);
+	font-size: 12px;
+	font-family: var(--font-mono);
+	outline: none;
+}
+
+.file-new-bar input:focus {
+	border-color: var(--accent-dim);
+}
+
+.file-item .file-delete {
+	opacity: 0;
+	transition: all 0.2s ease;
+	background: transparent;
+	border: none;
+	color: var(--text-dim);
+	cursor: pointer;
+	padding: 2px;
+	border-radius: var(--radius-sm);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.file-item:hover .file-delete {
+	opacity: 1;
+}
+
+.file-delete:hover {
+	color: #c44;
+	background: var(--error-bg);
+}
+
+.file-delete svg {
+	width: 12px;
+	height: 12px;
+}
+
+.file-preview {
+	position: absolute;
+	bottom: 0;
+	left: 0;
+	right: 0;
+	height: 45%;
+	background: var(--bg-1);
+	border-top: 1px solid var(--border);
+	display: flex;
+	flex-direction: column;
+	z-index: 10;
+}
+
+.file-preview-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: var(--space-2) var(--space-3);
+	border-bottom: 1px solid var(--border);
+	background: rgba(15, 15, 20, 0.8);
+	flex-shrink: 0;
+}
+
+.file-preview-name {
+	font-size: 11px;
+	font-family: var(--font-mono);
+	color: var(--text-secondary);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.file-preview-actions {
+	display: flex;
+	gap: var(--space-1);
+}
+
+.file-preview textarea {
+	flex: 1;
+	background: var(--bg-0);
+	border: none;
+	color: var(--text-primary);
+	padding: var(--space-3);
+	font-size: 12px;
+	font-family: var(--font-mono);
+	resize: none;
+	outline: none;
+	line-height: 1.5;
+}
+
 /* === RESPONSIVE === */
 @media (max-width: 900px) {
 	.panel {

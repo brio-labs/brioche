@@ -138,7 +138,7 @@ impl ContextEngine for CompressorContextEngine {
         // Greedily add older non-system messages until we approach the target.
         let mut current_tokens = Self::estimate_tokens(&kept) + Self::estimate_tokens(&recent);
         for msg in non_system.into_iter().rev() {
-            let msg_tokens = Self::estimate_tokens(&[msg.clone()]);
+            let msg_tokens = Self::estimate_tokens(std::slice::from_ref(&msg));
             if current_tokens + msg_tokens > target_tokens {
                 break;
             }

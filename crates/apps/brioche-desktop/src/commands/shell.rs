@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use brioche_core::ChatMessage;
 use brioche_plugin_kit::PluginBuilder;
-use brioche_provider_openai::{LlmChunk, OpenAiConfig, OpenAiLlmClient, SharedHistory};
+use brioche_provider_openai::{HistoryTransform, LlmChunk, OpenAiConfig, OpenAiLlmClient, SharedHistory};
 use brioche_shell_persistence::{RedbStorage, SessionStore, SessionStoreEntry};
 use brioche_shell_runtime::{BriocheShell, DefaultEffectExecutor, ShellConfig};
 use brioche_tools_system::{
@@ -18,6 +18,10 @@ use brioche_tools_system::{
 };
 use lazy_static::lazy_static;
 use tokio::sync::broadcast;
+
+use crate::extensions::context::{CompressorContextEngine, ContextEngine, ContextEngineInput};
+use crate::extensions::ExtensionRegistry;
+use crate::settings::Settings;
 
 lazy_static! {
     /// Global session start timestamp, captured the first time a shell is built.
@@ -68,7 +72,7 @@ impl DesktopConfig {
     /// Refs: I-Shell-Runtime-OnlyIO
     pub fn from_settings(settings: &crate::settings::Settings) -> Self {
         let api_key = if settings.api_key().is_empty() {
-            std::env::var("BRIOCHE_API_KEY").unwrap_or_default()
+            std::env::var("BRIOCHE_API_KEY").map_or(String::new(), |v| v)
         } else {
             settings.api_key()
         };
@@ -123,6 +127,10 @@ pub struct ShellFactory {
     pub store: SessionStore,
     /// CLI configuration (provider, timeouts, etc.).
     pub config: DesktopConfig,
+    /// Loaded desktop extensions (context engine, memory, tools, skills, ...).
+    pub extensions: ExtensionRegistry,
+    /// User settings snapshot at shell creation time.
+    pub settings: Settings,
 }
 
 /// Handle to a running shell and its LLM broadcast channel.
@@ -141,6 +149,90 @@ pub struct ShellHandle {
     pub history: SharedHistory,
 }
 
+/// Builds a history transform from settings and the extension registry.
+///
+/// The transform is applied to the conversational mirror right before the
+/// LLM request is built. It leaves the mirror untouched so the UI and
+/// persistence still see the full conversation.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+fn build_history_transform(settings: Settings, extensions: ExtensionRegistry) -> HistoryTransform {
+    Arc::new(move |history: &[ChatMessage]| {
+        let mut working: Vec<ChatMessage> = history.to_vec();
+
+        // ------------------------------------------------------------------
+        // Memory recall: prepend relevant entries as a system message.
+        // ------------------------------------------------------------------
+        let active_providers = settings.active_memory_providers();
+        let summary = working
+            .iter()
+            .rev()
+            .find_map(|m| match m {
+                ChatMessage::User { content } => Some(content.as_str()),
+                _ => None,
+            })
+            .map_or("", |v| v); // Allowed by design: empty summary is a valid default.
+        let mut memory_notes: Vec<String> = Vec::new();
+        for provider in extensions.memory_providers() {
+            let id = provider.metadata().id;
+            if !active_providers.contains(&id) {
+                continue;
+            }
+            match provider.recall(summary, 3) {
+                Ok(entries) => {
+                    for entry in entries {
+                        memory_notes.push(format!("{}: {}", entry.key, entry.value));
+                    }
+                }
+                Err(err) => tracing::warn!("Memory recall failed for {}: {}", id, err),
+            }
+        }
+        if !memory_notes.is_empty() {
+            let insert_idx = working
+                .iter()
+                .position(|m| !matches!(m, ChatMessage::System { .. }))
+                .map_or(0, |v| v); // Allowed by design: no non-system messages means prepend at start.
+            working.insert(
+                insert_idx,
+                ChatMessage::System {
+                    content: format!("Relevant memory context:\n{}", memory_notes.join("\n")),
+                },
+            );
+        }
+
+        // ------------------------------------------------------------------
+        // Context engine: compress when the budget is exceeded.
+        // ------------------------------------------------------------------
+        let enabled = match settings.get("context.enabled") {
+            Some(serde_json::Value::Bool(b)) => b,
+            _ => true,
+        };
+        if enabled {
+            let trigger = settings
+                .get("context.trigger_percentage")
+                .and_then(|v| v.as_u64())
+                .map_or(75, |v| v as u8);
+            let target = settings
+                .get("context.target_percentage")
+                .and_then(|v| v.as_u64())
+                .map_or(50, |v| v as u8);
+            let preserve = settings
+                .get("context.preserve_recent")
+                .and_then(|v| v.as_u64())
+                .map_or(6, |v| v as usize);
+            let engine = CompressorContextEngine::new(trigger, target, preserve);
+            let input = ContextEngineInput {
+                history: &working,
+                context_window: settings.context_window(),
+                estimated_tokens: CompressorContextEngine::estimate_tokens(&working),
+            };
+            working = engine.process(input).messages;
+        }
+
+        working
+    })
+}
+
 /// Builds a complete `ShellHandle` with all components.
 ///
 /// This is the desktop equivalent of `agent_terminal::shell_builder::build_shell`.
@@ -150,12 +242,7 @@ pub struct ShellHandle {
 /// via `tokio::spawn`. Calling it from a synchronous context will panic.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
-pub fn build_shell(
-    session_id: impl Into<String>,
-    config: &DesktopConfig,
-    redb_storage: RedbStorage,
-    session_store: SessionStore,
-) -> ShellHandle {
+pub fn build_shell(session_id: impl Into<String>, factory: &ShellFactory) -> ShellHandle {
     let exec_tool = ExecuteCommandTool::new().with_policy(SandboxPolicy::Permissive);
 
     let tool_executor = SystemToolExecutor::new()
@@ -165,7 +252,11 @@ pub fn build_shell(
         .with_tool(exec_tool)
         .with_tool(FetchUrlTool);
 
-    let (llm_client, llm_rx, history) = OpenAiLlmClient::new(config.openai.clone());
+    let (llm_client, llm_rx, history) = OpenAiLlmClient::new(factory.config.openai.clone());
+    llm_client.set_history_transform(Some(build_history_transform(
+        factory.settings.clone(),
+        factory.extensions.clone(),
+    )));
 
     // Inject default system prompt.
     let llm_for_prompt = llm_client.clone();
@@ -194,10 +285,10 @@ CRITICAL RULES: \
     });
 
     let effect_executor =
-        DefaultEffectExecutor::new(tool_executor, llm_client.clone(), redb_storage.clone());
+        DefaultEffectExecutor::new(tool_executor, llm_client.clone(), factory.redb.clone());
 
     // Session callback — snapshot after each transition.
-    let store_for_callback = Arc::clone(&session_store);
+    let store_for_callback = Arc::clone(&factory.store);
     let session_callback: brioche_shell_runtime::SessionCallback =
         Box::new(move |session: &brioche_core::Session| {
             let head = brioche_shell_persistence::SessionHeadDTO::from_session(session);
@@ -219,7 +310,7 @@ CRITICAL RULES: \
         },
         ShellConfig {
             engine_channel_capacity: 256,
-            tick_interval_ms: config.tick_interval_ms,
+            tick_interval_ms: factory.config.tick_interval_ms,
             max_concurrent_effects: 32,
             persistence_mode: brioche_shell_runtime::PersistenceMode::Async,
             transition_journal_enabled: false,
@@ -275,7 +366,14 @@ mod tests {
             Err(_) => return,
         };
         let store = brioche_shell_persistence::new_session_store();
-        let handle = build_shell("test-session", &config, redb, store);
+        let factory = ShellFactory {
+            redb,
+            store,
+            config,
+            extensions: ExtensionRegistry::default_set(),
+            settings: Settings::default(),
+        };
+        let handle = build_shell("test-session", &factory);
         assert_eq!(handle.llm_rx.len(), 0);
     }
 }

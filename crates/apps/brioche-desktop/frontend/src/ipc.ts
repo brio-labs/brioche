@@ -4,6 +4,10 @@ import { listen } from '@tauri-apps/api/event';
 export interface ChatMessagePayload {
     role: string;
     content: string;
+    tool_id?: string;
+    tool_name?: string;
+    tool_arguments?: string;
+    tool_output?: string;
 }
 
 export interface SessionInfo {
@@ -182,6 +186,22 @@ export async function setSettings(settings: Settings): Promise<void> {
 
 export async function readDirectory(path: string): Promise<DirEntry[]> {
     return invoke('read_directory', { path });
+}
+
+export async function readFile(path: string): Promise<string> {
+    return invoke('read_file', { path });
+}
+
+export async function writeFile(path: string, content: string): Promise<void> {
+    return invoke('write_file', { path, content });
+}
+
+export async function deleteFile(path: string): Promise<void> {
+    return invoke('delete_file', { path });
+}
+
+export async function createFile(path: string): Promise<void> {
+    return invoke('create_file', { path });
 }
 
 // Memory IPC

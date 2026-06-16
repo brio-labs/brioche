@@ -4,6 +4,8 @@ import { listSessions, switchSession, deleteSession, newSession } from '../ipc';
 export interface Session {
     id: string;
     active: boolean;
+    created_at?: number;
+    workspace?: string;
 }
 
 interface SessionStore {

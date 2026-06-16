@@ -14,7 +14,7 @@ pub use crate::extensions::skill_provider::{SkillDescriptor as Skill, SkillRegis
 /// Refs: I-Shell-Runtime-OnlyIO
 pub fn scan_skills() -> Vec<Skill> {
     let registry = SkillRegistry::default();
-    registry.list().unwrap_or_else(|_| Vec::new())
+    registry.list().map_or(Vec::new(), |skills| skills)
 }
 
 /// Reads the full content of a skill's SKILL.md file.

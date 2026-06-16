@@ -35,7 +35,7 @@ use crate::extensions::footer::FooterContext;
 use crate::extensions::memory_provider::MemoryProvider;
 use crate::extensions::tool_provider::{ToolDescriptor, UserToolDefinition};
 use crate::settings::Settings;
-use crate::state::DesktopState;
+use crate::state::{DesktopState, SessionMetadata};
 
 /// Role of a chat message participant.
 ///
@@ -58,7 +58,9 @@ pub enum ChatRole {
 /// Payload emitted to the frontend for chat messages.
 ///
 /// The frontend expects `{role, content}` so we flatten the
-/// `ChatMessage` enum into this shape before emitting.
+/// `ChatMessage` enum into this shape before emitting. Optional tool
+/// fields are populated for tool request/result messages so the UI can
+/// render structured tool cards.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
 #[derive(Clone, Debug, Serialize)]
@@ -67,6 +69,31 @@ pub struct ChatMessagePayload {
     pub role: ChatRole,
     /// Message content.
     pub content: String,
+    /// Tool call identifier, when applicable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_id: Option<String>,
+    /// Tool name, when applicable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
+    /// Tool arguments JSON, when applicable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_arguments: Option<String>,
+    /// Tool execution output, when applicable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_output: Option<String>,
+}
+
+impl Default for ChatMessagePayload {
+    fn default() -> Self {
+        Self {
+            role: ChatRole::System,
+            content: String::new(),
+            tool_id: None,
+            tool_name: None,
+            tool_arguments: None,
+            tool_output: None,
+        }
+    }
 }
 
 impl From<&ChatMessage> for ChatMessagePayload {
@@ -75,14 +102,17 @@ impl From<&ChatMessage> for ChatMessagePayload {
             ChatMessage::System { content } => Self {
                 role: ChatRole::System,
                 content: content.clone(),
+                ..Self::default()
             },
             ChatMessage::User { content } => Self {
                 role: ChatRole::User,
                 content: content.clone(),
+                ..Self::default()
             },
             ChatMessage::Assistant { content, .. } => Self {
                 role: ChatRole::Assistant,
                 content: content.clone(),
+                ..Self::default()
             },
             ChatMessage::ToolRequest {
                 id,
@@ -91,15 +121,19 @@ impl From<&ChatMessage> for ChatMessagePayload {
             } => Self {
                 role: ChatRole::ToolRequest,
                 content: format!("Tool {} ({}): {}", name, id, arguments),
+                tool_id: Some(id.clone()),
+                tool_name: Some(name.clone()),
+                tool_arguments: Some(arguments.clone()),
+                ..Self::default()
             },
             ChatMessage::ToolResult { id, content } => Self {
                 role: ChatRole::ToolResult,
                 content: format!("Tool result {}: {}", id, content),
+                tool_id: Some(id.clone()),
+                tool_output: Some(content.clone()),
+                ..Self::default()
             },
-            _ => Self {
-                role: ChatRole::System,
-                content: String::new(),
-            },
+            _ => Self::default(),
         }
     }
 }
@@ -200,35 +234,47 @@ async fn forward_llm_chunks(
             brioche_shell_runtime::LlmChunk::Text(text) => ChatMessagePayload {
                 role: ChatRole::Assistant,
                 content: text,
+                ..ChatMessagePayload::default()
             },
             brioche_shell_runtime::LlmChunk::Reasoning(text) => ChatMessagePayload {
                 role: ChatRole::Assistant,
                 content: text,
+                ..ChatMessagePayload::default()
             },
-            brioche_shell_runtime::LlmChunk::ToolCallStart { name, .. } => ChatMessagePayload {
+            brioche_shell_runtime::LlmChunk::ToolCallStart { id, name } => ChatMessagePayload {
                 role: ChatRole::ToolRequest,
                 content: format!("Tool call: {}", name),
+                tool_id: Some(id),
+                tool_name: Some(name),
+                ..ChatMessagePayload::default()
             },
             brioche_shell_runtime::LlmChunk::ToolArgument { fragment, .. } => ChatMessagePayload {
                 role: ChatRole::ToolResult,
                 content: fragment,
+                ..ChatMessagePayload::default()
             },
             brioche_shell_runtime::LlmChunk::ToolCallDone { .. } => ChatMessagePayload {
                 role: ChatRole::ToolResult,
                 content: String::new(),
+                ..ChatMessagePayload::default()
             },
             brioche_shell_runtime::LlmChunk::ToolResult { name, output } => ChatMessagePayload {
                 role: ChatRole::ToolResult,
                 content: format!("{}: {}", name, output),
+                tool_name: Some(name.clone()),
+                tool_output: Some(output),
+                ..ChatMessagePayload::default()
             },
             brioche_shell_runtime::LlmChunk::Done => continue,
             brioche_shell_runtime::LlmChunk::Error(err) => ChatMessagePayload {
                 role: ChatRole::System,
                 content: err,
+                ..ChatMessagePayload::default()
             },
             brioche_shell_runtime::LlmChunk::Warning(w) => ChatMessagePayload {
                 role: ChatRole::System,
                 content: w,
+                ..ChatMessagePayload::default()
             },
             brioche_shell_runtime::LlmChunk::Status(_) => continue,
         };
@@ -273,13 +319,11 @@ async fn clear_messages_impl(state: &DesktopState) -> Result<(), String> {
     let mut mgr = state.manager.write().await;
     let manager = mgr.as_mut().ok_or("No active session")?;
     let current_id = manager.current_id().to_string();
-    let config = state.config.read().await.clone();
+    let _config = state.config.read().await.clone();
     let factory = state.factory.read().await.clone();
     let handle = crate::commands::shell::build_shell(
         &current_id,
-        &config,
-        factory.redb.clone(),
-        factory.store.clone(),
+        &factory,
     );
     manager.insert(
         current_id,
@@ -332,13 +376,11 @@ async fn handle_slash_command(
             let mut mgr = state.manager.write().await;
             let manager = mgr.as_mut().ok_or("No active session")?;
             let current_id = manager.current_id().to_string();
-            let config = state.config.read().await.clone();
+            let _config = state.config.read().await.clone();
             let factory = state.factory.read().await.clone();
             let handle = crate::commands::shell::build_shell(
                 &current_id,
-                &config,
-                factory.redb.clone(),
-                factory.store.clone(),
+                &factory,
             );
             manager.insert(
                 current_id,
@@ -412,13 +454,11 @@ async fn handle_session_subcommand(app: &AppHandle, state: &DesktopState, args: 
                     Err(_) => 0,
                 }
             );
-            let config = state.config.read().await.clone();
             let factory = state.factory.read().await.clone();
+            let workspace = factory.settings.working_dir();
             let handle = crate::commands::shell::build_shell(
                 &new_id,
-                &config,
-                factory.redb.clone(),
-                factory.store.clone(),
+                &factory,
             );
             {
                 let mut mgr = state.manager.write().await;
@@ -430,6 +470,11 @@ async fn handle_session_subcommand(app: &AppHandle, state: &DesktopState, args: 
                         handle.history,
                         handle.llm_rx,
                     );
+                    manager.metadata_store.insert(SessionMetadata::new(
+                        &new_id,
+                        &workspace,
+                    ));
+                    let _ = manager.metadata_store.save();
                     manager.switch(&new_id);
                 }
             }
@@ -471,6 +516,7 @@ async fn handle_session_subcommand(app: &AppHandle, state: &DesktopState, args: 
                 return;
             };
             let factory = state.factory.read().await.clone();
+            let workspace = factory.settings.working_dir();
             let _head = match factory.redb.load_session(id).await {
                 Ok(Some(h)) => h,
                 Ok(None) => {
@@ -505,12 +551,10 @@ async fn handle_session_subcommand(app: &AppHandle, state: &DesktopState, args: 
                     return;
                 }
             };
-            let config = state.config.read().await.clone();
+            let _config = state.config.read().await.clone();
             let handle = crate::commands::shell::build_shell(
                 id,
-                &config,
-                factory.redb.clone(),
-                factory.store.clone(),
+                &factory,
             );
             {
                 let mut mgr = state.manager.write().await;
@@ -522,6 +566,13 @@ async fn handle_session_subcommand(app: &AppHandle, state: &DesktopState, args: 
                         handle.history,
                         handle.llm_rx,
                     );
+                    if manager.metadata_store.get(id).created_at == 0 {
+                        manager.metadata_store.insert(SessionMetadata::new(
+                            id,
+                            &workspace,
+                        ));
+                        let _ = manager.metadata_store.save();
+                    }
                     manager.switch(id);
                 }
             }
@@ -579,6 +630,10 @@ pub struct SessionInfo {
     pub id: String,
     /// Whether this is the currently active session.
     pub active: bool,
+    /// Creation timestamp in seconds since the UNIX epoch.
+    pub created_at: u64,
+    /// Workspace / working directory associated with the session.
+    pub workspace: String,
 }
 
 /// Returns the list of all sessions.
@@ -591,9 +646,14 @@ pub async fn list_sessions(state: State<'_, DesktopState>) -> Result<Vec<Session
     let sessions = manager
         .list()
         .into_iter()
-        .map(|id| SessionInfo {
-            id: id.clone(),
-            active: id == &current,
+        .map(|id| {
+            let meta = manager.metadata_store.get(id);
+            SessionInfo {
+                id: id.clone(),
+                active: id == &current,
+                created_at: meta.created_at,
+                workspace: meta.workspace.clone(),
+            }
         })
         .collect();
     Ok(sessions)
@@ -640,6 +700,8 @@ pub async fn delete_session(
         return Err("Cannot delete the active session".into());
     }
     manager.sessions.remove(&id);
+    manager.metadata_store.remove(&id);
+    let _ = manager.metadata_store.save();
     drop(mgr);
     let _ = app.emit("sessions-updated", ());
     Ok(())
@@ -656,13 +718,11 @@ pub async fn new_session(app: AppHandle, state: State<'_, DesktopState>) -> Resu
             Err(_) => 0,
         }
     );
-    let config = state.config.read().await.clone();
     let factory = state.factory.read().await.clone();
+    let workspace = factory.settings.working_dir();
     let handle = crate::commands::shell::build_shell(
         &new_id,
-        &config,
-        factory.redb.clone(),
-        factory.store.clone(),
+        &factory,
     );
     {
         let mut mgr = state.manager.write().await;
@@ -674,6 +734,11 @@ pub async fn new_session(app: AppHandle, state: State<'_, DesktopState>) -> Resu
             handle.history,
             handle.llm_rx,
         );
+        manager.metadata_store.insert(SessionMetadata::new(
+            &new_id,
+            &workspace,
+        ));
+        let _ = manager.metadata_store.save();
         manager.switch(&new_id);
     }
     let _ = app.emit("session-changed", new_id.clone());
@@ -1070,6 +1135,49 @@ pub async fn read_directory(path: String) -> Result<Vec<DirEntry>, String> {
         }
     });
     Ok(entries)
+}
+
+/// Reads the contents of a text file.
+#[tauri::command]
+pub async fn read_file(path: String) -> Result<String, String> {
+    tokio::fs::read_to_string(&path)
+        .await
+        .map_err(|e| format!("Failed to read file: {e}"))
+}
+
+/// Writes content to a file, creating it if necessary.
+#[tauri::command]
+pub async fn write_file(path: String, content: String) -> Result<(), String> {
+    tokio::fs::write(&path, content)
+        .await
+        .map_err(|e| format!("Failed to write file: {e}"))
+}
+
+/// Deletes a file or empty directory.
+#[tauri::command]
+pub async fn delete_file(path: String) -> Result<(), String> {
+    let metadata = tokio::fs::metadata(&path)
+        .await
+        .map_err(|e| format!("Failed to read metadata: {e}"))?;
+    if metadata.is_dir() {
+        tokio::fs::remove_dir(&path)
+            .await
+            .map_err(|e| format!("Failed to remove directory: {e}"))?;
+    } else {
+        tokio::fs::remove_file(&path)
+            .await
+            .map_err(|e| format!("Failed to remove file: {e}"))?;
+    }
+    Ok(())
+}
+
+/// Creates a new empty file.
+#[tauri::command]
+pub async fn create_file(path: String) -> Result<(), String> {
+    tokio::fs::File::create(&path)
+        .await
+        .map_err(|e| format!("Failed to create file: {e}"))?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

@@ -124,6 +124,25 @@ pub struct ToolRegistry {
     disabled: Vec<String>,
 }
 
+/// Build a JSON object value from key/value pairs.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+fn obj(values: impl IntoIterator<Item = (&'static str, serde_json::Value)>) -> serde_json::Value {
+    serde_json::Value::Object(
+        values
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect::<serde_json::Map<String, serde_json::Value>>(),
+    )
+}
+
+/// Build a JSON array value from items.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+fn arr(values: impl IntoIterator<Item = serde_json::Value>) -> serde_json::Value {
+    serde_json::Value::Array(values.into_iter().collect())
+}
+
 impl ToolRegistry {
     /// Loads the registry from disk.
     ///
@@ -158,13 +177,20 @@ impl ToolRegistry {
                 id: "read_file".into(),
                 name: "Read file".into(),
                 description: "Read the contents of a file".into(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "path": { "type": "string", "description": "File path" }
-                    },
-                    "required": ["path"]
-                }),
+                parameters: obj([
+                    ("type", "object".into()),
+                    (
+                        "properties",
+                        obj([(
+                            "path",
+                            obj([
+                                ("type", "string".into()),
+                                ("description", "File path".into()),
+                            ]),
+                        )]),
+                    ),
+                    ("required", arr(["path".into()])),
+                ]),
                 category: "filesystem".into(),
                 tags: vec!["fs".into()],
                 enabled: true,
@@ -174,15 +200,18 @@ impl ToolRegistry {
                 id: "write_file".into(),
                 name: "Write file".into(),
                 description: "Write content to a file".into(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "path": { "type": "string" },
-                        "content": { "type": "string" },
-                        "append": { "type": "boolean" }
-                    },
-                    "required": ["path", "content"]
-                }),
+                parameters: obj([
+                    ("type", "object".into()),
+                    (
+                        "properties",
+                        obj([
+                            ("path", obj([("type", "string".into())])),
+                            ("content", obj([("type", "string".into())])),
+                            ("append", obj([("type", "boolean".into())])),
+                        ]),
+                    ),
+                    ("required", arr(["path".into(), "content".into()])),
+                ]),
                 category: "filesystem".into(),
                 tags: vec!["fs".into()],
                 enabled: true,
@@ -192,13 +221,20 @@ impl ToolRegistry {
                 id: "list_dir".into(),
                 name: "List directory".into(),
                 description: "List files in a directory".into(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "path": { "type": "string", "description": "Directory path" }
-                    },
-                    "required": ["path"]
-                }),
+                parameters: obj([
+                    ("type", "object".into()),
+                    (
+                        "properties",
+                        obj([(
+                            "path",
+                            obj([
+                                ("type", "string".into()),
+                                ("description", "Directory path".into()),
+                            ]),
+                        )]),
+                    ),
+                    ("required", arr(["path".into()])),
+                ]),
                 category: "filesystem".into(),
                 tags: vec!["fs".into()],
                 enabled: true,
@@ -208,14 +244,17 @@ impl ToolRegistry {
                 id: "execute_command".into(),
                 name: "Execute command".into(),
                 description: "Run a shell command".into(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "command": { "type": "string" },
-                        "timeout_ms": { "type": "integer" }
-                    },
-                    "required": ["command"]
-                }),
+                parameters: obj([
+                    ("type", "object".into()),
+                    (
+                        "properties",
+                        obj([
+                            ("command", obj([("type", "string".into())])),
+                            ("timeout_ms", obj([("type", "integer".into())])),
+                        ]),
+                    ),
+                    ("required", arr(["command".into()])),
+                ]),
                 category: "system".into(),
                 tags: vec!["shell".into()],
                 enabled: true,
@@ -225,13 +264,14 @@ impl ToolRegistry {
                 id: "fetch_url".into(),
                 name: "Fetch URL".into(),
                 description: "Fetch content from a URL".into(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "url": { "type": "string" }
-                    },
-                    "required": ["url"]
-                }),
+                parameters: obj([
+                    ("type", "object".into()),
+                    (
+                        "properties",
+                        obj([("url", obj([("type", "string".into())]))]),
+                    ),
+                    ("required", arr(["url".into()])),
+                ]),
                 category: "web".into(),
                 tags: vec!["http".into()],
                 enabled: true,

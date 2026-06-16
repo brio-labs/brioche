@@ -59,42 +59,83 @@ impl Default for Settings {
         let mut modules = BTreeMap::new();
         modules.insert(
             "chat".into(),
-            serde_json::json!({
-                "provider": "openrouter",
-                "model": "qwen/qwen3.7-plus",
-                "api_key": "",
-                "base_url": "https://openrouter.ai/api/v1",
-                "max_tokens": 4096,
-                "context_window": 128000,
-                "reasoning_enabled": false,
-                "reasoning_effort": "medium",
-                "fallback_models": [],
-                "personality": "helpful",
-                "custom_identity": "",
-                "system_prompt": "You are a helpful AI coding assistant with access to filesystem tools.",
-            }),
+            Value::Object(
+                [
+                    ("provider".into(), Value::String("openrouter".into())),
+                    ("model".into(), Value::String("qwen/qwen3.7-plus".into())),
+                    ("api_key".into(), Value::String(String::new())),
+                    (
+                        "base_url".into(),
+                        Value::String("https://openrouter.ai/api/v1".into()),
+                    ),
+                    ("max_tokens".into(), Value::Number(4096.into())),
+                    (
+                        "context_window".into(),
+                        Value::Number(128_000.into()),
+                    ),
+                    ("reasoning_enabled".into(), Value::Bool(false)),
+                    (
+                        "reasoning_effort".into(),
+                        Value::String("medium".into()),
+                    ),
+                    ("fallback_models".into(), Value::Array(Vec::new())),
+                    ("personality".into(), Value::String("helpful".into())),
+                    ("custom_identity".into(), Value::String(String::new())),
+                    (
+                        "system_prompt".into(),
+                        Value::String(
+                            "You are a helpful AI coding assistant with access to filesystem tools."
+                                .into(),
+                        ),
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+            ),
         );
         modules.insert(
             "context".into(),
-            serde_json::json!({
-                "enabled": true,
-                "trigger_percentage": 75,
-                "target_percentage": 50,
-                "preserve_recent": 6,
-            }),
+            Value::Object(
+                [
+                    ("enabled".into(), Value::Bool(true)),
+                    (
+                        "trigger_percentage".into(),
+                        Value::Number(75.into()),
+                    ),
+                    (
+                        "target_percentage".into(),
+                        Value::Number(50.into()),
+                    ),
+                    ("preserve_recent".into(), Value::Number(6.into())),
+                ]
+                .into_iter()
+                .collect(),
+            ),
         );
         modules.insert(
             "memory".into(),
-            serde_json::json!({
-                "active_providers": ["memory-local"],
-            }),
+            Value::Object(
+                [(
+                    "active_providers".into(),
+                    Value::Array(vec![Value::String("memory-local".into())]),
+                )]
+                .into_iter()
+                .collect(),
+            ),
         );
         modules.insert(
             "ui".into(),
-            serde_json::json!({
-                "working_dir": home_or_tmp(),
-                "stream": true,
-            }),
+            Value::Object(
+                [
+                    (
+                        "working_dir".into(),
+                        Value::String(home_or_tmp()),
+                    ),
+                    ("stream".into(), Value::Bool(true)),
+                ]
+                .into_iter()
+                .collect(),
+            ),
         );
         Self { modules }
     }
@@ -259,13 +300,9 @@ impl Settings {
 
     /// Returns fallback models.
     pub fn fallback_models(&self) -> Vec<FallbackModel> {
-        match self.get("chat.fallback_models") {
-            Some(v) => match serde_json::from_value(v) {
-                Ok(models) => models,
-                Err(_) => Vec::new(),
-            },
-            None => Vec::new(),
-        }
+        self.get("chat.fallback_models").map_or(Vec::new(), |v| {
+            serde_json::from_value::<Vec<FallbackModel>>(v).map_or(Vec::new(), |m| m)
+        })
     }
 
     /// Returns the current system prompt.
