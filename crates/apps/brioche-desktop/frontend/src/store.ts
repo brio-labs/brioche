@@ -6,6 +6,17 @@ export interface ChatMessage {
     role: MessageRole;
     content: string;
     id: string;
+    toolId?: string;
+    toolName?: string;
+    toolArguments?: string;
+    toolOutput?: string;
+}
+
+interface ChatToolFields {
+    toolId?: string;
+    toolName?: string;
+    toolArguments?: string;
+    toolOutput?: string;
 }
 
 interface ChatStore {
@@ -13,8 +24,8 @@ interface ChatStore {
     input: string;
     isLoading: boolean;
     streamingId: string | null;
-    addMessage: (role: MessageRole, content: string) => void;
-    appendMessage: (role: MessageRole, content: string) => void;
+    addMessage: (role: MessageRole, content: string, tool?: ChatToolFields) => void;
+    appendMessage: (role: MessageRole, content: string, tool?: ChatToolFields) => void;
     setInput: (input: string) => void;
     setLoading: (loading: boolean) => void;
     clearMessages: () => void;
@@ -27,11 +38,11 @@ export const useChatStore = create<ChatStore>((set) => ({
     input: '',
     isLoading: false,
     streamingId: null,
-    addMessage: (role, content) =>
+    addMessage: (role, content, tool) =>
         set((state) => ({
-            messages: [...state.messages, { role, content, id: String(++messageId) }],
+            messages: [...state.messages, { role, content, id: String(++messageId), ...tool }],
         })),
-    appendMessage: (role, content) =>
+    appendMessage: (role, content, tool) =>
         set((state) => {
             // If we're streaming assistant text, append to the last assistant message
             if (role === 'assistant' && state.streamingId) {
@@ -48,7 +59,7 @@ export const useChatStore = create<ChatStore>((set) => ({
             // Start a new streaming message
             const id = String(++messageId);
             return {
-                messages: [...state.messages, { role, content, id }],
+                messages: [...state.messages, { role, content, id, ...tool }],
                 streamingId: role === 'assistant' ? id : state.streamingId,
             };
         }),

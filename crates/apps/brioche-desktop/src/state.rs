@@ -14,16 +14,19 @@
 //! Refs: I-Shell-Runtime-OnlyIO
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use brioche_core::ChatMessage;
 use brioche_provider_openai::{LlmChunk, OpenAiLlmClient};
 use brioche_shell_persistence::{RedbStorage, SessionStore, new_session_store};
 use brioche_shell_runtime::BriocheShell;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{RwLock, broadcast};
 
 use crate::commands::shell::{DesktopConfig, ShellFactory, build_shell};
 use crate::extensions::ExtensionRegistry;
+use crate::settings::Settings;
 
 /// Shared history mirror type.
 ///
@@ -49,6 +52,122 @@ pub struct SessionEntry {
     pub llm_rx: Option<broadcast::Receiver<LlmChunk>>,
 }
 
+/// Persistent metadata for a session.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SessionMetadata {
+    /// Session identifier.
+    pub id: String,
+    /// Creation timestamp in seconds since the UNIX epoch.
+    pub created_at: u64,
+    /// Workspace / working directory associated with the session.
+    pub workspace: String,
+}
+
+impl SessionMetadata {
+    /// Creates metadata for a new session.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn new(id: impl Into<String>, workspace: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            created_at: system_time_secs(),
+            workspace: workspace.into(),
+        }
+    }
+}
+
+fn system_time_secs() -> u64 {
+    match std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH) {
+        Ok(d) => d.as_secs(),
+        Err(_) => 0,
+    }
+}
+
+/// Persistent store for session metadata.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct SessionMetadataStore {
+    entries: BTreeMap<String, SessionMetadata>,
+}
+
+impl SessionMetadataStore {
+    /// Loads the store from disk, returning an empty store if the file is missing.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn load() -> Self {
+        let path = Self::path();
+        if let Ok(data) = std::fs::read_to_string(&path)
+            && let Ok(store) = serde_json::from_str::<Self>(&data)
+        {
+            return store;
+        }
+        Self::default()
+    }
+
+    /// Saves the store to disk.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn save(&self) -> Result<(), String> {
+        let path = Self::path();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create session metadata dir: {e}"))?;
+        }
+        let data = serde_json::to_string_pretty(self)
+            .map_err(|e| format!("Failed to serialize session metadata: {e}"))?;
+        std::fs::write(&path, data)
+            .map_err(|e| format!("Failed to write session metadata: {e}"))
+    }
+
+    /// Returns metadata for a session, or a default entry if unknown.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn get(&self, id: &str) -> SessionMetadata {
+        match self.entries.get(id).cloned() {
+            Some(metadata) => metadata,
+            None => SessionMetadata {
+                id: id.into(),
+                created_at: 0,
+                workspace: String::new(),
+            },
+        }
+    }
+
+    /// Inserts or updates metadata for a session.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn insert(&mut self, metadata: SessionMetadata) {
+        self.entries.insert(metadata.id.clone(), metadata);
+    }
+
+    /// Removes metadata for a session.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn remove(&mut self, id: &str) {
+        self.entries.remove(id);
+    }
+
+    /// Returns all stored metadata entries.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn values(&self) -> impl Iterator<Item = &SessionMetadata> {
+        self.entries.values()
+    }
+
+    fn path() -> PathBuf {
+        let config_dir = match dirs::config_dir() {
+            Some(d) => d,
+            None => std::env::temp_dir(),
+        };
+        config_dir
+            .join("brioche-desktop")
+            .join("sessions.json")
+    }
+}
+
 /// Multi-session manager for the desktop.
 ///
 /// Like `brioche_reedline::SessionManager` but stores `SessionEntry`
@@ -59,6 +178,8 @@ pub struct SessionManager {
     current: String,
     /// All sessions keyed by ID.
     pub sessions: BTreeMap<String, SessionEntry>,
+    /// Persistent metadata for all known sessions.
+    pub metadata_store: SessionMetadataStore,
 }
 
 impl SessionManager {
@@ -71,6 +192,8 @@ impl SessionManager {
         initial_llm: OpenAiLlmClient,
         initial_history: SharedHistory,
         initial_llm_rx: broadcast::Receiver<LlmChunk>,
+        mut metadata_store: SessionMetadataStore,
+        workspace: &str,
     ) -> Self {
         let id = initial_id.into();
         let mut sessions = BTreeMap::new();
@@ -83,9 +206,12 @@ impl SessionManager {
                 llm_rx: Some(initial_llm_rx),
             },
         );
+        metadata_store.insert(SessionMetadata::new(&id, workspace));
+        let _ = metadata_store.save();
         Self {
             current: id,
             sessions,
+            metadata_store,
         }
     }
 
@@ -215,12 +341,14 @@ impl DesktopState {
         let redb = Self::init_redb(path.as_ref(), store.clone())
             .map_err(|e| format!("Failed to initialize storage: {}", e))?;
 
+        let extensions = ExtensionRegistry::default_set();
         let factory = ShellFactory {
             redb: redb.clone(),
             store: store.clone(),
             config: config.clone(),
+            extensions: extensions.clone(),
+            settings: Settings::load(),
         };
-        let extensions = ExtensionRegistry::default_set();
 
         Ok(Self {
             manager: RwLock::new(None),
@@ -272,9 +400,9 @@ impl DesktopState {
     pub async fn ensure_manager(&self) -> Result<(), String> {
         let mut mgr = self.manager.write().await;
         if mgr.is_none() {
-            let config = self.config.read().await.clone();
             let factory = self.factory.read().await.clone();
-            let handle = build_shell("desktop-session", &config, factory.redb, factory.store);
+            let handle = build_shell("desktop-session", &factory);
+            let workspace = factory.settings.working_dir();
 
             *mgr = Some(SessionManager::new(
                 "desktop-session",
@@ -282,6 +410,8 @@ impl DesktopState {
                 handle.llm,
                 handle.history,
                 handle.llm_rx,
+                SessionMetadataStore::load(),
+                &workspace,
             ));
         }
         Ok(())

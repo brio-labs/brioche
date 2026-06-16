@@ -52,6 +52,10 @@ fn main() {
             commands::set_settings,
             commands::pick_directory,
             commands::read_directory,
+            commands::read_file,
+            commands::write_file,
+            commands::delete_file,
+            commands::create_file,
             // Memory commands
             commands::list_memories,
             commands::set_memory,

@@ -269,28 +269,28 @@ fn parse_skill(skill_md: &std::path::Path, root: &std::path::Path) -> Option<Ski
     }
 
     if name.is_empty() {
-        name = skill_md
-            .parent()
-            .and_then(|p| p.file_name())
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
+        name = match skill_md.parent().and_then(|p| p.file_name()) {
+            Some(n) => n.to_string_lossy().to_string(),
+            None => String::new(),
+        };
     }
 
-    let category = skill_md
-        .parent()
-        .and_then(|p| p.parent())
-        .and_then(|p| {
-            let rel = p.strip_prefix(root).ok()?;
+    let category = match skill_md.parent().and_then(|p| p.parent()) {
+        Some(parent) => match parent.strip_prefix(root).ok().and_then(|rel| {
             rel.components()
                 .next()
                 .map(|c| c.as_os_str().to_string_lossy().to_string())
-        })
-        .unwrap_or_else(|| "uncategorized".to_string());
+        }) {
+            Some(c) => c,
+            None => "uncategorized".to_string(),
+        },
+        None => "uncategorized".to_string(),
+    };
 
-    let path_str = skill_md
-        .parent()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_default();
+    let path_str = match skill_md.parent() {
+        Some(p) => p.to_string_lossy().to_string(),
+        None => String::new(),
+    };
 
     Some(SkillDescriptor {
         name,

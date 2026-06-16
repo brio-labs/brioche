@@ -122,11 +122,10 @@ impl MemoryProvider for LocalMemoryProvider {
     }
 
     fn list(&self, query: &MemoryQuery) -> Result<Vec<MemoryEntry>, String> {
-        let q = query
-            .query
-            .as_ref()
-            .map(|s| s.to_lowercase())
-            .unwrap_or_default();
+        let q = match query.query.as_ref() {
+            Some(s) => s.to_lowercase(),
+            None => String::new(),
+        };
         Ok(self
             .entries
             .iter()

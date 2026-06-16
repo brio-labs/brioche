@@ -37,6 +37,7 @@ import { getPanelsForSlot, type PanelSlot } from "../extensions/registry";
 import SettingsPanel from "./SettingsPanel";
 import SkillsPanel from "./SkillsPanel";
 import MemoryPanel from "./MemoryPanel";
+import ToolCallMessage from "./ToolCallMessage";
 
 const LazyPanel = lazy(() => import("./LazyPanel"));
 
@@ -101,10 +102,16 @@ export default function App() {
 		onChatMessage((msg) => {
 			if (cancelled) return;
 			const role = msg.role as MessageRole;
+			const tool = {
+				toolId: msg.tool_id,
+				toolName: msg.tool_name,
+				toolArguments: msg.tool_arguments,
+				toolOutput: msg.tool_output,
+			};
 			if (role === "assistant") {
-				appendMessage(role, msg.content);
+				appendMessage(role, msg.content, tool);
 			} else {
-				addMessage(role, msg.content);
+				addMessage(role, msg.content, tool);
 			}
 		}).then((fn) => {
 			if (cancelled) fn();
@@ -126,10 +133,16 @@ export default function App() {
 				const history = await getMessages();
 				history.forEach((msg) => {
 					const role = msg.role as MessageRole;
+					const tool = {
+						toolId: msg.tool_id,
+						toolName: msg.tool_name,
+						toolArguments: msg.tool_arguments,
+						toolOutput: msg.tool_output,
+					};
 					if (role === "assistant") {
-						appendMessage(role, msg.content);
+						appendMessage(role, msg.content, tool);
 					} else {
-						addMessage(role, msg.content);
+						addMessage(role, msg.content, tool);
 					}
 				});
 			} catch (err) {
@@ -328,16 +341,22 @@ export default function App() {
 							</div>
 						</div>
 					)}
-					{messages.map((msg) => (
-						<div key={msg.id} className={`message ${msg.role}`}>
-							<div className="message-header">
-								<span className="message-role">{msg.role}</span>
+					{messages.map((msg) =>
+						msg.role === 'tool_request' || msg.role === 'tool_result' ? (
+							<div key={msg.id} className={`message ${msg.role}`}>
+								<ToolCallMessage message={msg} />
 							</div>
-							<div className="message-body">
-								<div className="message-content">{msg.content}</div>
+						) : (
+							<div key={msg.id} className={`message ${msg.role}`}>
+								<div className="message-header">
+									<span className="message-role">{msg.role}</span>
+								</div>
+								<div className="message-body">
+									<div className="message-content">{msg.content}</div>
+								</div>
 							</div>
-						</div>
-					))}
+						)
+					)}
 					{isLoading && (
 						<div className="message assistant">
 							<div className="message-header">
