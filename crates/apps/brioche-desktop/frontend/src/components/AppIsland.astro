@@ -1,0 +1,20 @@
+---
+// Astro island component that hydrates the React app on the client
+---
+
+<div id="root"></div>
+
+<script>
+  // Client-side only: mount React app
+  import { StrictMode } from 'react';
+  import { createRoot } from 'react-dom/client';
+  import App from '../components/App';
+
+  const container = document.getElementById('root');
+  if (container) {
+    const root = createRoot(container);
+    root.render(
+      StrictMode(App, null)
+    );
+  }
+</script>
