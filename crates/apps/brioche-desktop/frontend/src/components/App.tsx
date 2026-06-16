@@ -342,7 +342,7 @@ export default function App() {
 						</div>
 					)}
 					{messages.map((msg) =>
-						msg.role === 'tool_request' || msg.role === 'tool_result' ? (
+						msg.role === "tool_request" || msg.role === "tool_result" ? (
 							<div key={msg.id} className={`message ${msg.role}`}>
 								<ToolCallMessage message={msg} />
 							</div>
@@ -355,7 +355,7 @@ export default function App() {
 									<div className="message-content">{msg.content}</div>
 								</div>
 							</div>
-						)
+						),
 					)}
 					{isLoading && (
 						<div className="message assistant">

@@ -34,8 +34,103 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 
 	useEffect(() => {
 		loadSettings();
-		listSettingsSections().then(setSections).catch(console.error);
+		listSettingsSections()
+			.then((data) => {
+				setSections(data);
+			})
+			.catch((err) => {
+				console.error("Failed to load settings sections:", err);
+			});
 	}, [loadSettings]);
+
+	// When Tauri IPC is unavailable (e.g. browser preview), show sections with
+	// fallback defaults so the panel is testable without the backend.
+	useEffect(() => {
+		if (sections.length === 0) {
+			const timer = setTimeout(() => {
+				setSections((current) =>
+					current.length > 0
+						? current
+						: [
+								{
+									id: "chat-model",
+									module_id: "chat",
+									title: "Model",
+									order: 10,
+									keywords: ["model", "provider", "api key"],
+									fields: [
+										{
+											key: "chat.provider",
+											label: "Provider",
+											field_type: "select" as const,
+											description: "LLM provider backend",
+											placeholder: null,
+											options: [
+												{ value: "openai", label: "OpenAI" },
+												{ value: "openrouter", label: "OpenRouter" },
+												{ value: "anthropic", label: "Anthropic" },
+											],
+											default_value: "openrouter",
+											protected: false,
+											keywords: [],
+										},
+										{
+											key: "chat.model",
+											label: "Model",
+											field_type: "string" as const,
+											description: "Primary model identifier",
+											placeholder: "qwen/qwen3.7-plus",
+											options: [],
+											default_value: "qwen/qwen3.7-plus",
+											protected: false,
+											keywords: [],
+										},
+									],
+								},
+								{
+									id: "chat-identity",
+									module_id: "chat",
+									title: "Model Identity",
+									order: 20,
+									keywords: ["personality", "system prompt"],
+									fields: [
+										{
+											key: "chat.personality",
+											label: "Personality",
+											field_type: "select" as const,
+											description: "Default conversational style",
+											placeholder: null,
+											options: [
+												{ value: "helpful", label: "Helpful" },
+												{ value: "teacher", label: "Teacher" },
+												{ value: "creative", label: "Creative" },
+												{ value: "concise", label: "Concise" },
+											],
+											default_value: "helpful",
+											protected: false,
+											keywords: [],
+										},
+										{
+											key: "chat.system_prompt",
+											label: "System prompt",
+											field_type: "protected_markdown" as const,
+											description:
+												"The system prompt sent at the start of every session.",
+											placeholder: null,
+											options: [],
+											default_value:
+												"You are a helpful AI coding assistant with access to filesystem tools.",
+											protected: true,
+											keywords: ["prompt"],
+										},
+									],
+								},
+							],
+				);
+			}, 300);
+			return () => clearTimeout(timer);
+		}
+	}, [sections.length]);
 
 	const filteredSections = useMemo(() => {
 		if (!search.trim()) return sections;
@@ -287,7 +382,7 @@ function FieldEditor({
 						<span>{field.label}</span>
 					</label>
 				);
-			case "select":
+			case "select" as const:
 				return (
 					<select
 						value={String(currentValue || "")}
@@ -342,12 +437,12 @@ function FieldEditor({
 					/>
 				);
 			case "text":
-			case "protected_markdown":
+			case "protected_markdown" as const:
 				return (
 					<textarea
 						value={String(currentValue || "")}
 						onChange={(e) => onChange(e.target.value)}
-						rows={field.field_type === "protected_markdown" ? 8 : 4}
+						rows={field.field_type === "protected_markdown" as const ? 8 : 4}
 						disabled={isProtected}
 						placeholder={field.placeholder || undefined}
 					/>

@@ -20,12 +20,28 @@ export default function MemoryPanel({ onClose }: MemoryPanelProps) {
   const [newValue, setNewValue] = useState("");
   const [newCategory, setNewCategory] = useState("preference");
   const [error, setError] = useState<string | null>(null);
+  const [isTauriAvailable, setIsTauriAvailable] = useState(true);
 
   const categories = ["all", "preference", "fact", "habit", "project", "other"];
+
+  useEffect(() => {
+    // Detect whether we are running inside Tauri. The `window.__TAURI_INTERNALS__`
+    // object is injected by the Tauri runtime; in a plain browser preview it is
+    // undefined and all IPC calls would fail.
+    setIsTauriAvailable(
+      typeof window !== "undefined" &&
+        typeof (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !==
+          "undefined",
+    );
+  }, []);
 
   const loadMemories = useCallback(async () => {
     try {
       setError(null);
+      if (!isTauriAvailable) {
+        setMemories([]);
+        return;
+      }
       const data =
         selectedCategory === "all"
           ? await listMemories()
@@ -34,7 +50,7 @@ export default function MemoryPanel({ onClose }: MemoryPanelProps) {
     } catch (e) {
       setError(String(e));
     }
-  }, [selectedCategory]);
+  }, [selectedCategory, isTauriAvailable]);
 
   useEffect(() => {
     loadMemories();
@@ -43,6 +59,10 @@ export default function MemoryPanel({ onClose }: MemoryPanelProps) {
   const handleSearch = async () => {
     if (!searchQuery.trim()) {
       loadMemories();
+      return;
+    }
+    if (!isTauriAvailable) {
+      setError("Memory search requires the Tauri desktop runtime.");
       return;
     }
     try {
@@ -56,6 +76,10 @@ export default function MemoryPanel({ onClose }: MemoryPanelProps) {
 
   const handleAdd = async () => {
     if (!newKey.trim() || !newValue.trim()) return;
+    if (!isTauriAvailable) {
+      setError("Adding memories requires the Tauri desktop runtime.");
+      return;
+    }
     try {
       setError(null);
       await setMemory(newKey.trim(), newValue.trim(), newCategory);
@@ -70,6 +94,10 @@ export default function MemoryPanel({ onClose }: MemoryPanelProps) {
   };
 
   const handleDelete = async (key: string) => {
+    if (!isTauriAvailable) {
+      setError("Deleting memories requires the Tauri desktop runtime.");
+      return;
+    }
     try {
       setError(null);
       await deleteMemory(key);
@@ -118,6 +146,11 @@ export default function MemoryPanel({ onClose }: MemoryPanelProps) {
           ))}
         </div>
 
+        {!isTauriAvailable && (
+          <div className="memory-error">
+            Memory panel preview mode: changes require the Tauri desktop app.
+          </div>
+        )}
         {error && <div className="memory-error">{error}</div>}
 
         <div className="memory-list">

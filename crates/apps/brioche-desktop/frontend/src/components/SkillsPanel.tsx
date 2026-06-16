@@ -14,18 +14,35 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
     const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [isTauriAvailable, setIsTauriAvailable] = useState(true);
+
+    useEffect(() => {
+        setIsTauriAvailable(
+            typeof window !== 'undefined' &&
+                typeof (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !==
+                    'undefined',
+        );
+    }, []);
 
     useEffect(() => {
         loadSkills();
-    }, []);
+    }, [isTauriAvailable]);
 
     const loadSkills = async () => {
         setLoading(true);
+        setError(null);
+        if (!isTauriAvailable) {
+            setSkills([]);
+            setLoading(false);
+            return;
+        }
         try {
             const data = await listSkills();
             setSkills(data);
         } catch (err) {
             console.error('Failed to load skills:', err);
+            setError(String(err));
         } finally {
             setLoading(false);
         }
@@ -33,13 +50,17 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 
     const handleSelectSkill = useCallback(async (skill: Skill) => {
         setSelectedSkill(skill);
+        if (!isTauriAvailable) {
+            setSkillContent('Skill preview requires the Tauri desktop runtime.');
+            return;
+        }
         try {
             const content = await getSkillContent(skill.name);
             setSkillContent(content);
         } catch (err) {
             setSkillContent(`Error loading skill: ${err}`);
         }
-    }, []);
+    }, [isTauriAvailable]);
 
     const categories = Array.from(new Set(skills.map((s) => s.category))).sort();
 
@@ -98,6 +119,12 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
                             ))}
                         </div>
 
+                        {error && <div className="skills-error">{error}</div>}
+                        {!isTauriAvailable && !error && (
+                            <div className="skills-error">
+                                Skills preview mode: scanning requires the Tauri desktop app.
+                            </div>
+                        )}
                         <div className="skills-list">
                             {loading ? (
                                 <div className="skills-loading">Loading skills...</div>
