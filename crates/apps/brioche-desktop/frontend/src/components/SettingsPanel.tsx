@@ -141,6 +141,121 @@ interface FieldEditorProps {
     onReset: () => void;
 }
 
+interface FallbackModelListProps {
+    items: Record<string, unknown>[];
+    onChange: (value: unknown) => void;
+}
+
+function FallbackModelList({ items, onChange }: FallbackModelListProps) {
+    const updateItem = (index: number, key: string, value: unknown) => {
+        const next = items.map((item, i) =>
+            i === index ? { ...item, [key]: value } : item,
+        );
+        onChange(next);
+    };
+
+    const addItem = () => {
+        onChange([
+            ...items,
+            {
+                provider: 'openrouter',
+                model: '',
+                api_key: '',
+                base_url: '',
+                context_window: undefined,
+                reasoning_enabled: undefined,
+                reasoning_effort: 'medium',
+            },
+        ]);
+    };
+
+    const removeItem = (index: number) => {
+        const next = items.filter((_, i) => i !== index);
+        onChange(next);
+    };
+
+    return (
+        <div className="fallback-model-list">
+            {items.map((item, index) => (
+                <div key={index} className="fallback-model-item">
+                    <div className="fallback-model-row">
+                        <input
+                            type="text"
+                            value={String(item.provider || 'openrouter')}
+                            onChange={(e) => updateItem(index, 'provider', e.target.value)}
+                            placeholder="provider"
+                        />
+                        <input
+                            type="text"
+                            value={String(item.model || '')}
+                            onChange={(e) => updateItem(index, 'model', e.target.value)}
+                            placeholder="model"
+                        />
+                        <button type="button" onClick={() => removeItem(index)}>
+                            ×
+                        </button>
+                    </div>
+                    <div className="fallback-model-row">
+                        <input
+                            type="text"
+                            value={String(item.api_key || '')}
+                            onChange={(e) => updateItem(index, 'api_key', e.target.value)}
+                            placeholder="api key (optional)"
+                        />
+                        <input
+                            type="text"
+                            value={String(item.base_url || '')}
+                            onChange={(e) => updateItem(index, 'base_url', e.target.value)}
+                            placeholder="base url (optional)"
+                        />
+                    </div>
+                    <div className="fallback-model-row">
+                        <input
+                            type="number"
+                            value={Number(item.context_window || 0)}
+                            onChange={(e) => {
+                                const n = Number(e.target.value);
+                                updateItem(index, 'context_window', n > 0 ? n : undefined);
+                            }}
+                            placeholder="context window"
+                        />
+                        <select
+                            value={
+                                item.reasoning_enabled === true
+                                    ? 'true'
+                                    : item.reasoning_enabled === false
+                                      ? 'false'
+                                      : ''
+                            }
+                            onChange={(e) => {
+                                const val = e.target.value;
+                                updateItem(
+                                    index,
+                                    'reasoning_enabled',
+                                    val === '' ? undefined : val === 'true',
+                                );
+                            }}
+                        >
+                            <option value="">default reasoning</option>
+                            <option value="true">enabled</option>
+                            <option value="false">disabled</option>
+                        </select>
+                        <input
+                            type="text"
+                            value={String(item.reasoning_effort || 'medium')}
+                            onChange={(e) => updateItem(index, 'reasoning_effort', e.target.value)}
+                            placeholder="reasoning effort"
+                        />
+                    </div>
+                </div>
+            ))}
+            <button type="button" className="btn-secondary" onClick={addItem}>
+                Add fallback model
+            </button>
+        </div>
+    );
+}
+
 function FieldEditor({
     field,
     value,
@@ -230,6 +345,15 @@ function FieldEditor({
                         placeholder={field.placeholder || undefined}
                     />
                 );
+            case 'list': {
+                const items = Array.isArray(currentValue) ? currentValue : [];
+                return (
+                    <FallbackModelList
+                        items={items as Record<string, unknown>[]}
+                        onChange={onChange}
+                    />
+                );
+            }
             case 'path':
                 return (
                     <input
