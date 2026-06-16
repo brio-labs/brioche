@@ -1,0 +1,26 @@
+---
+// Astro index page — loads the React app as a client-only island
+import App from '../components/App';
+---
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brioche Desktop</title>
+    <link rel="stylesheet" href="/styles/global.css">
+</head>
+<body>
+    <App client:only="react" />
+    
+    <script>
+        window.addEventListener('error', function(e) {
+            console.error('[Brioche] Global error:', e.message, 'at', e.filename, ':', e.lineno);
+        });
+        window.addEventListener('unhandledrejection', function(e) {
+            console.error('[Brioche] Unhandled rejection:', e.reason);
+        });
+    </script>
+</body>
+</html>
