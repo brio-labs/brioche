@@ -160,8 +160,10 @@ export async function clearMessages(): Promise<void> {
     return invoke('clear_messages');
 }
 
-export async function listSessions(): Promise<SessionInfo[]> {
-    return invoke('list_sessions');
+export type SessionSort = 'date' | 'workspace' | 'name';
+
+export async function listSessions(sort: SessionSort = 'date'): Promise<SessionInfo[]> {
+    return invoke('list_sessions', { sort });
 }
 
 export async function switchSession(id: string): Promise<void> {
@@ -267,6 +269,19 @@ export async function getSkillFile(name: string, filePath: string): Promise<stri
 
 export async function setSkillEnabled(name: string, enabled: boolean): Promise<void> {
     return invoke('set_skill_enabled', { name, enabled });
+}
+
+export async function createSkill(
+    name: string,
+    category: string,
+    description: string,
+    content: string,
+): Promise<void> {
+    return invoke('create_skill', { name, category, description, content });
+}
+
+export async function deleteSkill(name: string): Promise<void> {
+    return invoke('delete_skill', { name });
 }
 
 // Model fetching

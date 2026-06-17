@@ -40,6 +40,8 @@ pub struct FooterContext {
     pub current_model: String,
     /// Estimated remaining tokens in the current context window.
     pub context_remaining: i64,
+    /// Last note emitted by the context engine, if any.
+    pub context_note: Option<String>,
 }
 
 /// Extension trait for footer metrics.
@@ -186,6 +188,41 @@ impl FooterMetricProvider for ContextRemainingMetric {
     }
 }
 
+/// Built-in context engine note metric.
+///
+/// Displays the last note emitted by the active context engine (e.g.
+/// "Context compressed: kept 6/12 messages").
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+#[derive(Clone, Debug, Default)]
+pub struct ContextEngineNoteMetric;
+
+impl FooterMetricProvider for ContextEngineNoteMetric {
+    fn metadata(&self) -> ExtensionMetadata {
+        ExtensionMetadata {
+            id: "footer-context-note".into(),
+            name: "Context engine note".into(),
+            version: "0.1.0".into(),
+            default_panel: None,
+            enabled: true,
+        }
+    }
+
+    fn compute(&self, ctx: &FooterContext) -> FooterMetric {
+        let value = match ctx.context_note {
+            Some(ref note) => note.clone(),
+            None => String::new(),
+        };
+        FooterMetric {
+            id: "context-note".into(),
+            label: "Note".into(),
+            value,
+            tooltip: Some("Last message from the context engine".into()),
+            priority: -60,
+        }
+    }
+}
+
 /// Helper: creates the version metric boxed as a trait object.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
@@ -212,4 +249,11 @@ pub fn current_model_metric() -> Arc<dyn FooterMetricProvider> {
 /// Refs: I-Shell-Runtime-OnlyIO
 pub fn context_remaining_metric() -> Arc<dyn FooterMetricProvider> {
     Arc::new(ContextRemainingMetric)
+}
+
+/// Helper: creates the context engine note metric boxed as a trait object.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+pub fn context_engine_note_metric() -> Arc<dyn FooterMetricProvider> {
+    Arc::new(ContextEngineNoteMetric)
 }

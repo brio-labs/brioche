@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { listSessions, switchSession, deleteSession, newSession } from '../ipc';
+import type { SessionSort } from '../ipc';
 
 export interface Session {
     id: string;
@@ -11,26 +12,33 @@ export interface Session {
 interface SessionStore {
     sessions: Session[];
     currentSessionId: string | null;
+    sortMode: SessionSort;
     isLoading: boolean;
     loadSessions: () => Promise<void>;
+    setSortMode: (sort: SessionSort) => void;
     switchToSession: (id: string) => Promise<void>;
     deleteSession: (id: string) => Promise<void>;
     createSession: () => Promise<string | null>;
     setSessions: (sessions: Session[]) => void;
 }
 
-export const useSessionStore = create<SessionStore>((set) => ({
+export const useSessionStore = create<SessionStore>((set, get) => ({
     sessions: [],
     currentSessionId: null,
+    sortMode: 'date',
     isLoading: false,
     loadSessions: async () => {
         try {
-            const sessions = await listSessions();
+            const sessions = await listSessions(get().sortMode);
             const current = sessions.find((s) => s.active);
             set({ sessions, currentSessionId: current?.id ?? null });
         } catch (err) {
             console.error('Failed to load sessions:', err);
         }
+    },
+    setSortMode: (sort) => {
+        set({ sortMode: sort });
+        get().loadSessions();
     },
     switchToSession: async (id) => {
         try {
