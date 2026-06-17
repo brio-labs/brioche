@@ -24,9 +24,11 @@
 pub mod context;
 pub mod footer;
 pub mod memory_provider;
+pub mod remote_memory_provider;
 pub mod settings_sections;
 pub mod skill_provider;
 pub mod tool_provider;
+pub mod user_tool_executor;
 
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -34,9 +36,11 @@ use std::sync::Arc;
 pub use context::{CompressorContextEngine, ContextEngine, ContextEngineInput};
 pub use footer::{FooterMetric, FooterMetricProvider};
 pub use memory_provider::{LocalMemoryProvider, MemoryProvider, MemoryQuery};
+pub use remote_memory_provider::{HindsightMemoryProvider, HonchoMemoryProvider, Mem0MemoryProvider};
 pub use settings_sections::{SettingsSection, SettingsSectionProvider};
 pub use skill_provider::{SkillProvider, SkillRegistry};
-pub use tool_provider::{ToolProvider, ToolRegistry};
+pub use tool_provider::{ToolProvider, ToolRegistry, UserToolDefinition};
+pub use user_tool_executor::UserDefinedTool;
 
 /// A panel slot where a frontend extension can render by default.
 ///
@@ -123,6 +127,9 @@ impl ExtensionRegistry {
         let mut registry = Self::new();
         registry.register_context_engine(Arc::new(CompressorContextEngine::default()));
         registry.register_memory_provider(Arc::new(LocalMemoryProvider::default()));
+        registry.register_memory_provider(Arc::new(HonchoMemoryProvider));
+        registry.register_memory_provider(Arc::new(HindsightMemoryProvider));
+        registry.register_memory_provider(Arc::new(Mem0MemoryProvider));
         registry.register_tool_provider(Arc::new(ToolRegistry::load()));
         registry.register_skill_provider(Arc::new(SkillRegistry::default()));
         registry.register_settings_section(settings_sections::chat_section());
@@ -133,6 +140,7 @@ impl ExtensionRegistry {
         registry.register_footer_metric(footer::session_duration_metric());
         registry.register_footer_metric(footer::current_model_metric());
         registry.register_footer_metric(footer::context_remaining_metric());
+        registry.register_footer_metric(footer::context_engine_note_metric());
         registry
     }
 
