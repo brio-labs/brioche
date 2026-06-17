@@ -3059,3 +3059,87 @@ body {
 	width: auto;
 	padding: 0;
 }
+
+/* === WINDOWS-STYLE SETTINGS LAYOUT === */
+.settings-layout {
+	display: flex;
+	flex: 1;
+	overflow: hidden;
+}
+
+.settings-nav {
+	width: 220px;
+	min-width: 220px;
+	border-right: 1px solid var(--border);
+	background: rgba(10, 10, 15, 0.6);
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+.settings-nav-list {
+	flex: 1;
+	overflow-y: auto;
+	padding: var(--space-2);
+}
+
+.settings-nav-item {
+	width: 100%;
+	text-align: left;
+	background: transparent;
+	border: none;
+	color: var(--text-secondary);
+	padding: var(--space-3);
+	border-radius: var(--radius-sm);
+	cursor: pointer;
+	font-size: 13px;
+	transition: all 0.15s ease;
+	margin-bottom: 2px;
+}
+
+.settings-nav-item:hover {
+	background: rgba(139, 26, 43, 0.08);
+	color: var(--text-primary);
+}
+
+.settings-nav-item.active {
+	background: rgba(139, 26, 43, 0.15);
+	color: var(--text-primary);
+	border-left: 3px solid var(--accent);
+}
+
+.settings-content {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	background: transparent;
+}
+
+.settings-content-header {
+	padding: var(--space-4) var(--space-5);
+	border-bottom: 1px solid var(--border);
+	flex-shrink: 0;
+}
+
+.settings-content-header h3 {
+	font-size: 20px;
+	font-weight: 600;
+	color: var(--text-primary);
+	margin: 0;
+}
+
+.settings-content .settings-fields {
+	flex: 1;
+	overflow-y: auto;
+	padding: var(--space-4) var(--space-5);
+}
+
+.settings-empty {
+	flex: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--text-muted);
+	font-size: 14px;
+}
