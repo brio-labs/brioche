@@ -109,10 +109,17 @@ impl Default for Settings {
         modules.insert(
             "memory".into(),
             Value::Object(
-                [(
-                    "active_providers".into(),
-                    Value::Array(vec![Value::String("memory-local".into())]),
-                )]
+                [
+                    (
+                        "active_providers".into(),
+                        Value::Array(vec![Value::String("memory-local".into())]),
+                    ),
+                    ("honcho_endpoint".into(), Value::String(String::new())),
+                    ("honcho_api_key".into(), Value::String(String::new())),
+                    ("hindsight_endpoint".into(), Value::String(String::new())),
+                    ("hindsight_api_key".into(), Value::String(String::new())),
+                    ("mem0_api_key".into(), Value::String(String::new())),
+                ]
                 .into_iter()
                 .collect(),
             ),

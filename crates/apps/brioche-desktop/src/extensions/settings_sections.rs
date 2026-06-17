@@ -458,36 +458,93 @@ impl SettingsSectionProvider for MemorySettingsSection {
                 "mem0".into(),
                 "provider".into(),
             ],
-            fields: vec![SettingsField {
-                key: "memory.active_providers".into(),
-                label: "Active providers".into(),
-                field_type: FieldType::MultiSelect,
-                description: Some("Memory systems consulted during conversations".into()),
-                placeholder: None,
-                options: vec![
-                    SettingsOption {
-                        value: "memory-local".into(),
-                        label: "Local memory".into(),
-                    },
-                    SettingsOption {
-                        value: "memory-honcho".into(),
-                        label: "Honcho".into(),
-                    },
-                    SettingsOption {
-                        value: "memory-hindsight".into(),
-                        label: "Hindsight".into(),
-                    },
-                    SettingsOption {
-                        value: "memory-mem0".into(),
-                        label: "Mem0".into(),
-                    },
-                ],
-                default_value: Some(serde_json::Value::Array(vec![serde_json::Value::String(
-                    "memory-local".into(),
-                )])),
-                protected: false,
-                keywords: vec![],
-            }],
+            fields: vec![
+                SettingsField {
+                    key: "memory.active_providers".into(),
+                    label: "Active providers".into(),
+                    field_type: FieldType::MultiSelect,
+                    description: Some("Memory systems consulted during conversations".into()),
+                    placeholder: None,
+                    options: vec![
+                        SettingsOption {
+                            value: "memory-local".into(),
+                            label: "Local memory".into(),
+                        },
+                        SettingsOption {
+                            value: "memory-honcho".into(),
+                            label: "Honcho".into(),
+                        },
+                        SettingsOption {
+                            value: "memory-hindsight".into(),
+                            label: "Hindsight".into(),
+                        },
+                        SettingsOption {
+                            value: "memory-mem0".into(),
+                            label: "Mem0".into(),
+                        },
+                    ],
+                    default_value: Some(serde_json::Value::Array(vec![serde_json::Value::String(
+                        "memory-local".into(),
+                    )])),
+                    protected: false,
+                    keywords: vec![],
+                },
+                SettingsField {
+                    key: "memory.honcho_endpoint".into(),
+                    label: "Honcho endpoint".into(),
+                    field_type: FieldType::String,
+                    description: Some("URL of the Honcho memory API".into()),
+                    placeholder: Some("https://api.honcho.dev".into()),
+                    options: vec![],
+                    default_value: Some(serde_json::Value::String(String::new())),
+                    protected: false,
+                    keywords: vec!["honcho".into(), "url".into()],
+                },
+                SettingsField {
+                    key: "memory.honcho_api_key".into(),
+                    label: "Honcho API key".into(),
+                    field_type: FieldType::Password,
+                    description: Some("API key for Honcho".into()),
+                    placeholder: Some("hk-...".into()),
+                    options: vec![],
+                    default_value: Some(serde_json::Value::String(String::new())),
+                    protected: false,
+                    keywords: vec!["honcho".into(), "key".into()],
+                },
+                SettingsField {
+                    key: "memory.hindsight_endpoint".into(),
+                    label: "Hindsight endpoint".into(),
+                    field_type: FieldType::String,
+                    description: Some("URL of the Hindsight memory API".into()),
+                    placeholder: Some("https://api.hindsight.io".into()),
+                    options: vec![],
+                    default_value: Some(serde_json::Value::String(String::new())),
+                    protected: false,
+                    keywords: vec!["hindsight".into(), "url".into()],
+                },
+                SettingsField {
+                    key: "memory.hindsight_api_key".into(),
+                    label: "Hindsight API key".into(),
+                    field_type: FieldType::Password,
+                    description: Some("API key for Hindsight".into()),
+                    placeholder: Some("hs-...".into()),
+                    options: vec![],
+                    default_value: Some(serde_json::Value::String(String::new())),
+                    protected: false,
+                    keywords: vec!["hindsight".into(), "key".into()],
+                },
+                SettingsField {
+                    key: "memory.mem0_api_key".into(),
+                    label: "Mem0 API key".into(),
+                    field_type: FieldType::Password,
+                    description: Some("API key for Mem0".into()),
+                    placeholder: Some("m0-...".into()),
+                    options: vec![],
+                    default_value: Some(serde_json::Value::String(String::new())),
+                    protected: false,
+                    keywords: vec!["mem0".into(), "key".into()],
+                },
+            ],
         }]
     }
 }
