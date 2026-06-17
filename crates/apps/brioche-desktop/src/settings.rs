@@ -12,6 +12,23 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+/// A configured AMP-compatible memory endpoint.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MemoryEndpoint {
+    /// Machine-readable provider id.
+    pub id: String,
+    /// Display name.
+    pub name: String,
+    /// Base URL of the AMP server.
+    pub url: String,
+    /// Optional API key.
+    pub api_key: Option<String>,
+    /// Default scope.
+    pub scope: Option<String>,
+}
+
 /// A fallback model definition.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
@@ -114,11 +131,23 @@ impl Default for Settings {
                         "active_providers".into(),
                         Value::Array(vec![Value::String("memory-local".into())]),
                     ),
-                    ("honcho_endpoint".into(), Value::String(String::new())),
-                    ("honcho_api_key".into(), Value::String(String::new())),
-                    ("hindsight_endpoint".into(), Value::String(String::new())),
-                    ("hindsight_api_key".into(), Value::String(String::new())),
-                    ("mem0_api_key".into(), Value::String(String::new())),
+                    (
+                        "endpoints".into(),
+                        Value::Array(vec![Value::Object(
+                            [
+                                ("id".into(), Value::String("memory-amp-1".into())),
+                                ("name".into(), Value::String("Remote memory".into())),
+                                (
+                                    "url".into(),
+                                    Value::String("http://localhost:9471".into()),
+                                ),
+                                ("api_key".into(), Value::Null),
+                                ("scope".into(), Value::Null),
+                            ]
+                            .into_iter()
+                            .collect(),
+                        )]),
+                    ),
                 ]
                 .into_iter()
                 .collect(),
@@ -293,6 +322,17 @@ impl Settings {
                 })
                 .collect(),
             _ => vec!["memory-local".into()],
+        }
+    }
+
+    /// Returns configured AMP-compatible memory endpoints.
+    pub fn memory_endpoints(&self) -> Vec<MemoryEndpoint> {
+        match self.get("memory.endpoints") {
+            Some(Value::Array(arr)) => arr
+                .iter()
+                .filter_map(|v| serde_json::from_value::<MemoryEndpoint>(v.clone()).ok())
+                .collect(),
+            _ => Vec::new(),
         }
     }
 

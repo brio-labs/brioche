@@ -41,12 +41,34 @@ pub struct MemoryQuery {
     pub query: Option<String>,
 }
 
+/// Lifecycle context passed to a memory provider at session start.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+#[derive(Clone, Debug, Default)]
+pub struct MemorySessionContext {
+    /// Stable session identifier.
+    pub session_id: String,
+    /// Workspace / project identifier.
+    pub workspace: String,
+    /// User identifier for multi-tenant scoping.
+    pub user_id: Option<String>,
+    /// Agent identity / persona.
+    pub agent_id: Option<String>,
+}
+
 /// A memory-provider extension.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
 pub trait MemoryProvider: Send + Sync {
     /// Returns the extension metadata.
     fn metadata(&self) -> ExtensionMetadata;
+
+    /// Called once per session so the provider can scope its operations.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    fn initialize(&mut self, _ctx: MemorySessionContext) -> Result<(), String> {
+        Ok(())
+    }
 
     /// Lists entries matching the query.
     ///
@@ -67,6 +89,52 @@ pub trait MemoryProvider: Send + Sync {
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     fn recall(&self, conversation_summary: &str, limit: usize) -> Result<Vec<MemoryEntry>, String>;
+
+    /// Optional tool schemas this provider wants to expose to the model.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    fn tool_schemas(&self) -> Vec<serde_json::Value> {
+        Vec::new()
+    }
+
+    /// Handle a tool call emitted by the model for one of this provider's
+    /// tools (from `tool_schemas`).
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    fn handle_tool_call(
+        &self,
+        _tool_name: &str,
+        _args: serde_json::Value,
+    ) -> Result<String, String> {
+        Err("Tool calls not supported by this provider".into())
+    }
+
+    /// Called when the agent's built-in memory tool fires, so external
+    /// backends can mirror the write.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    fn on_memory_write(
+        &mut self,
+        _key: String,
+        _value: String,
+        _category: String,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Called before context compression discards old messages.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    fn on_pre_compress(&mut self, _messages: &[MemoryEntry]) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Called at session end so the provider can flush or summarize.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    fn on_session_end(&mut self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// Default local memory provider.
