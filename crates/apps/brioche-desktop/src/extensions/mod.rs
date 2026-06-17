@@ -21,6 +21,7 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO, Extension-over-Modification (SPECS.md §1.1)
 
+pub mod amp_memory_client;
 pub mod context;
 pub mod footer;
 pub mod memory_provider;
@@ -33,10 +34,15 @@ pub mod user_tool_executor;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+use crate::settings::Settings;
+
+pub use amp_memory_client::{AmpMemoryEndpoint, AmpMemoryProvider};
 pub use context::{CompressorContextEngine, ContextEngine, ContextEngineInput};
 pub use footer::{FooterMetric, FooterMetricProvider};
 pub use memory_provider::{LocalMemoryProvider, MemoryProvider, MemoryQuery};
-pub use remote_memory_provider::{HindsightMemoryProvider, HonchoMemoryProvider, Mem0MemoryProvider};
+pub use remote_memory_provider::{
+    HindsightMemoryProvider, HonchoMemoryProvider, Mem0MemoryProvider,
+};
 pub use settings_sections::{SettingsSection, SettingsSectionProvider};
 pub use skill_provider::{SkillProvider, SkillRegistry};
 pub use tool_provider::{ToolProvider, ToolRegistry, UserToolDefinition};
@@ -127,6 +133,19 @@ impl ExtensionRegistry {
         let mut registry = Self::new();
         registry.register_context_engine(Arc::new(CompressorContextEngine::default()));
         registry.register_memory_provider(Arc::new(LocalMemoryProvider::default()));
+        for endpoint in Settings::load().memory_endpoints() {
+            if endpoint.url.trim().is_empty() {
+                continue;
+            }
+            let amp_endpoint = AmpMemoryEndpoint {
+                id: endpoint.id,
+                name: endpoint.name,
+                url: endpoint.url,
+                api_key: endpoint.api_key,
+                scope: endpoint.scope,
+            };
+            registry.register_memory_provider(Arc::new(AmpMemoryProvider::new(amp_endpoint)));
+        }
         registry.register_memory_provider(Arc::new(HonchoMemoryProvider));
         registry.register_memory_provider(Arc::new(HindsightMemoryProvider));
         registry.register_memory_provider(Arc::new(Mem0MemoryProvider));
