@@ -14,9 +14,9 @@ export default function ToolsPanel({ onClose = () => {} }: ToolsPanelProps) {
 
 	useEffect(() => {
 		setIsTauriAvailable(
-			typeof window !== 'undefined' &&
-				typeof (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !==
-					'undefined',
+			typeof window !== "undefined" &&
+				typeof (window as unknown as { __TAURI_INTERNALS__?: unknown })
+					.__TAURI_INTERNALS__ !== "undefined",
 		);
 	}, []);
 
@@ -41,7 +41,7 @@ export default function ToolsPanel({ onClose = () => {} }: ToolsPanelProps) {
 	const toggle = useCallback(
 		async (id: string, enabled: boolean) => {
 			if (!isTauriAvailable) {
-				setError('Tool toggling requires the Tauri desktop runtime.');
+				setError("Tool toggling requires the Tauri desktop runtime.");
 				return;
 			}
 			try {
@@ -78,16 +78,16 @@ export default function ToolsPanel({ onClose = () => {} }: ToolsPanelProps) {
 						<XIcon />
 					</button>
 				</div>
-                <div className="tools-panel-body">
-                    {error && <div className="tools-error">{error}</div>}
-                    {!isTauriAvailable && !error && (
-                        <div className="tools-error">
-                            Tools preview mode: live tool list requires the Tauri desktop app.
-                        </div>
-                    )}
-                    {tools.length === 0 && !error && (
-                        <div className="tools-empty">No tools available</div>
-                    )}
+				<div className="tools-panel-body">
+					{error && <div className="tools-error">{error}</div>}
+					{!isTauriAvailable && !error && (
+						<div className="tools-error">
+							Tools preview mode: live tool list requires the Tauri desktop app.
+						</div>
+					)}
+					{tools.length === 0 && !error && (
+						<div className="tools-empty">No tools available</div>
+					)}
 					{Object.entries(groups).map(([category, items]) => (
 						<div key={category} className="tools-category">
 							<h3>{category}</h3>

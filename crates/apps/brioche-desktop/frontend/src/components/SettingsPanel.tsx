@@ -24,9 +24,88 @@ function getFieldValue(
 	return current;
 }
 
+const FALLBACK_SECTIONS: SettingsSection[] = [
+	{
+		id: "chat-model",
+		module_id: "chat",
+		title: "Model",
+		order: 10,
+		keywords: ["model", "provider", "api key"],
+		fields: [
+			{
+				key: "chat.provider",
+				label: "Provider",
+				field_type: "select" as const,
+				description: "LLM provider backend",
+				placeholder: null,
+				options: [
+					{ value: "openai", label: "OpenAI" },
+					{ value: "openrouter", label: "OpenRouter" },
+					{ value: "anthropic", label: "Anthropic" },
+				],
+				default_value: "openrouter",
+				protected: false,
+				keywords: [],
+			},
+			{
+				key: "chat.model",
+				label: "Model",
+				field_type: "string" as const,
+				description: "Primary model identifier",
+				placeholder: "qwen/qwen3.7-plus",
+				options: [],
+				default_value: "qwen/qwen3.7-plus",
+				protected: false,
+				keywords: [],
+			},
+		],
+	},
+	{
+		id: "chat-identity",
+		module_id: "chat",
+		title: "Model Identity",
+		order: 20,
+		keywords: ["personality", "system prompt"],
+		fields: [
+			{
+				key: "chat.personality",
+				label: "Personality",
+				field_type: "select" as const,
+				description: "Default conversational style",
+				placeholder: null,
+				options: [
+					{ value: "helpful", label: "Helpful" },
+					{ value: "teacher", label: "Teacher" },
+					{ value: "creative", label: "Creative" },
+					{ value: "concise", label: "Concise" },
+				],
+				default_value: "helpful",
+				protected: false,
+				keywords: [],
+			},
+			{
+				key: "chat.system_prompt",
+				label: "System prompt",
+				field_type: "protected_markdown" as const,
+				description:
+					"The system prompt sent at the start of every session.",
+				placeholder: null,
+				options: [],
+				default_value:
+					"You are a helpful AI coding assistant with access to filesystem tools.",
+				protected: true,
+				keywords: ["prompt"],
+			},
+		],
+	},
+];
+
 export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 	const { settings, loadSettings, updateSetting } = useSettingsStore();
 	const [sections, setSections] = useState<SettingsSection[]>([]);
+	const [selectedSectionId, setSelectedSectionId] = useState<string | null>(
+		null,
+	);
 	const [search, setSearch] = useState("");
 	const [editingProtected, setEditingProtected] = useState<Set<string>>(
 		new Set(),
@@ -36,131 +115,28 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 		loadSettings();
 		listSettingsSections()
 			.then((data) => {
-				setSections(data);
+				setSections(data.length > 0 ? data : FALLBACK_SECTIONS);
 			})
 			.catch((err) => {
 				console.error("Failed to load settings sections:", err);
+				setSections(FALLBACK_SECTIONS);
 			});
 	}, [loadSettings]);
-
-	// When Tauri IPC is unavailable (e.g. browser preview), show sections with
-	// fallback defaults so the panel is testable without the backend.
-	useEffect(() => {
-		if (sections.length === 0) {
-			const timer = setTimeout(() => {
-				setSections((current) =>
-					current.length > 0
-						? current
-						: [
-								{
-									id: "chat-model",
-									module_id: "chat",
-									title: "Model",
-									order: 10,
-									keywords: ["model", "provider", "api key"],
-									fields: [
-										{
-											key: "chat.provider",
-											label: "Provider",
-											field_type: "select" as const,
-											description: "LLM provider backend",
-											placeholder: null,
-											options: [
-												{ value: "openai", label: "OpenAI" },
-												{ value: "openrouter", label: "OpenRouter" },
-												{ value: "anthropic", label: "Anthropic" },
-											],
-											default_value: "openrouter",
-											protected: false,
-											keywords: [],
-										},
-										{
-											key: "chat.model",
-											label: "Model",
-											field_type: "string" as const,
-											description: "Primary model identifier",
-											placeholder: "qwen/qwen3.7-plus",
-											options: [],
-											default_value: "qwen/qwen3.7-plus",
-											protected: false,
-											keywords: [],
-										},
-									],
-								},
-								{
-									id: "chat-identity",
-									module_id: "chat",
-									title: "Model Identity",
-									order: 20,
-									keywords: ["personality", "system prompt"],
-									fields: [
-										{
-											key: "chat.personality",
-											label: "Personality",
-											field_type: "select" as const,
-											description: "Default conversational style",
-											placeholder: null,
-											options: [
-												{ value: "helpful", label: "Helpful" },
-												{ value: "teacher", label: "Teacher" },
-												{ value: "creative", label: "Creative" },
-												{ value: "concise", label: "Concise" },
-											],
-											default_value: "helpful",
-											protected: false,
-											keywords: [],
-										},
-										{
-											key: "chat.system_prompt",
-											label: "System prompt",
-											field_type: "protected_markdown" as const,
-											description:
-												"The system prompt sent at the start of every session.",
-											placeholder: null,
-											options: [],
-											default_value:
-												"You are a helpful AI coding assistant with access to filesystem tools.",
-											protected: true,
-											keywords: ["prompt"],
-										},
-									],
-								},
-							],
-				);
-			}, 300);
-			return () => clearTimeout(timer);
-		}
-	}, [sections.length]);
 
 	const filteredSections = useMemo(() => {
 		if (!search.trim()) return sections;
 		const q = search.toLowerCase();
-		return sections
-			.map((s) => {
-				const matches =
-					s.title.toLowerCase().includes(q) ||
-					s.keywords.some((k) => k.toLowerCase().includes(q)) ||
-					s.fields.some(
-						(f) =>
-							f.label.toLowerCase().includes(q) ||
-							(f.description || "").toLowerCase().includes(q) ||
-							f.keywords.some((k) => k.toLowerCase().includes(q)),
-					);
-				if (matches) {
-					const fields = s.fields.filter(
-						(f) =>
-							f.label.toLowerCase().includes(q) ||
-							(f.description || "").toLowerCase().includes(q) ||
-							f.keywords.some((k) => k.toLowerCase().includes(q)) ||
-							s.title.toLowerCase().includes(q) ||
-							s.keywords.some((k) => k.toLowerCase().includes(q)),
-					);
-					return { ...s, fields };
-				}
-				return null;
-			})
-			.filter(Boolean) as SettingsSection[];
+		return sections.filter(
+			(s) =>
+				s.title.toLowerCase().includes(q) ||
+				s.keywords.some((k) => k.toLowerCase().includes(q)),
+		);
 	}, [sections, search]);
+
+	const selectedSection = useMemo(() => {
+		if (!selectedSectionId) return null;
+		return sections.find((s) => s.id === selectedSectionId) || null;
+	}, [selectedSectionId, sections]);
 
 	const handleSave = useCallback(async () => {
 		try {
@@ -188,35 +164,63 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 					</button>
 				</div>
 
-				<div className="settings-search">
-					<SearchIcon />
-					<input
-						type="text"
-						placeholder="Search settings..."
-						value={search}
-						onChange={(e) => setSearch(e.target.value)}
-					/>
-				</div>
-
-				<div className="settings-body">
-					{filteredSections.map((section) => (
-						<div key={section.id} className="settings-section">
-							<h3>{section.title}</h3>
-							<div className="settings-fields">
-								{section.fields.map((field) => (
-									<FieldEditor
-										key={field.key}
-										field={field}
-										value={getFieldValue(settings, field.key)}
-										editingProtected={editingProtected}
-										setEditingProtected={setEditingProtected}
-										onChange={(value) => updateSetting(field.key, value)}
-										onReset={() => handleReset(field)}
-									/>
-								))}
-							</div>
+				<div className="settings-layout">
+					<div className="settings-nav">
+						<div className="settings-search">
+							<SearchIcon />
+							<input
+								type="text"
+								placeholder="Search settings..."
+								value={search}
+								onChange={(e) => setSearch(e.target.value)}
+							/>
 						</div>
-					))}
+						<div className="settings-nav-list">
+							{filteredSections.map((section) => (
+								<button
+									key={section.id}
+									type="button"
+									className={`settings-nav-item ${
+										selectedSectionId === section.id ? "active" : ""
+									}`}
+									onClick={() => setSelectedSectionId(section.id)}
+								>
+									<span className="settings-nav-title">
+										{section.title}
+									</span>
+								</button>
+							))}
+						</div>
+					</div>
+
+					<div className="settings-content">
+						{selectedSection ? (
+							<>
+								<div className="settings-content-header">
+									<h3>{selectedSection.title}</h3>
+								</div>
+								<div className="settings-fields">
+									{selectedSection.fields.map((field) => (
+										<FieldEditor
+											key={field.key}
+											field={field}
+											value={getFieldValue(settings, field.key)}
+											editingProtected={editingProtected}
+											setEditingProtected={setEditingProtected}
+											onChange={(value) =>
+												updateSetting(field.key, value)
+											}
+											onReset={() => handleReset(field)}
+										/>
+									))}
+								</div>
+							</>
+						) : (
+							<div className="settings-empty">
+								Select a section from the left to view its settings.
+							</div>
+						)}
+					</div>
 				</div>
 
 				<div className="settings-footer">
@@ -442,7 +446,7 @@ function FieldEditor({
 					<textarea
 						value={String(currentValue || "")}
 						onChange={(e) => onChange(e.target.value)}
-						rows={field.field_type === "protected_markdown" as const ? 8 : 4}
+						rows={field.field_type === ("protected_markdown" as const) ? 8 : 4}
 						disabled={isProtected}
 						placeholder={field.placeholder || undefined}
 					/>
