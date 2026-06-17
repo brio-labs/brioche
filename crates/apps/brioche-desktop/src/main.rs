@@ -73,6 +73,8 @@ fn main() {
             commands::get_skill_content,
             commands::get_skill_file,
             commands::set_skill_enabled,
+            commands::create_skill,
+            commands::delete_skill,
             // Model fetching
             commands::fetch_models,
             // Extension commands

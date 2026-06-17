@@ -1,13 +1,20 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Skill } from "../ipc";
-import { listSkills, getSkillContent } from "../ipc";
+import {
+	listSkills,
+	getSkillContent,
+	setSkillEnabled,
+	createSkill,
+	deleteSkill,
+} from "../ipc";
 import {
 	XIcon,
 	BookIcon,
 	SearchIcon,
 	TagIcon,
 	FolderIcon,
-	ChevronRightIcon,
+	PlusIcon,
+	TrashIcon,
 } from "./Icons";
 
 interface SkillsPanelProps {
@@ -23,6 +30,11 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 	const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [isTauriAvailable, setIsTauriAvailable] = useState(true);
+	const [showCreate, setShowCreate] = useState(false);
+	const [newName, setNewName] = useState("");
+	const [newCategory, setNewCategory] = useState("general");
+	const [newDescription, setNewDescription] = useState("");
+	const [newContent, setNewContent] = useState("");
 
 	useEffect(() => {
 		setIsTauriAvailable(
@@ -72,6 +84,69 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 		[isTauriAvailable],
 	);
 
+	const handleToggleEnabled = async (skill: Skill) => {
+		if (!isTauriAvailable) {
+			setError("Enabling/disabling skills requires the Tauri desktop runtime.");
+			return;
+		}
+		try {
+			setError(null);
+			await setSkillEnabled(skill.name, !skill.enabled);
+			await loadSkills();
+			if (selectedSkill?.name === skill.name) {
+				setSelectedSkill((prev) =>
+					prev ? { ...prev, enabled: !prev.enabled } : prev,
+				);
+			}
+		} catch (err) {
+			setError(String(err));
+		}
+	};
+
+	const handleCreate = async () => {
+		if (!newName.trim()) return;
+		if (!isTauriAvailable) {
+			setError("Creating skills requires the Tauri desktop runtime.");
+			return;
+		}
+		try {
+			setError(null);
+			await createSkill(
+				newName.trim(),
+				newCategory.trim() || "general",
+				newDescription.trim(),
+				newContent.trim(),
+			);
+			setNewName("");
+			setNewCategory("general");
+			setNewDescription("");
+			setNewContent("");
+			setShowCreate(false);
+			await loadSkills();
+		} catch (err) {
+			setError(String(err));
+		}
+	};
+
+	const handleDelete = async (skill: Skill) => {
+		if (!isTauriAvailable) {
+			setError("Deleting skills requires the Tauri desktop runtime.");
+			return;
+		}
+		if (!confirm(`Delete skill "${skill.name}"?`)) return;
+		try {
+			setError(null);
+			await deleteSkill(skill.name);
+			if (selectedSkill?.name === skill.name) {
+				setSelectedSkill(null);
+				setSkillContent("");
+			}
+			await loadSkills();
+		} catch (err) {
+			setError(String(err));
+		}
+	};
+
 	const categories = Array.from(new Set(skills.map((s) => s.category))).sort();
 
 	const filteredSkills = skills.filter((skill) => {
@@ -96,9 +171,19 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 						<BookIcon />
 						Skills
 					</h2>
-					<button type="button" className="icon-btn" onClick={onClose}>
-						<XIcon />
-					</button>
+					<div className="skills-header-actions">
+						<button
+							type="button"
+							className="icon-btn"
+							onClick={() => setShowCreate(true)}
+							title="New skill"
+						>
+							<PlusIcon />
+						</button>
+						<button type="button" className="icon-btn" onClick={onClose}>
+							<XIcon />
+						</button>
+					</div>
 				</div>
 
 				<div className="skills-panel-body">
@@ -136,7 +221,8 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 						{error && <div className="skills-error">{error}</div>}
 						{!isTauriAvailable && !error && (
 							<div className="skills-error">
-								Skills preview mode: scanning requires the Tauri desktop app.
+								Skills preview mode: scanning requires the Tauri desktop
+								app.
 							</div>
 						)}
 						<div className="skills-list">
@@ -149,17 +235,48 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 									<div
 										key={skill.name}
 										className={`skill-item ${selectedSkill?.name === skill.name ? "active" : ""}`}
-										onClick={() => handleSelectSkill(skill)}
 									>
-										<div className="skill-item-main">
-											<div className="skill-item-name">{skill.name}</div>
-											<div className="skill-item-desc">{skill.description}</div>
+										<div
+											className="skill-item-main"
+											onClick={() => handleSelectSkill(skill)}
+										>
+											<div className="skill-item-name">
+												{skill.name}
+												<span
+													className={`skill-enabled-badge ${skill.enabled ? "on" : "off"}`}
+												>
+													{skill.enabled ? "on" : "off"}
+												</span>
+											</div>
+											<div className="skill-item-desc">
+												{skill.description}
+											</div>
 										</div>
 										<div className="skill-item-meta">
-											<span className="skill-category">{skill.category}</span>
+											<span className="skill-category">
+												{skill.category}
+											</span>
 											{skill.version && (
-												<span className="skill-version">v{skill.version}</span>
+												<span className="skill-version">
+													v{skill.version}
+												</span>
 											)}
+											<button
+												type="button"
+												className="skill-toggle-btn"
+												onClick={() => handleToggleEnabled(skill)}
+												title={skill.enabled ? "Disable" : "Enable"}
+											>
+												{skill.enabled ? "Disable" : "Enable"}
+											</button>
+											<button
+												type="button"
+												className="skill-delete-btn"
+												onClick={() => handleDelete(skill)}
+												title="Delete"
+											>
+												<TrashIcon />
+											</button>
 										</div>
 									</div>
 								))
@@ -208,6 +325,50 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 									<pre className="skill-content">{skillContent}</pre>
 								</div>
 							</>
+						) : showCreate ? (
+							<div className="skills-create-form">
+								<h3>New skill</h3>
+								<input
+									type="text"
+									placeholder="Skill name"
+									value={newName}
+									onChange={(e) => setNewName(e.target.value)}
+								/>
+								<input
+									type="text"
+									placeholder="Category"
+									value={newCategory}
+									onChange={(e) => setNewCategory(e.target.value)}
+								/>
+								<input
+									type="text"
+									placeholder="Short description"
+									value={newDescription}
+									onChange={(e) => setNewDescription(e.target.value)}
+								/>
+								<textarea
+									placeholder="Markdown content"
+									rows={12}
+									value={newContent}
+									onChange={(e) => setNewContent(e.target.value)}
+								/>
+								<div className="skills-create-actions">
+									<button
+										type="button"
+										className="btn-primary"
+										onClick={handleCreate}
+									>
+										Create
+									</button>
+									<button
+										type="button"
+										className="btn-secondary"
+										onClick={() => setShowCreate(false)}
+									>
+										Cancel
+									</button>
+								</div>
+							</div>
 						) : (
 							<div className="skills-empty-state">
 								<BookIcon />

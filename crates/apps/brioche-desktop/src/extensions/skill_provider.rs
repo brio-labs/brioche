@@ -66,6 +66,22 @@ pub trait SkillProvider: Send + Sync {
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     fn set_enabled(&mut self, name: &str, enabled: bool) -> Result<(), String>;
+
+    /// Creates a new skill package.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    fn create_skill(
+        &mut self,
+        name: &str,
+        category: &str,
+        description: &str,
+        content: &str,
+    ) -> Result<(), String>;
+
+    /// Deletes a skill package.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    fn delete_skill(&mut self, name: &str) -> Result<(), String>;
 }
 
 /// Default skill registry that scans `~/.hermes/skills/`.
@@ -184,6 +200,52 @@ impl SkillProvider for SkillRegistry {
         } else {
             self.enabled.retain(|n| n != name);
         }
+        self.save_enabled()
+    }
+
+    fn create_skill(
+        &mut self,
+        name: &str,
+        category: &str,
+        description: &str,
+        content: &str,
+    ) -> Result<(), String> {
+        if name.is_empty() {
+            return Err("Skill name cannot be empty".into());
+        }
+        let skills_dir = Self::skills_dir();
+        let dir = skills_dir.join(category).join(name);
+        if dir.exists() {
+            return Err(format!("Skill '{}' already exists", name));
+        }
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("Failed to create skill directory: {e}"))?;
+
+        let frontmatter = format!(
+            "---\nname: {}\ndescription: {}\nversion: 0.1.0\nauthor: user\nlicense: MIT\ntags: []\n---\n\n",
+            name, description
+        );
+        let skill_md = dir.join("SKILL.md");
+        std::fs::write(&skill_md, format!("{}{}", frontmatter, content))
+            .map_err(|e| format!("Failed to write SKILL.md: {e}"))?;
+
+        // Enable the new skill by default.
+        if !self.enabled.contains(&name.to_string()) {
+            self.enabled.push(name.to_string());
+        }
+        self.save_enabled()
+    }
+
+    fn delete_skill(&mut self, name: &str) -> Result<(), String> {
+        let skills = self.list()?;
+        let skill = skills
+            .into_iter()
+            .find(|s| s.name == name)
+            .ok_or_else(|| format!("Skill '{}' not found", name))?;
+        let path = std::path::PathBuf::from(&skill.path);
+        std::fs::remove_dir_all(&path)
+            .map_err(|e| format!("Failed to delete skill directory: {e}"))?;
+        self.enabled.retain(|n| n != name);
         self.save_enabled()
     }
 }
