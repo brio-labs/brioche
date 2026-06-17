@@ -47,6 +47,10 @@ pub trait ToolProvider: Send + Sync {
     /// Refs: I-Shell-Runtime-OnlyIO
     fn tools(&self) -> Vec<ToolDescriptor>;
 
+    /// Returns user-defined tool definitions so they can be wired into the
+    /// shell runtime.
+    fn user_tools(&self) -> Vec<UserToolDefinition>;
+
     /// Enables or disables a tool by id.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
@@ -312,6 +316,14 @@ impl ToolProvider for ToolRegistry {
             }
         }
         tools
+    }
+
+    fn user_tools(&self) -> Vec<UserToolDefinition> {
+        self.user_tools
+            .iter()
+            .filter(|t| !self.disabled.contains(&t.id))
+            .cloned()
+            .collect()
     }
 
     fn set_enabled(&mut self, id: &str, enabled: bool) -> Result<(), String> {

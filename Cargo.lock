@@ -430,6 +430,7 @@ dependencies = [
 name = "brioche-desktop"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "base64-simd",
  "brioche-core",
  "brioche-plugin-kit",
@@ -448,6 +449,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
  "tokio",
+ "tokio-util",
  "tracing",
 ]
 

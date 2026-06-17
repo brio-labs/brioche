@@ -61,12 +61,12 @@ impl Default for ExecuteCommandTool {
 
 #[async_trait::async_trait]
 impl SystemTool for ExecuteCommandTool {
-    fn name(&self) -> &'static str {
-        "execute_command"
+    fn name(&self) -> String {
+        "execute_command".into()
     }
 
-    fn description(&self) -> &'static str {
-        "Execute a shell command. Only allowed commands are permitted by default."
+    fn description(&self) -> String {
+        "Execute a shell command. Only allowed commands are permitted by default.".into()
     }
 
     fn parameters_schema(&self) -> serde_json::Value {

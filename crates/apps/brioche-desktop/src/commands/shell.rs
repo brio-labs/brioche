@@ -21,7 +21,9 @@ use tokio::sync::broadcast;
 
 use crate::extensions::context::{CompressorContextEngine, ContextEngine, ContextEngineInput};
 use crate::extensions::ExtensionRegistry;
+use crate::extensions::UserDefinedTool;
 use crate::settings::Settings;
+use std::sync::Mutex;
 
 lazy_static! {
     /// Global session start timestamp, captured the first time a shell is built.
@@ -131,6 +133,8 @@ pub struct ShellFactory {
     pub extensions: ExtensionRegistry,
     /// User settings snapshot at shell creation time.
     pub settings: Settings,
+    /// Shared slot for the last context-engine note.
+    pub last_context_note: Arc<Mutex<Option<String>>>,
 }
 
 /// Handle to a running shell and its LLM broadcast channel.
@@ -156,7 +160,11 @@ pub struct ShellHandle {
 /// persistence still see the full conversation.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
-fn build_history_transform(settings: Settings, extensions: ExtensionRegistry) -> HistoryTransform {
+fn build_history_transform(
+    settings: Settings,
+    extensions: ExtensionRegistry,
+    last_context_note: Arc<Mutex<Option<String>>>,
+) -> HistoryTransform {
     Arc::new(move |history: &[ChatMessage]| {
         let mut working: Vec<ChatMessage> = history.to_vec();
 
@@ -226,7 +234,12 @@ fn build_history_transform(settings: Settings, extensions: ExtensionRegistry) ->
                 context_window: settings.context_window(),
                 estimated_tokens: CompressorContextEngine::estimate_tokens(&working),
             };
-            working = engine.process(input).messages;
+            let output = engine.process(input);
+            if let Some(note) = output.note
+                && let Ok(mut guard) = last_context_note.lock() {
+                    *guard = Some(note);
+                }
+            working = output.messages;
         }
 
         working
@@ -245,17 +258,25 @@ fn build_history_transform(settings: Settings, extensions: ExtensionRegistry) ->
 pub fn build_shell(session_id: impl Into<String>, factory: &ShellFactory) -> ShellHandle {
     let exec_tool = ExecuteCommandTool::new().with_policy(SandboxPolicy::Permissive);
 
-    let tool_executor = SystemToolExecutor::new()
+    let mut tool_executor = SystemToolExecutor::new()
         .with_tool(ReadFileTool)
         .with_tool(WriteFileTool)
         .with_tool(ListDirTool)
         .with_tool(exec_tool)
         .with_tool(FetchUrlTool);
 
+    // Register user-defined tools from all tool providers.
+    for provider in factory.extensions.tool_providers() {
+        for user_tool in provider.user_tools() {
+            tool_executor = tool_executor.with_tool(UserDefinedTool::new(user_tool));
+        }
+    }
+
     let (llm_client, llm_rx, history) = OpenAiLlmClient::new(factory.config.openai.clone());
     llm_client.set_history_transform(Some(build_history_transform(
         factory.settings.clone(),
         factory.extensions.clone(),
+        Arc::clone(&factory.last_context_note),
     )));
 
     // Inject default system prompt.
@@ -372,6 +393,7 @@ mod tests {
             config,
             extensions: ExtensionRegistry::default_set(),
             settings: Settings::default(),
+            last_context_note: Arc::new(Mutex::new(None)),
         };
         let handle = build_shell("test-session", &factory);
         assert_eq!(handle.llm_rx.len(), 0);

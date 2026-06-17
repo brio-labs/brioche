@@ -52,12 +52,12 @@ pub struct ReadFileTool;
 
 #[async_trait::async_trait]
 impl SystemTool for ReadFileTool {
-    fn name(&self) -> &'static str {
-        "read_file"
+    fn name(&self) -> String {
+        "read_file".into()
     }
 
-    fn description(&self) -> &'static str {
-        "Read the contents of a text file."
+    fn description(&self) -> String {
+        "Read the contents of a text file.".into()
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -86,12 +86,12 @@ pub struct WriteFileTool;
 
 #[async_trait::async_trait]
 impl SystemTool for WriteFileTool {
-    fn name(&self) -> &'static str {
-        "write_file"
+    fn name(&self) -> String {
+        "write_file".into()
     }
 
-    fn description(&self) -> &'static str {
-        "Write content to a text file. Creates the file if it does not exist."
+    fn description(&self) -> String {
+        "Write content to a text file. Creates the file if it does not exist.".into()
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -166,12 +166,12 @@ pub struct ListDirTool;
 
 #[async_trait::async_trait]
 impl SystemTool for ListDirTool {
-    fn name(&self) -> &'static str {
-        "list_dir"
+    fn name(&self) -> String {
+        "list_dir".into()
     }
 
-    fn description(&self) -> &'static str {
-        "List the contents of a directory."
+    fn description(&self) -> String {
+        "List the contents of a directory.".into()
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
