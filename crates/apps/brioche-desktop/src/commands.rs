@@ -636,14 +636,38 @@ pub struct SessionInfo {
     pub workspace: String,
 }
 
+/// How sessions should be sorted when returned to the frontend.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[derive(Default)]
+pub enum SessionSort {
+    /// Most recently created first.
+    #[default]
+    Date,
+    /// Grouped by workspace, then by date.
+    Workspace,
+    /// Alphabetical by session id.
+    Name,
+}
+
+
 /// Returns the list of all sessions.
 #[tauri::command]
-pub async fn list_sessions(state: State<'_, DesktopState>) -> Result<Vec<SessionInfo>, String> {
+pub async fn list_sessions(
+    state: State<'_, DesktopState>,
+    sort: Option<SessionSort>,
+) -> Result<Vec<SessionInfo>, String> {
     state.ensure_manager().await?;
     let mgr = state.manager.read().await;
     let manager = mgr.as_ref().ok_or("No active session")?;
     let current = manager.current_id().to_string();
-    let sessions = manager
+    let sort = match sort {
+        Some(s) => s,
+        None => SessionSort::Date,
+    };
+    let mut sessions: Vec<SessionInfo> = manager
         .list()
         .into_iter()
         .map(|id| {
@@ -656,6 +680,16 @@ pub async fn list_sessions(state: State<'_, DesktopState>) -> Result<Vec<Session
             }
         })
         .collect();
+
+    sessions.sort_by(|a, b| match sort {
+        SessionSort::Date => b.created_at.cmp(&a.created_at),
+        SessionSort::Name => a.id.cmp(&b.id),
+        SessionSort::Workspace => a
+            .workspace
+            .cmp(&b.workspace)
+            .then_with(|| b.created_at.cmp(&a.created_at)),
+    });
+
     Ok(sessions)
 }
 
@@ -1230,11 +1264,17 @@ pub async fn get_footer_metrics(
     };
     let context_remaining = settings.context_window().saturating_sub(estimated_tokens) as i64;
 
+    let context_note = match state.last_context_note.lock() {
+        Ok(guard) => guard.clone(),
+        Err(_) => None,
+    };
+
     let ctx = FooterContext {
         version: env!("CARGO_PKG_VERSION").to_string(),
         session_started_at: crate::commands::shell::session_started_at(),
         current_model,
         context_remaining,
+        context_note,
     };
 
     let mut metrics: Vec<_> = registry
@@ -1313,6 +1353,36 @@ pub async fn set_skill_enabled(
     for provider in registry.skill_providers_mut() {
         if let Some(provider) = Arc::get_mut(provider) {
             return provider.set_enabled(&name, enabled);
+        }
+    }
+    Err("No mutable skill provider available".into())
+}
+
+/// Creates a new skill package.
+#[tauri::command]
+pub async fn create_skill(
+    state: State<'_, DesktopState>,
+    name: String,
+    category: String,
+    description: String,
+    content: String,
+) -> Result<(), String> {
+    let mut registry = state.extensions.write().await;
+    for provider in registry.skill_providers_mut() {
+        if let Some(provider) = Arc::get_mut(provider) {
+            return provider.create_skill(&name, &category, &description, &content);
+        }
+    }
+    Err("No mutable skill provider available".into())
+}
+
+/// Deletes a skill package.
+#[tauri::command]
+pub async fn delete_skill(state: State<'_, DesktopState>, name: String) -> Result<(), String> {
+    let mut registry = state.extensions.write().await;
+    for provider in registry.skill_providers_mut() {
+        if let Some(provider) = Arc::get_mut(provider) {
+            return provider.delete_skill(&name);
         }
     }
     Err("No mutable skill provider available".into())

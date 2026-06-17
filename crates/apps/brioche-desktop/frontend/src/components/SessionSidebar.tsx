@@ -1,8 +1,7 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useSessionStore } from '../stores/sessionStore';
 import { PlusIcon, TrashIcon } from './Icons';
-
-type SortMode = 'date' | 'workspace' | 'name';
+import type { SessionSort } from '../ipc';
 
 function formatDate(timestamp: number): string {
     if (!timestamp) return 'unknown';
@@ -22,9 +21,14 @@ function workspaceName(workspace: string): string {
 }
 
 export default function SessionSidebar() {
-    const { sessions, currentSessionId, switchToSession, deleteSession, createSession } =
-        useSessionStore();
-    const [sortMode, setSortMode] = useState<SortMode>('date');
+    const {
+        sessions,
+        sortMode,
+        setSortMode,
+        switchToSession,
+        deleteSession,
+        createSession,
+    } = useSessionStore();
 
     const handleNewSession = useCallback(async () => {
         await createSession();
@@ -79,7 +83,7 @@ export default function SessionSidebar() {
                 <select
                     id="session-sort"
                     value={sortMode}
-                    onChange={(e) => setSortMode(e.target.value as SortMode)}
+                    onChange={(e) => setSortMode(e.target.value as SessionSort)}
                 >
                     <option value="date">Date</option>
                     <option value="workspace">Workspace</option>

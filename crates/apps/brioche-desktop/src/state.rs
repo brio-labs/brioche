@@ -15,7 +15,7 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use brioche_core::ChatMessage;
 use brioche_provider_openai::{LlmChunk, OpenAiLlmClient};
@@ -315,6 +315,8 @@ pub struct DesktopState {
     pub factory: RwLock<ShellFactory>,
     /// Loaded desktop extensions (context engine, memory, tools, skills, ...).
     pub extensions: RwLock<ExtensionRegistry>,
+    /// Last note emitted by the active context engine (shown in the footer).
+    pub last_context_note: Arc<Mutex<Option<String>>>,
 }
 
 impl DesktopState {
@@ -342,12 +344,14 @@ impl DesktopState {
             .map_err(|e| format!("Failed to initialize storage: {}", e))?;
 
         let extensions = ExtensionRegistry::default_set();
+        let last_context_note = Arc::new(Mutex::new(None));
         let factory = ShellFactory {
             redb: redb.clone(),
             store: store.clone(),
             config: config.clone(),
             extensions: extensions.clone(),
             settings: Settings::load(),
+            last_context_note: Arc::clone(&last_context_note),
         };
 
         Ok(Self {
@@ -355,6 +359,7 @@ impl DesktopState {
             config: RwLock::new(config),
             factory: RwLock::new(factory),
             extensions: RwLock::new(extensions),
+            last_context_note,
         })
     }
 
