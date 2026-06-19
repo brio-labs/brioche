@@ -12,6 +12,12 @@ use serde::{Deserialize, Serialize};
 /// A memory entry returned by a provider.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Stack-allocated struct with heap-allocated String fields. O(1) creation.
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MemoryEntry {
     /// Unique key for the memory entry.
@@ -33,6 +39,12 @@ pub struct MemoryEntry {
 /// Query sent to a memory provider.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Stack-allocated query filters. O(1).
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone, Debug, Default)]
 pub struct MemoryQuery {
     /// Optional category filter.
@@ -44,6 +56,12 @@ pub struct MemoryQuery {
 /// Lifecycle context passed to a memory provider at session start.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Stack-allocated parameters. O(1).
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone, Debug, Default)]
 pub struct MemorySessionContext {
     /// Stable session identifier.
@@ -56,9 +74,15 @@ pub struct MemorySessionContext {
     pub agent_id: Option<String>,
 }
 
-/// A memory-provider extension.
+/// A memory-provider extension trait.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Implementation dependent.
+///
+/// # Panic / Safety
+/// Implementation dependent.
 pub trait MemoryProvider: Send + Sync {
     /// Returns the extension metadata.
     fn metadata(&self) -> ExtensionMetadata;
@@ -97,8 +121,7 @@ pub trait MemoryProvider: Send + Sync {
         Vec::new()
     }
 
-    /// Handle a tool call emitted by the model for one of this provider's
-    /// tools (from `tool_schemas`).
+    /// Handle a tool call emitted by the model for one of this provider's tools.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     fn handle_tool_call(
@@ -109,8 +132,7 @@ pub trait MemoryProvider: Send + Sync {
         Err("Tool calls not supported by this provider".into())
     }
 
-    /// Called when the agent's built-in memory tool fires, so external
-    /// backends can mirror the write.
+    /// Called when the agent's built-in memory tool fires, so external backends can mirror the write.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     fn on_memory_write(
@@ -137,13 +159,15 @@ pub trait MemoryProvider: Send + Sync {
     }
 }
 
-/// Default local memory provider.
-///
-/// Stores memories as JSON in the user's config directory. This is the same
-/// implementation previously found in `crate::memory`, now exposed through the
-/// provider trait.
+/// Default local memory provider storing memories as JSON on disk.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// In-memory storage uses a vector of entries. Operations are linear with number of entries.
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct LocalMemoryProvider {
     entries: Vec<MemoryEntry>,
@@ -153,6 +177,12 @@ impl LocalMemoryProvider {
     /// Loads the local memory store from disk.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(N) where N is the size of the JSON file on disk. Performs blocking file I/O.
+    ///
+    /// # Panic / Safety
+    /// Never panics. Returns default empty provider if loading fails.
     pub fn load() -> Self {
         let path = memory_path();
         if let Ok(data) = std::fs::read_to_string(&path)
@@ -166,6 +196,12 @@ impl LocalMemoryProvider {
     /// Saves the local memory store to disk.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(N) where N is the size of the serialized memory entries. Performs blocking file I/O.
+    ///
+    /// # Panic / Safety
+    /// Never panics. Returns error String on write failure.
     pub fn save(&self) -> Result<(), String> {
         let path = memory_path();
         if let Some(parent) = path.parent() {
@@ -267,6 +303,144 @@ impl MemoryProvider for LocalMemoryProvider {
             .take(limit)
             .map(|(_, e)| e.clone())
             .collect())
+    }
+}
+
+/// Honcho memory provider stub.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) stub provider.
+///
+/// # Panic / Safety
+/// Never panics.
+#[derive(Clone, Debug, Default)]
+pub struct HonchoMemoryProvider;
+
+impl MemoryProvider for HonchoMemoryProvider {
+    fn metadata(&self) -> ExtensionMetadata {
+        ExtensionMetadata {
+            id: "memory-honcho".into(),
+            name: "Honcho memory".into(),
+            version: "0.1.0".into(),
+            default_panel: Some(PanelSlot::Right),
+            enabled: false,
+        }
+    }
+
+    fn list(&self, _query: &MemoryQuery) -> Result<Vec<MemoryEntry>, String> {
+        Ok(Vec::new())
+    }
+
+    fn set(&mut self, _key: String, _value: String, _category: String) -> Result<(), String> {
+        Err("Honcho provider is not configured. Set the API endpoint and key in settings.".into())
+    }
+
+    fn delete(&mut self, _key: &str) -> Result<bool, String> {
+        Err("Honcho provider is not configured. Set the API endpoint and key in settings.".into())
+    }
+
+    fn recall(
+        &self,
+        _conversation_summary: &str,
+        _limit: usize,
+    ) -> Result<Vec<MemoryEntry>, String> {
+        Ok(Vec::new())
+    }
+}
+
+/// Hindsight memory provider stub.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) stub provider.
+///
+/// # Panic / Safety
+/// Never panics.
+#[derive(Clone, Debug, Default)]
+pub struct HindsightMemoryProvider;
+
+impl MemoryProvider for HindsightMemoryProvider {
+    fn metadata(&self) -> ExtensionMetadata {
+        ExtensionMetadata {
+            id: "memory-hindsight".into(),
+            name: "Hindsight memory".into(),
+            version: "0.1.0".into(),
+            default_panel: Some(PanelSlot::Right),
+            enabled: false,
+        }
+    }
+
+    fn list(&self, _query: &MemoryQuery) -> Result<Vec<MemoryEntry>, String> {
+        Ok(Vec::new())
+    }
+
+    fn set(&mut self, _key: String, _value: String, _category: String) -> Result<(), String> {
+        Err(
+            "Hindsight provider is not configured. Set the API endpoint and key in settings."
+                .into(),
+        )
+    }
+
+    fn delete(&mut self, _key: &str) -> Result<bool, String> {
+        Err(
+            "Hindsight provider is not configured. Set the API endpoint and key in settings."
+                .into(),
+        )
+    }
+
+    fn recall(
+        &self,
+        _conversation_summary: &str,
+        _limit: usize,
+    ) -> Result<Vec<MemoryEntry>, String> {
+        Ok(Vec::new())
+    }
+}
+
+/// Mem0 memory provider stub.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) stub provider.
+///
+/// # Panic / Safety
+/// Never panics.
+#[derive(Clone, Debug, Default)]
+pub struct Mem0MemoryProvider;
+
+impl MemoryProvider for Mem0MemoryProvider {
+    fn metadata(&self) -> ExtensionMetadata {
+        ExtensionMetadata {
+            id: "memory-mem0".into(),
+            name: "Mem0 memory".into(),
+            version: "0.1.0".into(),
+            default_panel: Some(PanelSlot::Right),
+            enabled: false,
+        }
+    }
+
+    fn list(&self, _query: &MemoryQuery) -> Result<Vec<MemoryEntry>, String> {
+        Ok(Vec::new())
+    }
+
+    fn set(&mut self, _key: String, _value: String, _category: String) -> Result<(), String> {
+        Err("Mem0 provider is not configured. Set the API key in settings.".into())
+    }
+
+    fn delete(&mut self, _key: &str) -> Result<bool, String> {
+        Err("Mem0 provider is not configured. Set the API key in settings.".into())
+    }
+
+    fn recall(
+        &self,
+        _conversation_summary: &str,
+        _limit: usize,
+    ) -> Result<Vec<MemoryEntry>, String> {
+        Ok(Vec::new())
     }
 }
 

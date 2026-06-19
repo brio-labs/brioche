@@ -40,6 +40,12 @@ use crate::state::{DesktopState, SessionMetadata};
 /// Role of a chat message participant.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) Copy enum.
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatRole {
@@ -63,6 +69,12 @@ pub enum ChatRole {
 /// render structured tool cards.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) creation. Contains heap-allocated Strings.
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone, Debug, Serialize)]
 pub struct ChatMessagePayload {
     /// Role of the message sender.
@@ -149,15 +161,13 @@ impl From<ChatMessage> for ChatMessagePayload {
 /// If the message starts with `/`, it is treated as a slash command
 /// and executed directly without going to the LLM.
 ///
-/// # Errors
-/// Returns an error string if the shell is not initialized or the
-/// send fails.
-///
-/// # Cancel safety
-/// This future holds no locks across await points. Dropping it is safe
-/// and will not leave the session in an inconsistent state.
-///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(M) where M is the message size. Initiates async IPC/network orchestration.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err on network or IPC channel failures.
 #[tauri::command]
 pub async fn send_message(
     app: AppHandle,
@@ -284,10 +294,13 @@ async fn forward_llm_chunks(
 
 /// Returns the current session's chat history.
 ///
-/// # Errors
-/// Returns an error if no session is active.
-///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(H) where H is the size of the conversation history. Reads from memory.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if no session is active.
 #[tauri::command]
 pub async fn get_messages(
     state: State<'_, DesktopState>,
@@ -309,6 +322,12 @@ async fn get_messages_impl(state: &DesktopState) -> Result<Vec<ChatMessagePayloa
 /// Clears the current session history and resets the shell.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) in-memory session replacement, triggers shell rebuild.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if manager fails to initialize.
 #[tauri::command]
 pub async fn clear_messages(state: State<'_, DesktopState>) -> Result<(), String> {
     clear_messages_impl(state.inner()).await
@@ -321,10 +340,7 @@ async fn clear_messages_impl(state: &DesktopState) -> Result<(), String> {
     let current_id = manager.current_id().to_string();
     let _config = state.config.read().await.clone();
     let factory = state.factory.read().await.clone();
-    let handle = crate::commands::shell::build_shell(
-        &current_id,
-        &factory,
-    );
+    let handle = crate::commands::shell::build_shell(&current_id, &factory);
     manager.insert(
         current_id,
         handle.shell,
@@ -378,10 +394,7 @@ async fn handle_slash_command(
             let current_id = manager.current_id().to_string();
             let _config = state.config.read().await.clone();
             let factory = state.factory.read().await.clone();
-            let handle = crate::commands::shell::build_shell(
-                &current_id,
-                &factory,
-            );
+            let handle = crate::commands::shell::build_shell(&current_id, &factory);
             manager.insert(
                 current_id,
                 handle.shell,
@@ -456,10 +469,7 @@ async fn handle_session_subcommand(app: &AppHandle, state: &DesktopState, args: 
             );
             let factory = state.factory.read().await.clone();
             let workspace = factory.settings.working_dir();
-            let handle = crate::commands::shell::build_shell(
-                &new_id,
-                &factory,
-            );
+            let handle = crate::commands::shell::build_shell(&new_id, &factory);
             {
                 let mut mgr = state.manager.write().await;
                 if let Some(manager) = mgr.as_mut() {
@@ -470,10 +480,9 @@ async fn handle_session_subcommand(app: &AppHandle, state: &DesktopState, args: 
                         handle.history,
                         handle.llm_rx,
                     );
-                    manager.metadata_store.insert(SessionMetadata::new(
-                        &new_id,
-                        &workspace,
-                    ));
+                    manager
+                        .metadata_store
+                        .insert(SessionMetadata::new(&new_id, &workspace));
                     let _ = manager.metadata_store.save();
                     manager.switch(&new_id);
                 }
@@ -552,10 +561,7 @@ async fn handle_session_subcommand(app: &AppHandle, state: &DesktopState, args: 
                 }
             };
             let _config = state.config.read().await.clone();
-            let handle = crate::commands::shell::build_shell(
-                id,
-                &factory,
-            );
+            let handle = crate::commands::shell::build_shell(id, &factory);
             {
                 let mut mgr = state.manager.write().await;
                 if let Some(manager) = mgr.as_mut() {
@@ -567,10 +573,9 @@ async fn handle_session_subcommand(app: &AppHandle, state: &DesktopState, args: 
                         handle.llm_rx,
                     );
                     if manager.metadata_store.get(id).created_at == 0 {
-                        manager.metadata_store.insert(SessionMetadata::new(
-                            id,
-                            &workspace,
-                        ));
+                        manager
+                            .metadata_store
+                            .insert(SessionMetadata::new(id, &workspace));
                         let _ = manager.metadata_store.save();
                     }
                     manager.switch(id);
@@ -624,6 +629,12 @@ fn print_help() -> String {
 /// Session info returned to the frontend.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Struct containing heap-allocated session info. O(1).
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone, Debug, Serialize)]
 pub struct SessionInfo {
     /// Session identifier.
@@ -639,6 +650,12 @@ pub struct SessionInfo {
 /// How sessions should be sorted when returned to the frontend.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) Copy enum.
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
@@ -652,8 +669,15 @@ pub enum SessionSort {
     Name,
 }
 
-
 /// Returns the list of all sessions.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(S log S) where S is the number of active sessions. Performs list sorting.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if manager is uninitialized.
 #[tauri::command]
 pub async fn list_sessions(
     state: State<'_, DesktopState>,
@@ -694,6 +718,14 @@ pub async fn list_sessions(
 }
 
 /// Switches to an existing session.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(log S) switch where S is the number of active sessions. Emits Tauri events.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if the session ID is not found.
 #[tauri::command]
 pub async fn switch_session(
     app: AppHandle,
@@ -721,6 +753,14 @@ pub async fn switch_session(
 }
 
 /// Deletes a session.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(log S) deletion where S is the number of active sessions. Saves changes to disk.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if attempting to delete the active session.
 #[tauri::command]
 pub async fn delete_session(
     app: AppHandle,
@@ -742,22 +782,27 @@ pub async fn delete_session(
 }
 
 /// Creates a new session and switches to it.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) in-memory creation and storage writing. Rebuilds the shell in background.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if manager is uninitialized.
 #[tauri::command]
 pub async fn new_session(app: AppHandle, state: State<'_, DesktopState>) -> Result<String, String> {
     state.ensure_manager().await?;
     let new_id = format!(
         "session-{}",
-        match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        match std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH) {
             Ok(d) => d.as_secs(),
             Err(_) => 0,
         }
     );
     let factory = state.factory.read().await.clone();
     let workspace = factory.settings.working_dir();
-    let handle = crate::commands::shell::build_shell(
-        &new_id,
-        &factory,
-    );
+    let handle = crate::commands::shell::build_shell(&new_id, &factory);
     {
         let mut mgr = state.manager.write().await;
         let manager = mgr.as_mut().ok_or("No active session")?;
@@ -768,10 +813,9 @@ pub async fn new_session(app: AppHandle, state: State<'_, DesktopState>) -> Resu
             handle.history,
             handle.llm_rx,
         );
-        manager.metadata_store.insert(SessionMetadata::new(
-            &new_id,
-            &workspace,
-        ));
+        manager
+            .metadata_store
+            .insert(SessionMetadata::new(&new_id, &workspace));
         let _ = manager.metadata_store.save();
         manager.switch(&new_id);
     }
@@ -781,18 +825,102 @@ pub async fn new_session(app: AppHandle, state: State<'_, DesktopState>) -> Resu
 }
 
 /// Returns the current user settings.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(N) where N is configuration file size. Performs blocking disk read.
+///
+/// # Panic / Safety
+/// Never panics. Returns default settings if loading fails.
 #[tauri::command]
 pub async fn get_settings() -> Result<Settings, String> {
     Ok(Settings::load())
 }
 
 /// Saves user settings.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(N) where N is serialized configuration size. Performs blocking disk write.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err on serialization or file write failure.
 #[tauri::command]
-pub async fn set_settings(settings: Settings) -> Result<(), String> {
-    settings.save()
+pub async fn set_settings(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    settings: Settings,
+) -> Result<(), String> {
+    settings.save()?;
+
+    // Update state factory settings in memory
+    {
+        let mut factory = state.factory.write().await;
+        factory.settings = settings.clone();
+    }
+
+    // Rebuild the active session's shell if there is one
+    let mut current_id_opt = None;
+    {
+        let mgr = state.manager.read().await;
+        if let Some(manager) = mgr.as_ref() {
+            current_id_opt = Some(manager.current_id().to_string());
+        }
+    }
+
+    if let Some(current_id) = current_id_opt {
+        let factory = state.factory.read().await.clone();
+        let handle = crate::commands::shell::build_shell(&current_id, &factory);
+
+        let mut mgr = state.manager.write().await;
+        if let Some(manager) = mgr.as_mut() {
+            // Get all messages from the old shell/client
+            let mut old_messages = Vec::new();
+            if let Some(entry) = manager.sessions.get(&current_id) {
+                old_messages = entry.history.read().await.clone();
+            }
+
+            // Push old messages to the new LLM history
+            for msg in old_messages {
+                handle.llm.push_message(msg).await;
+            }
+
+            // Insert new shell handle
+            manager.insert(
+                current_id.clone(),
+                handle.shell,
+                handle.llm,
+                handle.history,
+                handle.llm_rx,
+            );
+
+            // Update workspace metadata in store
+            let workspace = factory.settings.working_dir();
+            manager
+                .metadata_store
+                .insert(SessionMetadata::new(&current_id, &workspace));
+            let _ = manager.metadata_store.save();
+        }
+
+        // Notify the frontend of the update
+        let _ = app.emit("session-changed", current_id.clone());
+        let _ = app.emit("sessions-updated", ());
+    }
+
+    Ok(())
 }
 
 /// Opens a directory picker dialog and returns the selected path.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) stub. Native picker is handled by the frontend.
+///
+/// # Panic / Safety
+/// Never panics.
 #[tauri::command]
 pub async fn pick_directory() -> Result<Option<String>, String> {
     // The frontend uses the native file picker via tauri APIs
@@ -806,6 +934,12 @@ pub async fn pick_directory() -> Result<Option<String>, String> {
 /// Memory entry payload for the frontend.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Struct containing heap-allocated string representations of memory entries. O(1).
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone, Debug, Serialize)]
 pub struct MemoryEntryPayload {
     /// Unique key for the memory entry.
@@ -836,6 +970,14 @@ impl From<&crate::extensions::memory_provider::MemoryEntry> for MemoryEntryPaylo
 }
 
 /// Lists all memory entries, optionally filtered by category.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(N) where N is the total number of memories stored locally. Reads disk.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err on load or listing failure.
 #[tauri::command]
 pub async fn list_memories(category: Option<String>) -> Result<Vec<MemoryEntryPayload>, String> {
     let store = crate::extensions::memory_provider::LocalMemoryProvider::load();
@@ -848,6 +990,14 @@ pub async fn list_memories(category: Option<String>) -> Result<Vec<MemoryEntryPa
 }
 
 /// Sets (adds or updates) a memory entry.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(N) where N is the number of local memories. Reads and writes disk.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err on save failure.
 #[tauri::command]
 pub async fn set_memory(key: String, value: String, category: String) -> Result<(), String> {
     let mut store = crate::extensions::memory_provider::LocalMemoryProvider::load();
@@ -855,6 +1005,14 @@ pub async fn set_memory(key: String, value: String, category: String) -> Result<
 }
 
 /// Deletes a memory entry by key.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(N) where N is the number of local memories. Reads and writes disk.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if memory key is not found or save fails.
 #[tauri::command]
 pub async fn delete_memory(key: String) -> Result<(), String> {
     let mut store = crate::extensions::memory_provider::LocalMemoryProvider::load();
@@ -865,6 +1023,14 @@ pub async fn delete_memory(key: String) -> Result<(), String> {
 }
 
 /// Searches memory entries by key or value.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(N) where N is the total number of memories stored locally. Reads disk.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err on load or listing failure.
 #[tauri::command]
 pub async fn search_memories(query: String) -> Result<Vec<MemoryEntryPayload>, String> {
     let store = crate::extensions::memory_provider::LocalMemoryProvider::load();
@@ -883,6 +1049,12 @@ pub async fn search_memories(query: String) -> Result<Vec<MemoryEntryPayload>, S
 /// Profile payload for the frontend.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Struct containing heap-allocated profile settings. O(1).
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone, Debug, Serialize)]
 pub struct ProfilePayload {
     /// Machine-readable profile identifier (e.g., "default", "work").
@@ -928,6 +1100,14 @@ impl From<&crate::profiles::Profile> for ProfilePayload {
 }
 
 /// Lists all profiles.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(P) where P is the number of defined profiles. Reads profile config from disk.
+///
+/// # Panic / Safety
+/// Never panics. Returns empty list if load fails.
 #[tauri::command]
 pub async fn list_profiles() -> Result<Vec<ProfilePayload>, String> {
     let config = crate::profiles::ProfileConfig::load();
@@ -935,6 +1115,14 @@ pub async fn list_profiles() -> Result<Vec<ProfilePayload>, String> {
 }
 
 /// Gets the active profile.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(P) where P is the number of profiles. Reads profile config from disk.
+///
+/// # Panic / Safety
+/// Never panics. Returns None if name or active profile not found.
 #[tauri::command]
 pub async fn get_profile(name: Option<String>) -> Result<Option<ProfilePayload>, String> {
     let config = crate::profiles::ProfileConfig::load();
@@ -946,6 +1134,14 @@ pub async fn get_profile(name: Option<String>) -> Result<Option<ProfilePayload>,
 }
 
 /// Creates a new profile.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(P) where P is the number of profiles. Reads and writes profile config disk.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err on file write or profile creation failures.
 #[tauri::command]
 pub async fn create_profile(
     name: String,
@@ -959,6 +1155,14 @@ pub async fn create_profile(
 }
 
 /// Switches to a different profile.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(P) where P is the number of profiles. Reads and writes profile config disk.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if switch fails.
 #[tauri::command]
 pub async fn switch_profile(name: String) -> Result<(), String> {
     let mut config = crate::profiles::ProfileConfig::load();
@@ -966,6 +1170,14 @@ pub async fn switch_profile(name: String) -> Result<(), String> {
 }
 
 /// Deletes a profile.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(P) where P is the number of profiles. Reads and writes profile config disk.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if deletion fails.
 #[tauri::command]
 pub async fn delete_profile(name: String) -> Result<(), String> {
     let mut config = crate::profiles::ProfileConfig::load();
@@ -973,6 +1185,14 @@ pub async fn delete_profile(name: String) -> Result<(), String> {
 }
 
 /// Updates a profile.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(P) where P is the number of profiles. Reads and writes profile config disk.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if profile update fails.
 #[tauri::command]
 pub async fn update_profile(profile: crate::profiles::Profile) -> Result<(), String> {
     let mut config = crate::profiles::ProfileConfig::load();
@@ -986,6 +1206,12 @@ pub async fn update_profile(profile: crate::profiles::Profile) -> Result<(), Str
 /// Skill payload for the frontend.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Struct containing heap-allocated skill configurations. O(1).
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone, Debug, Serialize)]
 pub struct SkillPayload {
     /// Machine-readable skill identifier (e.g., "system-prompt").
@@ -1031,6 +1257,14 @@ impl From<&crate::skills::Skill> for SkillPayload {
 }
 
 /// Lists all discovered skills.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(K) where K is the number of skills. Performs file scanning.
+///
+/// # Panic / Safety
+/// Never panics. Returns empty list if scanning fails.
 #[tauri::command]
 pub async fn list_skills() -> Result<Vec<SkillPayload>, String> {
     let skills = crate::skills::scan_skills();
@@ -1038,12 +1272,28 @@ pub async fn list_skills() -> Result<Vec<SkillPayload>, String> {
 }
 
 /// Gets the content of a specific skill.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(S) where S is the size of the SKILL.md file. Reads disk.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if skill content cannot be read.
 #[tauri::command]
 pub async fn get_skill_content(name: String) -> Result<String, String> {
     crate::skills::read_skill_content(&name).ok_or_else(|| format!("Skill '{}' not found", name))
 }
 
 /// Reads a linked file from a skill directory.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(F) where F is the target file size. Reads disk.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if the file is missing or reading fails.
 #[tauri::command]
 pub async fn get_skill_file(name: String, file_path: String) -> Result<String, String> {
     crate::skills::read_skill_file(&name, &file_path)
@@ -1057,6 +1307,12 @@ pub async fn get_skill_file(name: String, file_path: String) -> Result<String, S
 /// Available model info.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Struct containing heap-allocated model info. O(1).
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone, Debug, Serialize)]
 pub struct ModelInfo {
     /// Model identifier (e.g., "openai/gpt-4o").
@@ -1085,6 +1341,14 @@ struct OpenRouterModel {
 }
 
 /// Fetches available models from OpenRouter.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Performs async HTTP request over the network. O(M) where M is response size.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if HTTP request or JSON parsing fails.
 #[tauri::command]
 pub async fn fetch_models() -> Result<Vec<ModelInfo>, String> {
     let client = reqwest::Client::new();
@@ -1123,6 +1387,12 @@ pub async fn fetch_models() -> Result<Vec<ModelInfo>, String> {
 /// File/directory entry for the file explorer.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Struct containing heap-allocated string representations of path entries. O(1).
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone, Debug, Serialize)]
 pub struct DirEntry {
     /// File or directory name.
@@ -1134,6 +1404,14 @@ pub struct DirEntry {
 }
 
 /// Reads the contents of a directory.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(N log N) where N is the number of files in the directory. Performs async directory read and sorting.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if path does not exist, is not a directory, or fails to read.
 #[tauri::command]
 pub async fn read_directory(path: String) -> Result<Vec<DirEntry>, String> {
     let mut entries = Vec::new();
@@ -1172,6 +1450,14 @@ pub async fn read_directory(path: String) -> Result<Vec<DirEntry>, String> {
 }
 
 /// Reads the contents of a text file.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(F) where F is the file size on disk. Performs async file read.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if file reading fails.
 #[tauri::command]
 pub async fn read_file(path: String) -> Result<String, String> {
     tokio::fs::read_to_string(&path)
@@ -1180,6 +1466,14 @@ pub async fn read_file(path: String) -> Result<String, String> {
 }
 
 /// Writes content to a file, creating it if necessary.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(C) where C is the content size. Performs async file write.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if writing fails.
 #[tauri::command]
 pub async fn write_file(path: String, content: String) -> Result<(), String> {
     tokio::fs::write(&path, content)
@@ -1188,6 +1482,14 @@ pub async fn write_file(path: String, content: String) -> Result<(), String> {
 }
 
 /// Deletes a file or empty directory.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) file system metadata read and deletion.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if metadata read or deletion fails.
 #[tauri::command]
 pub async fn delete_file(path: String) -> Result<(), String> {
     let metadata = tokio::fs::metadata(&path)
@@ -1206,6 +1508,14 @@ pub async fn delete_file(path: String) -> Result<(), String> {
 }
 
 /// Creates a new empty file.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) file creation.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if file creation fails.
 #[tauri::command]
 pub async fn create_file(path: String) -> Result<(), String> {
     tokio::fs::File::create(&path)
@@ -1214,11 +1524,36 @@ pub async fn create_file(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Creates a new directory, including parent directories if they do not exist.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) directory creation.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if directory creation fails.
+#[tauri::command]
+pub async fn create_directory(path: String) -> Result<(), String> {
+    tokio::fs::create_dir_all(&path)
+        .await
+        .map_err(|e| format!("Failed to create directory: {e}"))?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Extension commands
 // ---------------------------------------------------------------------------
 
 /// Returns metadata for all registered desktop extensions.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(E) where E is the number of loaded extensions. Reads extension state.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err on lock failures.
 #[tauri::command]
 pub async fn list_extensions(
     state: State<'_, DesktopState>,
@@ -1228,6 +1563,14 @@ pub async fn list_extensions(
 }
 
 /// Returns all settings sections contributed by extensions.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(S log S) where S is the number of settings sections. Reads extension registry and sorts them.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err on lock failures.
 #[tauri::command]
 pub async fn list_settings_sections(
     state: State<'_, DesktopState>,
@@ -1243,6 +1586,14 @@ pub async fn list_settings_sections(
 }
 
 /// Computes footer metrics from all registered providers.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(M) where M is the number of footer metrics. Reads configurations, locks session manager, estimates history tokens.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if lock or computing fails.
 #[tauri::command]
 pub async fn get_footer_metrics(
     state: State<'_, DesktopState>,
@@ -1287,6 +1638,14 @@ pub async fn get_footer_metrics(
 }
 
 /// Returns all tools from all registered providers.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(T log T) where T is the total number of tools. Reads provider tools and sorts them.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err on registry lock failures.
 #[tauri::command]
 pub async fn list_tools(state: State<'_, DesktopState>) -> Result<Vec<ToolDescriptor>, String> {
     let registry = state.extensions.read().await;
@@ -1299,6 +1658,14 @@ pub async fn list_tools(state: State<'_, DesktopState>) -> Result<Vec<ToolDescri
 }
 
 /// Enables or disables a tool.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(P) where P is the number of tool providers. Writes tool settings to registry.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if target tool provider is not found or not mutable.
 #[tauri::command]
 pub async fn set_tool_enabled(
     state: State<'_, DesktopState>,
@@ -1316,6 +1683,14 @@ pub async fn set_tool_enabled(
 }
 
 /// Adds a user-defined tool.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(P) where P is the number of tool providers. Appends custom tool and writes configurations to disk.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if no mutable tool provider is found or tool name overlaps.
 #[tauri::command]
 pub async fn add_user_tool(
     state: State<'_, DesktopState>,
@@ -1331,6 +1706,14 @@ pub async fn add_user_tool(
 }
 
 /// Removes a user-defined tool.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(P) where P is the number of tool providers. Searches and removes custom tool, then writes changes to disk.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if target tool not found or no mutable provider available.
 #[tauri::command]
 pub async fn remove_user_tool(state: State<'_, DesktopState>, id: String) -> Result<(), String> {
     let mut registry = state.extensions.write().await;
@@ -1343,6 +1726,14 @@ pub async fn remove_user_tool(state: State<'_, DesktopState>, id: String) -> Res
 }
 
 /// Enables or disables a skill.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(S) where S is the number of skill providers. Writes configuration.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if target skill provider is not found or not mutable.
 #[tauri::command]
 pub async fn set_skill_enabled(
     state: State<'_, DesktopState>,
@@ -1359,6 +1750,14 @@ pub async fn set_skill_enabled(
 }
 
 /// Creates a new skill package.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(C) where C is the size of the skill contents to write to disk.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if skill directory cannot be created or file write fails.
 #[tauri::command]
 pub async fn create_skill(
     state: State<'_, DesktopState>,
@@ -1377,6 +1776,14 @@ pub async fn create_skill(
 }
 
 /// Deletes a skill package.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) file system deletion.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if the skill package does not exist or deletion fails.
 #[tauri::command]
 pub async fn delete_skill(state: State<'_, DesktopState>, name: String) -> Result<(), String> {
     let mut registry = state.extensions.write().await;
@@ -1391,6 +1798,14 @@ pub async fn delete_skill(state: State<'_, DesktopState>, name: String) -> Resul
 /// Attaches a file or folder reference to the current conversation.
 ///
 /// The reference is emitted as a system message so the model sees it.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) file metadata read and event emission.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if file or folder metadata cannot be read.
 #[tauri::command]
 pub async fn attach_reference(
     app: AppHandle,
@@ -1413,6 +1828,14 @@ pub async fn attach_reference(
 /// Sends an image attachment for multimodal models.
 ///
 /// The image bytes are read from disk and encoded as a data URL.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(B) where B is the number of image bytes read and base64-encoded.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if the image file cannot be read.
 #[tauri::command]
 pub async fn send_image(
     app: AppHandle,

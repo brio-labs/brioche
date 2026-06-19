@@ -56,6 +56,7 @@ fn main() {
             commands::write_file,
             commands::delete_file,
             commands::create_file,
+            commands::create_directory,
             // Memory commands
             commands::list_memories,
             commands::set_memory,

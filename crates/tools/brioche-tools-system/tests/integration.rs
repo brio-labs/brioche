@@ -21,7 +21,7 @@ async fn write_file_is_idempotent() -> std::io::Result<()> {
         .to_str()
         .ok_or_else(|| std::io::Error::other("temp path is not valid UTF-8"))?;
 
-    let tool = WriteFileTool;
+    let tool = WriteFileTool::default();
     let args = serde_json::Value::Object({
         let mut m = serde_json::Map::new();
         m.insert("path".into(), path.into());
@@ -53,7 +53,7 @@ async fn write_file_append_is_idempotent() -> std::io::Result<()> {
         .to_str()
         .ok_or_else(|| std::io::Error::other("temp path is not valid UTF-8"))?;
 
-    let tool = WriteFileTool;
+    let tool = WriteFileTool::default();
     let args = serde_json::Value::Object({
         let mut m = serde_json::Map::new();
         m.insert("path".into(), path.into());

@@ -9,7 +9,9 @@ use std::sync::Arc;
 
 use brioche_core::ChatMessage;
 use brioche_plugin_kit::PluginBuilder;
-use brioche_provider_openai::{HistoryTransform, LlmChunk, OpenAiConfig, OpenAiLlmClient, SharedHistory};
+use brioche_provider_openai::{
+    HistoryTransform, LlmChunk, OpenAiConfig, OpenAiLlmClient, SharedHistory,
+};
 use brioche_shell_persistence::{RedbStorage, SessionStore, SessionStoreEntry};
 use brioche_shell_runtime::{BriocheShell, DefaultEffectExecutor, ShellConfig};
 use brioche_tools_system::{
@@ -19,9 +21,9 @@ use brioche_tools_system::{
 use lazy_static::lazy_static;
 use tokio::sync::broadcast;
 
-use crate::extensions::context::{CompressorContextEngine, ContextEngine, ContextEngineInput};
 use crate::extensions::ExtensionRegistry;
 use crate::extensions::UserDefinedTool;
+use crate::extensions::context::{CompressorContextEngine, ContextEngine, ContextEngineInput};
 use crate::settings::Settings;
 use std::sync::Mutex;
 
@@ -41,6 +43,12 @@ fn system_time_secs() -> u64 {
 /// Returns the timestamp when the first shell was built in this process.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) atomic lock access.
+///
+/// # Panic / Safety
+/// Never panics. Returns current time if lock is poisoned.
 pub fn session_started_at() -> u64 {
     match SESSION_START.lock() {
         Ok(guard) => *guard,
@@ -54,6 +62,12 @@ pub fn session_started_at() -> u64 {
 /// to avoid coupling the app crate to the terminal crate.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Struct contains OpenAiConfig strings. O(1).
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone, Debug)]
 pub struct DesktopConfig {
     /// OpenAI provider configuration.
@@ -72,6 +86,12 @@ impl DesktopConfig {
     /// Builds a desktop configuration from modular settings.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(S) where S is settings size. Inspects environment variables.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
     pub fn from_settings(settings: &crate::settings::Settings) -> Self {
         let api_key = if settings.api_key().is_empty() {
             std::env::var("BRIOCHE_API_KEY").map_or(String::new(), |v| v)
@@ -121,6 +141,12 @@ impl DesktopConfig {
 /// session management.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Struct contains Arc-wrapped services and settings. O(1) clone.
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone)]
 pub struct ShellFactory {
     /// Redb storage for session persistence.
@@ -142,6 +168,12 @@ pub struct ShellFactory {
 /// The frontend receives `LlmChunk` events via Tauri's event system.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Wraps running task handles and channels. O(1).
+///
+/// # Panic / Safety
+/// Never panics.
 pub struct ShellHandle {
     /// The shell instance.
     pub shell: BriocheShell,
@@ -236,14 +268,88 @@ fn build_history_transform(
             };
             let output = engine.process(input);
             if let Some(note) = output.note
-                && let Ok(mut guard) = last_context_note.lock() {
-                    *guard = Some(note);
-                }
+                && let Ok(mut guard) = last_context_note.lock()
+            {
+                *guard = Some(note);
+            }
             working = output.messages;
         }
 
         working
     })
+}
+
+/// A wrapper tool that exposes a `MemoryProvider`'s custom tool schemas to the LLM.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Wraps provider trait object and JSON schema. O(1).
+///
+/// # Panic / Safety
+/// Never panics.
+#[derive(Clone)]
+pub struct MemoryProviderTool {
+    provider: Arc<dyn crate::extensions::memory_provider::MemoryProvider>,
+    schema: serde_json::Value,
+}
+
+impl std::fmt::Debug for MemoryProviderTool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoryProviderTool")
+            .field("schema", &self.schema)
+            .finish()
+    }
+}
+
+impl MemoryProviderTool {
+    /// Creates a new `MemoryProviderTool` wrapper.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(1) creation.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
+    pub fn new(
+        provider: Arc<dyn crate::extensions::memory_provider::MemoryProvider>,
+        schema: serde_json::Value,
+    ) -> Self {
+        Self { provider, schema }
+    }
+}
+
+#[async_trait::async_trait]
+impl brioche_tools_system::SystemTool for MemoryProviderTool {
+    fn name(&self) -> String {
+        match self.schema["function"]["name"].as_str() {
+            Some(s) => s.to_string(),
+            None => String::new(),
+        }
+    }
+
+    fn description(&self) -> String {
+        match self.schema["function"]["description"].as_str() {
+            Some(s) => s.to_string(),
+            None => String::new(),
+        }
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        self.schema["function"]["parameters"].clone()
+    }
+
+    async fn run(
+        &self,
+        args: serde_json::Value,
+        _cancel: tokio_util::sync::CancellationToken,
+    ) -> Result<String, brioche_tools_system::ToolError> {
+        let name = self.name();
+        self.provider
+            .handle_tool_call(&name, args)
+            .map_err(|err| brioche_tools_system::ToolError::Io(std::io::Error::other(err)))
+    }
 }
 
 /// Builds a complete `ShellHandle` with all components.
@@ -255,13 +361,28 @@ fn build_history_transform(
 /// via `tokio::spawn`. Calling it from a synchronous context will panic.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(T) where T is the number of tools registered. Spawns asynchronous tasks in the background.
+///
+/// # Panic / Safety
+/// Panics if called outside of a Tokio runtime context since it spawns tokio tasks.
 pub fn build_shell(session_id: impl Into<String>, factory: &ShellFactory) -> ShellHandle {
-    let exec_tool = ExecuteCommandTool::new().with_policy(SandboxPolicy::Permissive);
+    let workspace_path = factory.settings.working_dir();
+    let workspace = if workspace_path.is_empty() {
+        None
+    } else {
+        Some(std::path::PathBuf::from(&workspace_path))
+    };
+
+    let exec_tool = ExecuteCommandTool::new()
+        .with_policy(SandboxPolicy::Permissive)
+        .with_default_cwd(workspace_path);
 
     let mut tool_executor = SystemToolExecutor::new()
-        .with_tool(ReadFileTool)
-        .with_tool(WriteFileTool)
-        .with_tool(ListDirTool)
+        .with_tool(ReadFileTool::new(workspace.clone()))
+        .with_tool(WriteFileTool::new(workspace.clone()))
+        .with_tool(ListDirTool::new(workspace))
         .with_tool(exec_tool)
         .with_tool(FetchUrlTool);
 
@@ -269,6 +390,18 @@ pub fn build_shell(session_id: impl Into<String>, factory: &ShellFactory) -> She
     for provider in factory.extensions.tool_providers() {
         for user_tool in provider.user_tools() {
             tool_executor = tool_executor.with_tool(UserDefinedTool::new(user_tool));
+        }
+    }
+
+    // Register tools from active memory providers.
+    let active_memory_providers = factory.settings.active_memory_providers();
+    for provider in factory.extensions.memory_providers() {
+        let id = provider.metadata().id;
+        if active_memory_providers.contains(&id) {
+            for schema in provider.tool_schemas() {
+                tool_executor =
+                    tool_executor.with_tool(MemoryProviderTool::new(Arc::clone(provider), schema));
+            }
         }
     }
 
@@ -397,5 +530,59 @@ mod tests {
         };
         let handle = build_shell("test-session", &factory);
         assert_eq!(handle.llm_rx.len(), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[allow(
+        clippy::unwrap_used,
+        clippy::disallowed_methods,
+        clippy::disallowed_types
+    )]
+    async fn test_memory_provider_tool_execution() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::extensions::memory_provider::MemoryProvider;
+        use brioche_tools_system::SystemTool;
+
+        let mut extensions = ExtensionRegistry::new();
+        let amp_endpoint = crate::extensions::AmpMemoryEndpoint {
+            id: "memory-amp-1".into(),
+            name: "Local mem0".into(),
+            url: "http://127.0.0.1:9471".into(),
+            api_key: None,
+            scope: None,
+        };
+        let provider = Arc::new(crate::extensions::AmpMemoryProvider::new(amp_endpoint));
+        extensions.register_memory_provider(provider.clone());
+
+        let mut found_store = None;
+        let mut found_recall = None;
+        for schema in provider.tool_schemas() {
+            let tool = MemoryProviderTool::new(provider.clone(), schema);
+            if tool.name() == "memory-amp-1_store" {
+                found_store = Some(tool);
+            } else if tool.name() == "memory-amp-1_recall" {
+                found_recall = Some(tool);
+            }
+        }
+
+        let store_tool = found_store.ok_or("memory-amp-1_store tool not found")?;
+        let recall_tool = found_recall.ok_or("memory-amp-1_recall tool not found")?;
+
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let store_args = serde_json::json!({
+            "content": "My favorite food is brioche."
+        });
+
+        let store_result = store_tool.run(store_args, cancel.clone()).await?;
+        assert_eq!(store_result, "{\"status\":\"stored\"}");
+
+        let recall_args = serde_json::json!({
+            "query": "favorite food"
+        });
+        let recall_result = recall_tool.run(recall_args, cancel).await?;
+
+        let recalled_value: Vec<String> = serde_json::from_str(&recall_result)?;
+        assert!(recalled_value.iter().any(|v| v.contains("brioche")));
+
+        Ok(())
     }
 }

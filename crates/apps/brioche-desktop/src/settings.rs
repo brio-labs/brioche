@@ -15,6 +15,12 @@ use std::path::PathBuf;
 /// A configured AMP-compatible memory endpoint.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) representation of endpoint.
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MemoryEndpoint {
     /// Machine-readable provider id.
@@ -32,6 +38,12 @@ pub struct MemoryEndpoint {
 /// A fallback model definition.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) representation of fallback.
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FallbackModel {
     /// Provider identifier.
@@ -57,6 +69,12 @@ pub struct FallbackModel {
 /// with the previous 0.0.1 settings file.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Holds settings map. Reads/writes are logarithmic in the number of keys.
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Settings {
     /// Module-scoped settings values.
@@ -137,10 +155,7 @@ impl Default for Settings {
                             [
                                 ("id".into(), Value::String("memory-amp-1".into())),
                                 ("name".into(), Value::String("Remote memory".into())),
-                                (
-                                    "url".into(),
-                                    Value::String("http://localhost:9471".into()),
-                                ),
+                                ("url".into(), Value::String("http://localhost:9471".into())),
                                 ("api_key".into(), Value::Null),
                                 ("scope".into(), Value::Null),
                             ]
@@ -170,6 +185,14 @@ impl Default for Settings {
 
 impl Settings {
     /// Loads settings from disk, or returns defaults if the file doesn't exist.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(N) where N is the configuration file size. Performs blocking disk read.
+    ///
+    /// # Panic / Safety
+    /// Never panics. Returns defaults if file reading or parsing fails.
     pub fn load() -> Self {
         let path = settings_path();
         if let Ok(data) = std::fs::read_to_string(&path)
@@ -186,6 +209,14 @@ impl Settings {
     }
 
     /// Saves settings to disk.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(N) where N is the serialized configuration size. Performs blocking disk write.
+    ///
+    /// # Panic / Safety
+    /// Never panics. Returns error string if serialization or write fails.
     pub fn save(&self) -> Result<(), String> {
         let path = settings_path();
         if let Some(parent) = path.parent() {
@@ -198,6 +229,14 @@ impl Settings {
     }
 
     /// Returns a module object, creating it with an empty object if missing.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(log M) where M is the number of configuration modules.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
     pub fn module(&self, name: &str) -> Value {
         match self.modules.get(name) {
             Some(v) => v.clone(),
@@ -206,6 +245,14 @@ impl Settings {
     }
 
     /// Returns a dotted value such as `chat.model`.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(D * log M) where D is the depth of the dot-path and M is the number of keys.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
     pub fn get(&self, key: &str) -> Option<Value> {
         let mut parts = key.split('.');
         let module = parts.next()?;
@@ -217,6 +264,14 @@ impl Settings {
     }
 
     /// Sets a dotted value such as `chat.model`.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(D * log M) where D is the depth of the dot-path and M is the number of keys.
+    ///
+    /// # Panic / Safety
+    /// Returns error string if intermediate path components are not JSON objects.
     pub fn set(&mut self, key: &str, value: Value) -> Result<(), String> {
         let mut parts: Vec<&str> = key.split('.').collect();
         if parts.len() < 2 {
