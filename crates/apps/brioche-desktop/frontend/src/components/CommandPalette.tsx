@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
     SearchIcon,
     CommandIcon,
@@ -97,10 +97,10 @@ export default function CommandPalette({ isOpen, onClose, commands }: CommandPal
     let flatIndex = 0;
 
     return (
-        <div className="command-palette-overlay" onClick={onClose}>
-            <div className="command-palette" onClick={(e) => e.stopPropagation()}>
-                <div className="command-palette-input">
-                    <SearchIcon />
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-start justify-center z-[2000] animate-fadeIn pt-[15vh]" onClick={onClose}>
+            <div className="bg-bg-1 border border-border rounded-lg w-[560px] max-w-[90vw] max-h-[60vh] flex flex-col overflow-hidden animate-slideDown shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                <div className="p-4 border-b border-border flex items-center gap-3">
+                    <SearchIcon className="w-4 h-4 text-text-muted shrink-0" />
                     <input
                         ref={inputRef}
                         type="text"
@@ -108,29 +108,32 @@ export default function CommandPalette({ isOpen, onClose, commands }: CommandPal
                         onChange={(e) => setQuery(e.target.value)}
                         onKeyDown={handleKeyDown}
                         placeholder="Type a command or search..."
+                        className="w-full bg-transparent border-none text-text-primary text-base outline-none placeholder:text-text-muted font-sans"
                     />
                 </div>
-                <div className="command-palette-results">
+                <div className="flex-1 overflow-y-auto p-2">
                     {Object.entries(grouped).map(([groupName, items]) => (
-                        <div key={groupName} className="command-palette-group">
-                            <div className="command-palette-group-title">{groupName}</div>
+                        <div key={groupName} className="mb-3">
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted px-3 py-2 select-none">{groupName}</div>
                             {items.map((cmd) => {
                                 const isSelected = flatIndex === selectedIndex;
                                 const idx = flatIndex++;
                                 return (
                                     <div
                                         key={cmd.id}
-                                        className={`command-palette-item ${isSelected ? 'selected' : ''}`}
+                                        className={`flex items-center gap-3 px-3 py-2.5 rounded-sm cursor-pointer transition-all text-text-secondary text-[13px] hover:bg-accent/10 hover:text-text-primary ${
+                                            isSelected ? 'bg-accent/10 text-text-primary border-l-2 border-accent' : ''
+                                        }`}
                                         onClick={() => {
                                             cmd.action();
                                             onClose();
                                         }}
                                         onMouseEnter={() => setSelectedIndex(idx)}
                                     >
-                                        <div className="command-palette-item-icon">{cmd.icon}</div>
-                                        <div className="command-palette-item-text">{cmd.label}</div>
+                                        <div className="w-5 h-5 flex items-center justify-center text-text-muted shrink-0 [&_svg]:w-3.5 [&_svg]:h-3.5">{cmd.icon}</div>
+                                        <div className="flex-1">{cmd.label}</div>
                                         {cmd.shortcut && (
-                                            <div className="command-palette-item-shortcut">{cmd.shortcut}</div>
+                                            <div className="text-[11px] text-text-muted font-mono bg-bg-3 px-1.5 py-0.5 rounded">{cmd.shortcut}</div>
                                         )}
                                     </div>
                                 );
@@ -138,7 +141,7 @@ export default function CommandPalette({ isOpen, onClose, commands }: CommandPal
                         </div>
                     ))}
                     {filtered.length === 0 && (
-                        <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>
+                        <div className="p-6 text-center text-text-muted text-[13px]">
                             No commands found
                         </div>
                     )}

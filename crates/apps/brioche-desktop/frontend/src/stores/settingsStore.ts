@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { getSettings, setSettings } from '../ipc';
-import type { Settings } from '../ipc';
+import { getSettings, setSettings, listSettingsSections } from '../ipc';
+import type { Settings, SettingsSection } from '../ipc';
 
 function getValue(obj: unknown, path: string): unknown {
     const parts = path.split('.');
@@ -34,16 +34,19 @@ function setValue(obj: Settings, path: string, value: unknown): Settings {
 
 interface SettingsStore {
     settings: Settings;
+    sections: SettingsSection[];
     isLoading: boolean;
     hasLoaded: boolean;
     loadSettings: () => Promise<void>;
     saveSettings: (settings: Settings) => Promise<void>;
     updateSetting: (key: string, value: unknown) => void;
     getSetting: (key: string) => unknown;
+    loadSections: () => Promise<void>;
 }
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
     settings: {},
+    sections: [],
     isLoading: false,
     hasLoaded: false,
     loadSettings: async () => {
@@ -70,4 +73,12 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         set((state) => ({ settings: setValue(state.settings, key, value) }));
     },
     getSetting: (key) => getValue(get().settings, key),
+    loadSections: async () => {
+        try {
+            const sections = await listSettingsSections();
+            set({ sections });
+        } catch (err) {
+            console.error('Failed to load settings sections:', err);
+        }
+    },
 }));

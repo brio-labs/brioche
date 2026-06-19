@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { type ChatMessagePayload } from './ipc';
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'error' | 'tool_request' | 'tool_argument' | 'tool_done' | 'tool_result';
 
@@ -29,11 +30,13 @@ interface ChatStore {
     setInput: (input: string) => void;
     setLoading: (loading: boolean) => void;
     clearMessages: () => void;
+    receiveMessage: (payload: ChatMessagePayload) => void;
+    setMessagesFromHistory: (history: ChatMessagePayload[]) => void;
 }
 
 let messageId = 0;
 
-export const useChatStore = create<ChatStore>((set) => ({
+export const useChatStore = create<ChatStore>((set, get) => ({
     messages: [],
     input: '',
     isLoading: false,
@@ -66,4 +69,30 @@ export const useChatStore = create<ChatStore>((set) => ({
     setInput: (input) => set({ input }),
     setLoading: (isLoading) => set({ isLoading }),
     clearMessages: () => set({ messages: [], streamingId: null }),
+    receiveMessage: (payload) => {
+        const role = payload.role as MessageRole;
+        const tool = {
+            toolId: payload.tool_id,
+            toolName: payload.tool_name,
+            toolArguments: payload.tool_arguments,
+            toolOutput: payload.tool_output,
+        };
+        if (role === 'assistant') {
+            get().appendMessage(role, payload.content, tool);
+        } else {
+            get().addMessage(role, payload.content, tool);
+        }
+    },
+    setMessagesFromHistory: (history) => {
+        const messages = history.map((msg) => ({
+            role: msg.role as MessageRole,
+            content: msg.content,
+            id: String(++messageId),
+            toolId: msg.tool_id,
+            toolName: msg.tool_name,
+            toolArguments: msg.tool_arguments,
+            toolOutput: msg.tool_output,
+        }));
+        set({ messages, streamingId: null });
+    },
 }));

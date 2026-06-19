@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { getFooterMetrics, onChatMessage } from "../ipc";
+import { getFooterMetrics } from "../ipc";
 import type { FooterMetric } from "../ipc";
+import { useTauriEvent } from "../hooks/useTauriSync";
 
 export default function Footer() {
 	const [metrics, setMetrics] = useState<FooterMetric[]>([]);
@@ -15,36 +16,34 @@ export default function Footer() {
 	};
 
 	useEffect(() => {
-		load();
-		const interval = setInterval(load, 1000);
-		let unlisten: (() => void) | undefined;
-		onChatMessage(() => {
+		void load();
+		const interval = setInterval(() => {
 			void load();
-		}).then((fn) => {
-			unlisten = fn;
-		});
-		return () => {
-			clearInterval(interval);
-			if (unlisten) unlisten();
-		};
+		}, 1000);
+		return () => clearInterval(interval);
 	}, []);
 
+	// Reactively refresh footer metrics on new chat messages
+	useTauriEvent("chat-message", () => {
+		void load();
+	});
+
 	return (
-		<footer className="footer">
+		<footer className="flex items-center justify-end gap-4 px-4 bg-bg-0/90 border-t border-border text-[11px] text-text-muted shrink-0 select-none h-7 z-10">
 			{metrics.length === 0 ? (
-				<div className="footer-metric">
-					<span className="footer-label">Brioche</span>
-					<span className="footer-value">0.1.0</span>
+				<div className="flex items-center gap-1">
+					<span className="font-medium">Brioche</span>
+					<span className="font-mono text-text-secondary">0.1.0</span>
 				</div>
 			) : (
 				metrics.map((m) => (
 					<div
 						key={m.id}
-						className="footer-metric"
+						className="flex items-center gap-1"
 						title={m.tooltip || undefined}
 					>
-						<span className="footer-label">{m.label}</span>
-						<span className="footer-value">{m.value}</span>
+						<span className="font-medium">{m.label}</span>
+						<span className="font-mono text-text-secondary">{m.value}</span>
 					</div>
 				))
 			)}
