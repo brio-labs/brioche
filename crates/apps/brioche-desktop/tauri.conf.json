@@ -16,6 +16,8 @@
         "title": "Brioche Desktop",
         "width": 900,
         "height": 700,
+        "minWidth": 480,
+        "minHeight": 500,
         "resizable": true,
         "fullscreen": false
       }

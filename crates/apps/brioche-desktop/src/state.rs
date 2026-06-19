@@ -31,6 +31,12 @@ use crate::settings::Settings;
 /// Shared history mirror type.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) pointer type.
+///
+/// # Panic / Safety
+/// Never panics.
 pub type SharedHistory = Arc<RwLock<Vec<ChatMessage>>>;
 
 /// A session entry: shell + LLM client + history mirror + chunk receiver.
@@ -39,6 +45,12 @@ pub type SharedHistory = Arc<RwLock<Vec<ChatMessage>>>;
 /// the forwarder task. Once taken, the receiver is owned by the task.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Contains heap allocations for history and shell state. O(1) moves.
+///
+/// # Panic / Safety
+/// Never panics.
 pub struct SessionEntry {
     /// The shell instance.
     pub shell: BriocheShell,
@@ -55,6 +67,12 @@ pub struct SessionEntry {
 /// Persistent metadata for a session.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Struct with heap-allocated String fields. O(1).
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SessionMetadata {
     /// Session identifier.
@@ -69,6 +87,12 @@ impl SessionMetadata {
     /// Creates metadata for a new session.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(1) allocation.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
     pub fn new(id: impl Into<String>, workspace: impl Into<String>) -> Self {
         Self {
             id: id.into(),
@@ -88,6 +112,12 @@ fn system_time_secs() -> u64 {
 /// Persistent store for session metadata.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Maps session IDs to their metadata. Lookups and modifications are logarithmic in the number of sessions.
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SessionMetadataStore {
     entries: BTreeMap<String, SessionMetadata>,
@@ -97,6 +127,12 @@ impl SessionMetadataStore {
     /// Loads the store from disk, returning an empty store if the file is missing.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(N) where N is the size of the sessions file. Performs blocking file I/O.
+    ///
+    /// # Panic / Safety
+    /// Never panics. Returns empty store on failure.
     pub fn load() -> Self {
         let path = Self::path();
         if let Ok(data) = std::fs::read_to_string(&path)
@@ -110,6 +146,12 @@ impl SessionMetadataStore {
     /// Saves the store to disk.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(N) where N is the serialized metadata size. Performs blocking file I/O.
+    ///
+    /// # Panic / Safety
+    /// Never panics. Returns error String on failure.
     pub fn save(&self) -> Result<(), String> {
         let path = Self::path();
         if let Some(parent) = path.parent() {
@@ -118,13 +160,18 @@ impl SessionMetadataStore {
         }
         let data = serde_json::to_string_pretty(self)
             .map_err(|e| format!("Failed to serialize session metadata: {e}"))?;
-        std::fs::write(&path, data)
-            .map_err(|e| format!("Failed to write session metadata: {e}"))
+        std::fs::write(&path, data).map_err(|e| format!("Failed to write session metadata: {e}"))
     }
 
     /// Returns metadata for a session, or a default entry if unknown.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(log M) where M is the number of sessions in store.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
     pub fn get(&self, id: &str) -> SessionMetadata {
         match self.entries.get(id).cloned() {
             Some(metadata) => metadata,
@@ -139,6 +186,12 @@ impl SessionMetadataStore {
     /// Inserts or updates metadata for a session.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(log M) where M is the number of sessions in store.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
     pub fn insert(&mut self, metadata: SessionMetadata) {
         self.entries.insert(metadata.id.clone(), metadata);
     }
@@ -146,6 +199,12 @@ impl SessionMetadataStore {
     /// Removes metadata for a session.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(log M) where M is the number of sessions in store.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
     pub fn remove(&mut self, id: &str) {
         self.entries.remove(id);
     }
@@ -153,6 +212,12 @@ impl SessionMetadataStore {
     /// Returns all stored metadata entries.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(1) iterator creation.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
     pub fn values(&self) -> impl Iterator<Item = &SessionMetadata> {
         self.entries.values()
     }
@@ -162,9 +227,7 @@ impl SessionMetadataStore {
             Some(d) => d,
             None => std::env::temp_dir(),
         };
-        config_dir
-            .join("brioche-desktop")
-            .join("sessions.json")
+        config_dir.join("brioche-desktop").join("sessions.json")
     }
 }
 
@@ -174,6 +237,12 @@ impl SessionMetadataStore {
 /// (shell + LLM client) instead of just `BriocheShell`.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Manages sessions using a BTreeMap. Lookup and switch operations are logarithmic in the number of sessions.
+///
+/// # Panic / Safety
+/// Never panics.
 pub struct SessionManager {
     current: String,
     /// All sessions keyed by ID.
@@ -186,6 +255,12 @@ impl SessionManager {
     /// Creates a new manager with an initial session.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// Creates in-memory BTreeMap and writes the new session metadata to disk (O(M + N)).
+    ///
+    /// # Panic / Safety
+    /// Never panics.
     pub fn new(
         initial_id: impl Into<String>,
         initial_shell: BriocheShell,
@@ -239,6 +314,12 @@ impl SessionManager {
     /// Switches to another session.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(log M) lookup where M is the number of active sessions.
+    ///
+    /// # Panic / Safety
+    /// Never panics. Does nothing if the requested session ID is not found.
     pub fn switch(&mut self, id: &str) {
         if self.sessions.contains_key(id) {
             self.current = id.to_string();
@@ -248,6 +329,12 @@ impl SessionManager {
     /// Inserts a new session.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(log M) insertion where M is the number of active sessions.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
     pub fn insert(
         &mut self,
         id: String,
@@ -305,6 +392,12 @@ impl SessionManager {
 /// runtime context.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Thread-safe type wraps multiple locks. Cloning is cheap (wrapping Arc components is typical, though here it is held by Tauri).
+///
+/// # Panic / Safety
+/// Never panics.
 pub struct DesktopState {
     /// Multi-session manager (current session + all entries).
     /// `None` until first access triggers lazy initialization.
@@ -326,6 +419,12 @@ impl DesktopState {
     /// so that `tokio::spawn` runs inside Tauri's async runtime.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// Initializes in-memory configuration and session stores (O(1)).
+    ///
+    /// # Panic / Safety
+    /// Returns error string if storage fails to initialize.
     pub fn new() -> Result<Self, String> {
         Self::new_with_path("/tmp/brioche-desktop.redb")
     }
@@ -337,6 +436,12 @@ impl DesktopState {
     /// Returns an error if storage cannot be initialized at any path.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// Creates in-memory registry, registers default extensions, and creates a redb storage file on disk. O(E + S).
+    ///
+    /// # Panic / Safety
+    /// Returns error string if storage fails to initialize.
     pub fn new_with_path(path: impl AsRef<std::path::Path>) -> Result<Self, String> {
         let config = DesktopConfig::default();
         let store = new_session_store();
@@ -402,6 +507,12 @@ impl DesktopState {
     /// is available to emit Tauri events.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(1) if already initialized. First initialization constructs a full shell and spawns Tokio tasks.
+    ///
+    /// # Panic / Safety
+    /// Returns error string if building the initial session shell fails.
     pub async fn ensure_manager(&self) -> Result<(), String> {
         let mut mgr = self.manager.write().await;
         if mgr.is_none() {

@@ -43,9 +43,9 @@ pub fn build_shell(
     let exec_tool = ExecuteCommandTool::new().with_policy(SandboxPolicy::Permissive);
 
     let tool_executor = SystemToolExecutor::new()
-        .with_tool(ReadFileTool)
-        .with_tool(WriteFileTool)
-        .with_tool(ListDirTool)
+        .with_tool(ReadFileTool::default())
+        .with_tool(WriteFileTool::default())
+        .with_tool(ListDirTool::default())
         .with_tool(exec_tool)
         .with_tool(FetchUrlTool);
 

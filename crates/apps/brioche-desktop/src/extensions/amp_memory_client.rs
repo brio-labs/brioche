@@ -16,6 +16,12 @@ use serde::{Deserialize, Serialize};
 /// Configuration for a generic AMP-compatible memory endpoint.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Struct containing heap-allocated configurations. O(1).
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct AmpMemoryEndpoint {
     /// Machine-readable provider id.
@@ -33,6 +39,13 @@ pub struct AmpMemoryEndpoint {
 /// A generic memory provider backed by an AMP Core-compatible HTTP server.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Performs HTTP network transactions on list, set, recall, and delete operations.
+/// All network futures time out after 30 seconds.
+///
+/// # Panic / Safety
+/// Never panics. Returns standard Result wrappers.
 #[derive(Clone, Debug, Default)]
 pub struct AmpMemoryProvider {
     endpoint: AmpMemoryEndpoint,
@@ -101,6 +114,12 @@ impl AmpMemoryProvider {
     /// Creates a provider pointing at the given endpoint.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(1) allocation.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
     pub fn new(endpoint: AmpMemoryEndpoint) -> Self {
         Self {
             endpoint,
@@ -228,17 +247,19 @@ impl MemoryProvider for AmpMemoryProvider {
         let category = query.category.clone().map_or(String::new(), |c| c);
         let limit = 50usize;
         let mut this = self.clone();
-        runtime.block_on(async move {
-            let request = AmpRecallRequest {
-                query: q,
-                limit,
-                scope: this.scope(),
-            };
-            let thoughts: Vec<AmpThought> = this.post("/v1/recall", &request).await?;
-            Ok(thoughts
-                .into_iter()
-                .map(|t| AmpMemoryProvider::thought_to_entry(&this.endpoint.id, t, &category))
-                .collect())
+        tokio::task::block_in_place(|| {
+            runtime.block_on(async move {
+                let request = AmpRecallRequest {
+                    query: q,
+                    limit,
+                    scope: this.scope(),
+                };
+                let thoughts: Vec<AmpThought> = this.post("/v1/recall", &request).await?;
+                Ok(thoughts
+                    .into_iter()
+                    .map(|t| AmpMemoryProvider::thought_to_entry(&this.endpoint.id, t, &category))
+                    .collect())
+            })
         })
     }
 
@@ -260,10 +281,12 @@ impl MemoryProvider for AmpMemoryProvider {
             tags: Vec::new(),
             scope,
         };
-        runtime.block_on(async move {
-            self.post::<_, serde_json::Value>("/v1/encode", &request)
-                .await
-                .map(|_| ())
+        tokio::task::block_in_place(|| {
+            runtime.block_on(async move {
+                self.post::<_, serde_json::Value>("/v1/encode", &request)
+                    .await
+                    .map(|_| ())
+            })
         })
     }
 
@@ -278,10 +301,12 @@ impl MemoryProvider for AmpMemoryProvider {
         };
 
         let request = AmpForgetRequest { key: key.into() };
-        runtime.block_on(async move {
-            self.post::<_, serde_json::Value>("/v1/forget", &request)
-                .await
-                .map(|_| true)
+        tokio::task::block_in_place(|| {
+            runtime.block_on(async move {
+                self.post::<_, serde_json::Value>("/v1/forget", &request)
+                    .await
+                    .map(|_| true)
+            })
         })
     }
 
@@ -297,17 +322,19 @@ impl MemoryProvider for AmpMemoryProvider {
 
         let mut this = self.clone();
         let summary = conversation_summary.into();
-        runtime.block_on(async move {
-            let request = AmpRecallRequest {
-                query: summary,
-                limit,
-                scope: this.scope(),
-            };
-            let thoughts: Vec<AmpThought> = this.post("/v1/recall", &request).await?;
-            Ok(thoughts
-                .into_iter()
-                .map(|t| AmpMemoryProvider::thought_to_entry(&this.endpoint.id, t, ""))
-                .collect())
+        tokio::task::block_in_place(|| {
+            runtime.block_on(async move {
+                let request = AmpRecallRequest {
+                    query: summary,
+                    limit,
+                    scope: this.scope(),
+                };
+                let thoughts: Vec<AmpThought> = this.post("/v1/recall", &request).await?;
+                Ok(thoughts
+                    .into_iter()
+                    .map(|t| AmpMemoryProvider::thought_to_entry(&this.endpoint.id, t, ""))
+                    .collect())
+            })
         })
     }
 
@@ -332,10 +359,15 @@ impl MemoryProvider for AmpMemoryProvider {
             let query = args["query"].as_str().map_or("", |s| s);
             let entries = this.recall(query, 8)?;
             let results: Vec<String> = entries.into_iter().map(|e| e.value).collect();
-            match serde_json::to_string(&results) { Ok(json) => return Ok(json), Err(_) => return Ok("[]".into()) }
+            match serde_json::to_string(&results) {
+                Ok(json) => return Ok(json),
+                Err(_) => return Ok("[]".into()),
+            }
         }
         if tool_name == format!("{}_store", self.endpoint.id) {
-            let content = args["content"].as_str().map_or(String::new(), |s| s.to_string());
+            let content = args["content"]
+                .as_str()
+                .map_or(String::new(), |s| s.to_string());
             let key = format!(
                 "tool-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}",
                 system_time_secs(),

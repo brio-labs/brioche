@@ -25,11 +25,9 @@ pub mod amp_memory_client;
 pub mod context;
 pub mod footer;
 pub mod memory_provider;
-pub mod remote_memory_provider;
 pub mod settings_sections;
 pub mod skill_provider;
 pub mod tool_provider;
-pub mod user_tool_executor;
 
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -39,14 +37,13 @@ use crate::settings::Settings;
 pub use amp_memory_client::{AmpMemoryEndpoint, AmpMemoryProvider};
 pub use context::{CompressorContextEngine, ContextEngine, ContextEngineInput};
 pub use footer::{FooterMetric, FooterMetricProvider};
-pub use memory_provider::{LocalMemoryProvider, MemoryProvider, MemoryQuery};
-pub use remote_memory_provider::{
-    HindsightMemoryProvider, HonchoMemoryProvider, Mem0MemoryProvider,
+pub use memory_provider::{
+    HindsightMemoryProvider, HonchoMemoryProvider, LocalMemoryProvider, Mem0MemoryProvider,
+    MemoryProvider, MemoryQuery,
 };
 pub use settings_sections::{SettingsSection, SettingsSectionProvider};
 pub use skill_provider::{SkillProvider, SkillRegistry};
-pub use tool_provider::{ToolProvider, ToolRegistry, UserToolDefinition};
-pub use user_tool_executor::UserDefinedTool;
+pub use tool_provider::{ToolProvider, ToolRegistry, UserDefinedTool, UserToolDefinition};
 
 /// A panel slot where a frontend extension can render by default.
 ///
@@ -54,6 +51,12 @@ pub use user_tool_executor::UserDefinedTool;
 /// installation default.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) Copy enum.
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PanelSlot {
@@ -71,6 +74,12 @@ pub enum PanelSlot {
 /// Metadata describing a desktop extension.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Struct containing heap-allocated strings. O(1) creation.
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExtensionMetadata {
     /// Machine-readable identifier (e.g. `chat`, `memory-local`).
@@ -91,6 +100,12 @@ pub struct ExtensionMetadata {
 /// the async shell runtime.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Implementation dependent.
+///
+/// # Panic / Safety
+/// Implementation dependent.
 pub trait DesktopExtension: Send + Sync {
     /// Returns the extension metadata.
     fn metadata(&self) -> ExtensionMetadata;
@@ -102,6 +117,12 @@ pub trait DesktopExtension: Send + Sync {
 /// cheaply cloned into shell factories and Tauri managed state.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// Holds vectors of Arc'd trait objects. O(1) clone.
+///
+/// # Panic / Safety
+/// Never panics.
 #[derive(Default, Clone)]
 pub struct ExtensionRegistry {
     context_engines: Vec<Arc<dyn ContextEngine>>,
@@ -117,6 +138,12 @@ impl ExtensionRegistry {
     /// Creates an empty registry.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(1) memory allocation.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
     pub fn new() -> Self {
         Self::default()
     }
@@ -129,6 +156,12 @@ impl ExtensionRegistry {
     /// methods.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(N) where N is the configuration size, since it loads settings from disk.
+    ///
+    /// # Panic / Safety
+    /// Never panics. Returns standard fallback defaults if settings file is corrupt.
     pub fn default_set() -> Self {
         let mut registry = Self::new();
         registry.register_context_engine(Arc::new(CompressorContextEngine::default()));

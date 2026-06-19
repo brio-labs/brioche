@@ -13,6 +13,7 @@ use crate::registry::{AllowList, ConfirmHandler, SandboxPolicy, SystemTool, Tool
 pub struct ExecuteCommandTool {
     policy: SandboxPolicy,
     confirm_handler: Option<ConfirmHandler>,
+    default_cwd: Option<String>,
 }
 
 impl ExecuteCommandTool {
@@ -22,6 +23,7 @@ impl ExecuteCommandTool {
         Self {
             policy: SandboxPolicy::default(),
             confirm_handler: None,
+            default_cwd: None,
         }
     }
 
@@ -32,12 +34,19 @@ impl ExecuteCommandTool {
         self
     }
 
+    /// Sets a default working directory.
+    pub fn with_default_cwd(mut self, cwd: impl Into<String>) -> Self {
+        self.default_cwd = Some(cwd.into());
+        self
+    }
+
     /// Creates the tool with an explicit allow-list.
     /// Refs: docs/SPECS.md §Book III-C
     pub fn with_allow_list(list: AllowList) -> Self {
         Self {
             policy: SandboxPolicy::AllowList(list),
             confirm_handler: None,
+            default_cwd: None,
         }
     }
 
@@ -164,6 +173,8 @@ impl SystemTool for ExecuteCommandTool {
 
         if let Some(cwd) = args["cwd"].as_str() {
             cmd.current_dir(cwd);
+        } else if let Some(ref default_cwd) = self.default_cwd {
+            cmd.current_dir(default_cwd);
         }
 
         let child = cmd.spawn()?;
