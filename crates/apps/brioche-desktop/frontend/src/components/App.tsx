@@ -13,11 +13,6 @@ import { useFileStore } from "../stores/fileStore";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
 	sendMessage,
-	onChatMessage,
-	onAppExit,
-	onSessionChanged,
-	onSessionsUpdated,
-	getMessages,
 	attachReference,
 	sendImage,
 } from "../ipc";
@@ -38,6 +33,7 @@ import SettingsPanel from "./SettingsPanel";
 import SkillsPanel from "./SkillsPanel";
 import MemoryPanel from "./MemoryPanel";
 import ToolCallMessage from "./ToolCallMessage";
+import { useTauriSync } from "../hooks/useTauriSync";
 
 const LazyPanel = lazy(() => import("./LazyPanel"));
 
@@ -53,7 +49,6 @@ export default function App() {
 		input,
 		isLoading,
 		addMessage,
-		appendMessage,
 		setInput,
 		setLoading,
 		clearMessages,
@@ -92,83 +87,8 @@ export default function App() {
 		}
 	}, [settings, loadDirectory]);
 
-	useEffect(() => {
-		let unlistenChat: (() => void) | undefined;
-		let unlistenExit: (() => void) | undefined;
-		let unlistenSessionChanged: (() => void) | undefined;
-		let unlistenSessionsUpdated: (() => void) | undefined;
-		let cancelled = false;
-
-		onChatMessage((msg) => {
-			if (cancelled) return;
-			const role = msg.role as MessageRole;
-			const tool = {
-				toolId: msg.tool_id,
-				toolName: msg.tool_name,
-				toolArguments: msg.tool_arguments,
-				toolOutput: msg.tool_output,
-			};
-			if (role === "assistant") {
-				appendMessage(role, msg.content, tool);
-			} else {
-				addMessage(role, msg.content, tool);
-			}
-		}).then((fn) => {
-			if (cancelled) fn();
-			else unlistenChat = fn;
-		});
-
-		onAppExit(() => {
-			if (!cancelled) window.close();
-		}).then((fn) => {
-			if (cancelled) fn();
-			else unlistenExit = fn;
-		});
-
-		onSessionChanged(async () => {
-			if (cancelled) return;
-			clearMessages();
-			loadSessions();
-			try {
-				const history = await getMessages();
-				history.forEach((msg) => {
-					const role = msg.role as MessageRole;
-					const tool = {
-						toolId: msg.tool_id,
-						toolName: msg.tool_name,
-						toolArguments: msg.tool_arguments,
-						toolOutput: msg.tool_output,
-					};
-					if (role === "assistant") {
-						appendMessage(role, msg.content, tool);
-					} else {
-						addMessage(role, msg.content, tool);
-					}
-				});
-			} catch (err) {
-				console.error("Failed to load session messages:", err);
-			}
-		}).then((fn) => {
-			if (cancelled) fn();
-			else unlistenSessionChanged = fn;
-		});
-
-		onSessionsUpdated(() => {
-			if (!cancelled) loadSessions();
-		}).then((fn) => {
-			if (cancelled) fn();
-			else unlistenSessionsUpdated = fn;
-		});
-
-		return () => {
-			cancelled = true;
-			if (unlistenChat) unlistenChat();
-			if (unlistenExit) unlistenExit();
-			if (unlistenSessionChanged) unlistenSessionChanged();
-			if (unlistenSessionsUpdated) unlistenSessionsUpdated();
-		};
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []);
+	// Synchronize Tauri events with stores reactively
+	useTauriSync();
 
 	const handleSubmit = useCallback(
 		async (e?: React.FormEvent) => {
@@ -248,145 +168,168 @@ export default function App() {
 				key={p.id}
 				fallback={<div className="panel-loading">Loading...</div>}
 			>
-				<LazyPanel loader={p.component} />
+				<LazyPanel
+					loader={p.component}
+					onClose={() => {
+						if (slot !== "center") {
+							setPanels((prev) => ({ ...prev, [slot]: false }));
+						}
+					}}
+				/>
 			</Suspense>
 		));
 	};
 
 	return (
-		<div className="app">
-			<div className={`panel panel-left ${panels.left ? "" : "collapsed"}`}>
+		<div className="app flex flex-row h-screen w-screen overflow-hidden relative text-text-primary">
+			<div className={`flex flex-col bg-bg-1/85 backdrop-blur-md border-r border-border overflow-hidden transition-all duration-300 ease-out z-[1] max-[900px]:absolute max-[900px]:top-0 max-[900px]:bottom-0 max-[900px]:z-10 max-[900px]:left-0 ${panels.left ? "w-[280px] min-w-[280px] opacity-100" : "w-0 min-w-0 opacity-0 border-r-0 pointer-events-none"}`}>
 				{renderPanel("left")}
 			</div>
 
-			<div className="main-panel">
-				<header className="header">
-					<div className="header-left">
+			<div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-transparent relative z-[1]">
+				<header className="header flex items-center justify-between px-4 h-[52px] bg-bg-1/70 backdrop-blur-md border-b border-border shrink-0 relative">
+					<div className="flex items-center gap-2">
 						<button
 							type="button"
-							className="icon-btn"
+							className="w-8 h-8 flex items-center justify-center rounded bg-transparent text-text-muted hover:text-text-secondary hover:bg-bg-3 active:bg-bg-4 transition-all duration-200 cursor-pointer"
 							onClick={() => setPanels((p) => ({ ...p, left: !p.left }))}
 							title="Toggle left panel"
 						>
-							<MenuIcon />
+							<MenuIcon className="w-4 h-4" />
 						</button>
-						<span className="header-title">Brioche</span>
+						<span className="text-sm font-semibold text-text-secondary tracking-wider">Brioche</span>
 					</div>
-					<div className="header-right">
+					<div className="flex items-center gap-2">
 						<button
 							type="button"
-							className="header-btn"
+							className="flex items-center gap-2 px-3 py-2 bg-transparent hover:bg-bg-3 text-text-muted hover:text-text-secondary rounded text-[11px] font-medium tracking-wider transition-all duration-200 cursor-pointer"
 							onClick={() => setShowMemory(true)}
 							title="Memory"
 						>
-							<BrainIcon />
-							<span>Memory</span>
+							<BrainIcon className="w-4 h-4" />
+							<span className="hidden lg:inline">Memory</span>
 						</button>
 						<button
 							type="button"
-							className="header-btn"
+							className="flex items-center gap-2 px-3 py-2 bg-transparent hover:bg-bg-3 text-text-muted hover:text-text-secondary rounded text-[11px] font-medium tracking-wider transition-all duration-200 cursor-pointer"
 							onClick={() => setShowSkills(true)}
 							title="Skills"
 						>
-							<BookIcon />
-							<span>Skills</span>
+							<BookIcon className="w-4 h-4" />
+							<span className="hidden lg:inline">Skills</span>
 						</button>
 						<button
 							type="button"
-							className="header-btn"
+							className="flex items-center gap-2 px-3 py-2 bg-transparent hover:bg-bg-3 text-text-muted hover:text-text-secondary rounded text-[11px] font-medium tracking-wider transition-all duration-200 cursor-pointer"
 							onClick={() => setPanels((p) => ({ ...p, bottom: !p.bottom }))}
 							title="Toggle tools"
 						>
-							<WrenchIcon />
-							<span>Tools</span>
+							<WrenchIcon className="w-4 h-4" />
+							<span className="hidden lg:inline">Tools</span>
 						</button>
 						<button
 							type="button"
-							className="header-btn"
+							className="flex items-center gap-2 px-3 py-2 bg-transparent hover:bg-bg-3 text-text-muted hover:text-text-secondary rounded text-[11px] font-medium tracking-wider transition-all duration-200 cursor-pointer"
 							onClick={() => {
 								clearMessages();
 								void sendMessage("/clear");
 							}}
 							title="Clear history"
 						>
-							<ClearIcon />
-							<span>Clear</span>
+							<ClearIcon className="w-4 h-4" />
+							<span className="hidden lg:inline">Clear</span>
 						</button>
 						<button
 							type="button"
-							className="header-btn"
+							className="flex items-center gap-2 px-3 py-2 bg-transparent hover:bg-bg-3 text-text-muted hover:text-text-secondary rounded text-[11px] font-medium tracking-wider transition-all duration-200 cursor-pointer"
 							onClick={() => setShowSettings(true)}
 							title="Settings"
 						>
-							<SettingsIcon />
-							<span>Settings</span>
+							<SettingsIcon className="w-4 h-4" />
+							<span className="hidden lg:inline">Settings</span>
 						</button>
 						<button
 							type="button"
-							className="icon-btn"
+							className="w-8 h-8 flex items-center justify-center rounded bg-transparent text-text-muted hover:text-text-secondary hover:bg-bg-3 active:bg-bg-4 transition-all duration-200 cursor-pointer"
 							onClick={() => setPanels((p) => ({ ...p, right: !p.right }))}
 							title="Toggle right panel"
 						>
-							<MenuIcon />
+							<MenuIcon className="w-4 h-4" />
 						</button>
 					</div>
 				</header>
 
-				<div className="messages">
+				<div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-4 relative">
 					{messages.length === 0 && (
-						<div className="empty-state">
-							<div className="empty-state-title">Brioche Desktop</div>
-							<div className="empty-state-hint">
+						<div className="text-center text-text-muted mt-8 flex flex-col gap-3 items-center">
+							<div className="text-base font-semibold text-text-tertiary tracking-wide">Brioche Desktop</div>
+							<div className="text-[13px] text-text-muted">
 								Type a message or use /help for commands
 							</div>
 						</div>
 					)}
 					{messages.map((msg) =>
 						msg.role === "tool_request" || msg.role === "tool_result" ? (
-							<div key={msg.id} className={`message ${msg.role}`}>
+							<div key={msg.id} className={`flex flex-col gap-2 relative animate-fadeIn max-w-[85%] ${
+								msg.role === "tool_request" ? "self-end" : "self-start"
+							}`}>
 								<ToolCallMessage message={msg} />
 							</div>
 						) : (
-							<div key={msg.id} className={`message ${msg.role}`}>
-								<div className="message-header">
-									<span className="message-role">{msg.role}</span>
+							<div key={msg.id} className={`flex flex-col gap-2 relative animate-fadeIn max-w-[85%] ${
+								msg.role === "user"
+									? "self-end"
+									: msg.role === "assistant"
+										? "self-start max-w-[90%]"
+										: "self-center max-w-[600px] w-full"
+							}`}>
+								<div className="flex items-center gap-2 mb-0.5 px-1">
+									<span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">{msg.role}</span>
 								</div>
-								<div className="message-body">
+								<div className={`px-4 py-3 rounded-lg leading-relaxed text-sm break-words relative overflow-hidden ${
+									msg.role === "user"
+										? "bg-user-bg text-text-primary border border-accent/15 shadow-md"
+										: msg.role === "assistant"
+											? "bg-assistant-bg text-text-primary border border-border shadow-md"
+											: msg.role === "system"
+												? "bg-system-bg text-text-secondary border border-border rounded-lg text-xs font-mono"
+												: "bg-error-bg text-[#e8a0a0] border border-error-border rounded-lg text-[13px]"
+								}`}>
 									<div className="message-content">{msg.content}</div>
 								</div>
 							</div>
 						),
 					)}
 					{isLoading && (
-						<div className="message assistant">
-							<div className="message-header">
-								<span className="message-role">assistant</span>
+						<div className="flex flex-col gap-2 relative animate-fadeIn max-w-[85%] self-start max-w-[90%]">
+							<div className="flex items-center gap-2 mb-0.5 px-1">
+								<span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">assistant</span>
 							</div>
-							<div className="message-body">
-								<div className="message-content loading">Thinking...</div>
+							<div className="px-4 py-3 rounded-lg leading-relaxed text-sm break-words relative overflow-hidden bg-assistant-bg text-text-primary border border-border shadow-md">
+								<div className="text-text-muted italic">Thinking...</div>
 							</div>
 						</div>
 					)}
 					<div ref={messagesEndRef} />
 				</div>
 
-				<form className="input-bar" onSubmit={handleSubmit}>
-					<div className="input-actions">
+				<form className="input-bar flex gap-3 px-4 py-3 bg-bg-1/80 backdrop-blur-md border-t border-border shrink-0 relative" onSubmit={handleSubmit}>
+					<div className="flex items-center gap-2">
 						<button
 							type="button"
-							className="icon-btn"
+							className="w-8 h-8 flex items-center justify-center rounded bg-transparent text-text-muted hover:text-text-secondary hover:bg-bg-3 active:bg-bg-4 transition-all duration-200 cursor-pointer"
 							onClick={handleAttach}
 							title="Attach file/folder"
 						>
-							<PaperclipIcon />
+							<PaperclipIcon className="w-4 h-4" />
 						</button>
 						<button
 							type="button"
-							className="icon-btn"
+							className="w-8 h-8 flex items-center justify-center rounded bg-transparent text-text-muted hover:text-text-secondary hover:bg-bg-3 active:bg-bg-4 transition-all duration-200 cursor-pointer"
 							onClick={handleImage}
 							title="Send image"
 						>
-							<ImageIcon />
+							<ImageIcon className="w-4 h-4" />
 						</button>
 					</div>
 					<textarea
@@ -395,26 +338,29 @@ export default function App() {
 						onKeyDown={handleKeyDown}
 						placeholder="Type a message or /help..."
 						disabled={isLoading}
+						className="flex-1 bg-bg-2 border border-border text-text-primary px-4 py-3 rounded-lg text-sm outline-none resize-none min-h-[44px] max-h-[200px] leading-relaxed transition-all duration-200 placeholder:text-text-dim disabled:opacity-50 disabled:cursor-not-allowed focus:border-accent-dim focus:bg-bg-3 focus:ring-2 focus:ring-accent-glow"
 						rows={1}
 					/>
 					<button
 						type="submit"
-						className="send-btn"
+						className="px-6 py-3 bg-accent text-white rounded-lg cursor-pointer font-semibold text-[13px] tracking-wide transition-all duration-200 flex items-center justify-center relative overflow-hidden disabled:opacity-40 disabled:cursor-not-allowed disabled:bg-bg-5 hover:bg-accent-hover hover:shadow-lg hover:shadow-accent-glow/20 hover:-translate-y-0.5 active:translate-y-0"
 						disabled={isLoading || !input.trim()}
 						aria-label="Send message"
 					>
-						<SendIcon />
+						<SendIcon className="w-4 h-4" />
 					</button>
 				</form>
 
 				{panels.bottom && (
-					<div className="panel panel-bottom">{renderPanel("bottom")}</div>
+					<div className="w-full min-w-0 h-[200px] min-h-[200px] border-t border-border flex flex-row bg-bg-1/90 overflow-hidden shrink-0 z-[1]">
+						{renderPanel("bottom")}
+					</div>
 				)}
 
 				<Footer />
 			</div>
 
-			<div className={`panel panel-right ${panels.right ? "" : "collapsed"}`}>
+			<div className={`flex flex-col bg-bg-1/85 backdrop-blur-md border-l border-border overflow-hidden transition-all duration-300 ease-out z-[1] max-[900px]:absolute max-[900px]:top-0 max-[900px]:bottom-0 max-[900px]:z-10 max-[900px]:right-0 ${panels.right ? "w-[280px] min-w-[280px] opacity-100" : "w-0 min-w-0 opacity-0 border-l-0 pointer-events-none"}`}>
 				{renderPanel("right")}
 			</div>
 

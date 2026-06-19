@@ -1,5 +1,4 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 
 export interface ChatMessagePayload {
 	role: string;
@@ -216,6 +215,10 @@ export async function createFile(path: string): Promise<void> {
 	return invoke("create_file", { path });
 }
 
+export async function createDirectory(path: string): Promise<void> {
+	return invoke("create_directory", { path });
+}
+
 // Memory IPC
 export async function listMemories(category?: string): Promise<MemoryEntry[]> {
 	return invoke("list_memories", { category: category || null });
@@ -357,31 +360,8 @@ export async function sendImage(path: string): Promise<string> {
 	return invoke("send_image", { path });
 }
 
-// Event listeners
-export function onChatMessage(
-	callback: (msg: ChatMessagePayload) => void,
-): Promise<() => void> {
-	return listen<ChatMessagePayload>("chat-message", (event) => {
-		callback(event.payload);
-	});
-}
-
-export function onAppExit(callback: () => void): Promise<() => void> {
-	return listen("app-exit", () => {
-		callback();
-	});
-}
-
-export function onSessionChanged(
-	callback: (id: string) => void,
-): Promise<() => void> {
-	return listen<string>("session-changed", (event) => {
-		callback(event.payload);
-	});
-}
-
-export function onSessionsUpdated(callback: () => void): Promise<() => void> {
-	return listen("sessions-updated", () => {
-		callback();
-	});
+// Runtime detection helper
+export function isTauri(): boolean {
+	return typeof window !== "undefined" &&
+		typeof (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !== "undefined";
 }

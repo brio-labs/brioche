@@ -21,33 +21,35 @@ export default function ToolCallMessage({ message }: ToolCallMessageProps) {
     const id = message.toolId;
 
     return (
-        <div className={`tool-call-card ${isResult ? 'result' : 'request'}`}>
+        <div className={`bg-bg-2 border border-border rounded-lg overflow-hidden my-2 max-w-[600px] w-full ${
+            isResult ? 'border-l-3 border-l-emerald-600' : 'border-l-3 border-l-accent'
+        }`}>
             <button
                 type="button"
-                className="tool-call-header"
+                className="w-full flex items-center gap-2 px-3 py-2 bg-transparent text-text-secondary text-xs font-mono text-left cursor-pointer transition-colors duration-150 hover:bg-accent/5"
                 onClick={() => setExpanded((v) => !v)}
             >
-                <span className="tool-call-icon">{isResult ? '⚙️' : '🔧'}</span>
-                <span className="tool-call-name">{name}</span>
-                {id && <span className="tool-call-id">{id}</span>}
-                <span className="tool-call-toggle">{expanded ? '▾' : '▸'}</span>
+                <span className="text-xs">{isResult ? '⚙️' : '🔧'}</span>
+                <span className="font-semibold text-text-primary">{name}</span>
+                {id && <span className="text-text-muted text-[10px] ml-auto">{id}</span>}
+                <span className="text-text-muted text-[10px]">{expanded ? '▾' : '▸'}</span>
             </button>
             {expanded && (
-                <div className="tool-call-body">
+                <div className="p-3 border-t border-border flex flex-col gap-2.5 bg-bg-1/40">
                     {message.toolArguments && (
-                        <div className="tool-call-section">
-                            <div className="tool-call-section-title">Arguments</div>
-                            <pre>{tryFormatJson(message.toolArguments)}</pre>
+                        <div className="flex flex-col gap-1">
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Arguments</div>
+                            <pre className="bg-bg-1 border border-border rounded p-2 text-[11px] font-mono text-text-secondary overflow-x-auto whitespace-pre-wrap break-all">{tryFormatJson(message.toolArguments)}</pre>
                         </div>
                     )}
                     {message.toolOutput && (
-                        <div className="tool-call-section">
-                            <div className="tool-call-section-title">Output</div>
-                            <pre>{tryFormatJson(message.toolOutput)}</pre>
+                        <div className="flex flex-col gap-1">
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Output</div>
+                            <pre className="bg-bg-1 border border-border rounded p-2 text-[11px] font-mono text-text-secondary overflow-x-auto whitespace-pre-wrap break-all">{tryFormatJson(message.toolOutput)}</pre>
                         </div>
                     )}
                     {!message.toolArguments && !message.toolOutput && (
-                        <div className="tool-call-empty">No details</div>
+                        <div className="text-xs text-text-muted italic">No details</div>
                     )}
                 </div>
             )}
