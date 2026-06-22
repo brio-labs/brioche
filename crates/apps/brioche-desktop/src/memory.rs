@@ -2,7 +2,7 @@
 //!
 //! This module is a thin compatibility wrapper around the extension-system
 //! [`LocalMemoryProvider`]. New code should prefer using the provider directly
-//! via [`crate::extensions::ExtensionRegistry`].
+//! via [`brioche_shell_persistence::extensions::ExtensionRegistry`].
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 

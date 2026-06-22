@@ -145,7 +145,9 @@ pub trait BriochePlugin: Send + Sync {
     ///
     /// # Panics
     /// Never panics in the default implementation. Plugin implementations
-    /// must uphold I-Core-NoPanic.
+    /// must uphold the NoPanic invariant.
+    ///
+    /// Refs: I-Core-NoPanic
     fn on_input(
         &self,
         _input: &EngineInput,
@@ -162,7 +164,9 @@ pub trait BriochePlugin: Send + Sync {
     ///
     /// # Panics
     /// Never panics in the default implementation. Plugin implementations
-    /// must uphold I-Core-NoPanic.
+    /// must uphold the NoPanic invariant.
+    ///
+    /// Refs: I-Core-NoPanic
     fn before_prediction(
         &self,
         _history: &[ChatMessage],
@@ -179,7 +183,9 @@ pub trait BriochePlugin: Send + Sync {
     ///
     /// # Panics
     /// Never panics in the default implementation. Plugin implementations
-    /// must uphold I-Core-NoPanic.
+    /// must uphold the NoPanic invariant.
+    ///
+    /// Refs: I-Core-NoPanic
     fn on_stream_event(
         &self,
         _event: &StreamEvent,
@@ -195,7 +201,9 @@ pub trait BriochePlugin: Send + Sync {
     ///
     /// # Panics
     /// Never panics in the default implementation. Plugin implementations
-    /// must uphold I-Core-NoPanic.
+    /// must uphold the NoPanic invariant.
+    ///
+    /// Refs: I-Core-NoPanic
     fn after_prediction(&self, _ext: &mut ExtensionStorage) -> PluginResult<()> {
         Ok(())
     }
@@ -208,7 +216,9 @@ pub trait BriochePlugin: Send + Sync {
     ///
     /// # Panics
     /// Never panics in the default implementation. Plugin implementations
-    /// must uphold I-Core-NoPanic.
+    /// must uphold the NoPanic invariant.
+    ///
+    /// Refs: I-Core-NoPanic
     fn on_tool_calls(
         &self,
         _calls: &mut Vec<ToolCallDescriptor>,
@@ -225,7 +235,9 @@ pub trait BriochePlugin: Send + Sync {
     ///
     /// # Panics
     /// Never panics in the default implementation. Plugin implementations
-    /// must uphold I-Core-NoPanic.
+    /// must uphold the NoPanic invariant.
+    ///
+    /// Refs: I-Core-NoPanic
     fn on_tool_result(
         &self,
         _results: &mut Vec<ToolResultDTO>,
@@ -241,7 +253,9 @@ pub trait BriochePlugin: Send + Sync {
     ///
     /// # Panics
     /// Never panics in the default implementation. Plugin implementations
-    /// must uphold I-Core-NoPanic.
+    /// must uphold the NoPanic invariant.
+    ///
+    /// Refs: I-Core-NoPanic
     fn on_error(
         &self,
         _error: &PluginError,

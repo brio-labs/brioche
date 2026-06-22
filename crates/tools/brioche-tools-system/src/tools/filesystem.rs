@@ -55,6 +55,7 @@ pub struct ReadFileTool {
 
 impl ReadFileTool {
     /// Creates a new `ReadFileTool` with a base directory for resolving relative paths.
+    /// Refs: docs/SPECS.md §Book III-C
     pub fn new(base_dir: Option<std::path::PathBuf>) -> Self {
         Self { base_dir }
     }
@@ -109,6 +110,7 @@ pub struct WriteFileTool {
 
 impl WriteFileTool {
     /// Creates a new `WriteFileTool` with a base directory for resolving relative paths.
+    /// Refs: docs/SPECS.md §Book III-C
     pub fn new(base_dir: Option<std::path::PathBuf>) -> Self {
         Self { base_dir }
     }
@@ -218,6 +220,7 @@ pub struct ListDirTool {
 
 impl ListDirTool {
     /// Creates a new `ListDirTool` with a base directory for resolving relative paths.
+    /// Refs: docs/SPECS.md §Book III-C
     pub fn new(base_dir: Option<std::path::PathBuf>) -> Self {
         Self { base_dir }
     }

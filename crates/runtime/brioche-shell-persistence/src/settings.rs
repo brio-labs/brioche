@@ -294,11 +294,14 @@ impl Settings {
                 .as_object_mut()
                 .ok_or_else(|| format!("'{part}' is not an object"))?;
         }
-        current.insert(parts[0].to_string(), value);
+        let last_part = parts.first().ok_or_else(|| "Empty path".to_string())?;
+        current.insert(last_part.to_string(), value);
         Ok(())
     }
 
     /// Returns the working directory.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn working_dir(&self) -> String {
         match self.get("ui.working_dir") {
             Some(Value::String(s)) => s,
@@ -307,11 +310,15 @@ impl Settings {
     }
 
     /// Returns the working directory as a PathBuf.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn working_dir_path(&self) -> PathBuf {
         PathBuf::from(self.working_dir())
     }
 
     /// Returns the active provider for chat.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn chat_provider(&self) -> String {
         match self.get("chat.provider") {
             Some(Value::String(s)) => s,
@@ -320,6 +327,8 @@ impl Settings {
     }
 
     /// Returns the active chat model.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn chat_model(&self) -> String {
         match self.get("chat.model") {
             Some(Value::String(s)) => s,
@@ -328,6 +337,8 @@ impl Settings {
     }
 
     /// Returns the configured API key.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn api_key(&self) -> String {
         match self.get("chat.api_key") {
             Some(Value::String(s)) => s,
@@ -336,6 +347,8 @@ impl Settings {
     }
 
     /// Returns the configured base URL.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn base_url(&self) -> String {
         match self.get("chat.base_url") {
             Some(Value::String(s)) => s,
@@ -344,6 +357,8 @@ impl Settings {
     }
 
     /// Returns the configured max tokens.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn max_tokens(&self) -> u32 {
         match self.get("chat.max_tokens") {
             Some(Value::Number(n)) => n.as_u64().map_or(4096, |v| v as u32),
@@ -352,6 +367,8 @@ impl Settings {
     }
 
     /// Returns the configured context window.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn context_window(&self) -> usize {
         match self.get("chat.context_window") {
             Some(Value::Number(n)) => n.as_u64().map_or(128_000, |v| v as usize),
@@ -360,6 +377,8 @@ impl Settings {
     }
 
     /// Returns whether streaming is enabled.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn stream(&self) -> bool {
         match self.get("ui.stream") {
             Some(Value::Bool(b)) => b,
@@ -368,6 +387,8 @@ impl Settings {
     }
 
     /// Returns the active memory provider ids.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn active_memory_providers(&self) -> Vec<String> {
         match self.get("memory.active_providers") {
             Some(Value::Array(arr)) => arr
@@ -382,6 +403,8 @@ impl Settings {
     }
 
     /// Returns configured AMP-compatible memory endpoints.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn memory_endpoints(&self) -> Vec<MemoryEndpoint> {
         match self.get("memory.endpoints") {
             Some(Value::Array(arr)) => arr
@@ -393,6 +416,8 @@ impl Settings {
     }
 
     /// Returns fallback models.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn fallback_models(&self) -> Vec<FallbackModel> {
         self.get("chat.fallback_models").map_or(Vec::new(), |v| {
             serde_json::from_value::<Vec<FallbackModel>>(v).map_or(Vec::new(), |m| m)
@@ -400,6 +425,8 @@ impl Settings {
     }
 
     /// Returns the current system prompt.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn system_prompt(&self) -> String {
         match self.get("chat.system_prompt") {
             Some(Value::String(s)) => s,
@@ -408,6 +435,8 @@ impl Settings {
     }
 
     /// Returns the current personality.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn personality(&self) -> String {
         match self.get("chat.personality") {
             Some(Value::String(s)) => s,

@@ -82,6 +82,8 @@ impl CompressorContextEngine {
     }
 
     /// Rough token estimate: ~4 characters per token.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn estimate_tokens(messages: &[ChatMessage]) -> usize {
         messages
             .iter()
