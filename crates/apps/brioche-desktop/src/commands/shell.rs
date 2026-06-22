@@ -530,6 +530,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires a running AMP memory server at 127.0.0.1:9471"]
     #[allow(
         clippy::unwrap_used,
         clippy::disallowed_methods,

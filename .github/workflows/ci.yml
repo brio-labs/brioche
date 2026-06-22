@@ -223,7 +223,14 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
       - name: Build with profile ${{ matrix.profile }}
-        run: cargo build --workspace --profile ${{ matrix.profile }}
+        run: |
+          if [ "${{ matrix.profile }}" = "headless" ] || [ "${{ matrix.profile }}" = "wasm-test" ]; then
+            # These profiles target non-desktop targets; brioche-desktop requires
+            # a built Tauri frontend, so exclude it from the compile matrix here.
+            cargo build --workspace --profile ${{ matrix.profile }} --exclude brioche-desktop
+          else
+            cargo build --workspace --profile ${{ matrix.profile }}
+          fi
 
   # Benchmarks assert that hot-path budgets documented in PHILOSOPHY.md are
   # still met. We at least compile them and run a single iteration as smoke.
