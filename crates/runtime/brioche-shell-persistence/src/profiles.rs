@@ -10,8 +10,9 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
-use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
 
 /// A user profile.
 ///

@@ -9,9 +9,10 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
-use super::{ExtensionMetadata, PanelSlot};
 use brioche_core::ChatMessage;
 use serde::{Deserialize, Serialize};
+
+use super::{ExtensionMetadata, PanelSlot};
 
 /// Input to a context engine.
 ///

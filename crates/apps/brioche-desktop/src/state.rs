@@ -19,13 +19,14 @@ use std::sync::{Arc, Mutex};
 
 use brioche_core::ChatMessage;
 use brioche_provider_openai::{LlmChunk, OpenAiLlmClient};
-use brioche_shell_persistence::{RedbStorage, SessionStore, new_session_store};
+use brioche_shell_persistence::{
+    ExtensionRegistry, RedbStorage, SessionStore, Settings, new_session_store,
+};
 use brioche_shell_runtime::BriocheShell;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{RwLock, broadcast};
 
 use crate::commands::shell::{DesktopConfig, ShellFactory, build_shell};
-use brioche_shell_persistence::{ExtensionRegistry, Settings};
 
 /// Shared history mirror type.
 ///

@@ -6,8 +6,9 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
-use super::{ExtensionMetadata, PanelSlot};
 use serde::{Deserialize, Serialize};
+
+use super::{ExtensionMetadata, PanelSlot};
 
 /// A skill descriptor.
 ///

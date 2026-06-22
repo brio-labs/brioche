@@ -2,11 +2,11 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
+use brioche_shell_persistence::{Settings, profiles};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
 use crate::state::{DesktopState, SessionMetadata};
-use brioche_shell_persistence::{Settings, profiles};
 
 /// Returns the current user settings.
 ///

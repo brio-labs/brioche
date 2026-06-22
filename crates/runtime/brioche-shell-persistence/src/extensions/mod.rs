@@ -29,10 +29,7 @@ pub mod settings_sections;
 pub mod skill_provider;
 pub mod tool_provider;
 
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-
-use crate::settings::Settings;
 
 pub use amp_memory_client::{AmpMemoryEndpoint, AmpMemoryProvider};
 pub use context::{CompressorContextEngine, ContextEngine, ContextEngineInput};
@@ -41,9 +38,12 @@ pub use memory_provider::{
     HindsightMemoryProvider, HonchoMemoryProvider, LocalMemoryProvider, Mem0MemoryProvider,
     MemoryProvider, MemoryQuery,
 };
+use serde::{Deserialize, Serialize};
 pub use settings_sections::{SettingsSection, SettingsSectionProvider};
 pub use skill_provider::{SkillProvider, SkillRegistry};
 pub use tool_provider::{ToolProvider, ToolRegistry, UserDefinedTool, UserToolDefinition};
+
+use crate::settings::Settings;
 
 /// A panel slot where a frontend extension can render by default.
 ///
