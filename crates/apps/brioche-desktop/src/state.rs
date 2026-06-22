@@ -25,8 +25,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{RwLock, broadcast};
 
 use crate::commands::shell::{DesktopConfig, ShellFactory, build_shell};
-use crate::extensions::ExtensionRegistry;
-use crate::settings::Settings;
+use brioche_shell_persistence::{ExtensionRegistry, Settings};
 
 /// Shared history mirror type.
 ///

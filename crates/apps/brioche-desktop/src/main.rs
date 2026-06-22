@@ -4,38 +4,12 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
-use brioche_desktop_lib::{DesktopState, commands};
+use brioche_desktop_lib::DesktopState;
+#[cfg(not(clippy))]
+use brioche_desktop_lib::commands;
 
-fn main() {
-    // Verify frontend assets are accessible before starting Tauri.
-    let crate_dir = std::env!("CARGO_MANIFEST_DIR");
-    let dist_path = std::path::Path::new(crate_dir).join("frontend/dist/index.html");
-    if !dist_path.exists() {
-        eprintln!(
-            "[brioche-desktop] ERROR: Frontend assets not found at {}\n\
-             Run: cd crates/apps/brioche-desktop/frontend && npm run build",
-            dist_path.display()
-        );
-        std::process::exit(1);
-    }
-
-    eprintln!(
-        "[brioche-desktop] Starting with CARGO_MANIFEST_DIR={}",
-        crate_dir
-    );
-    eprintln!(
-        "[brioche-desktop] Frontend assets found at {}",
-        dist_path.display()
-    );
-
-    let state = match DesktopState::new() {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("[brioche-desktop] ERROR: Failed to initialize state: {}", e);
-            std::process::exit(1);
-        }
-    };
-
+#[cfg(not(clippy))]
+fn run_app(state: DesktopState) {
     if let Err(e) = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -50,7 +24,6 @@ fn main() {
             commands::new_session,
             commands::get_settings,
             commands::set_settings,
-            commands::pick_directory,
             commands::read_directory,
             commands::read_file,
             commands::write_file,
@@ -96,4 +69,40 @@ fn main() {
         eprintln!("[brioche-desktop] ERROR: Tauri application failed: {}", e);
         std::process::exit(1);
     }
+}
+
+#[cfg(clippy)]
+fn run_app(_state: DesktopState) {}
+
+fn main() {
+    // Verify frontend assets are accessible before starting Tauri.
+    let crate_dir = std::env!("CARGO_MANIFEST_DIR");
+    let dist_path = std::path::Path::new(crate_dir).join("frontend/dist/index.html");
+    if !dist_path.exists() {
+        eprintln!(
+            "[brioche-desktop] ERROR: Frontend assets not found at {}\n\
+             Run: cd crates/apps/brioche-desktop/frontend && npm run build",
+            dist_path.display()
+        );
+        std::process::exit(1);
+    }
+
+    eprintln!(
+        "[brioche-desktop] Starting with CARGO_MANIFEST_DIR={}",
+        crate_dir
+    );
+    eprintln!(
+        "[brioche-desktop] Frontend assets found at {}",
+        dist_path.display()
+    );
+
+    let state = match DesktopState::new() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[brioche-desktop] ERROR: Failed to initialize state: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    run_app(state);
 }

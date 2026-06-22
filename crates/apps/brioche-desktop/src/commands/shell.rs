@@ -21,10 +21,10 @@ use brioche_tools_system::{
 use lazy_static::lazy_static;
 use tokio::sync::broadcast;
 
-use crate::extensions::ExtensionRegistry;
-use crate::extensions::UserDefinedTool;
-use crate::extensions::context::{CompressorContextEngine, ContextEngine, ContextEngineInput};
-use crate::settings::Settings;
+use brioche_shell_persistence::extensions::context::{
+    CompressorContextEngine, ContextEngine, ContextEngineInput,
+};
+use brioche_shell_persistence::{ExtensionRegistry, MemoryProvider, Settings, UserDefinedTool};
 use std::sync::Mutex;
 
 lazy_static! {
@@ -78,7 +78,7 @@ pub struct DesktopConfig {
 
 impl Default for DesktopConfig {
     fn default() -> Self {
-        Self::from_settings(&crate::settings::Settings::load())
+        Self::from_settings(&Settings::load())
     }
 }
 
@@ -92,7 +92,7 @@ impl DesktopConfig {
     ///
     /// # Panic / Safety
     /// Never panics.
-    pub fn from_settings(settings: &crate::settings::Settings) -> Self {
+    pub fn from_settings(settings: &Settings) -> Self {
         let api_key = if settings.api_key().is_empty() {
             std::env::var("BRIOCHE_API_KEY").map_or(String::new(), |v| v)
         } else {
@@ -290,7 +290,7 @@ fn build_history_transform(
 /// Never panics.
 #[derive(Clone)]
 pub struct MemoryProviderTool {
-    provider: Arc<dyn crate::extensions::memory_provider::MemoryProvider>,
+    provider: Arc<dyn MemoryProvider>,
     schema: serde_json::Value,
 }
 
@@ -312,10 +312,7 @@ impl MemoryProviderTool {
     ///
     /// # Panic / Safety
     /// Never panics.
-    pub fn new(
-        provider: Arc<dyn crate::extensions::memory_provider::MemoryProvider>,
-        schema: serde_json::Value,
-    ) -> Self {
+    pub fn new(provider: Arc<dyn MemoryProvider>, schema: serde_json::Value) -> Self {
         Self { provider, schema }
     }
 }
@@ -539,18 +536,18 @@ mod tests {
         clippy::disallowed_types
     )]
     async fn test_memory_provider_tool_execution() -> Result<(), Box<dyn std::error::Error>> {
-        use crate::extensions::memory_provider::MemoryProvider;
+        use brioche_shell_persistence::{AmpMemoryEndpoint, AmpMemoryProvider};
         use brioche_tools_system::SystemTool;
 
         let mut extensions = ExtensionRegistry::new();
-        let amp_endpoint = crate::extensions::AmpMemoryEndpoint {
+        let amp_endpoint = AmpMemoryEndpoint {
             id: "memory-amp-1".into(),
             name: "Local mem0".into(),
             url: "http://127.0.0.1:9471".into(),
             api_key: None,
             scope: None,
         };
-        let provider = Arc::new(crate::extensions::AmpMemoryProvider::new(amp_endpoint));
+        let provider = Arc::new(AmpMemoryProvider::new(amp_endpoint));
         extensions.register_memory_provider(provider.clone());
 
         let mut found_store = None;

@@ -24,17 +24,9 @@
 //! Refs: I-Shell-Runtime-OnlyIO
 
 pub mod commands;
-pub mod extensions;
 pub mod memory;
-pub mod profiles;
-pub mod settings;
-pub mod skills;
 pub mod state;
 
 pub use commands::*;
-pub use extensions::*;
 pub use memory::*;
-pub use profiles::*;
-pub use settings::*;
-pub use skills::*;
 pub use state::*;

@@ -445,7 +445,7 @@ impl MemoryProvider for Mem0MemoryProvider {
 }
 
 fn system_time_secs() -> u64 {
-    match std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH) {
+    match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
         Ok(d) => d.as_secs(),
         Err(_) => 0,
     }

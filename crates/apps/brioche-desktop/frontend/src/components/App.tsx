@@ -3,10 +3,8 @@ import {
 	useRef,
 	useCallback,
 	useState,
-	Suspense,
-	lazy,
 } from "react";
-import { useChatStore, type MessageRole } from "../store";
+import { useChatStore } from "../store";
 import { useSessionStore } from "../stores/sessionStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useFileStore } from "../stores/fileStore";
@@ -28,19 +26,18 @@ import {
 	ImageIcon,
 	WrenchIcon,
 } from "./Icons";
-import { getPanelsForSlot, type PanelSlot } from "../extensions/registry";
+import SessionSidebar from "./SessionSidebar";
+import FileExplorer from "./FileExplorer";
+import ToolsPanel from "./ToolsPanel";
 import SettingsPanel from "./SettingsPanel";
 import SkillsPanel from "./SkillsPanel";
 import MemoryPanel from "./MemoryPanel";
 import ToolCallMessage from "./ToolCallMessage";
 import { useTauriSync } from "../hooks/useTauriSync";
 
-const LazyPanel = lazy(() => import("./LazyPanel"));
-
 interface PanelState {
 	left: boolean;
 	right: boolean;
-	bottom: boolean;
 }
 
 export default function App() {
@@ -60,10 +57,10 @@ export default function App() {
 	const [showSettings, setShowSettings] = useState(false);
 	const [showSkills, setShowSkills] = useState(false);
 	const [showMemory, setShowMemory] = useState(false);
+	const [showTools, setShowTools] = useState(false);
 	const [panels, setPanels] = useState<PanelState>({
 		left: true,
 		right: true,
-		bottom: false,
 	});
 
 	const scrollToBottom = useCallback(() => {
@@ -152,38 +149,11 @@ export default function App() {
 		}
 	};
 
-	const leftPanels = getPanelsForSlot("left");
-	const rightPanels = getPanelsForSlot("right");
-	const bottomPanels = getPanelsForSlot("bottom");
-
-	const renderPanel = (slot: PanelSlot) => {
-		const panelsList =
-			slot === "left"
-				? leftPanels
-				: slot === "right"
-					? rightPanels
-					: bottomPanels;
-		return panelsList.map((p) => (
-			<Suspense
-				key={p.id}
-				fallback={<div className="panel-loading">Loading...</div>}
-			>
-				<LazyPanel
-					loader={p.component}
-					onClose={() => {
-						if (slot !== "center") {
-							setPanels((prev) => ({ ...prev, [slot]: false }));
-						}
-					}}
-				/>
-			</Suspense>
-		));
-	};
 
 	return (
 		<div className="app flex flex-row h-screen w-screen overflow-hidden relative text-text-primary">
 			<div className={`flex flex-col bg-bg-1/85 backdrop-blur-md border-r border-border overflow-hidden transition-all duration-300 ease-out z-[1] max-[900px]:absolute max-[900px]:top-0 max-[900px]:bottom-0 max-[900px]:z-10 max-[900px]:left-0 ${panels.left ? "w-[280px] min-w-[280px] opacity-100" : "w-0 min-w-0 opacity-0 border-r-0 pointer-events-none"}`}>
-				{renderPanel("left")}
+				<SessionSidebar />
 			</div>
 
 			<div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-transparent relative z-[1]">
@@ -221,7 +191,7 @@ export default function App() {
 						<button
 							type="button"
 							className="flex items-center gap-2 px-3 py-2 bg-transparent hover:bg-bg-3 text-text-muted hover:text-text-secondary rounded text-[11px] font-medium tracking-wider transition-all duration-200 cursor-pointer"
-							onClick={() => setPanels((p) => ({ ...p, bottom: !p.bottom }))}
+							onClick={() => setShowTools(true)}
 							title="Toggle tools"
 						>
 							<WrenchIcon className="w-4 h-4" />
@@ -351,22 +321,17 @@ export default function App() {
 					</button>
 				</form>
 
-				{panels.bottom && (
-					<div className="w-full min-w-0 h-[200px] min-h-[200px] border-t border-border flex flex-row bg-bg-1/90 overflow-hidden shrink-0 z-[1]">
-						{renderPanel("bottom")}
-					</div>
-				)}
-
 				<Footer />
 			</div>
 
 			<div className={`flex flex-col bg-bg-1/85 backdrop-blur-md border-l border-border overflow-hidden transition-all duration-300 ease-out z-[1] max-[900px]:absolute max-[900px]:top-0 max-[900px]:bottom-0 max-[900px]:z-10 max-[900px]:right-0 ${panels.right ? "w-[280px] min-w-[280px] opacity-100" : "w-0 min-w-0 opacity-0 border-l-0 pointer-events-none"}`}>
-				{renderPanel("right")}
+				<FileExplorer />
 			</div>
 
 			{showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
 			{showSkills && <SkillsPanel onClose={() => setShowSkills(false)} />}
 			{showMemory && <MemoryPanel onClose={() => setShowMemory(false)} />}
+			{showTools && <ToolsPanel onClose={() => setShowTools(false)} />}
 		</div>
 	);
 }

@@ -1,4 +1,4 @@
-//! Profile management for the desktop app.
+//! Profile management.
 //!
 //! Profiles allow users to have separate configurations, API keys, and
 //! preferences. Each profile has its own directory under the config dir:
@@ -182,7 +182,7 @@ impl ProfileConfig {
 }
 
 fn system_time_secs() -> u64 {
-    match std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH) {
+    match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
         Ok(d) => d.as_secs(),
         Err(_) => 0,
     }
