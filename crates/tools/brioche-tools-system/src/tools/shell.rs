@@ -35,6 +35,7 @@ impl ExecuteCommandTool {
     }
 
     /// Sets a default working directory.
+    /// Refs: docs/SPECS.md §Book III-C
     pub fn with_default_cwd(mut self, cwd: impl Into<String>) -> Self {
         self.default_cwd = Some(cwd.into());
         self

@@ -25,7 +25,7 @@ impl BriocheEngine {
     /// O(e) where e = number of effects.
     ///
     /// Refs: I-Core-NoPanic, I-Gov-SubRoutineLifecycle-Guard,
-    /// I-Core-HookEffect-O1, I-Gov-Rebuild-Barrier, I-Gov-Failover
+    /// Refs: I-Core-HookEffect-O1, I-Gov-Rebuild-Barrier, I-Gov-Failover
     /// # Panics
     /// Never panics.
     pub(crate) fn finalize_transition(

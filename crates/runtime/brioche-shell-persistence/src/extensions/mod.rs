@@ -5,7 +5,7 @@
 //! metrics can be added without modifying the Tauri shell or the kernel.
 //!
 //! Each extension implements [`DesktopExtension`] and registers itself with the
-//! [`ExtensionRegistry`] held in [`crate::state::DesktopState`]. The registry is
+//! [`ExtensionRegistry`] held in the desktop application state. The registry is
 //! read at startup and wired into the shell builder, settings panel and footer.
 //!
 //! ## Extension points

@@ -77,6 +77,8 @@ impl Default for ProfileConfig {
 
 impl ProfileConfig {
     /// Loads the profile config from disk.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn load() -> Self {
         let path = profile_config_path();
         if let Ok(data) = std::fs::read_to_string(&path)
@@ -90,6 +92,8 @@ impl ProfileConfig {
     }
 
     /// Saves the profile config to disk.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn save(&self) -> Result<(), String> {
         let path = profile_config_path();
         if let Some(parent) = path.parent() {
@@ -103,22 +107,30 @@ impl ProfileConfig {
     }
 
     /// Gets the active profile.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn active_profile(&self) -> Option<&Profile> {
         self.profiles.iter().find(|p| p.name == self.active)
     }
 
     /// Gets a mutable reference to the active profile.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn active_profile_mut(&mut self) -> Option<&mut Profile> {
         let active_name = self.active.clone();
         self.profiles.iter_mut().find(|p| p.name == active_name)
     }
 
     /// Gets a profile by name.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn get(&self, name: &str) -> Option<&Profile> {
         self.profiles.iter().find(|p| p.name == name)
     }
 
     /// Creates a new profile.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn create(
         &mut self,
         name: String,
@@ -147,6 +159,8 @@ impl ProfileConfig {
     }
 
     /// Switches to a different profile.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn switch(&mut self, name: &str) -> Result<(), String> {
         if !self.profiles.iter().any(|p| p.name == name) {
             return Err(format!("Profile '{}' not found", name));
@@ -156,6 +170,8 @@ impl ProfileConfig {
     }
 
     /// Deletes a profile (cannot delete the default).
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn delete(&mut self, name: &str) -> Result<(), String> {
         if name == "default" {
             return Err("Cannot delete the default profile".into());
@@ -172,6 +188,8 @@ impl ProfileConfig {
     }
 
     /// Updates a profile.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn update(&mut self, profile: Profile) -> Result<(), String> {
         if let Some(idx) = self.profiles.iter().position(|p| p.name == profile.name) {
             self.profiles[idx] = profile;
