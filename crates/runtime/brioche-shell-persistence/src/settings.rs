@@ -7,10 +7,11 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// A configured AMP-compatible memory endpoint.
 ///

@@ -7,8 +7,9 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
-use super::ExtensionMetadata;
 use serde::{Deserialize, Serialize};
+
+use super::ExtensionMetadata;
 
 /// A settings field type.
 ///

@@ -2,21 +2,21 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
-use serde::Serialize;
 use std::sync::Arc;
+
+use brioche_shell_persistence::extensions::ExtensionMetadata;
+use brioche_shell_persistence::extensions::context::CompressorContextEngine;
+use brioche_shell_persistence::extensions::footer::{FooterContext, FooterMetric};
+use brioche_shell_persistence::extensions::memory_provider::{
+    LocalMemoryProvider, MemoryEntry, MemoryProvider, MemoryQuery,
+};
+use brioche_shell_persistence::extensions::settings_sections::SettingsSection;
+use brioche_shell_persistence::extensions::tool_provider::{ToolDescriptor, UserToolDefinition};
+use brioche_shell_persistence::{Settings, skills};
+use serde::Serialize;
 use tauri::State;
 
 use crate::state::DesktopState;
-use brioche_shell_persistence::Settings;
-use brioche_shell_persistence::extensions::{
-    ExtensionMetadata,
-    context::CompressorContextEngine,
-    footer::{FooterContext, FooterMetric},
-    memory_provider::{LocalMemoryProvider, MemoryEntry, MemoryProvider, MemoryQuery},
-    settings_sections::SettingsSection,
-    tool_provider::{ToolDescriptor, UserToolDefinition},
-};
-use brioche_shell_persistence::skills;
 
 // ---------------------------------------------------------------------------
 // Memory commands

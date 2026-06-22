@@ -8,11 +8,13 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
-use super::{ExtensionMetadata, PanelSlot};
+use std::collections::BTreeMap;
+
 use brioche_tools_system::{SystemTool, ToolError};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use tokio_util::sync::CancellationToken;
+
+use super::{ExtensionMetadata, PanelSlot};
 
 /// A tool descriptor.
 ///

@@ -5,14 +5,20 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use brioche_core::ChatMessage;
 use brioche_plugin_kit::PluginBuilder;
 use brioche_provider_openai::{
     HistoryTransform, LlmChunk, OpenAiConfig, OpenAiLlmClient, SharedHistory,
 };
-use brioche_shell_persistence::{RedbStorage, SessionStore, SessionStoreEntry};
+use brioche_shell_persistence::extensions::context::{
+    CompressorContextEngine, ContextEngine, ContextEngineInput,
+};
+use brioche_shell_persistence::{
+    ExtensionRegistry, MemoryProvider, RedbStorage, SessionStore, SessionStoreEntry, Settings,
+    UserDefinedTool,
+};
 use brioche_shell_runtime::{BriocheShell, DefaultEffectExecutor, ShellConfig};
 use brioche_tools_system::{
     ExecuteCommandTool, FetchUrlTool, ListDirTool, ReadFileTool, SandboxPolicy, SystemToolExecutor,
@@ -20,12 +26,6 @@ use brioche_tools_system::{
 };
 use lazy_static::lazy_static;
 use tokio::sync::broadcast;
-
-use brioche_shell_persistence::extensions::context::{
-    CompressorContextEngine, ContextEngine, ContextEngineInput,
-};
-use brioche_shell_persistence::{ExtensionRegistry, MemoryProvider, Settings, UserDefinedTool};
-use std::sync::Mutex;
 
 lazy_static! {
     /// Global session start timestamp, captured the first time a shell is built.

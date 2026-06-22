@@ -9,9 +9,10 @@
 
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
+
 use super::memory_provider::{MemoryEntry, MemoryProvider, MemoryQuery, MemorySessionContext};
 use super::{ExtensionMetadata, PanelSlot};
-use serde::{Deserialize, Serialize};
 
 /// Configuration for a generic AMP-compatible memory endpoint.
 ///

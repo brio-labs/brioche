@@ -6,9 +6,11 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
-use super::ExtensionMetadata;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+
+use serde::{Deserialize, Serialize};
+
+use super::ExtensionMetadata;
 
 /// A footer metric value returned to the frontend.
 ///
