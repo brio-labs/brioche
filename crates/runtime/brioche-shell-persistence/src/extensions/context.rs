@@ -1,4 +1,4 @@
-//! Modular context engine for the desktop app.
+//! Modular context engine.
 //!
 //! The context engine is consulted before a conversation is sent to the LLM.
 //! It receives the current message history and the configured context budget,
@@ -81,7 +81,7 @@ impl CompressorContextEngine {
     }
 
     /// Rough token estimate: ~4 characters per token.
-    pub(crate) fn estimate_tokens(messages: &[ChatMessage]) -> usize {
+    pub fn estimate_tokens(messages: &[ChatMessage]) -> usize {
         messages
             .iter()
             .map(|m| match m {

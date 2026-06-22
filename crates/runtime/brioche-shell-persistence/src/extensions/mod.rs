@@ -19,7 +19,7 @@
 //! | Settings section | [`SettingsSectionProvider`] | module-defined |
 //! | Footer metric | [`FooterMetricProvider`] | module-defined |
 //!
-//! Refs: I-Shell-Runtime-OnlyIO, Extension-over-Modification (SPECS.md §1.1)
+//! Refs: I-Shell-Runtime-OnlyIO, SPECS (SPECS.md §1.1)
 
 pub mod amp_memory_client;
 pub mod context;

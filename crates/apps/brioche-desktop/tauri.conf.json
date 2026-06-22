@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "identifier": "com.brioche.desktop",
   "build": {
-    "beforeDevCommand": "cd frontend && npm run dev",
-    "beforeBuildCommand": "cd frontend && npm run build",
+    "beforeDevCommand": "cd frontend && pnpm dev",
+    "beforeBuildCommand": "cd frontend && pnpm build",
     "frontendDist": "./frontend/dist",
-    "devUrl": "http://localhost:4321"
+    "devUrl": "http://localhost:5173"
   },
   "app": {
     "windows": [

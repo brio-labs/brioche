@@ -1,4 +1,4 @@
-//! Per-module settings sections for the desktop app.
+//! Per-module settings sections.
 //!
 //! The settings panel is built dynamically from registered [`SettingsSection`]
 //! providers. Each section has a module id, title, order, searchable keywords

@@ -1,4 +1,4 @@
-//! Skills management for the desktop app.
+//! Skills management.
 //!
 //! This module is a compatibility wrapper around the extension-system
 //! [`SkillRegistry`]. New code should prefer using the provider directly via

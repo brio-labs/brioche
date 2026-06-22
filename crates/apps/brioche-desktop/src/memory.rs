@@ -6,7 +6,9 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
-pub use crate::extensions::memory_provider::{LocalMemoryProvider, MemoryEntry};
+pub use brioche_shell_persistence::extensions::memory_provider::{
+    LocalMemoryProvider, MemoryEntry,
+};
 
 /// Loads the local memory store.
 ///

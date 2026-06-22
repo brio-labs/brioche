@@ -19,9 +19,17 @@
 //! Refs: docs/SPECS.md §Book III-B
 
 pub mod dto;
+pub mod extensions;
+pub mod profiles;
+pub mod settings;
+pub mod skills;
 pub mod storage;
 
 pub use dto::{FlattenedAgentState, SessionHeadDTO, SessionSchemaVersion};
+pub use extensions::*;
+pub use profiles::*;
+pub use settings::*;
+pub use skills::*;
 pub use storage::{
     COMPRESSION_THRESHOLD, GcRunner, PersistenceError, RedbStorage, SessionStore,
     SessionStoreEntry, SubRoutineCache, deserialize_head, deserialize_message, extract_delta,
