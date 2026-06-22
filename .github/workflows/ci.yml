@@ -59,6 +59,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: ./.github/actions/setup-frontend
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
@@ -71,6 +72,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: ./.github/actions/setup-frontend
       - uses: Swatinem/rust-cache@v2
       - run: cargo doc --workspace --no-deps --all-features
         env:
@@ -158,6 +160,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: ./.github/actions/setup-frontend
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --all-targets --all-features
 
@@ -171,6 +174,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: ./.github/actions/setup-frontend
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --doc --all-features
 
@@ -186,6 +190,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: ./.github/actions/setup-frontend
       - uses: Swatinem/rust-cache@v2
       - name: Run property tests (high volume)
         run: cargo test --package brioche-core --test property_transition --all-features
@@ -208,6 +213,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+
+      # brioche-desktop embeds its frontend via tauri::generate_context!(), which
+      # expects crates/apps/brioche-desktop/frontend/dist to exist at compile time.
+      # Build the frontend ahead of the workspace compile for profiles that include
+      # the desktop crate.
+      - uses: ./.github/actions/setup-frontend
+        if: matrix.profile == 'desktop' || matrix.profile == 'full'
+
       - uses: Swatinem/rust-cache@v2
       - name: Build with profile ${{ matrix.profile }}
         run: cargo build --workspace --profile ${{ matrix.profile }}
@@ -224,6 +237,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: ./.github/actions/setup-frontend
       - uses: Swatinem/rust-cache@v2
       - name: Compile benchmarks
         run: cargo bench --workspace --no-run

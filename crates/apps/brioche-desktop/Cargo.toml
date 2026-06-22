@@ -37,12 +37,10 @@ brioche-shell-persistence = { workspace = true }
 brioche-provider-openai = { workspace = true }
 brioche-tools-system = { workspace = true }
 brioche-plugin-kit = { workspace = true }
-brioche-reedline = { workspace = true }
 dirs = { workspace = true }
 reqwest = { workspace = true }
 lazy_static = { workspace = true }
 base64-simd = { workspace = true }
-rand = "0.8"
 
 [lints]
 workspace = true
