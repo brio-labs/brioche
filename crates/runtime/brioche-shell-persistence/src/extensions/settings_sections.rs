@@ -509,6 +509,60 @@ impl SettingsSectionProvider for MemorySettingsSection {
     }
 }
 
+/// Built-in tool settings section.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+#[derive(Clone, Debug, Default)]
+pub struct ToolSettingsSection;
+
+impl SettingsSectionProvider for ToolSettingsSection {
+    fn metadata(&self) -> ExtensionMetadata {
+        ExtensionMetadata {
+            id: "settings-tools".into(),
+            name: "Tools".into(),
+            version: "0.1.0".into(),
+            default_panel: None,
+            enabled: true,
+        }
+    }
+
+    fn sections(&self) -> Vec<SettingsSection> {
+        vec![SettingsSection {
+            id: "tools-security".into(),
+            module_id: "tools".into(),
+            title: "Tools".into(),
+            order: 50,
+            keywords: vec![
+                "tools".into(),
+                "user tools".into(),
+                "shell".into(),
+                "command".into(),
+                "security".into(),
+            ],
+            fields: vec![SettingsField {
+                key: "tools.user_tools_enabled".into(),
+                label: "Enable user-defined tools".into(),
+                field_type: FieldType::Boolean,
+                description: Some(
+                    "Allow custom tools that execute shell commands or HTTP requests. Disabled by default for security.".into(),
+                ),
+                placeholder: None,
+                options: vec![],
+                default_value: Some(serde_json::Value::Bool(false)),
+                protected: true,
+                keywords: vec!["user tools".into(), "security".into(), "enable".into()],
+            }],
+        }]
+    }
+}
+
+/// Helper: tool settings section provider.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+pub fn tool_section() -> std::sync::Arc<dyn SettingsSectionProvider> {
+    std::sync::Arc::new(ToolSettingsSection)
+}
+
 /// Helper: chat model section provider.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO

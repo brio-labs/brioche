@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
@@ -15,5 +15,9 @@ export default defineConfig({
     target: 'es2024',
     minify: 'esbuild',
     sourcemap: false,
+  },
+  test: {
+    environment: 'node',
+    globals: false,
   },
 });

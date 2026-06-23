@@ -455,6 +455,15 @@ pub async fn add_user_tool(
     state: State<'_, DesktopState>,
     tool: UserToolDefinition,
 ) -> Result<(), String> {
+    let settings = {
+        let factory = state.factory.read().await;
+        factory.settings.clone()
+    };
+    if !settings.user_tools_enabled() {
+        return Err(
+            "User-defined tools are disabled. Enable them in Settings > Tools first.".into(),
+        );
+    }
     let registry = state.extensions.read().await;
     match registry.tool_providers().iter().next() {
         Some(provider) => provider.add_user_tool(tool),

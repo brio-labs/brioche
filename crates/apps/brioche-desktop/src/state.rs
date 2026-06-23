@@ -87,6 +87,21 @@ fn system_time_secs() -> u64 {
         Err(_) => 0,
     }
 }
+/// Returns the platform-appropriate persistent storage path for desktop sessions.
+///
+/// Uses `dirs::config_dir()` so session history survives reboots. The
+/// parent directory is created if it does not exist.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+fn desktop_storage_path() -> Result<PathBuf, String> {
+    let dir = match dirs::config_dir() {
+        Some(d) => d.join("brioche-desktop"),
+        None => std::env::temp_dir().join("brioche-desktop"),
+    };
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("Failed to create config directory {dir:?}: {e}"))?;
+    Ok(dir.join("sessions.redb"))
+}
 
 /// Multi-session manager for the desktop.
 ///
@@ -385,7 +400,7 @@ impl DesktopState {
     /// # Panic / Safety
     /// Never panics. Returns Err if storage cannot be initialized at any path.
     pub fn new() -> Result<Self, String> {
-        Self::new_with_path("/tmp/brioche-desktop.redb")
+        Self::new_with_path(desktop_storage_path()?)
     }
 
     /// Creates state with a custom redb path (for testing).

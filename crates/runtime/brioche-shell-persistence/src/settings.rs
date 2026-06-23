@@ -170,6 +170,14 @@ impl Default for Settings {
             ),
         );
         modules.insert(
+            "tools".into(),
+            Value::Object(
+                [("user_tools_enabled".into(), Value::Bool(false))]
+                    .into_iter()
+                    .collect(),
+            ),
+        );
+        modules.insert(
             "ui".into(),
             Value::Object(
                 [
@@ -443,6 +451,101 @@ impl Settings {
             _ => "helpful".into(),
         }
     }
+
+    /// Validates settings before they are persisted or applied.
+    ///
+    /// Returns `Ok(())` if all configured values are acceptable, otherwise
+    /// returns a newline-separated list of problems. Validation is conservative:
+    /// it rejects values that would break the shell build or the LLM request.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO, I-Shell-Error-Propagate
+    ///
+    /// # Complexity
+    /// O(E) where E is the number of configured memory endpoints.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
+    pub fn validate(&self) -> Result<(), String> {
+        let mut errors = Vec::new();
+
+        if self.chat_model().trim().is_empty() {
+            errors.push("chat.model must not be empty".into());
+        }
+
+        let base_url = self.base_url();
+        if base_url.trim().is_empty() {
+            errors.push("chat.base_url must not be empty".into());
+        } else if reqwest::Url::parse(&base_url).is_err() {
+            errors.push(format!("chat.base_url is not a valid URL: {base_url}"));
+        }
+
+        if self.max_tokens() == 0 {
+            errors.push("chat.max_tokens must be greater than 0".into());
+        }
+        if self.context_window() == 0 {
+            errors.push("chat.context_window must be greater than 0".into());
+        }
+
+        let trigger = self
+            .get("context.trigger_percentage")
+            .and_then(|v| v.as_u64());
+        let target = self
+            .get("context.target_percentage")
+            .and_then(|v| v.as_u64());
+        if trigger.is_some_and(|n| n > 100) {
+            errors.push("context.trigger_percentage must be between 0 and 100".into());
+        }
+        if target.is_some_and(|n| n > 100) {
+            errors.push("context.target_percentage must be between 0 and 100".into());
+        }
+        if let (Some(t), Some(u)) = (trigger, target)
+            && u > t
+        {
+            errors.push(
+                "context.target_percentage must not exceed context.trigger_percentage".into(),
+            );
+        }
+
+        for (index, endpoint) in self.memory_endpoints().iter().enumerate() {
+            if endpoint.id.trim().is_empty() {
+                errors.push(format!("memory.endpoints[{index}] is missing an id"));
+            }
+            if endpoint.name.trim().is_empty() {
+                errors.push(format!("memory.endpoints[{index}] is missing a name"));
+            }
+            let url = endpoint.url.trim();
+            if url.is_empty() {
+                errors.push(format!("memory.endpoints[{index}] is missing a url"));
+            } else if reqwest::Url::parse(url).is_err() {
+                errors.push(format!(
+                    "memory.endpoints[{index}].url is not a valid URL: {url}"
+                ));
+            }
+        }
+
+        if self.working_dir().trim().is_empty() {
+            errors.push("ui.working_dir must not be empty".into());
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("\n"))
+        }
+    }
+
+    /// Returns whether user-defined tools are enabled.
+    ///
+    /// User-defined tools execute arbitrary shell commands or HTTP requests and
+    /// are disabled by default for safety.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn user_tools_enabled(&self) -> bool {
+        match self.get("tools.user_tools_enabled") {
+            Some(Value::Bool(b)) => b,
+            _ => false,
+        }
+    }
 }
 
 /// Returns the platform-appropriate settings file path.
@@ -474,8 +577,100 @@ mod tests {
     }
 
     #[test]
+    fn user_tools_disabled_by_default() {
+        let settings = Settings::default();
+        assert!(
+            !settings.user_tools_enabled(),
+            "user-defined tools must be disabled by default"
+        );
+    }
+
+    #[test]
     fn settings_default_model() {
         let settings = Settings::default();
         assert_eq!(settings.chat_model(), "qwen/qwen3.7-plus");
+    }
+
+    #[test]
+    fn default_settings_validate() {
+        let settings = Settings::default();
+        assert!(
+            settings.validate().is_ok(),
+            "default settings should be valid"
+        );
+    }
+
+    #[test]
+    fn empty_model_is_invalid() {
+        let mut settings = Settings::default();
+        assert!(
+            settings
+                .set("chat.model", Value::String("".into()))
+                .is_ok(),
+            "set should succeed"
+        );
+        let err = settings.validate().expect_err("empty model should fail");
+        assert!(err.contains("chat.model"));
+    }
+
+
+    #[test]
+    fn invalid_base_url_is_invalid() {
+        let mut settings = Settings::default();
+        assert!(
+            settings
+                .set("chat.base_url", Value::String("not a url".into()))
+                .is_ok(),
+            "set should succeed"
+        );
+        let err = settings.validate().expect_err("bad URL should fail");
+        assert!(err.contains("chat.base_url"));
+    }
+
+
+    #[test]
+    fn target_exceeding_trigger_is_invalid() {
+        let mut settings = Settings::default();
+        assert!(
+            settings
+                .set("context.trigger_percentage", Value::Number(50.into()))
+                .is_ok(),
+            "set should succeed"
+        );
+        assert!(
+            settings
+                .set("context.target_percentage", Value::Number(75.into()))
+                .is_ok(),
+            "set should succeed"
+        );
+        let err = settings
+            .validate()
+            .expect_err("target > trigger should fail");
+        assert!(err.contains("target_percentage"));
+    }
+
+
+    #[test]
+    fn empty_memory_endpoint_url_is_invalid() {
+        let mut settings = Settings::default();
+        assert!(
+            settings
+                .set(
+                    "memory.endpoints",
+                    Value::Array(vec![serde_json::json!({
+                        "id": "test",
+                        "name": "Test",
+                        "url": "",
+                        "api_key": null,
+                        "scope": null,
+                    })]),
+                )
+                .is_ok(),
+            "set should succeed"
+        );
+        let err = settings
+            .validate()
+            .expect_err("empty endpoint URL should fail");
+        assert!(err.contains("memory.endpoints"));
     }
 }

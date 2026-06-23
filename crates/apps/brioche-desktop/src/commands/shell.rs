@@ -383,16 +383,18 @@ pub fn build_shell(session_id: impl Into<String>, factory: &ShellFactory) -> She
         .with_tool(exec_tool)
         .with_tool(FetchUrlTool);
 
-    // Register user-defined tools from all tool providers.
-    for provider in factory.extensions.tool_providers() {
-        match provider.user_tools() {
-            Ok(user_tools) => {
-                for user_tool in user_tools {
-                    tool_executor = tool_executor.with_tool(UserDefinedTool::new(user_tool));
+    // Register user-defined tools from all tool providers only when explicitly enabled.
+    if factory.settings.user_tools_enabled() {
+        for provider in factory.extensions.tool_providers() {
+            match provider.user_tools() {
+                Ok(user_tools) => {
+                    for user_tool in user_tools {
+                        tool_executor = tool_executor.with_tool(UserDefinedTool::new(user_tool));
+                    }
                 }
-            }
-            Err(err) => {
-                tracing::warn!("Failed to load user tools from provider: {err}");
+                Err(err) => {
+                    tracing::warn!("Failed to load user tools from provider: {err}");
+                }
             }
         }
     }

@@ -312,9 +312,8 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 		null,
 	);
 	const [search, setSearch] = useState("");
-	const [editingProtected, setEditingProtected] = useState<Set<string>>(
-		new Set(),
-	);
+	const [saveError, setSaveError] = useState<string | null>(null);
+
 
 	useEffect(() => {
 		loadSettings();
@@ -366,13 +365,23 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 	}, [selectedSectionId, activeSections]);
 
 	const handleSave = useCallback(async () => {
+		setSaveError(null);
 		try {
 			await setSettings(settings);
 			onClose();
 		} catch (err) {
-			console.error("Failed to save settings:", err);
+			const message = err instanceof Error ? err.message : String(err);
+			setSaveError(message);
 		}
 	}, [settings, onClose]);
+
+	const handleFieldChange = useCallback(
+		(key: string, value: unknown) => {
+			if (saveError) setSaveError(null);
+			updateSetting(key, value);
+		},
+		[updateSetting, saveError],
+	);
 
 	const handleReset = useCallback(
 		(field: SettingsField) => {
@@ -430,7 +439,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 										value={getFieldValue(settings, field.key)}
 										editingProtected={editingProtected}
 										setEditingProtected={setEditingProtected}
-										onChange={(value) => updateSetting(field.key, value)}
+										onChange={(value) => handleFieldChange(field.key, value)}
 										onReset={() => handleReset(field)}
 									/>
 								))}
@@ -441,6 +450,13 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 							Select a section from the left to view its settings.
 						</div>
 					)}
+				{saveError && (
+					<div className="px-5 pt-4">
+						<div className="rounded-lg border border-error-border bg-error-bg px-4 py-3 text-[13px] text-[#e8a0a0] whitespace-pre-wrap">
+							{saveError}
+						</div>
+					</div>
+				)}
 				</div>
 			</div>
 
