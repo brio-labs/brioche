@@ -385,8 +385,15 @@ pub fn build_shell(session_id: impl Into<String>, factory: &ShellFactory) -> She
 
     // Register user-defined tools from all tool providers.
     for provider in factory.extensions.tool_providers() {
-        for user_tool in provider.user_tools() {
-            tool_executor = tool_executor.with_tool(UserDefinedTool::new(user_tool));
+        match provider.user_tools() {
+            Ok(user_tools) => {
+                for user_tool in user_tools {
+                    tool_executor = tool_executor.with_tool(UserDefinedTool::new(user_tool));
+                }
+            }
+            Err(err) => {
+                tracing::warn!("Failed to load user tools from provider: {err}");
+            }
         }
     }
 

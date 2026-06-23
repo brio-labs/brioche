@@ -2,8 +2,6 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
-use std::sync::Arc;
-
 use brioche_shell_persistence::extensions::ExtensionMetadata;
 use brioche_shell_persistence::extensions::context::CompressorContextEngine;
 use brioche_shell_persistence::extensions::footer::{FooterContext, FooterMetric};
@@ -71,7 +69,8 @@ impl From<&MemoryEntry> for MemoryEntryPayload {
 /// Never panics. Returns Err on load or listing failure.
 #[tauri::command]
 pub async fn list_memories(category: Option<String>) -> Result<Vec<MemoryEntryPayload>, String> {
-    let store = LocalMemoryProvider::load();
+    let store =
+        LocalMemoryProvider::load().map_err(|e| format!("Failed to load memory store: {e}"))?;
     let query = MemoryQuery {
         category,
         query: None,
@@ -91,7 +90,8 @@ pub async fn list_memories(category: Option<String>) -> Result<Vec<MemoryEntryPa
 /// Never panics. Returns Err on save failure.
 #[tauri::command]
 pub async fn set_memory(key: String, value: String, category: String) -> Result<(), String> {
-    let mut store = LocalMemoryProvider::load();
+    let mut store =
+        LocalMemoryProvider::load().map_err(|e| format!("Failed to load memory store: {e}"))?;
     store.set(key, value, category)
 }
 
@@ -106,7 +106,8 @@ pub async fn set_memory(key: String, value: String, category: String) -> Result<
 /// Never panics. Returns Err if memory key is not found or save fails.
 #[tauri::command]
 pub async fn delete_memory(key: String) -> Result<(), String> {
-    let mut store = LocalMemoryProvider::load();
+    let mut store =
+        LocalMemoryProvider::load().map_err(|e| format!("Failed to load memory store: {e}"))?;
     if !store.delete(&key)? {
         return Err(format!("Memory '{}' not found", key));
     }
@@ -124,7 +125,8 @@ pub async fn delete_memory(key: String) -> Result<(), String> {
 /// Never panics. Returns Err on load or listing failure.
 #[tauri::command]
 pub async fn search_memories(query: String) -> Result<Vec<MemoryEntryPayload>, String> {
-    let store = LocalMemoryProvider::load();
+    let store =
+        LocalMemoryProvider::load().map_err(|e| format!("Failed to load memory store: {e}"))?;
     let query = MemoryQuery {
         category: None,
         query: Some(query),
@@ -249,13 +251,11 @@ pub async fn set_skill_enabled(
     name: String,
     enabled: bool,
 ) -> Result<(), String> {
-    let mut registry = state.extensions.write().await;
-    for provider in registry.skill_providers_mut() {
-        if let Some(provider) = Arc::get_mut(provider) {
-            return provider.set_enabled(&name, enabled);
-        }
+    let registry = state.extensions.read().await;
+    match registry.skill_providers().iter().next() {
+        Some(provider) => provider.set_enabled(&name, enabled),
+        None => Err("No skill provider available".into()),
     }
-    Err("No mutable skill provider available".into())
 }
 
 /// Creates a new skill package.
@@ -275,13 +275,11 @@ pub async fn create_skill(
     description: String,
     content: String,
 ) -> Result<(), String> {
-    let mut registry = state.extensions.write().await;
-    for provider in registry.skill_providers_mut() {
-        if let Some(provider) = Arc::get_mut(provider) {
-            return provider.create_skill(&name, &category, &description, &content);
-        }
+    let registry = state.extensions.read().await;
+    match registry.skill_providers().iter().next() {
+        Some(provider) => provider.create_skill(&name, &category, &description, &content),
+        None => Err("No skill provider available".into()),
     }
-    Err("No mutable skill provider available".into())
 }
 
 /// Deletes a skill package.
@@ -295,13 +293,11 @@ pub async fn create_skill(
 /// Never panics. Returns Err if the skill package does not exist or deletion fails.
 #[tauri::command]
 pub async fn delete_skill(state: State<'_, DesktopState>, name: String) -> Result<(), String> {
-    let mut registry = state.extensions.write().await;
-    for provider in registry.skill_providers_mut() {
-        if let Some(provider) = Arc::get_mut(provider) {
-            return provider.delete_skill(&name);
-        }
+    let registry = state.extensions.read().await;
+    match registry.skill_providers().iter().next() {
+        Some(provider) => provider.delete_skill(&name),
+        None => Err("No skill provider available".into()),
     }
-    Err("No mutable skill provider available".into())
 }
 
 // ---------------------------------------------------------------------------
@@ -366,18 +362,17 @@ pub async fn get_footer_metrics(
     let mgr = state.manager.read().await;
     let current_model = settings.chat_model();
 
-    let estimated_tokens: usize = if let Some(manager) = mgr.as_ref() {
-        if let Some(entry) = manager.get(manager.current_id()) {
-            let history = entry.history.read().await;
-            CompressorContextEngine::estimate_tokens(&history)
-        } else {
-            0
-        }
-    } else {
-        0
+    let estimated_tokens: usize = 'tokens: {
+        let Some(manager) = mgr.as_ref() else {
+            break 'tokens 0;
+        };
+        let Some(entry) = manager.get(manager.current_id()) else {
+            break 'tokens 0;
+        };
+        let history = entry.history.read().await;
+        break 'tokens CompressorContextEngine::estimate_tokens(&history);
     };
     let context_remaining = settings.context_window().saturating_sub(estimated_tokens) as i64;
-
     let context_note = match state.last_context_note.lock() {
         Ok(guard) => guard.clone(),
         Err(_) => None,
@@ -418,7 +413,7 @@ pub async fn list_tools(state: State<'_, DesktopState>) -> Result<Vec<ToolDescri
     let registry = state.extensions.read().await;
     let mut tools = Vec::new();
     for provider in registry.tool_providers() {
-        tools.extend(provider.tools());
+        tools.extend(provider.tools()?);
     }
     tools.sort_by(|a, b| a.id.cmp(&b.id));
     Ok(tools)
@@ -439,14 +434,11 @@ pub async fn set_tool_enabled(
     id: String,
     enabled: bool,
 ) -> Result<(), String> {
-    let mut registry = state.extensions.write().await;
-    for provider in registry.tool_providers_mut() {
-        if let Some(provider) = Arc::get_mut(provider) {
-            provider.set_enabled(&id, enabled)?;
-            return Ok(());
-        }
+    let registry = state.extensions.read().await;
+    match registry.tool_providers().iter().next() {
+        Some(provider) => provider.set_enabled(&id, enabled),
+        None => Err(format!("Tool provider not available for '{}'", id)),
     }
-    Err(format!("Tool provider not available for '{}'", id))
 }
 
 /// Adds a user-defined tool.
@@ -457,19 +449,17 @@ pub async fn set_tool_enabled(
 /// O(P) where P is the number of tool providers. Appends custom tool and writes configurations to disk.
 ///
 /// # Panic / Safety
-/// Never panics. Returns Err if no mutable tool provider is found or tool name overlaps.
+/// Never panics. Returns Err if no tool provider is found or tool name overlaps.
 #[tauri::command]
 pub async fn add_user_tool(
     state: State<'_, DesktopState>,
     tool: UserToolDefinition,
 ) -> Result<(), String> {
-    let mut registry = state.extensions.write().await;
-    for provider in registry.tool_providers_mut() {
-        if let Some(provider) = Arc::get_mut(provider) {
-            return provider.add_user_tool(tool);
-        }
+    let registry = state.extensions.read().await;
+    match registry.tool_providers().iter().next() {
+        Some(provider) => provider.add_user_tool(tool),
+        None => Err("No tool provider available".into()),
     }
-    Err("No mutable tool provider available".into())
 }
 
 /// Removes a user-defined tool.
@@ -480,14 +470,12 @@ pub async fn add_user_tool(
 /// O(P) where P is the number of tool providers. Searches and removes custom tool, then writes changes to disk.
 ///
 /// # Panic / Safety
-/// Never panics. Returns Err if target tool not found or no mutable provider available.
+/// Never panics. Returns Err if target tool not found or no provider available.
 #[tauri::command]
 pub async fn remove_user_tool(state: State<'_, DesktopState>, id: String) -> Result<(), String> {
-    let mut registry = state.extensions.write().await;
-    for provider in registry.tool_providers_mut() {
-        if let Some(provider) = Arc::get_mut(provider) {
-            return provider.remove_user_tool(&id);
-        }
+    let registry = state.extensions.read().await;
+    match registry.tool_providers().iter().next() {
+        Some(provider) => provider.remove_user_tool(&id),
+        None => Err("No tool provider available".into()),
     }
-    Err("No mutable tool provider available".into())
 }

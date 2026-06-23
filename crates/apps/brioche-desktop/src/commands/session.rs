@@ -11,16 +11,11 @@ use crate::state::{DesktopState, SessionMetadata};
 /// Role of a chat message participant.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
-///
-/// # Complexity
-/// O(1) Copy enum.
-///
-/// # Panic / Safety
-/// Never panics.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatRole {
     /// System-level instructions.
+    #[default]
     System,
     /// Human user input.
     User,
@@ -40,13 +35,7 @@ pub enum ChatRole {
 /// render structured tool cards.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
-///
-/// # Complexity
-/// O(1) creation. Contains heap-allocated Strings.
-///
-/// # Panic / Safety
-/// Never panics.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct ChatMessagePayload {
     /// Role of the message sender.
     pub role: ChatRole,
@@ -66,58 +55,42 @@ pub struct ChatMessagePayload {
     pub tool_output: Option<String>,
 }
 
-impl Default for ChatMessagePayload {
-    fn default() -> Self {
-        Self {
-            role: ChatRole::System,
-            content: String::new(),
-            tool_id: None,
-            tool_name: None,
-            tool_arguments: None,
-            tool_output: None,
-        }
-    }
-}
-
 impl From<&ChatMessage> for ChatMessagePayload {
     fn from(msg: &ChatMessage) -> Self {
+        let mut base = Self::default();
         match msg {
-            ChatMessage::System { content } => Self {
-                role: ChatRole::System,
-                content: content.clone(),
-                ..Self::default()
-            },
-            ChatMessage::User { content } => Self {
-                role: ChatRole::User,
-                content: content.clone(),
-                ..Self::default()
-            },
-            ChatMessage::Assistant { content, .. } => Self {
-                role: ChatRole::Assistant,
-                content: content.clone(),
-                ..Self::default()
-            },
+            ChatMessage::System { content } => {
+                base.role = ChatRole::System;
+                base.content = content.clone();
+            }
+            ChatMessage::User { content } => {
+                base.role = ChatRole::User;
+                base.content = content.clone();
+            }
+            ChatMessage::Assistant { content, .. } => {
+                base.role = ChatRole::Assistant;
+                base.content = content.clone();
+            }
             ChatMessage::ToolRequest {
                 id,
                 name,
                 arguments,
-            } => Self {
-                role: ChatRole::ToolRequest,
-                content: format!("Tool {} ({}): {}", name, id, arguments),
-                tool_id: Some(id.clone()),
-                tool_name: Some(name.clone()),
-                tool_arguments: Some(arguments.clone()),
-                ..Self::default()
-            },
-            ChatMessage::ToolResult { id, content } => Self {
-                role: ChatRole::ToolResult,
-                content: format!("Tool result {}: {}", id, content),
-                tool_id: Some(id.clone()),
-                tool_output: Some(content.clone()),
-                ..Self::default()
-            },
-            _ => Self::default(),
+            } => {
+                base.role = ChatRole::ToolRequest;
+                base.content = format!("Tool {} ({}): {}", name, id, arguments);
+                base.tool_id = Some(id.clone());
+                base.tool_name = Some(name.clone());
+                base.tool_arguments = Some(arguments.clone());
+            }
+            ChatMessage::ToolResult { id, content } => {
+                base.role = ChatRole::ToolResult;
+                base.content = format!("Tool result {}: {}", id, content);
+                base.tool_id = Some(id.clone());
+                base.tool_output = Some(content.clone());
+            }
+            _ => {}
         }
+        base
     }
 }
 
@@ -125,6 +98,27 @@ impl From<ChatMessage> for ChatMessagePayload {
     fn from(msg: ChatMessage) -> Self {
         Self::from(&msg)
     }
+}
+fn emit_system(app: &AppHandle, content: impl Into<String>) {
+    let _ = app.emit(
+        "chat-message",
+        ChatMessagePayload::from(ChatMessage::System {
+            content: content.into(),
+        }),
+    );
+}
+fn session_lines(manager: &crate::state::SessionManager) -> Vec<String> {
+    let mut lines = vec![format!("Current session: {}", manager.current_id())];
+    lines.push("Sessions:".into());
+    for id in manager.list() {
+        let marker = if id == manager.current_id() {
+            " → "
+        } else {
+            "   "
+        };
+        lines.push(format!("{}{}", marker, id));
+    }
+    lines
 }
 
 /// Sends a message to the current shell.
@@ -298,28 +292,30 @@ async fn get_messages_impl(state: &DesktopState) -> Result<Vec<ChatMessagePayloa
 /// O(1) in-memory session replacement, triggers shell rebuild.
 ///
 /// # Panic / Safety
-/// Never panics. Returns Err if manager fails to initialize.
+/// Never panics. Returns Err if session manager is unavailable or shell rebuild fails.
 #[tauri::command]
 pub async fn clear_messages(state: State<'_, DesktopState>) -> Result<(), String> {
-    clear_messages_impl(state.inner()).await
+    rebuild_current_session(state.inner()).await?;
+    Ok(())
 }
-
-async fn clear_messages_impl(state: &DesktopState) -> Result<(), String> {
+async fn rebuild_current_session(state: &DesktopState) -> Result<String, String> {
     state.ensure_manager().await?;
     let mut mgr = state.manager.write().await;
     let manager = mgr.as_mut().ok_or("No active session")?;
     let current_id = manager.current_id().to_string();
-    let _config = state.config.read().await.clone();
     let factory = state.factory.read().await.clone();
     let handle = crate::commands::shell::build_shell(&current_id, &factory);
     manager.insert(
-        current_id,
+        current_id.clone(),
         handle.shell,
         handle.llm,
         handle.history,
         handle.llm_rx,
     );
-    Ok(())
+    if let Some(current_meta) = manager.metadata(&current_id) {
+        manager.insert_metadata(current_meta)?;
+    }
+    Ok(current_id)
 }
 
 /// Processes a slash command.
@@ -343,12 +339,7 @@ async fn handle_slash_command(
     let parts: Vec<&str> = cmd.split_whitespace().collect();
     match parts.first().copied() {
         Some("help") | Some("h") => {
-            let _ = app.emit(
-                "chat-message",
-                ChatMessagePayload::from(ChatMessage::System {
-                    content: print_help(),
-                }),
-            );
+            emit_system(app, print_help());
             Ok(())
         }
         Some("quit") | Some("q") => {
@@ -356,237 +347,73 @@ async fn handle_slash_command(
             Ok(())
         }
         Some("clear") | Some("c") => {
-            let mut mgr = state.manager.write().await;
-            let manager = mgr.as_mut().ok_or("No active session")?;
-            let current_id = manager.current_id().to_string();
-            let _config = state.config.read().await.clone();
-            let factory = state.factory.read().await.clone();
-            let handle = crate::commands::shell::build_shell(&current_id, &factory);
-            manager.insert(
-                current_id,
-                handle.shell,
-                handle.llm,
-                handle.history,
-                handle.llm_rx,
-            );
-            let _ = app.emit(
-                "chat-message",
-                ChatMessagePayload::from(ChatMessage::System {
-                    content: "History cleared.".into(),
-                }),
-            );
+            rebuild_current_session(state).await?;
+            emit_system(app, "History cleared.");
             Ok(())
         }
-        Some("session") if parts.len() == 1 => {
-            let mgr = state.manager.read().await;
-            let manager = mgr.as_ref().ok_or("No active session")?;
-            let mut lines = vec![format!("Current session: {}", manager.current_id())];
-            lines.push("Sessions:".into());
-            for id in manager.list() {
-                let marker = if id == manager.current_id() {
-                    " → "
-                } else {
-                    "   "
-                };
-                lines.push(format!("{}{}", marker, id));
-            }
-            let _ = app.emit(
-                "chat-message",
-                ChatMessagePayload::from(ChatMessage::System {
-                    content: lines.join("\n"),
-                }),
-            );
-            Ok(())
-        }
-        Some("session") if parts.len() >= 2 => {
-            handle_session_subcommand(app, state, &parts[1..]).await;
-            Ok(())
-        }
+        Some("session") => handle_session_subcommand(app, state, &parts[1..]).await,
         _ => {
-            let _ = app.emit(
-                "chat-message",
-                ChatMessagePayload::from(ChatMessage::System {
-                    content: format!("Unknown command: {full_line}"),
-                }),
-            );
+            emit_system(app, format!("Unknown command: {full_line}"));
             Ok(())
         }
     }
 }
 
-async fn handle_session_subcommand(app: &AppHandle, state: &DesktopState, args: &[&str]) {
+async fn handle_session_subcommand(
+    app: &AppHandle,
+    state: &DesktopState,
+    args: &[&str],
+) -> Result<(), String> {
     let Some(command) = args.first().copied() else {
-        let _ = app.emit(
-            "chat-message",
-            ChatMessagePayload::from(ChatMessage::System {
-                content: "/session requires a sub-command".into(),
-            }),
-        );
-        return;
+        emit_system(app, "/session requires a sub-command");
+        return Ok(());
     };
 
     match command {
         "new" => {
-            let new_id = format!(
-                "session-{}",
-                match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-                    Ok(d) => d.as_secs(),
-                    Err(_) => 0,
-                }
-            );
-            let factory = state.factory.read().await.clone();
-            let workspace = factory.settings.working_dir();
-            let handle = crate::commands::shell::build_shell(&new_id, &factory);
-            {
-                let mut mgr = state.manager.write().await;
-                if let Some(manager) = mgr.as_mut() {
-                    manager.insert(
-                        new_id.clone(),
-                        handle.shell,
-                        handle.llm,
-                        handle.history,
-                        handle.llm_rx,
-                    );
-                    manager
-                        .metadata_store
-                        .insert(SessionMetadata::new(&new_id, &workspace));
-                    let _ = manager.metadata_store.save();
-                    manager.switch(&new_id);
-                }
-            }
-            let _ = app.emit(
-                "chat-message",
-                ChatMessagePayload::from(ChatMessage::System {
-                    content: format!("New session: {}", new_id),
-                }),
-            );
+            let new_id = new_session_impl(state).await?;
+            emit_system(app, format!("New session: {new_id}"));
         }
-        "list" => {
+        "list" | "" => {
+            state.ensure_manager().await?;
             let mgr = state.manager.read().await;
             if let Some(manager) = mgr.as_ref() {
-                let mut lines = vec!["Sessions:".into()];
-                for id in manager.list() {
-                    let marker = if id == manager.current_id() {
-                        " → "
-                    } else {
-                        "   "
-                    };
-                    lines.push(format!("{}{}", marker, id));
-                }
-                let _ = app.emit(
-                    "chat-message",
-                    ChatMessagePayload::from(ChatMessage::System {
-                        content: lines.join("\n"),
-                    }),
-                );
+                emit_system(app, session_lines(manager).join("\n"));
             }
         }
         "load" => {
             let Some(id) = args.get(1).copied() else {
-                let _ = app.emit(
-                    "chat-message",
-                    ChatMessagePayload::from(ChatMessage::System {
-                        content: "/session load requires a session id".into(),
-                    }),
-                );
-                return;
+                emit_system(app, "/session load requires a session id");
+                return Ok(());
             };
-            let factory = state.factory.read().await.clone();
-            let workspace = factory.settings.working_dir();
-            let _head = match factory.redb.load_session(id).await {
-                Ok(Some(h)) => h,
-                Ok(None) => {
-                    let _ = app.emit(
-                        "chat-message",
-                        ChatMessagePayload::from(ChatMessage::System {
-                            content: format!("Session '{}' not found.", id),
-                        }),
-                    );
-                    return;
-                }
-                Err(err) => {
-                    let _ = app.emit(
-                        "chat-message",
-                        ChatMessagePayload::from(ChatMessage::System {
-                            content: format!("Load error: {err}"),
-                        }),
-                    );
-                    return;
-                }
-            };
-            let messages: Vec<ChatMessage> = match factory.redb.load_messages_for_session(id).await
-            {
-                Ok(msgs) => msgs.into_iter().map(|(_, m)| m).collect(),
-                Err(err) => {
-                    let _ = app.emit(
-                        "chat-message",
-                        ChatMessagePayload::from(ChatMessage::System {
-                            content: format!("Load messages error: {err}"),
-                        }),
-                    );
-                    return;
-                }
-            };
-            let _config = state.config.read().await.clone();
-            let handle = crate::commands::shell::build_shell(id, &factory);
-            {
-                let mut mgr = state.manager.write().await;
-                if let Some(manager) = mgr.as_mut() {
-                    manager.insert(
-                        id.to_string(),
-                        handle.shell,
-                        handle.llm,
-                        handle.history,
-                        handle.llm_rx,
-                    );
-                    if manager.metadata_store.get(id).created_at == 0 {
-                        manager
-                            .metadata_store
-                            .insert(SessionMetadata::new(id, &workspace));
-                        let _ = manager.metadata_store.save();
-                    }
-                    manager.switch(id);
-                }
-            }
-            let _ = app.emit(
-                "chat-message",
-                ChatMessagePayload::from(ChatMessage::System {
-                    content: format!("Session '{}' loaded ({} messages).", id, messages.len()),
-                }),
-            );
+            load_session(app, state, id).await?;
         }
-        other => {
-            let _ = app.emit(
-                "chat-message",
-                ChatMessagePayload::from(ChatMessage::System {
-                    content: format!("Unknown /session {} command", other),
-                }),
-            );
-        }
+        other => emit_system(app, format!("Unknown /session {} command", other)),
     }
+    Ok(())
 }
 
 /// Help text for slash commands.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
 fn print_help() -> String {
-    let lines = vec![
-        "Commands:".into(),
-        "  <text>               Send a message to the LLM".into(),
-        "  /help                Show this help".into(),
-        "  /quit                Exit the app".into(),
-        "  /clear               Clear conversation history".into(),
-        "  /session             Show current session".into(),
-        "  /session new         Create a new session".into(),
-        "  /session list        List sessions".into(),
-        "  /session load <id>   Load a persisted session".into(),
-        String::new(),
-        "Environment variables:".into(),
-        "  BRIOCHE_API_KEY      API key".into(),
-        "  BRIOCHE_MODEL        LLM model (default: gpt-4o-mini)".into(),
-        "  BRIOCHE_BASE_URL     API endpoint".into(),
-    ];
-    lines.join("\n")
+    [
+        "Commands:",
+        "  <text>               Send a message to the LLM",
+        "  /help                Show this help",
+        "  /quit                Exit the app",
+        "  /clear               Clear conversation history",
+        "  /session             Show current session",
+        "  /session new         Create a new session",
+        "  /session list        List sessions",
+        "  /session load <id>   Load a persisted session",
+        "",
+        "Environment variables:",
+        "  BRIOCHE_API_KEY      API key",
+        "  BRIOCHE_MODEL        LLM model (default: gpt-4o-mini)",
+        "  BRIOCHE_BASE_URL     API endpoint",
+    ]
+    .join("\n")
 }
 
 /// Session info returned to the frontend.
@@ -658,7 +485,14 @@ pub async fn list_sessions(
         .list()
         .into_iter()
         .map(|id| {
-            let meta = manager.metadata_store.get(id);
+            let meta = match manager.metadata(id) {
+                Some(meta) => meta,
+                None => SessionMetadata {
+                    id: id.clone(),
+                    created_at: 0,
+                    workspace: String::new(),
+                },
+            };
             SessionInfo {
                 id: id.clone(),
                 active: id == &current,
@@ -676,7 +510,6 @@ pub async fn list_sessions(
             .cmp(&b.workspace)
             .then_with(|| b.created_at.cmp(&a.created_at)),
     });
-
     Ok(sessions)
 }
 
@@ -685,10 +518,10 @@ pub async fn list_sessions(
 /// Refs: I-Shell-Runtime-OnlyIO
 ///
 /// # Complexity
-/// O(log S) switch where S is the number of active sessions. Emits Tauri events.
+/// O(S + M) where S is the number of sessions and M is memory provider initialization.
 ///
 /// # Panic / Safety
-/// Never panics. Returns Err if the session ID is not found.
+/// Never panics. Returns Err if the session is not found or memory provider initialization fails.
 #[tauri::command]
 pub async fn switch_session(
     app: AppHandle,
@@ -696,21 +529,18 @@ pub async fn switch_session(
     id: String,
 ) -> Result<(), String> {
     state.ensure_manager().await?;
-    let mut mgr = state.manager.write().await;
-    let manager = mgr.as_mut().ok_or("No active session")?;
-    if !manager.list().iter().any(|sid| sid == &&id) {
-        return Err(format!("Session '{}' not found", id));
+    let factory = state.factory.read().await.clone();
+    {
+        let mut mgr = state.manager.write().await;
+        let manager = mgr.as_mut().ok_or("No active session")?;
+        if !manager.list().iter().any(|sid| sid == &&id) {
+            return Err(format!("Session '{}' not found", id));
+        }
+        manager.switch(&id);
     }
-    manager.switch(&id);
-    drop(mgr);
-    // Emit a system message so the frontend knows we switched
-    let _ = app.emit(
-        "chat-message",
-        ChatMessagePayload::from(ChatMessage::System {
-            content: format!("Switched to session: {}", id),
-        }),
-    );
-    // Emit the session-changed event so the frontend can refresh
+    let workspace = factory.settings.working_dir();
+    DesktopState::initialize_memory_providers(&factory, &id, &workspace)?;
+    emit_system(&app, format!("Switched to session: {id}"));
     let _ = app.emit("session-changed", id);
     Ok(())
 }
@@ -723,7 +553,7 @@ pub async fn switch_session(
 /// O(log S) deletion where S is the number of active sessions. Saves changes to disk.
 ///
 /// # Panic / Safety
-/// Never panics. Returns Err if attempting to delete the active session.
+/// Never panics. Returns Err if the session is active, missing, or metadata cannot be saved.
 #[tauri::command]
 pub async fn delete_session(
     app: AppHandle,
@@ -737,35 +567,19 @@ pub async fn delete_session(
         return Err("Cannot delete the active session".into());
     }
     manager.sessions.remove(&id);
-    manager.metadata_store.remove(&id);
-    let _ = manager.metadata_store.save();
+    manager.remove_metadata(&id)?;
     drop(mgr);
     let _ = app.emit("sessions-updated", ());
     Ok(())
 }
 
-/// Creates a new session and switches to it.
-///
-/// Refs: I-Shell-Runtime-OnlyIO
-///
-/// # Complexity
-/// O(1) in-memory creation and storage writing. Rebuilds the shell in background.
-///
-/// # Panic / Safety
-/// Never panics. Returns Err if manager is uninitialized.
-#[tauri::command]
-pub async fn new_session(app: AppHandle, state: State<'_, DesktopState>) -> Result<String, String> {
+async fn new_session_impl(state: &DesktopState) -> Result<String, String> {
     state.ensure_manager().await?;
-    let new_id = format!(
-        "session-{}",
-        match std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH) {
-            Ok(d) => d.as_secs(),
-            Err(_) => 0,
-        }
-    );
+    let new_id = format!("session-{}", system_time_secs());
     let factory = state.factory.read().await.clone();
     let workspace = factory.settings.working_dir();
     let handle = crate::commands::shell::build_shell(&new_id, &factory);
+    DesktopState::initialize_memory_providers(&factory, &new_id, &workspace)?;
     {
         let mut mgr = state.manager.write().await;
         let manager = mgr.as_mut().ok_or("No active session")?;
@@ -776,28 +590,90 @@ pub async fn new_session(app: AppHandle, state: State<'_, DesktopState>) -> Resu
             handle.history,
             handle.llm_rx,
         );
-        manager
-            .metadata_store
-            .insert(SessionMetadata::new(&new_id, &workspace));
-        let _ = manager.metadata_store.save();
+        manager.insert_metadata(SessionMetadata::new(&new_id, &workspace))?;
         manager.switch(&new_id);
     }
-    let _ = app.emit("session-changed", new_id.clone());
-    let _ = app.emit("sessions-updated", ());
     Ok(new_id)
 }
 
-/// Attaches a file or folder reference to the current conversation.
-///
-/// The reference is emitted as a system message so the model sees it.
+/// Creates a new session and switches to it.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
 ///
 /// # Complexity
-/// O(1) file metadata read and event emission.
+/// O(S + M) where S is shell creation and M is memory provider initialization.
 ///
 /// # Panic / Safety
-/// Never panics. Returns Err if file or folder metadata cannot be read.
+/// Never panics. Returns Err if shell build, memory provider initialization, or metadata save fails.
+#[tauri::command]
+pub async fn new_session(app: AppHandle, state: State<'_, DesktopState>) -> Result<String, String> {
+    let id = new_session_impl(state.inner()).await?;
+    let _ = app.emit("session-changed", id.clone());
+    let _ = app.emit("sessions-updated", ());
+    Ok(id)
+}
+
+async fn load_session(app: &AppHandle, state: &DesktopState, id: &str) -> Result<(), String> {
+    state.ensure_manager().await?;
+    let factory = state.factory.read().await.clone();
+    match factory.redb.load_session(id).await {
+        Ok(None) => {
+            let message = format!("Session '{}' not found.", id);
+            emit_system(app, message.clone());
+            return Err(message);
+        }
+        Err(err) => {
+            let message = format!("Load error: {err}");
+            emit_system(app, message.clone());
+            return Err(message);
+        }
+        Ok(Some(_)) => {}
+    }
+    let messages: Vec<ChatMessage> = match factory.redb.load_messages_for_session(id).await {
+        Ok(msgs) => msgs.into_iter().map(|(_, m)| m).collect(),
+        Err(err) => {
+            let message = format!("Load messages error: {err}");
+            emit_system(app, message.clone());
+            return Err(message);
+        }
+    };
+    let workspace = factory.settings.working_dir();
+    let handle = crate::commands::shell::build_shell(id, &factory);
+    DesktopState::initialize_memory_providers(&factory, id, &workspace)?;
+    for msg in &messages {
+        handle.llm.push_message(msg.clone()).await;
+    }
+    {
+        let mut mgr = state.manager.write().await;
+        let manager = mgr.as_mut().ok_or("No active session")?;
+        manager.insert(
+            id.to_string(),
+            handle.shell,
+            handle.llm,
+            handle.history,
+            handle.llm_rx,
+        );
+        if !matches!(manager.metadata(id), Some(meta) if meta.created_at != 0) {
+            manager.insert_metadata(SessionMetadata::new(id, &workspace))?;
+        }
+        manager.switch(id);
+    }
+    emit_system(
+        app,
+        format!("Session '{}' loaded ({} messages).", id, messages.len()),
+    );
+    Ok(())
+}
+
+/// Attaches a file or folder reference to the current conversation.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) plus the cost of reading filesystem metadata. Sends one user message.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if the path cannot be read or no session is active.
 #[tauri::command]
 pub async fn attach_reference(
     app: AppHandle,
@@ -810,24 +686,32 @@ pub async fn attach_reference(
         .map_err(|e| format!("Failed to read reference: {e}"))?;
     let kind = if metadata.is_dir() { "folder" } else { "file" };
     let content = format!("User attached {kind}: {path}");
-    let _ = app.emit(
-        "chat-message",
-        ChatMessagePayload::from(ChatMessage::System { content }),
-    );
+    {
+        let mgr = state.manager.read().await;
+        let manager = mgr.as_ref().ok_or("No active session")?;
+        let entry = manager
+            .get(manager.current_id())
+            .ok_or("No active session")?;
+        entry
+            .llm
+            .push_message(ChatMessage::User {
+                content: content.clone(),
+            })
+            .await;
+    }
+    emit_system(&app, content);
     Ok(())
 }
 
 /// Sends an image attachment for multimodal models.
 ///
-/// The image bytes are read from disk and encoded as a data URL.
-///
 /// Refs: I-Shell-Runtime-OnlyIO
 ///
 /// # Complexity
-/// O(B) where B is the number of image bytes read and base64-encoded.
+/// O(B) where B is the image file size. Encodes the image as base64.
 ///
 /// # Panic / Safety
-/// Never panics. Returns Err if the image file cannot be read.
+/// Never panics. Returns Err if the image cannot be read or no session is active.
 #[tauri::command]
 pub async fn send_image(
     app: AppHandle,
@@ -851,11 +735,28 @@ pub async fn send_image(
     let b64 = base64_simd::STANDARD.encode_to_string(&bytes);
     let data_url = format!("data:{mime};base64,{b64}");
     let content = format!("User sent an image: {path}\n\n![image]({data_url})");
-    let _ = app.emit(
-        "chat-message",
-        ChatMessagePayload::from(ChatMessage::System { content }),
-    );
+    {
+        let mgr = state.manager.read().await;
+        let manager = mgr.as_ref().ok_or("No active session")?;
+        let entry = manager
+            .get(manager.current_id())
+            .ok_or("No active session")?;
+        entry
+            .llm
+            .push_message(ChatMessage::User {
+                content: content.clone(),
+            })
+            .await;
+    }
+    emit_system(&app, content.clone());
     Ok(data_url)
+}
+
+fn system_time_secs() -> u64 {
+    match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        Ok(d) => d.as_secs(),
+        Err(_) => 0,
+    }
 }
 
 #[cfg(test)]
@@ -863,100 +764,55 @@ mod tests {
     use super::*;
     use crate::state::DesktopState;
 
-    /// Verifies that `DesktopState` can be created and `ensure_manager`
-    /// initializes the session manager lazily.
-    #[tokio::test]
-    async fn ensure_manager_lazily_initializes() {
-        let init_result = DesktopState::new_with_path("/tmp/brioche-desktop-test-ensure.redb");
-        assert!(init_result.is_ok(), "test state should initialize");
-        let state = match init_result {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-        assert!(state.manager.read().await.is_none());
-        assert!(
-            state.ensure_manager().await.is_ok(),
-            "ensure_manager should succeed"
-        );
-        assert!(state.manager.read().await.is_some());
+    async fn test_state(path: &str) -> Result<DesktopState, String> {
+        DesktopState::new_with_path(path)
     }
 
-    /// Verifies that `get_messages` returns the system prompt for a
-    /// fresh session.
-    #[tokio::test]
-    async fn get_messages_has_system_prompt_on_fresh_session() {
-        let init_result = DesktopState::new_with_path("/tmp/brioche-desktop-test-messages.redb");
-        assert!(init_result.is_ok(), "test state should initialize");
-        let state = match init_result {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-        // Retry a few times to account for async system prompt injection.
-        let timeout_result = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+    async fn wait_for_system_message(
+        state: &DesktopState,
+    ) -> Result<Vec<ChatMessagePayload>, String> {
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
             loop {
-                let msgs = match get_messages_impl(&state).await {
-                    Ok(m) => m,
-                    Err(_) => return Vec::new(),
-                };
+                let msgs = get_messages_impl(state).await?;
                 if msgs.iter().any(|m| matches!(m.role, ChatRole::System)) {
-                    break msgs;
+                    return Ok::<_, String>(msgs);
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             }
         })
-        .await;
-        assert!(
-            timeout_result.is_ok(),
-            "system prompt should appear within 2s"
-        );
-        let messages = match timeout_result {
-            Ok(m) => m,
-            Err(_) => return,
-        };
+        .await
+        .map_err(|_| "system prompt should appear within 2s".to_string())?
+    }
+
+    #[tokio::test]
+    async fn ensure_manager_lazily_initializes() -> Result<(), String> {
+        let state = test_state("/tmp/brioche-desktop-test-ensure.redb").await?;
+        assert!(state.manager.read().await.is_none());
+        state.ensure_manager().await?;
+        assert!(state.manager.read().await.is_some());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn get_messages_has_system_prompt_on_fresh_session() -> Result<(), String> {
+        let state = test_state("/tmp/brioche-desktop-test-messages.redb").await?;
+        let messages = wait_for_system_message(&state).await?;
         assert!(
             messages.iter().any(|m| matches!(m.role, ChatRole::System)),
             "expected at least one system message in fresh session history"
         );
+        Ok(())
     }
 
-    /// Verifies that `clear_messages` resets the current session.
     #[tokio::test]
-    async fn clear_messages_resets_session() {
-        let init_result = DesktopState::new_with_path("/tmp/brioche-desktop-test-clear.redb");
-        assert!(init_result.is_ok(), "test state should initialize");
-        let state = match init_result {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-        assert!(
-            clear_messages_impl(&state).await.is_ok(),
-            "clear_messages should succeed"
-        );
-        // Retry a few times to account for async system prompt injection.
-        let timeout_result = tokio::time::timeout(std::time::Duration::from_secs(2), async {
-            loop {
-                let msgs = match get_messages_impl(&state).await {
-                    Ok(m) => m,
-                    Err(_) => return Vec::new(),
-                };
-                if msgs.iter().any(|m| matches!(m.role, ChatRole::System)) {
-                    break msgs;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            }
-        })
-        .await;
-        assert!(
-            timeout_result.is_ok(),
-            "system prompt should appear within 2s"
-        );
-        let messages = match timeout_result {
-            Ok(m) => m,
-            Err(_) => return,
-        };
+    async fn clear_messages_resets_session() -> Result<(), String> {
+        let state = test_state("/tmp/brioche-desktop-test-clear.redb").await?;
+        rebuild_current_session(&state).await?;
+        let messages = wait_for_system_message(&state).await?;
         assert!(
             messages.iter().any(|m| matches!(m.role, ChatRole::System)),
             "expected at least one system message after clear"
         );
+        Ok(())
     }
 }

@@ -18,7 +18,13 @@ pub use brioche_shell_persistence::extensions::memory_provider::{
 /// O(N) where N is the JSON memory database size. Performs blocking disk read.
 ///
 /// # Panic / Safety
-/// Never panics. Returns empty memory provider if loading fails.
+/// Never panics. Logs a warning and returns default empty provider if loading fails.
 pub fn load_store() -> LocalMemoryProvider {
-    LocalMemoryProvider::load()
+    match LocalMemoryProvider::load() {
+        Ok(store) => store,
+        Err(err) => {
+            tracing::warn!("Failed to load memory store, using defaults: {err}");
+            LocalMemoryProvider::default()
+        }
+    }
 }
