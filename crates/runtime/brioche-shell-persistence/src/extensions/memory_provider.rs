@@ -1,8 +1,9 @@
 //! Modular memory provider extension point.
 //!
-//! Memory systems such as Honcho, Hindsight or Mem0 can be added by
-//! implementing [`MemoryProvider`]. The desktop ships with [`LocalMemoryProvider`]
-//! as the default, backed by a JSON file in the user's config directory.
+//! Generic AMP Core-compatible memory endpoints and custom providers can be
+//! added by implementing [`MemoryProvider`]. The desktop ships with
+//! [`LocalMemoryProvider`] as the default, backed by a JSON file in the user's
+//! config directory.
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
@@ -302,94 +303,6 @@ impl MemoryProvider for LocalMemoryProvider {
             .take(limit)
             .map(|(_, e)| e.clone())
             .collect())
-    }
-}
-/// A memory provider that has not been configured yet.
-///
-/// Used as a placeholder for external backends such as Honcho, Hindsight, or Mem0
-/// until the user supplies credentials or an endpoint.
-///
-/// Refs: I-Shell-Runtime-OnlyIO
-#[derive(Clone, Debug, Default)]
-pub struct UnconfiguredMemoryProvider {
-    /// Provider identifier reported in metadata.
-    pub id: String,
-    /// Human-readable name reported in metadata.
-    pub name: String,
-    /// Hint shown when the user tries to write through this provider.
-    pub config_hint: String,
-}
-
-impl UnconfiguredMemoryProvider {
-    /// Creates a placeholder for the Honcho backend.
-    ///
-    /// Refs: I-Shell-Runtime-OnlyIO
-    pub fn honcho() -> Self {
-        Self {
-            id: "memory-honcho".into(),
-            name: "Honcho memory".into(),
-            config_hint: "Set the API endpoint and key in settings.".into(),
-        }
-    }
-
-    /// Creates a placeholder for the Hindsight backend.
-    ///
-    /// Refs: I-Shell-Runtime-OnlyIO
-    pub fn hindsight() -> Self {
-        Self {
-            id: "memory-hindsight".into(),
-            name: "Hindsight memory".into(),
-            config_hint: "Set the API endpoint and key in settings.".into(),
-        }
-    }
-
-    /// Creates a placeholder for the Mem0 backend.
-    ///
-    /// Refs: I-Shell-Runtime-OnlyIO
-    pub fn mem0() -> Self {
-        Self {
-            id: "memory-mem0".into(),
-            name: "Mem0 memory".into(),
-            config_hint: "Set the API key in settings.".into(),
-        }
-    }
-}
-
-impl MemoryProvider for UnconfiguredMemoryProvider {
-    fn metadata(&self) -> ExtensionMetadata {
-        ExtensionMetadata {
-            id: self.id.clone(),
-            name: self.name.clone(),
-            version: "0.1.0".into(),
-            default_panel: Some(PanelSlot::Right),
-            enabled: false,
-        }
-    }
-
-    fn list(&self, _query: &MemoryQuery) -> Result<Vec<MemoryEntry>, String> {
-        Ok(Vec::new())
-    }
-
-    fn set(&mut self, _key: String, _value: String, _category: String) -> Result<(), String> {
-        Err(format!(
-            "{} provider is not configured. {}",
-            self.name, self.config_hint
-        ))
-    }
-
-    fn delete(&mut self, _key: &str) -> Result<bool, String> {
-        Err(format!(
-            "{} provider is not configured. {}",
-            self.name, self.config_hint
-        ))
-    }
-
-    fn recall(
-        &self,
-        _conversation_summary: &str,
-        _limit: usize,
-    ) -> Result<Vec<MemoryEntry>, String> {
-        Ok(Vec::new())
     }
 }
 

@@ -452,19 +452,13 @@ impl SettingsSectionProvider for MemorySettingsSection {
             module_id: "memory".into(),
             title: "Memory Providers".into(),
             order: 40,
-            keywords: vec![
-                "memory".into(),
-                "honcho".into(),
-                "hindsight".into(),
-                "mem0".into(),
-                "provider".into(),
-            ],
+            keywords: vec!["memory".into(), "provider".into()],
             fields: vec![
                 SettingsField {
                     key: "memory.active_providers".into(),
                     label: "Active providers".into(),
                     field_type: FieldType::MultiSelect,
-                    description: Some("Memory systems consulted during conversations. Built-in: memory-local. Remote AMP endpoints configured below are also listed automatically.".into()),
+                    description: Some("Memory systems consulted during conversations. Brioche 0.1 supports Local memory and configured AMP endpoints only.".into()),
                     placeholder: None,
                     options: vec![
                         SettingsOption {
