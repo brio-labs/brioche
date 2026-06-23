@@ -71,6 +71,26 @@ without modifying the Tauri shell or the kernel:
 - `/session load <id>` — load a persisted session
 - `/quit` — exit the app
 
+## Distribution
+
+Brioche Desktop 0.1 release binaries are currently **unsigned and unnotarized**.
+
+Because the project does not yet have code-signing certificates or notarization
+set up, platform-specific security warnings are expected when downloading or
+running a prebuilt binary:
+
+- **macOS**: Gatekeeper will show a warning such as "cannot be opened because the
+  developer cannot be verified" or "the application is damaged". To run the app,
+  right-click it and choose **Open**, or build from source.
+- **Windows**: Microsoft Defender SmartScreen may display a "Windows protected
+  your PC" or "Unknown publisher" warning. Click **More info** → **Run anyway**
+  to proceed, or build from source.
+- **Linux (AppImage)**: The AppImage is unsigned. Some distributions may warn
+  about executing downloaded files; you may need to mark it executable with
+  `chmod +x` before running. For maximum trust, build from source.
+
+To build from source, see the [Quick Start](#quick-start) section above.
+
 ## Troubleshooting
 
 ### "Connection refused" error

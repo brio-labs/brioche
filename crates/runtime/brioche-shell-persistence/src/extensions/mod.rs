@@ -185,6 +185,7 @@ impl ExtensionRegistry {
         registry.register_settings_section(settings_sections::model_identity_section());
         registry.register_settings_section(settings_sections::context_engine_section());
         registry.register_settings_section(settings_sections::memory_section());
+        registry.register_settings_section(settings_sections::tool_section());
         registry.register_footer_metric(footer::version_metric());
         registry.register_footer_metric(footer::session_duration_metric());
         registry.register_footer_metric(footer::current_model_metric());

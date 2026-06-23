@@ -82,6 +82,12 @@ jobs:
         if: matrix.profile == 'desktop' || matrix.profile == 'full'
 
       - uses: Swatinem/rust-cache@v2
+
+      # NOTE: Code signing and notarization are not configured for Brioche
+      # Desktop 0.1. Release artifacts produced by this workflow are unsigned.
+      # Platform-specific security warnings (macOS Gatekeeper, Windows
+      # SmartScreen, Linux AppImage) are expected. Do not add signing secrets
+      # or certificates here without a dedicated secret-management review.
       - name: Build release
         run: cargo build --workspace --profile ${{ matrix.profile }} --target ${{ matrix.target }}
 

@@ -14,6 +14,18 @@ import {
 	setToolEnabled,
 	isTauri,
 } from "../ipc";
+import { useSettingsStore } from "./settingsStore";
+
+const USER_TOOL_SOURCE = "user-json";
+
+function getUserToolsEnabled(): boolean {
+	return useSettingsStore.getState().getSetting("tools.user_tools_enabled") === true;
+}
+
+export function isUserTool(tool: ToolDescriptor): boolean {
+	return tool.source === USER_TOOL_SOURCE;
+}
+
 
 // ============================================================================
 // 1. Skills State Store
@@ -277,48 +289,61 @@ interface ToolsStore {
 	isLoading: boolean;
 	error: string | null;
 	isTauriAvailable: boolean;
+	userToolsEnabled: boolean;
 	loadTools: () => Promise<void>;
 	toggleTool: (id: string, enabled: boolean) => Promise<void>;
 }
+
 
 /**
  * Zustand store to manage active/inactive status and listings of LLM tools.
  *
  * Refs: I-Ui-ToolsState
  */
-export const useToolsStore = create<ToolsStore>((set, get) => ({
-	tools: [],
-	isLoading: false,
-	error: null,
-	isTauriAvailable: isTauri(),
+export const useToolsStore = create<ToolsStore>((set, get) => {
+	const syncUserToolsEnabled = () => {
+		set({ userToolsEnabled: getUserToolsEnabled() });
+	};
 
-	loadTools: async () => {
-		if (!get().isTauriAvailable) {
-			set({ tools: [], error: null, isLoading: false });
-			return;
-		}
-		set({ isLoading: true, error: null });
-		try {
-			const data = await listTools();
-			set({ tools: data, isLoading: false });
-		} catch (err) {
-			console.error("Failed to load tools:", err);
-			set({ error: String(err), isLoading: false });
-		}
-	},
+	// Keep the security gate state in sync when the user toggles the setting.
+	useSettingsStore.subscribe(syncUserToolsEnabled);
+	syncUserToolsEnabled();
 
-	toggleTool: async (id, enabled) => {
-		if (!get().isTauriAvailable) {
-			set({ error: "Tool toggling requires the Tauri desktop runtime." });
-			return;
-		}
-		set({ error: null });
-		try {
-			await setToolEnabled(id, enabled);
-			await get().loadTools();
-		} catch (err) {
-			console.error("Failed to toggle tool:", err);
-			set({ error: String(err) });
-		}
-	},
-}));
+	return {
+		tools: [],
+		isLoading: false,
+		error: null,
+		isTauriAvailable: isTauri(),
+		userToolsEnabled: false,
+
+		loadTools: async () => {
+			if (!get().isTauriAvailable) {
+				set({ tools: [], error: null, isLoading: false });
+				return;
+			}
+			set({ isLoading: true, error: null });
+			try {
+				const data = await listTools();
+				set({ tools: data, isLoading: false });
+			} catch (err) {
+				console.error("Failed to load tools:", err);
+				set({ error: String(err), isLoading: false });
+			}
+		},
+
+		toggleTool: async (id, enabled) => {
+			if (!get().isTauriAvailable) {
+				set({ error: "Tool toggling requires the Tauri desktop runtime." });
+				return;
+			}
+			set({ error: null });
+			try {
+				await setToolEnabled(id, enabled);
+				await get().loadTools();
+			} catch (err) {
+				console.error("Failed to toggle tool:", err);
+				set({ error: String(err) });
+			}
+		},
+	};
+});

@@ -37,6 +37,7 @@ pub async fn set_settings(
     state: State<'_, DesktopState>,
     settings: Settings,
 ) -> Result<(), String> {
+    settings.validate()?;
     settings.save()?;
 
     // Rebuild the extension registry from the new settings so that AMP
