@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { readDirectory, createFile, deleteFile, writeFile, createDirectory } from '../ipc';
 import type { DirEntry } from '../ipc';
-import { useSettingsStore } from './settingsStore';
+import { useSettingsStore, getWorkingDir } from './settingsStore';
 
 interface FileStore {
     currentPath: string;
@@ -34,7 +34,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
     navigateUp: async () => {
         const { currentPath } = get();
         if (!currentPath) return;
-        const workspaceRoot = (useSettingsStore.getState().settings.ui as any)?.working_dir || '';
+        const workspaceRoot = getWorkingDir(useSettingsStore.getState().settings);
         if (currentPath === workspaceRoot) return;
         const parent = currentPath.split('/').slice(0, -1).join('/') || '/';
         await get().loadDirectory(parent);
