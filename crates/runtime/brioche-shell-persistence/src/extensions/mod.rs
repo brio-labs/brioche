@@ -36,7 +36,6 @@ pub use context::{CompressorContextEngine, ContextEngine, ContextEngineInput};
 pub use footer::{FooterMetric, FooterMetricProvider};
 pub use memory_provider::{
     LocalMemoryProvider, MemoryProvider, MemoryQuery, MemorySessionContext,
-    UnconfiguredMemoryProvider,
 };
 use serde::{Deserialize, Serialize};
 pub use settings_sections::{SettingsSection, SettingsSectionProvider};
@@ -171,8 +170,6 @@ impl ExtensionRegistry {
             };
             registry.register_memory_provider(Arc::new(AmpMemoryProvider::new(amp_endpoint)));
         }
-        registry.register_memory_provider(Arc::new(UnconfiguredMemoryProvider::honcho()));
-        registry.register_memory_provider(Arc::new(UnconfiguredMemoryProvider::hindsight()));
         registry.register_tool_provider(Arc::new(match ToolRegistry::load() {
             Ok(registry) => registry,
             Err(err) => {
