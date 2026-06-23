@@ -91,7 +91,7 @@ pub trait MemoryProvider: Send + Sync {
     /// Called once per session so the provider can scope its operations.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn initialize(&mut self, _ctx: MemorySessionContext) -> Result<(), String> {
+    fn initialize(&self, _ctx: MemorySessionContext) -> Result<(), String> {
         Ok(())
     }
 
@@ -183,15 +183,13 @@ impl LocalMemoryProvider {
     /// O(N) where N is the size of the JSON file on disk. Performs blocking file I/O.
     ///
     /// # Panic / Safety
-    /// Never panics. Returns default empty provider if loading fails.
-    pub fn load() -> Self {
+    /// Never panics. Returns Err if the file cannot be read or parsed.
+    pub fn load() -> Result<Self, String> {
         let path = memory_path();
-        if let Ok(data) = std::fs::read_to_string(&path)
-            && let Ok(store) = serde_json::from_str::<LocalMemoryProvider>(&data)
-        {
-            return store;
-        }
-        Self::default()
+        let data = std::fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read memory store: {e}"))?;
+        serde_json::from_str::<LocalMemoryProvider>(&data)
+            .map_err(|e| format!("Failed to parse memory store: {e}"))
     }
 
     /// Saves the local memory store to disk.
@@ -306,118 +304,62 @@ impl MemoryProvider for LocalMemoryProvider {
             .collect())
     }
 }
-
-/// Honcho memory provider stub.
+/// A memory provider that has not been configured yet.
+///
+/// Used as a placeholder for external backends such as Honcho, Hindsight, or Mem0
+/// until the user supplies credentials or an endpoint.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
-///
-/// # Complexity
-/// O(1) stub provider.
-///
-/// # Panic / Safety
-/// Never panics.
 #[derive(Clone, Debug, Default)]
-pub struct HonchoMemoryProvider;
+pub struct UnconfiguredMemoryProvider {
+    /// Provider identifier reported in metadata.
+    pub id: String,
+    /// Human-readable name reported in metadata.
+    pub name: String,
+    /// Hint shown when the user tries to write through this provider.
+    pub config_hint: String,
+}
 
-impl MemoryProvider for HonchoMemoryProvider {
-    fn metadata(&self) -> ExtensionMetadata {
-        ExtensionMetadata {
+impl UnconfiguredMemoryProvider {
+    /// Creates a placeholder for the Honcho backend.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn honcho() -> Self {
+        Self {
             id: "memory-honcho".into(),
             name: "Honcho memory".into(),
-            version: "0.1.0".into(),
-            default_panel: Some(PanelSlot::Right),
-            enabled: false,
+            config_hint: "Set the API endpoint and key in settings.".into(),
         }
     }
 
-    fn list(&self, _query: &MemoryQuery) -> Result<Vec<MemoryEntry>, String> {
-        Ok(Vec::new())
-    }
-
-    fn set(&mut self, _key: String, _value: String, _category: String) -> Result<(), String> {
-        Err("Honcho provider is not configured. Set the API endpoint and key in settings.".into())
-    }
-
-    fn delete(&mut self, _key: &str) -> Result<bool, String> {
-        Err("Honcho provider is not configured. Set the API endpoint and key in settings.".into())
-    }
-
-    fn recall(
-        &self,
-        _conversation_summary: &str,
-        _limit: usize,
-    ) -> Result<Vec<MemoryEntry>, String> {
-        Ok(Vec::new())
-    }
-}
-
-/// Hindsight memory provider stub.
-///
-/// Refs: I-Shell-Runtime-OnlyIO
-///
-/// # Complexity
-/// O(1) stub provider.
-///
-/// # Panic / Safety
-/// Never panics.
-#[derive(Clone, Debug, Default)]
-pub struct HindsightMemoryProvider;
-
-impl MemoryProvider for HindsightMemoryProvider {
-    fn metadata(&self) -> ExtensionMetadata {
-        ExtensionMetadata {
+    /// Creates a placeholder for the Hindsight backend.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn hindsight() -> Self {
+        Self {
             id: "memory-hindsight".into(),
             name: "Hindsight memory".into(),
-            version: "0.1.0".into(),
-            default_panel: Some(PanelSlot::Right),
-            enabled: false,
+            config_hint: "Set the API endpoint and key in settings.".into(),
         }
     }
 
-    fn list(&self, _query: &MemoryQuery) -> Result<Vec<MemoryEntry>, String> {
-        Ok(Vec::new())
-    }
-
-    fn set(&mut self, _key: String, _value: String, _category: String) -> Result<(), String> {
-        Err(
-            "Hindsight provider is not configured. Set the API endpoint and key in settings."
-                .into(),
-        )
-    }
-
-    fn delete(&mut self, _key: &str) -> Result<bool, String> {
-        Err(
-            "Hindsight provider is not configured. Set the API endpoint and key in settings."
-                .into(),
-        )
-    }
-
-    fn recall(
-        &self,
-        _conversation_summary: &str,
-        _limit: usize,
-    ) -> Result<Vec<MemoryEntry>, String> {
-        Ok(Vec::new())
+    /// Creates a placeholder for the Mem0 backend.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn mem0() -> Self {
+        Self {
+            id: "memory-mem0".into(),
+            name: "Mem0 memory".into(),
+            config_hint: "Set the API key in settings.".into(),
+        }
     }
 }
 
-/// Mem0 memory provider stub.
-///
-/// Refs: I-Shell-Runtime-OnlyIO
-///
-/// # Complexity
-/// O(1) stub provider.
-///
-/// # Panic / Safety
-/// Never panics.
-#[derive(Clone, Debug, Default)]
-pub struct Mem0MemoryProvider;
-
-impl MemoryProvider for Mem0MemoryProvider {
+impl MemoryProvider for UnconfiguredMemoryProvider {
     fn metadata(&self) -> ExtensionMetadata {
         ExtensionMetadata {
-            id: "memory-mem0".into(),
-            name: "Mem0 memory".into(),
+            id: self.id.clone(),
+            name: self.name.clone(),
             version: "0.1.0".into(),
             default_panel: Some(PanelSlot::Right),
             enabled: false,
@@ -429,11 +371,17 @@ impl MemoryProvider for Mem0MemoryProvider {
     }
 
     fn set(&mut self, _key: String, _value: String, _category: String) -> Result<(), String> {
-        Err("Mem0 provider is not configured. Set the API key in settings.".into())
+        Err(format!(
+            "{} provider is not configured. {}",
+            self.name, self.config_hint
+        ))
     }
 
     fn delete(&mut self, _key: &str) -> Result<bool, String> {
-        Err("Mem0 provider is not configured. Set the API key in settings.".into())
+        Err(format!(
+            "{} provider is not configured. {}",
+            self.name, self.config_hint
+        ))
     }
 
     fn recall(

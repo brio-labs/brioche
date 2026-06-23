@@ -35,8 +35,8 @@ pub use amp_memory_client::{AmpMemoryEndpoint, AmpMemoryProvider};
 pub use context::{CompressorContextEngine, ContextEngine, ContextEngineInput};
 pub use footer::{FooterMetric, FooterMetricProvider};
 pub use memory_provider::{
-    HindsightMemoryProvider, HonchoMemoryProvider, LocalMemoryProvider, Mem0MemoryProvider,
-    MemoryProvider, MemoryQuery,
+    LocalMemoryProvider, MemoryProvider, MemoryQuery, MemorySessionContext,
+    UnconfiguredMemoryProvider,
 };
 use serde::{Deserialize, Serialize};
 pub use settings_sections::{SettingsSection, SettingsSectionProvider};
@@ -148,7 +148,52 @@ impl ExtensionRegistry {
         Self::default()
     }
 
-    /// Loads the default Brioche 0.1 extension set.
+    /// Builds the default extension registry from the provided settings.
+    ///
+    /// This is used when settings change at runtime so that AMP endpoints,
+    /// tools, and sections are updated without restarting the application.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn default_set_from_settings(settings: &Settings) -> Self {
+        let mut registry = Self::new();
+        registry.register_context_engine(Arc::new(CompressorContextEngine::default()));
+        registry.register_memory_provider(Arc::new(LocalMemoryProvider::default()));
+        for endpoint in settings.memory_endpoints() {
+            if endpoint.url.trim().is_empty() {
+                continue;
+            }
+            let amp_endpoint = AmpMemoryEndpoint {
+                id: endpoint.id,
+                name: endpoint.name,
+                url: endpoint.url,
+                api_key: endpoint.api_key,
+                scope: endpoint.scope,
+            };
+            registry.register_memory_provider(Arc::new(AmpMemoryProvider::new(amp_endpoint)));
+        }
+        registry.register_memory_provider(Arc::new(UnconfiguredMemoryProvider::honcho()));
+        registry.register_memory_provider(Arc::new(UnconfiguredMemoryProvider::hindsight()));
+        registry.register_tool_provider(Arc::new(match ToolRegistry::load() {
+            Ok(registry) => registry,
+            Err(err) => {
+                tracing::warn!("Failed to load tool registry, using defaults: {err}");
+                ToolRegistry::default()
+            }
+        }));
+        registry.register_skill_provider(Arc::new(SkillRegistry::default()));
+        registry.register_settings_section(settings_sections::chat_section());
+        registry.register_settings_section(settings_sections::model_identity_section());
+        registry.register_settings_section(settings_sections::context_engine_section());
+        registry.register_settings_section(settings_sections::memory_section());
+        registry.register_footer_metric(footer::version_metric());
+        registry.register_footer_metric(footer::session_duration_metric());
+        registry.register_footer_metric(footer::current_model_metric());
+        registry.register_footer_metric(footer::context_remaining_metric());
+        registry.register_footer_metric(footer::context_engine_note_metric());
+        registry
+    }
+
+    /// Loads the default Brioche 0.1 extension set from disk settings.
     ///
     /// This wires the compressor context engine, the local memory provider, the
     /// built-in tool registry, the skill scanner and the core settings sections.
@@ -163,37 +208,7 @@ impl ExtensionRegistry {
     /// # Panic / Safety
     /// Never panics. Returns standard fallback defaults if settings file is corrupt.
     pub fn default_set() -> Self {
-        let mut registry = Self::new();
-        registry.register_context_engine(Arc::new(CompressorContextEngine::default()));
-        registry.register_memory_provider(Arc::new(LocalMemoryProvider::default()));
-        for endpoint in Settings::load().memory_endpoints() {
-            if endpoint.url.trim().is_empty() {
-                continue;
-            }
-            let amp_endpoint = AmpMemoryEndpoint {
-                id: endpoint.id,
-                name: endpoint.name,
-                url: endpoint.url,
-                api_key: endpoint.api_key,
-                scope: endpoint.scope,
-            };
-            registry.register_memory_provider(Arc::new(AmpMemoryProvider::new(amp_endpoint)));
-        }
-        registry.register_memory_provider(Arc::new(HonchoMemoryProvider));
-        registry.register_memory_provider(Arc::new(HindsightMemoryProvider));
-        registry.register_memory_provider(Arc::new(Mem0MemoryProvider));
-        registry.register_tool_provider(Arc::new(ToolRegistry::load()));
-        registry.register_skill_provider(Arc::new(SkillRegistry::default()));
-        registry.register_settings_section(settings_sections::chat_section());
-        registry.register_settings_section(settings_sections::model_identity_section());
-        registry.register_settings_section(settings_sections::context_engine_section());
-        registry.register_settings_section(settings_sections::memory_section());
-        registry.register_footer_metric(footer::version_metric());
-        registry.register_footer_metric(footer::session_duration_metric());
-        registry.register_footer_metric(footer::current_model_metric());
-        registry.register_footer_metric(footer::context_remaining_metric());
-        registry.register_footer_metric(footer::context_engine_note_metric());
-        registry
+        Self::default_set_from_settings(&Settings::load())
     }
 
     /// Registers a context engine.

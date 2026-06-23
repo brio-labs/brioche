@@ -583,6 +583,7 @@ dependencies = [
  "tokio",
  "tokio-test",
  "tokio-util",
+ "tracing",
  "zstd",
 ]
 
