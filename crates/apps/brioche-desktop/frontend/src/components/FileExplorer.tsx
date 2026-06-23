@@ -1,6 +1,6 @@
 import { useCallback, useState, useEffect } from 'react';
 import { useFileStore } from '../stores/fileStore';
-import { useSettingsStore } from '../stores/settingsStore';
+import { useSettingsStore, getWorkingDir } from '../stores/settingsStore';
 import { readFile } from '../ipc';
 import { open } from '@tauri-apps/plugin-dialog';
 import { FolderIcon, FileIcon, ChevronUpIcon, RefreshIcon, TrashIcon, SaveIcon } from './Icons';
@@ -19,9 +19,7 @@ export default function FileExplorer() {
         writeExistingFile
     } = useFileStore();
     const [preview, setPreview] = useState<{ path: string; content: string } | null>(null);
-    const workspaceRoot = useSettingsStore((state) => (state.settings.ui as any)?.working_dir || '');
-
-    // Inline Creation State
+    const workspaceRoot = useSettingsStore((state) => getWorkingDir(state.settings));
     const [isCreating, setIsCreating] = useState(false);
     const [createType, setCreateType] = useState<'file' | 'folder'>('file');
     const [createParentPath, setCreateParentPath] = useState('');
