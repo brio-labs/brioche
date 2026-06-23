@@ -2,7 +2,7 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
-use brioche_shell_persistence::{Settings, profiles};
+use brioche_shell_persistence::{ExtensionRegistry, Settings, profiles};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
@@ -39,10 +39,20 @@ pub async fn set_settings(
 ) -> Result<(), String> {
     settings.save()?;
 
-    // Update state factory settings in memory
+    // Rebuild the extension registry from the new settings so that AMP
+    // endpoint changes take effect immediately.
+    let extensions = ExtensionRegistry::default_set_from_settings(&settings);
+    {
+        let mut ext_guard = state.extensions.write().await;
+        *ext_guard = extensions.clone();
+    }
+
+    // Update state factory settings and config in memory
     {
         let mut factory = state.factory.write().await;
+        factory.config = crate::commands::shell::DesktopConfig::from_settings(&settings);
         factory.settings = settings.clone();
+        factory.extensions = extensions;
     }
 
     // Rebuild the active session's shell if there is one
@@ -57,7 +67,11 @@ pub async fn set_settings(
     if let Some(current_id) = current_id_opt {
         let factory = state.factory.read().await.clone();
         let handle = crate::commands::shell::build_shell(&current_id, &factory);
-
+        DesktopState::initialize_memory_providers(
+            &factory,
+            &current_id,
+            &factory.settings.working_dir(),
+        )?;
         let mut mgr = state.manager.write().await;
         if let Some(manager) = mgr.as_mut() {
             // Get all messages from the old shell/client
@@ -82,10 +96,7 @@ pub async fn set_settings(
 
             // Update workspace metadata in store
             let workspace = factory.settings.working_dir();
-            manager
-                .metadata_store
-                .insert(SessionMetadata::new(&current_id, &workspace));
-            let _ = manager.metadata_store.save();
+            manager.insert_metadata(SessionMetadata::new(&current_id, &workspace))?;
         }
 
         // Notify the frontend of the update

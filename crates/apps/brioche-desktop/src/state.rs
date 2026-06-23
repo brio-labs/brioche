@@ -31,26 +31,11 @@ use crate::commands::shell::{DesktopConfig, ShellFactory, build_shell};
 /// Shared history mirror type.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
-///
-/// # Complexity
-/// O(1) pointer type.
-///
-/// # Panic / Safety
-/// Never panics.
 pub type SharedHistory = Arc<RwLock<Vec<ChatMessage>>>;
 
 /// A session entry: shell + LLM client + history mirror + chunk receiver.
 ///
-/// The `llm_rx` field is an `Option` because it is taken when spawning
-/// the forwarder task. Once taken, the receiver is owned by the task.
-///
 /// Refs: I-Shell-Runtime-OnlyIO
-///
-/// # Complexity
-/// Contains heap allocations for history and shell state. O(1) moves.
-///
-/// # Panic / Safety
-/// Never panics.
 pub struct SessionEntry {
     /// The shell instance.
     pub shell: BriocheShell,
@@ -67,12 +52,6 @@ pub struct SessionEntry {
 /// Persistent metadata for a session.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
-///
-/// # Complexity
-/// Struct with heap-allocated String fields. O(1).
-///
-/// # Panic / Safety
-/// Never panics.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SessionMetadata {
     /// Session identifier.
@@ -89,10 +68,10 @@ impl SessionMetadata {
     /// Refs: I-Shell-Runtime-OnlyIO
     ///
     /// # Complexity
-    /// O(1) allocation.
+    /// O(1). Reads system clock.
     ///
     /// # Panic / Safety
-    /// Never panics.
+    /// Never panics. Timestamps before the UNIX epoch are clamped to 0.
     pub fn new(id: impl Into<String>, workspace: impl Into<String>) -> Self {
         Self {
             id: id.into(),
@@ -103,131 +82,9 @@ impl SessionMetadata {
 }
 
 fn system_time_secs() -> u64 {
-    match std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH) {
+    match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
         Ok(d) => d.as_secs(),
         Err(_) => 0,
-    }
-}
-
-/// Persistent store for session metadata.
-///
-/// Refs: I-Shell-Runtime-OnlyIO
-///
-/// # Complexity
-/// Maps session IDs to their metadata. Lookups and modifications are logarithmic in the number of sessions.
-///
-/// # Panic / Safety
-/// Never panics.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct SessionMetadataStore {
-    entries: BTreeMap<String, SessionMetadata>,
-}
-
-impl SessionMetadataStore {
-    /// Loads the store from disk, returning an empty store if the file is missing.
-    ///
-    /// Refs: I-Shell-Runtime-OnlyIO
-    ///
-    /// # Complexity
-    /// O(N) where N is the size of the sessions file. Performs blocking file I/O.
-    ///
-    /// # Panic / Safety
-    /// Never panics. Returns empty store on failure.
-    pub fn load() -> Self {
-        let path = Self::path();
-        if let Ok(data) = std::fs::read_to_string(&path)
-            && let Ok(store) = serde_json::from_str::<Self>(&data)
-        {
-            return store;
-        }
-        Self::default()
-    }
-
-    /// Saves the store to disk.
-    ///
-    /// Refs: I-Shell-Runtime-OnlyIO
-    ///
-    /// # Complexity
-    /// O(N) where N is the serialized metadata size. Performs blocking file I/O.
-    ///
-    /// # Panic / Safety
-    /// Never panics. Returns error String on failure.
-    pub fn save(&self) -> Result<(), String> {
-        let path = Self::path();
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create session metadata dir: {e}"))?;
-        }
-        let data = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("Failed to serialize session metadata: {e}"))?;
-        std::fs::write(&path, data).map_err(|e| format!("Failed to write session metadata: {e}"))
-    }
-
-    /// Returns metadata for a session, or a default entry if unknown.
-    ///
-    /// Refs: I-Shell-Runtime-OnlyIO
-    ///
-    /// # Complexity
-    /// O(log M) where M is the number of sessions in store.
-    ///
-    /// # Panic / Safety
-    /// Never panics.
-    pub fn get(&self, id: &str) -> SessionMetadata {
-        match self.entries.get(id).cloned() {
-            Some(metadata) => metadata,
-            None => SessionMetadata {
-                id: id.into(),
-                created_at: 0,
-                workspace: String::new(),
-            },
-        }
-    }
-
-    /// Inserts or updates metadata for a session.
-    ///
-    /// Refs: I-Shell-Runtime-OnlyIO
-    ///
-    /// # Complexity
-    /// O(log M) where M is the number of sessions in store.
-    ///
-    /// # Panic / Safety
-    /// Never panics.
-    pub fn insert(&mut self, metadata: SessionMetadata) {
-        self.entries.insert(metadata.id.clone(), metadata);
-    }
-
-    /// Removes metadata for a session.
-    ///
-    /// Refs: I-Shell-Runtime-OnlyIO
-    ///
-    /// # Complexity
-    /// O(log M) where M is the number of sessions in store.
-    ///
-    /// # Panic / Safety
-    /// Never panics.
-    pub fn remove(&mut self, id: &str) {
-        self.entries.remove(id);
-    }
-
-    /// Returns all stored metadata entries.
-    ///
-    /// Refs: I-Shell-Runtime-OnlyIO
-    ///
-    /// # Complexity
-    /// O(1) iterator creation.
-    ///
-    /// # Panic / Safety
-    /// Never panics.
-    pub fn values(&self) -> impl Iterator<Item = &SessionMetadata> {
-        self.entries.values()
-    }
-
-    fn path() -> PathBuf {
-        let config_dir = match dirs::config_dir() {
-            Some(d) => d,
-            None => std::env::temp_dir(),
-        };
-        config_dir.join("brioche-desktop").join("sessions.json")
     }
 }
 
@@ -237,18 +94,12 @@ impl SessionMetadataStore {
 /// (shell + LLM client) instead of just `BriocheShell`.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
-///
-/// # Complexity
-/// Manages sessions using a BTreeMap. Lookup and switch operations are logarithmic in the number of sessions.
-///
-/// # Panic / Safety
-/// Never panics.
 pub struct SessionManager {
     current: String,
     /// All sessions keyed by ID.
     pub sessions: BTreeMap<String, SessionEntry>,
     /// Persistent metadata for all known sessions.
-    pub metadata_store: SessionMetadataStore,
+    metadata: BTreeMap<String, SessionMetadata>,
 }
 
 impl SessionManager {
@@ -257,19 +108,19 @@ impl SessionManager {
     /// Refs: I-Shell-Runtime-OnlyIO
     ///
     /// # Complexity
-    /// Creates in-memory BTreeMap and writes the new session metadata to disk (O(M + N)).
+    /// O(S + N) where S is in-memory session insertion and N is metadata file size on disk.
+    /// Performs blocking disk write.
     ///
     /// # Panic / Safety
-    /// Never panics.
+    /// Never panics. Returns Err if the metadata store cannot be written.
     pub fn new(
         initial_id: impl Into<String>,
         initial_shell: BriocheShell,
         initial_llm: OpenAiLlmClient,
         initial_history: SharedHistory,
         initial_llm_rx: broadcast::Receiver<LlmChunk>,
-        mut metadata_store: SessionMetadataStore,
         workspace: &str,
-    ) -> Self {
+    ) -> Result<Self, String> {
         let id = initial_id.into();
         let mut sessions = BTreeMap::new();
         sessions.insert(
@@ -281,18 +132,31 @@ impl SessionManager {
                 llm_rx: Some(initial_llm_rx),
             },
         );
-        metadata_store.insert(SessionMetadata::new(&id, workspace));
-        let _ = metadata_store.save();
-        Self {
-            current: id,
+        let metadata = match Self::load_metadata() {
+            Ok(m) => m,
+            Err(err) => {
+                tracing::warn!("Failed to load session metadata, using defaults: {err}");
+                BTreeMap::new()
+            }
+        };
+        let mut manager = Self {
+            current: id.clone(),
             sessions,
-            metadata_store,
-        }
+            metadata,
+        };
+        manager.insert_metadata(SessionMetadata::new(&id, workspace))?;
+        Ok(manager)
     }
 
     /// Reference to the current session's shell.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(log S) where S is the number of sessions.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
     pub fn current_shell(&self) -> Option<&BriocheShell> {
         self.sessions.get(&self.current).map(|e| &e.shell)
     }
@@ -300,6 +164,12 @@ impl SessionManager {
     /// Reference to the current session's LLM client.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(log S) where S is the number of sessions.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
     pub fn current_llm(&self) -> Option<&OpenAiLlmClient> {
         self.sessions.get(&self.current).map(|e| &e.llm)
     }
@@ -307,31 +177,37 @@ impl SessionManager {
     /// Returns the current session ID.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(1).
+    ///
+    /// # Panic / Safety
+    /// Never panics.
     pub fn current_id(&self) -> &str {
         &self.current
     }
 
-    /// Switches to another session.
+    /// Switches to another session if it exists.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     ///
     /// # Complexity
-    /// O(log M) lookup where M is the number of active sessions.
+    /// O(log S) where S is the number of sessions.
     ///
     /// # Panic / Safety
-    /// Never panics. Does nothing if the requested session ID is not found.
+    /// Never panics. Silently ignores unknown session IDs.
     pub fn switch(&mut self, id: &str) {
         if self.sessions.contains_key(id) {
             self.current = id.to_string();
         }
     }
 
-    /// Inserts a new session.
+    /// Inserts a new in-memory session.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     ///
     /// # Complexity
-    /// O(log M) insertion where M is the number of active sessions.
+    /// O(log S) where S is the number of sessions.
     ///
     /// # Panic / Safety
     /// Never panics.
@@ -357,6 +233,12 @@ impl SessionManager {
     /// Lists the IDs of all sessions in memory.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(S) where S is the number of sessions.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
     pub fn list(&self) -> Vec<&String> {
         self.sessions.keys().collect()
     }
@@ -364,20 +246,106 @@ impl SessionManager {
     /// Access to a session by its ID.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(log S) where S is the number of sessions.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
     pub fn get(&self, id: &str) -> Option<&SessionEntry> {
         self.sessions.get(id)
     }
 
     /// Takes the LLM chunk receiver from the current session.
     ///
-    /// Returns `None` if the session doesn't exist or the receiver
-    /// has already been taken.
-    ///
     /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(log S) where S is the number of sessions.
+    ///
+    /// # Panic / Safety
+    /// Never panics. Returns `None` if the receiver was already taken.
     pub fn take_llm_rx(&mut self) -> Option<broadcast::Receiver<LlmChunk>> {
         self.sessions
             .get_mut(&self.current)
             .and_then(|e| e.llm_rx.take())
+    }
+
+    /// Returns metadata for a session, or `None` if the session is unknown.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(log S) where S is the number of tracked sessions.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
+    pub fn metadata(&self, id: &str) -> Option<SessionMetadata> {
+        self.metadata.get(id).cloned()
+    }
+
+    /// Inserts or updates metadata for a session and persists the store.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(log S) where S is the number of tracked sessions. Performs blocking disk write.
+    ///
+    /// # Panic / Safety
+    /// Never panics. Returns Err if the metadata store cannot be written.
+    pub fn insert_metadata(&mut self, metadata: SessionMetadata) -> Result<(), String> {
+        self.metadata.insert(metadata.id.clone(), metadata);
+        Self::save_metadata(&self.metadata)
+    }
+
+    /// Removes metadata for a session and persists the store.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(log S) where S is the number of tracked sessions. Performs blocking disk write.
+    ///
+    /// # Panic / Safety
+    /// Never panics. Returns Err if the metadata store cannot be written.
+    pub fn remove_metadata(&mut self, id: &str) -> Result<(), String> {
+        self.metadata.remove(id);
+        Self::save_metadata(&self.metadata)
+    }
+
+    /// Loads metadata from disk.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(N) where N is the size of the metadata file on disk. Performs blocking disk read.
+    ///
+    /// # Panic / Safety
+    /// Never panics. Returns Err if the file cannot be read or parsed.
+    pub fn load_metadata() -> Result<BTreeMap<String, SessionMetadata>, String> {
+        let path = Self::metadata_path();
+        let data = std::fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read session metadata: {e}"))?;
+        serde_json::from_str::<BTreeMap<String, SessionMetadata>>(&data)
+            .map_err(|e| format!("Failed to parse session metadata: {e}"))
+    }
+
+    fn save_metadata(metadata: &BTreeMap<String, SessionMetadata>) -> Result<(), String> {
+        let path = Self::metadata_path();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create session metadata dir: {e}"))?;
+        }
+        let data = serde_json::to_string_pretty(metadata)
+            .map_err(|e| format!("Failed to serialize session metadata: {e}"))?;
+        std::fs::write(&path, data).map_err(|e| format!("Failed to write session metadata: {e}"))
+    }
+
+    fn metadata_path() -> PathBuf {
+        let config_dir = match dirs::config_dir() {
+            Some(d) => d,
+            None => std::env::temp_dir(),
+        };
+        config_dir.join("brioche-desktop").join("sessions.json")
     }
 }
 
@@ -392,12 +360,6 @@ impl SessionManager {
 /// runtime context.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
-///
-/// # Complexity
-/// Thread-safe type wraps multiple locks. Cloning is cheap (wrapping Arc components is typical, though here it is held by Tauri).
-///
-/// # Panic / Safety
-/// Never panics.
 pub struct DesktopState {
     /// Multi-session manager (current session + all entries).
     /// `None` until first access triggers lazy initialization.
@@ -415,33 +377,26 @@ pub struct DesktopState {
 impl DesktopState {
     /// Creates state without an active session.
     ///
-    /// The initial shell is built lazily on the first IPC command
-    /// so that `tokio::spawn` runs inside Tauri's async runtime.
-    ///
     /// Refs: I-Shell-Runtime-OnlyIO
     ///
     /// # Complexity
-    /// Initializes in-memory configuration and session stores (O(1)).
+    /// O(1) plus storage initialization. Attempts two RedbStorage paths.
     ///
     /// # Panic / Safety
-    /// Returns error string if storage fails to initialize.
+    /// Never panics. Returns Err if storage cannot be initialized at any path.
     pub fn new() -> Result<Self, String> {
         Self::new_with_path("/tmp/brioche-desktop.redb")
     }
-}
 
-impl DesktopState {
     /// Creates state with a custom redb path (for testing).
-    ///
-    /// Returns an error if storage cannot be initialized at any path.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     ///
     /// # Complexity
-    /// Creates in-memory registry, registers default extensions, and creates a redb storage file on disk. O(E + S).
+    /// O(1) plus storage initialization. Falls back to a temporary path on failure.
     ///
     /// # Panic / Safety
-    /// Returns error string if storage fails to initialize.
+    /// Never panics. Returns Err if storage cannot be initialized at any path.
     pub fn new_with_path(path: impl AsRef<std::path::Path>) -> Result<Self, String> {
         let config = DesktopConfig::default();
         let store = new_session_store();
@@ -470,15 +425,9 @@ impl DesktopState {
 
     /// Attempts to initialize RedbStorage with fallback paths.
     ///
-    /// Tries primary, then fallback, then temp dir. Returns the first
-    /// successful storage or an error if all paths fail.
-    ///
     /// Refs: I-Shell-Runtime-OnlyIO
     fn init_redb(primary: &std::path::Path, store: SessionStore) -> Result<RedbStorage, String> {
         if let Ok(r) = RedbStorage::new(primary, store.clone()) {
-            return Ok(r);
-        }
-        if let Ok(r) = RedbStorage::new("/tmp/brioche-desktop-fallback.redb", store.clone()) {
             return Ok(r);
         }
         let temp_path = std::env::temp_dir().join("brioche-desktop.redb");
@@ -486,49 +435,59 @@ impl DesktopState {
             return Ok(r);
         }
         tracing::error!("Failed to initialize RedbStorage at all paths");
-        // Final attempt with fresh store
-        match RedbStorage::new("/tmp/brioche-desktop.redb", new_session_store()) {
-            Ok(r) => Ok(r),
-            Err(_) => {
-                tracing::error!("Fatal: cannot create any storage");
-                Err("Cannot initialize storage".to_string())
-            }
-        }
+        Err("Cannot initialize storage".to_string())
     }
 
     /// Ensures the session manager is initialized.
     ///
-    /// Call this at the top of every IPC command that needs sessions.
-    /// This is where `build_shell` is called — inside an async context
-    /// so that `tokio::spawn` works.
-    ///
-    /// The LLM chunk receiver is stored in the session entry and is
-    /// consumed later (e.g., in `send_message`) when an `AppHandle`
-    /// is available to emit Tauri events.
-    ///
     /// Refs: I-Shell-Runtime-OnlyIO
     ///
     /// # Complexity
-    /// O(1) if already initialized. First initialization constructs a full shell and spawns Tokio tasks.
+    /// O(S + M) where S is shell creation and M is memory provider initialization.
     ///
     /// # Panic / Safety
-    /// Returns error string if building the initial session shell fails.
+    /// Never panics. Returns Err if shell build or memory provider initialization fails.
     pub async fn ensure_manager(&self) -> Result<(), String> {
         let mut mgr = self.manager.write().await;
         if mgr.is_none() {
             let factory = self.factory.read().await.clone();
             let handle = build_shell("desktop-session", &factory);
             let workspace = factory.settings.working_dir();
-
+            Self::initialize_memory_providers(&factory, "desktop-session", &workspace)?;
             *mgr = Some(SessionManager::new(
                 "desktop-session",
                 handle.shell,
                 handle.llm,
                 handle.history,
                 handle.llm_rx,
-                SessionMetadataStore::load(),
                 &workspace,
-            ));
+            )?);
+        }
+        Ok(())
+    }
+
+    /// Notifies all registered memory providers of a new session context.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(M) where M is the number of memory providers. Performs blocking I/O per provider.
+    ///
+    /// # Panic / Safety
+    /// Never panics. Returns Err if any provider fails to initialize.
+    pub fn initialize_memory_providers(
+        factory: &crate::commands::shell::ShellFactory,
+        session_id: &str,
+        workspace: &str,
+    ) -> Result<(), String> {
+        let ctx = brioche_shell_persistence::MemorySessionContext {
+            session_id: session_id.into(),
+            workspace: workspace.into(),
+            user_id: None,
+            agent_id: None,
+        };
+        for provider in factory.extensions.memory_providers() {
+            provider.initialize(ctx.clone())?;
         }
         Ok(())
     }
