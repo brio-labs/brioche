@@ -25,6 +25,7 @@ import {
 	PaperclipIcon,
 	ImageIcon,
 	WrenchIcon,
+	UserIcon,
 } from "./Icons";
 import SessionSidebar from "./SessionSidebar";
 import FileExplorer from "./FileExplorer";
@@ -32,6 +33,7 @@ import ToolsPanel from "./ToolsPanel";
 import SettingsPanel from "./SettingsPanel";
 import SkillsPanel from "./SkillsPanel";
 import MemoryPanel from "./MemoryPanel";
+import ProfilesPanel from "./ProfilesPanel";
 import ToolCallMessage from "./ToolCallMessage";
 import { useTauriSync } from "../hooks/useTauriSync";
 
@@ -56,6 +58,7 @@ export default function App() {
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const [showSettings, setShowSettings] = useState(false);
 	const [showSkills, setShowSkills] = useState(false);
+	const [showProfiles, setShowProfiles] = useState(false);
 	const [showMemory, setShowMemory] = useState(false);
 	const [showTools, setShowTools] = useState(false);
 	const [panels, setPanels] = useState<PanelState>({
@@ -187,6 +190,15 @@ export default function App() {
 						>
 							<BookIcon className="w-4 h-4" />
 							<span className="hidden lg:inline">Skills</span>
+						</button>
+						<button
+							type="button"
+							className="flex items-center gap-2 px-3 py-2 bg-transparent hover:bg-bg-3 text-text-muted hover:text-text-secondary rounded text-[11px] font-medium tracking-wider transition-all duration-200 cursor-pointer"
+							onClick={() => setShowProfiles(true)}
+							title="Profiles"
+						>
+							<UserIcon className="w-4 h-4" />
+							<span className="hidden lg:inline">Profiles</span>
 						</button>
 						<button
 							type="button"
@@ -330,6 +342,7 @@ export default function App() {
 
 			{showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
 			{showSkills && <SkillsPanel onClose={() => setShowSkills(false)} />}
+			{showProfiles && <ProfilesPanel onClose={() => setShowProfiles(false)} />}
 			{showMemory && <MemoryPanel onClose={() => setShowMemory(false)} />}
 			{showTools && <ToolsPanel onClose={() => setShowTools(false)} />}
 		</div>
