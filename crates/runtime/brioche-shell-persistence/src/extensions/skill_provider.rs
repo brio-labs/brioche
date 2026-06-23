@@ -6,10 +6,11 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
+use std::sync::RwLock;
+
 use serde::{Deserialize, Serialize};
 
 use super::{ExtensionMetadata, PanelSlot};
-
 /// A skill descriptor.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
@@ -66,13 +67,13 @@ pub trait SkillProvider: Send + Sync {
     /// Enables or disables a skill.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn set_enabled(&mut self, name: &str, enabled: bool) -> Result<(), String>;
+    fn set_enabled(&self, name: &str, enabled: bool) -> Result<(), String>;
 
     /// Creates a new skill package.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     fn create_skill(
-        &mut self,
+        &self,
         name: &str,
         category: &str,
         description: &str,
@@ -82,27 +83,36 @@ pub trait SkillProvider: Send + Sync {
     /// Deletes a skill package.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn delete_skill(&mut self, name: &str) -> Result<(), String>;
+    fn delete_skill(&self, name: &str) -> Result<(), String>;
 }
 
 /// Default skill registry that scans `~/.hermes/skills/`.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SkillRegistry {
-    enabled: Vec<String>,
+    enabled: RwLock<Vec<String>>,
 }
 
 impl Default for SkillRegistry {
     fn default() -> Self {
+        let enabled = match Self::load_enabled() {
+            Ok(enabled) => enabled,
+            Err(err) => {
+                tracing::warn!("Failed to load enabled skills, using defaults: {err}");
+                Vec::new()
+            }
+        };
         Self {
-            enabled: Self::load_enabled(),
+            enabled: RwLock::new(enabled),
         }
     }
 }
 
 impl SkillRegistry {
     /// Returns the Hermes skills directory.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     fn skills_dir() -> std::path::PathBuf {
         let home = match dirs::home_dir() {
             Some(d) => d,
@@ -112,14 +122,20 @@ impl SkillRegistry {
     }
 
     /// Loads enabled state from disk.
-    fn load_enabled() -> Vec<String> {
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(N) where N is the size of the enabled-skills JSON file. Performs blocking file I/O.
+    ///
+    /// # Panic / Safety
+    /// Never panics. Returns Err if the file cannot be read or parsed.
+    fn load_enabled() -> Result<Vec<String>, String> {
         let path = Self::enabled_path();
-        if let Ok(data) = std::fs::read_to_string(&path)
-            && let Ok(enabled) = serde_json::from_str::<Vec<String>>(&data)
-        {
-            return enabled;
-        }
-        Vec::new()
+        let data = std::fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read enabled skills: {e}"))?;
+        serde_json::from_str::<Vec<String>>(&data)
+            .map_err(|e| format!("Failed to parse enabled skills: {e}"))
     }
 
     /// Saves enabled state to disk.
@@ -129,7 +145,11 @@ impl SkillRegistry {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create skills dir: {e}"))?;
         }
-        let data = serde_json::to_string_pretty(&self.enabled)
+        let enabled = self
+            .enabled
+            .read()
+            .map_err(|_| "Skill registry lock poisoned".to_string())?;
+        let data = serde_json::to_string_pretty(&*enabled)
             .map_err(|e| format!("Failed to serialize enabled skills: {e}"))?;
         std::fs::write(&path, data).map_err(|e| format!("Failed to write enabled skills: {e}"))
     }
@@ -164,10 +184,15 @@ impl SkillProvider for SkillRegistry {
         let mut skills = Vec::new();
         scan_dir(&skills_dir, &skills_dir, &mut skills);
         skills.sort_by(|a, b| a.name.cmp(&b.name));
+        let enabled = self
+            .enabled
+            .read()
+            .map_err(|_| "Skill registry lock poisoned".to_string())?;
+        let all_enabled = enabled.is_empty();
         Ok(skills
             .into_iter()
             .map(|mut s| {
-                s.enabled = self.enabled.contains(&s.name) || self.enabled.is_empty();
+                s.enabled = all_enabled || enabled.contains(&s.name);
                 s
             })
             .collect())
@@ -193,19 +218,25 @@ impl SkillProvider for SkillRegistry {
         std::fs::read_to_string(&full_path).map_err(|e| format!("Failed to read skill file: {e}"))
     }
 
-    fn set_enabled(&mut self, name: &str, enabled: bool) -> Result<(), String> {
+    fn set_enabled(&self, name: &str, enabled: bool) -> Result<(), String> {
+        let mut guard = self
+            .enabled
+            .write()
+            .map_err(|_| "Skill registry lock poisoned".to_string())?;
         if enabled {
-            if !self.enabled.contains(&name.to_string()) {
-                self.enabled.push(name.to_string());
+            let key = name.to_string();
+            if !guard.contains(&key) {
+                guard.push(key);
             }
         } else {
-            self.enabled.retain(|n| n != name);
+            guard.retain(|n| n != name);
         }
+        drop(guard);
         self.save_enabled()
     }
 
     fn create_skill(
-        &mut self,
+        &self,
         name: &str,
         category: &str,
         description: &str,
@@ -231,13 +262,19 @@ impl SkillProvider for SkillRegistry {
             .map_err(|e| format!("Failed to write SKILL.md: {e}"))?;
 
         // Enable the new skill by default.
-        if !self.enabled.contains(&name.to_string()) {
-            self.enabled.push(name.to_string());
+        let mut guard = self
+            .enabled
+            .write()
+            .map_err(|_| "Skill registry lock poisoned".to_string())?;
+        let key = name.to_string();
+        if !guard.contains(&key) {
+            guard.push(key);
         }
+        drop(guard);
         self.save_enabled()
     }
 
-    fn delete_skill(&mut self, name: &str) -> Result<(), String> {
+    fn delete_skill(&self, name: &str) -> Result<(), String> {
         let skills = self.list()?;
         let skill = skills
             .into_iter()
@@ -246,7 +283,12 @@ impl SkillProvider for SkillRegistry {
         let path = std::path::PathBuf::from(&skill.path);
         std::fs::remove_dir_all(&path)
             .map_err(|e| format!("Failed to delete skill directory: {e}"))?;
-        self.enabled.retain(|n| n != name);
+        let mut guard = self
+            .enabled
+            .write()
+            .map_err(|_| "Skill registry lock poisoned".to_string())?;
+        guard.retain(|n| n != name);
+        drop(guard);
         self.save_enabled()
     }
 }
@@ -271,101 +313,79 @@ fn scan_dir(root: &std::path::Path, current: &std::path::Path, out: &mut Vec<Ski
     }
 }
 
-#[allow(clippy::manual_unwrap_or_default)]
 fn parse_skill(skill_md: &std::path::Path, root: &std::path::Path) -> Option<SkillDescriptor> {
     let content = std::fs::read_to_string(skill_md).ok()?;
     let (frontmatter, body) = split_frontmatter(&content)?;
 
-    let mut name = String::new();
-    let mut description = String::new();
-    let mut version = String::new();
-    let mut author = String::new();
-    let mut license = String::new();
-    let mut platforms = Vec::new();
-    let mut tags = Vec::new();
-    let mut related_skills = Vec::new();
-
-    for line in frontmatter.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        if let Some((key, value)) = line.split_once(':') {
-            let key = key.trim();
-            let value = value.trim().trim_matches('"').trim_matches('\'');
-            match key {
-                "name" => name = value.to_string(),
-                "description" => description = value.to_string(),
-                "version" => version = value.to_string(),
-                "author" => author = value.to_string(),
-                "license" => license = value.to_string(),
-                "platforms" => {
-                    platforms = value
-                        .trim_matches('[')
-                        .trim_matches(']')
-                        .split(',')
-                        .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
-                }
-                "tags" => {
-                    tags = value
-                        .trim_matches('[')
-                        .trim_matches(']')
-                        .split(',')
-                        .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
-                }
-                "related_skills" => {
-                    related_skills = value
-                        .trim_matches('[')
-                        .trim_matches(']')
-                        .split(',')
-                        .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
-                }
-                _ => {}
+    let fields: std::collections::BTreeMap<&str, &str> = frontmatter
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                return None;
             }
+            line.split_once(':')
+                .map(|(k, v)| (k.trim(), v.trim().trim_matches('"').trim_matches('\'')))
+        })
+        .collect();
+
+    fn get(fields: &std::collections::BTreeMap<&str, &str>, key: &str) -> String {
+        match fields.get(key) {
+            Some(v) => (*v).to_string(),
+            None => String::new(),
         }
     }
 
-    if name.is_empty() {
-        name = match skill_md.parent().and_then(|p| p.file_name()) {
-            Some(n) => n.to_string_lossy().to_string(),
-            None => String::new(),
+    fn list_field(fields: &std::collections::BTreeMap<&str, &str>, key: &str) -> Vec<String> {
+        let raw = match fields.get(key) {
+            Some(v) => *v,
+            None => "[]",
         };
+        raw.trim_matches('[')
+            .trim_matches(']')
+            .split(',')
+            .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
     }
 
-    let category = match skill_md.parent().and_then(|p| p.parent()) {
-        Some(parent) => match parent.strip_prefix(root).ok().and_then(|rel| {
-            rel.components()
-                .next()
-                .map(|c| c.as_os_str().to_string_lossy().to_string())
-        }) {
-            Some(c) => c,
-            None => "uncategorized".to_string(),
-        },
-        None => "uncategorized".to_string(),
+    let name = {
+        let n = get(&fields, "name");
+        if n.is_empty() {
+            match skill_md.parent().and_then(|p| p.file_name()) {
+                Some(n) => n.to_string_lossy().to_string(),
+                None => String::new(),
+            }
+        } else {
+            n
+        }
+    };
+
+    let category = match skill_md
+        .parent()
+        .and_then(|p| p.parent())
+        .and_then(|parent| parent.strip_prefix(root).ok())
+        .and_then(|rel| rel.components().next())
+    {
+        Some(c) => c.as_os_str().to_string_lossy().to_string(),
+        None => "uncategorized".into(),
     };
 
     let path_str = match skill_md.parent() {
         Some(p) => p.to_string_lossy().to_string(),
         None => String::new(),
     };
-
     Some(SkillDescriptor {
         name,
-        description,
-        version,
-        author,
-        license,
-        platforms,
+        description: get(&fields, "description"),
+        version: get(&fields, "version"),
+        author: get(&fields, "author"),
+        license: get(&fields, "license"),
+        platforms: list_field(&fields, "platforms"),
         category,
         path: path_str,
-        tags,
-        related_skills,
+        tags: list_field(&fields, "tags"),
+        related_skills: list_field(&fields, "related_skills"),
         content: body.to_string(),
         enabled: true,
     })

@@ -9,6 +9,7 @@
 //! Refs: I-Shell-Runtime-OnlyIO
 
 use std::collections::BTreeMap;
+use std::sync::RwLock;
 
 use brioche_tools_system::{SystemTool, ToolError};
 use serde::{Deserialize, Serialize};
@@ -19,12 +20,6 @@ use super::{ExtensionMetadata, PanelSlot};
 /// A tool descriptor.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
-///
-/// # Complexity
-/// Struct containing metadata. O(1) creation.
-///
-/// # Panic / Safety
-/// Never panics.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ToolDescriptor {
     /// Machine-readable tool identifier.
@@ -48,12 +43,6 @@ pub struct ToolDescriptor {
 /// Extension trait for tool providers.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
-///
-/// # Complexity
-/// Implementation dependent.
-///
-/// # Panic / Safety
-/// Implementation dependent.
 pub trait ToolProvider: Send + Sync {
     /// Returns the extension metadata.
     fn metadata(&self) -> ExtensionMetadata;
@@ -61,36 +50,32 @@ pub trait ToolProvider: Send + Sync {
     /// Returns all tools provided by this provider.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn tools(&self) -> Vec<ToolDescriptor>;
+    fn tools(&self) -> Result<Vec<ToolDescriptor>, String>;
 
     /// Returns user-defined tool definitions so they can be wired into the shell runtime.
-    fn user_tools(&self) -> Vec<UserToolDefinition>;
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    fn user_tools(&self) -> Result<Vec<UserToolDefinition>, String>;
 
     /// Enables or disables a tool by id.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn set_enabled(&mut self, id: &str, enabled: bool) -> Result<(), String>;
+    fn set_enabled(&self, id: &str, enabled: bool) -> Result<(), String>;
 
     /// Adds a user-defined tool.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn add_user_tool(&mut self, tool: UserToolDefinition) -> Result<(), String>;
+    fn add_user_tool(&self, tool: UserToolDefinition) -> Result<(), String>;
 
     /// Removes a user-defined tool.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn remove_user_tool(&mut self, id: &str) -> Result<(), String>;
+    fn remove_user_tool(&self, id: &str) -> Result<(), String>;
 }
 
 /// A user-defined tool definition.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
-///
-/// # Complexity
-/// Struct containing metadata and config. O(1) creation.
-///
-/// # Panic / Safety
-/// Never panics.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct UserToolDefinition {
     /// Tool id.
@@ -112,12 +97,6 @@ pub struct UserToolDefinition {
 /// How a user-defined tool is executed.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
-///
-/// # Complexity
-/// Enum defining execution target. O(1).
-///
-/// # Panic / Safety
-/// Never panics.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolExecutor {
@@ -145,31 +124,52 @@ pub enum ToolExecutor {
 /// Default tool registry that handles both system tools and custom user tools.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
-///
-/// # Complexity
-/// Stores user tools in a Vec. Lookup and search are linear with number of tools.
-///
-/// # Panic / Safety
-/// Never panics.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default)]
 pub struct ToolRegistry {
+    user_tools: RwLock<Vec<UserToolDefinition>>,
+    disabled: RwLock<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+struct ToolRegistrySnapshot {
     user_tools: Vec<UserToolDefinition>,
     disabled: Vec<String>,
 }
-
-/// Build a JSON object value from key/value pairs.
-fn obj(values: impl IntoIterator<Item = (&'static str, serde_json::Value)>) -> serde_json::Value {
-    serde_json::Value::Object(
-        values
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
-            .collect::<serde_json::Map<String, serde_json::Value>>(),
-    )
-}
-
-/// Build a JSON array value from items.
-fn arr(values: impl IntoIterator<Item = serde_json::Value>) -> serde_json::Value {
-    serde_json::Value::Array(values.into_iter().collect())
+fn tool_schema(
+    id: &str,
+    name: &str,
+    description: &str,
+    category: &str,
+    tags: &[&str],
+    required: &[&str],
+    properties: &[(&str, &str, &str)],
+) -> ToolDescriptor {
+    let mut props = serde_json::Map::new();
+    for (k, t, d) in properties {
+        let mut prop = serde_json::Map::new();
+        prop.insert("type".into(), serde_json::Value::String((*t).into()));
+        prop.insert("description".into(), serde_json::Value::String((*d).into()));
+        props.insert((*k).into(), serde_json::Value::Object(prop));
+    }
+    let mut parameters = serde_json::Map::new();
+    parameters.insert("type".into(), serde_json::Value::String("object".into()));
+    parameters.insert("properties".into(), serde_json::Value::Object(props));
+    if !required.is_empty() {
+        parameters.insert(
+            "required".into(),
+            serde_json::Value::Array(required.iter().map(|r| (*r).into()).collect()),
+        );
+    }
+    ToolDescriptor {
+        id: id.into(),
+        name: name.into(),
+        description: description.into(),
+        parameters: serde_json::Value::Object(parameters),
+        category: category.into(),
+        tags: tags.iter().map(|t| (*t).into()).collect(),
+        enabled: true,
+        source: "built-in".into(),
+    }
 }
 
 impl ToolRegistry {
@@ -181,15 +181,17 @@ impl ToolRegistry {
     /// O(N) where N is the size of the JSON configuration on disk. Performs blocking file I/O.
     ///
     /// # Panic / Safety
-    /// Never panics. Returns default empty registry if loading fails.
-    pub fn load() -> Self {
+    /// Never panics. Returns Err if the configuration file cannot be read or parsed.
+    pub fn load() -> Result<Self, String> {
         let path = registry_path();
-        if let Ok(data) = std::fs::read_to_string(&path)
-            && let Ok(registry) = serde_json::from_str::<ToolRegistry>(&data)
-        {
-            return registry;
-        }
-        Self::default()
+        let data = std::fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read tool registry: {e}"))?;
+        let snapshot = serde_json::from_str::<ToolRegistrySnapshot>(&data)
+            .map_err(|e| format!("Failed to parse tool registry: {e}"))?;
+        Ok(Self {
+            user_tools: RwLock::new(snapshot.user_tools),
+            disabled: RwLock::new(snapshot.disabled),
+        })
     }
 
     /// Saves the registry to disk.
@@ -207,117 +209,77 @@ impl ToolRegistry {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create tools dir: {e}"))?;
         }
-        let data = serde_json::to_string_pretty(self)
+        let snapshot = ToolRegistrySnapshot {
+            user_tools: self
+                .user_tools
+                .read()
+                .map_err(|_| "Tool registry lock poisoned".to_string())?
+                .clone(),
+            disabled: self
+                .disabled
+                .read()
+                .map_err(|_| "Tool registry lock poisoned".to_string())?
+                .clone(),
+        };
+        let data = serde_json::to_string_pretty(&snapshot)
             .map_err(|e| format!("Failed to serialize tools: {e}"))?;
         std::fs::write(&path, data).map_err(|e| format!("Failed to write tools: {e}"))
     }
 
     fn built_in_tools() -> Vec<ToolDescriptor> {
         vec![
-            ToolDescriptor {
-                id: "read_file".into(),
-                name: "Read file".into(),
-                description: "Read the contents of a file".into(),
-                parameters: obj([
-                    ("type", "object".into()),
-                    (
-                        "properties",
-                        obj([(
-                            "path",
-                            obj([
-                                ("type", "string".into()),
-                                ("description", "File path".into()),
-                            ]),
-                        )]),
-                    ),
-                    ("required", arr(["path".into()])),
-                ]),
-                category: "filesystem".into(),
-                tags: vec!["fs".into()],
-                enabled: true,
-                source: "built-in".into(),
-            },
-            ToolDescriptor {
-                id: "write_file".into(),
-                name: "Write file".into(),
-                description: "Write content to a file".into(),
-                parameters: obj([
-                    ("type", "object".into()),
-                    (
-                        "properties",
-                        obj([
-                            ("path", obj([("type", "string".into())])),
-                            ("content", obj([("type", "string".into())])),
-                            ("append", obj([("type", "boolean".into())])),
-                        ]),
-                    ),
-                    ("required", arr(["path".into(), "content".into()])),
-                ]),
-                category: "filesystem".into(),
-                tags: vec!["fs".into()],
-                enabled: true,
-                source: "built-in".into(),
-            },
-            ToolDescriptor {
-                id: "list_dir".into(),
-                name: "List directory".into(),
-                description: "List files in a directory".into(),
-                parameters: obj([
-                    ("type", "object".into()),
-                    (
-                        "properties",
-                        obj([(
-                            "path",
-                            obj([
-                                ("type", "string".into()),
-                                ("description", "Directory path".into()),
-                            ]),
-                        )]),
-                    ),
-                    ("required", arr(["path".into()])),
-                ]),
-                category: "filesystem".into(),
-                tags: vec!["fs".into()],
-                enabled: true,
-                source: "built-in".into(),
-            },
-            ToolDescriptor {
-                id: "execute_command".into(),
-                name: "Execute command".into(),
-                description: "Run a shell command".into(),
-                parameters: obj([
-                    ("type", "object".into()),
-                    (
-                        "properties",
-                        obj([
-                            ("command", obj([("type", "string".into())])),
-                            ("timeout_ms", obj([("type", "integer".into())])),
-                        ]),
-                    ),
-                    ("required", arr(["command".into()])),
-                ]),
-                category: "system".into(),
-                tags: vec!["shell".into()],
-                enabled: true,
-                source: "built-in".into(),
-            },
-            ToolDescriptor {
-                id: "fetch_url".into(),
-                name: "Fetch URL".into(),
-                description: "Fetch content from a URL".into(),
-                parameters: obj([
-                    ("type", "object".into()),
-                    (
-                        "properties",
-                        obj([("url", obj([("type", "string".into())]))]),
-                    ),
-                    ("required", arr(["url".into()])),
-                ]),
-                category: "web".into(),
-                tags: vec!["http".into()],
-                enabled: true,
-                source: "built-in".into(),
-            },
+            tool_schema(
+                "read_file",
+                "Read file",
+                "Read the contents of a file",
+                "filesystem",
+                &["fs"],
+                &["path"],
+                &[("path", "string", "File path")],
+            ),
+            tool_schema(
+                "write_file",
+                "Write file",
+                "Write content to a file",
+                "filesystem",
+                &["fs"],
+                &["path", "content"],
+                &[
+                    ("path", "string", "File path"),
+                    ("content", "string", "File content"),
+                    ("append", "boolean", "Append to existing file"),
+                ],
+            ),
+            tool_schema(
+                "list_dir",
+                "List directory",
+                "List files in a directory",
+                "filesystem",
+                &["fs"],
+                &["path"],
+                &[("path", "string", "Directory path")],
+            ),
+            tool_schema(
+                "execute_command",
+                "Execute command",
+                "Run a shell command",
+                "system",
+                &["shell"],
+                &["command"],
+                &[
+                    ("command", "string", "Shell command"),
+                    ("timeout_ms", "integer", "Timeout in milliseconds"),
+                ],
+            ),
+            tool_schema(
+                "fetch_url",
+                "Fetch URL",
+                "Fetch content from a URL",
+                "web",
+                &["http"],
+                &["url"],
+                &[("url", "string", "URL to fetch")],
+            ),
         ]
     }
 }
@@ -333,9 +295,17 @@ impl ToolProvider for ToolRegistry {
         }
     }
 
-    fn tools(&self) -> Vec<ToolDescriptor> {
+    fn tools(&self) -> Result<Vec<ToolDescriptor>, String> {
         let mut tools = Self::built_in_tools();
-        for user in &self.user_tools {
+        let disabled = self
+            .disabled
+            .read()
+            .map_err(|_| "Tool registry lock poisoned".to_string())?;
+        let user_tools = self
+            .user_tools
+            .read()
+            .map_err(|_| "Tool registry lock poisoned".to_string())?;
+        for user in user_tools.iter() {
             tools.push(ToolDescriptor {
                 id: user.id.clone(),
                 name: user.name.clone(),
@@ -343,50 +313,81 @@ impl ToolProvider for ToolRegistry {
                 parameters: user.parameters.clone(),
                 category: user.category.clone(),
                 tags: user.tags.clone(),
-                enabled: !self.disabled.contains(&user.id),
+                enabled: !disabled.contains(&user.id),
                 source: "user-json".into(),
             });
         }
         for tool in &mut tools {
-            if self.disabled.contains(&tool.id) {
+            if disabled.contains(&tool.id) {
                 tool.enabled = false;
             }
         }
-        tools
+        Ok(tools)
     }
 
-    fn user_tools(&self) -> Vec<UserToolDefinition> {
-        self.user_tools
+    fn user_tools(&self) -> Result<Vec<UserToolDefinition>, String> {
+        let disabled = self
+            .disabled
+            .read()
+            .map_err(|_| "Tool registry lock poisoned".to_string())?;
+        let user_tools = self
+            .user_tools
+            .read()
+            .map_err(|_| "Tool registry lock poisoned".to_string())?;
+        Ok(user_tools
             .iter()
-            .filter(|t| !self.disabled.contains(&t.id))
+            .filter(|t| !disabled.contains(&t.id))
             .cloned()
-            .collect()
+            .collect())
     }
 
-    fn set_enabled(&mut self, id: &str, enabled: bool) -> Result<(), String> {
+    fn set_enabled(&self, id: &str, enabled: bool) -> Result<(), String> {
+        let mut disabled = self
+            .disabled
+            .write()
+            .map_err(|_| "Tool registry lock poisoned".to_string())?;
         if enabled {
-            self.disabled.retain(|d| d != id);
-        } else if !self.disabled.contains(&id.to_string()) {
-            self.disabled.push(id.to_string());
+            disabled.retain(|d| d != id);
+        } else {
+            let key = id.to_string();
+            if !disabled.contains(&key) {
+                disabled.push(key);
+            }
         }
+        drop(disabled);
         self.save()
     }
 
-    fn add_user_tool(&mut self, tool: UserToolDefinition) -> Result<(), String> {
-        if self.user_tools.iter().any(|t| t.id == tool.id) {
+    fn add_user_tool(&self, tool: UserToolDefinition) -> Result<(), String> {
+        let mut user_tools = self
+            .user_tools
+            .write()
+            .map_err(|_| "Tool registry lock poisoned".to_string())?;
+        if user_tools.iter().any(|t| t.id == tool.id) {
             return Err(format!("Tool '{}' already exists", tool.id));
         }
-        self.user_tools.push(tool);
+        user_tools.push(tool);
+        drop(user_tools);
         self.save()
     }
 
-    fn remove_user_tool(&mut self, id: &str) -> Result<(), String> {
-        let len = self.user_tools.len();
-        self.user_tools.retain(|t| t.id != id);
-        if self.user_tools.len() == len {
+    fn remove_user_tool(&self, id: &str) -> Result<(), String> {
+        let mut user_tools = self
+            .user_tools
+            .write()
+            .map_err(|_| "Tool registry lock poisoned".to_string())?;
+        let len = user_tools.len();
+        user_tools.retain(|t| t.id != id);
+        if user_tools.len() == len {
             return Err(format!("Tool '{}' not found", id));
         }
-        self.disabled.retain(|d| d != id);
+        drop(user_tools);
+        let mut disabled = self
+            .disabled
+            .write()
+            .map_err(|_| "Tool registry lock poisoned".to_string())?;
+        disabled.retain(|d| d != id);
+        drop(disabled);
         self.save()
     }
 }
@@ -417,12 +418,6 @@ impl UserDefinedTool {
     /// Creates a wrapper for the given user tool definition.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    ///
-    /// # Complexity
-    /// O(1).
-    ///
-    /// # Panic / Safety
-    /// Never panics.
     pub fn new(definition: UserToolDefinition) -> Self {
         Self { definition }
     }
@@ -494,10 +489,6 @@ async fn execute_command(
         cmd.current_dir(dir);
     }
 
-    let child = cmd
-        .spawn()
-        .map_err(|e| ToolError::Io(std::io::Error::other(format!("spawn failed: {e}"))))?;
-
     let output = tokio::select! {
         biased;
         _ = cancel.cancelled() => {
@@ -506,12 +497,7 @@ async fn execute_command(
                 "cancelled",
             )));
         }
-        result = child.wait_with_output() => {
-            match result {
-                Ok(o) => o,
-                Err(err) => return Err(ToolError::Io(err)),
-            }
-        }
+        result = cmd.spawn()?.wait_with_output() => result.map_err(ToolError::Io)?,
     };
 
     let stdout = String::from_utf8_lossy(&output.stdout);
