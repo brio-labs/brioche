@@ -489,7 +489,11 @@ CRITICAL RULES: \
     let history_clone = Arc::clone(&history);
     let shell = BriocheShell::new(
         move || {
-            let (engine, session) = PluginBuilder::standard().build_with_session(&session_id);
+            let (engine, session) = PluginBuilder::standard()
+                .with_subroutine_hydrator(Box::new(
+                    brioche_shell_persistence::PersistenceSubRoutineHydrator,
+                ))
+                .build_with_session(&session_id);
             (engine, session)
         },
         ShellConfig {

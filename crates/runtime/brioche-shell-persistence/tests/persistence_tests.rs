@@ -7,14 +7,14 @@
 
 use std::num::NonZeroUsize;
 
-use brioche_core::{AgentState, ChatMessage, Session};
+use brioche_core::{AgentState, ChatMessage, Session, SubRoutineHydrator};
 use brioche_shell_persistence::{
-    COMPRESSION_THRESHOLD, FlattenedAgentState, GcRunner, RedbStorage, SessionHeadDTO,
-    SessionSchemaVersion, SessionStoreEntry, SubRoutineCache, deserialize_head, extract_delta,
-    load_subroutine, maybe_compress, maybe_decompress, new_session_store, serialize_head,
+    COMPRESSION_THRESHOLD, FlattenedAgentState, GcRunner, PersistenceSubRoutineHydrator,
+    RedbStorage, SessionHeadDTO, SessionSchemaVersion, SessionStoreEntry, SubRoutineCache,
+    deserialize_head, extract_delta, load_subroutine, maybe_compress, maybe_decompress,
+    new_session_store, serialize_head,
 };
 use redb::ReadableDatabase;
-
 // ---------------------------------------------------------------------------
 // DTO conversion
 // ---------------------------------------------------------------------------
@@ -138,6 +138,33 @@ fn session_head_serialization_roundtrip() {
     };
 
     assert_eq!(dto, restored);
+}
+
+#[test]
+fn subroutine_hydrator_roundtrip() {
+    let mut session = Session::new("hydrate-me");
+    session.state = AgentState::Predicting { generation_id: 42 };
+    session.persisted_msg_count = 7;
+
+    let dto = SessionHeadDTO::from_session(&session);
+    let blob = match serialize_head(&dto) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+
+    let hydrator = PersistenceSubRoutineHydrator;
+    let hydrated = match hydrator.hydrate(&blob) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+
+    assert_eq!(hydrated.id, "hydrate-me");
+    assert_eq!(hydrated.persisted_msg_count, 7);
+    assert!(matches!(
+        hydrated.state,
+        AgentState::Predicting { generation_id: 42 }
+    ));
+    assert!(hydrated.history.is_empty());
 }
 
 // ---------------------------------------------------------------------------

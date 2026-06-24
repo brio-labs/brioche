@@ -6,7 +6,7 @@ use super::{PluginRouter, UnifiedRoutingTable};
 use crate::{
     BriocheEngine, BriochePlugin, ConsistencyVerifier, CycleRollbackPolicy, DecisionAggregator,
     EpochInterceptor, GovernanceFailoverHandler, HookEffectConstraint, SubRoutineHandler,
-    SubRoutineLifecycleGuard,
+    SubRoutineHydrator, SubRoutineLifecycleGuard,
 };
 
 /// Type-state marker: mandatory trait not yet injected.
@@ -54,6 +54,7 @@ pub struct BriocheEngineBuilder<DA = Missing, LG = Missing> {
     plugins: Vec<Box<dyn BriochePlugin>>,
     epoch_interceptor: Option<Box<dyn EpochInterceptor>>,
     subroutine_handler: Option<Box<dyn SubRoutineHandler>>,
+    subroutine_hydrator: Option<Box<dyn SubRoutineHydrator>>,
     consistency_verifier: Option<Box<dyn ConsistencyVerifier>>,
     decision_aggregator: Option<Box<dyn DecisionAggregator>>,
     hook_effect_constraint: Option<Box<dyn HookEffectConstraint>>,
@@ -94,6 +95,7 @@ impl BriocheEngineBuilder<Missing, Missing> {
             plugins: Vec::new(),
             epoch_interceptor: None,
             subroutine_handler: None,
+            subroutine_hydrator: None,
             consistency_verifier: None,
             decision_aggregator: None,
             hook_effect_constraint: None,
@@ -112,6 +114,7 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
             plugins: self.plugins,
             epoch_interceptor: self.epoch_interceptor,
             subroutine_handler: self.subroutine_handler,
+            subroutine_hydrator: self.subroutine_hydrator,
             consistency_verifier: self.consistency_verifier,
             decision_aggregator: self.decision_aggregator,
             hook_effect_constraint: self.hook_effect_constraint,
@@ -122,7 +125,9 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
             _phantom: std::marker::PhantomData,
         }
     }
+}
 
+impl<DA, LG> BriocheEngineBuilder<DA, LG> {
     /// Register a plugin.
     ///
     /// Plugins are sorted by `(priority, name)` at `build()` time.
@@ -164,6 +169,20 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
     /// Refs: I-Comp-Epoch-Subroutine
     pub fn with_subroutine_handler(mut self, handler: Box<dyn SubRoutineHandler>) -> Self {
         self.subroutine_handler = Some(handler);
+        self
+    }
+
+    /// Inject a `SubRoutineHydrator`.
+    ///
+    /// # Complexity
+    /// O(1). One `Option` assignment.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Shell-Session-NoSend, I-Persist-Idempotence
+    pub fn with_subroutine_hydrator(mut self, hydrator: Box<dyn SubRoutineHydrator>) -> Self {
+        self.subroutine_hydrator = Some(hydrator);
         self
     }
 
@@ -349,6 +368,7 @@ impl BriocheEngineBuilder<Present, Present> {
             governance: crate::engine::GovernanceKernel {
                 epoch_interceptor: self.epoch_interceptor,
                 subroutine_handler: self.subroutine_handler,
+                subroutine_hydrator: self.subroutine_hydrator,
                 consistency_verifier: self.consistency_verifier,
                 decision_aggregator: self.decision_aggregator,
                 hook_effect_constraint: self.hook_effect_constraint,
