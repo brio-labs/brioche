@@ -274,8 +274,13 @@ jobs:
   audit:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [deny]
+    permissions:
+      contents: read
+      checks: write
+      security-events: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v1
+      - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
