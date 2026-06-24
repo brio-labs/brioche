@@ -58,10 +58,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: warp-ubuntu-latest-x64
             target: x86_64-unknown-linux-gnu
             profile: headless
-          - os: ubuntu-latest
+          - os: warp-ubuntu-latest-x64
             target: x86_64-unknown-linux-gnu
             profile: full
           - os: macos-latest
