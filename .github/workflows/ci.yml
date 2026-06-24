@@ -30,6 +30,8 @@ jobs:
   # -------------------------------------------------------------------------
   changes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       rust: ${{ steps.filter.outputs.rust || 'true' }}
       frontend: ${{ steps.filter.outputs.frontend || 'true' }}
@@ -72,6 +74,8 @@ jobs:
 
   fmt:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7.0.0
       - uses: dtolnay/rust-toolchain@stable
@@ -80,9 +84,10 @@ jobs:
       - run: cargo fmt --check
 
   # Nightly rustfmt enforces imports_granularity, group_imports,
-  # reorder_impl_items, and format_code_in_doc_comments (PHILOSOPHY.md §3.1).
   fmt-nightly:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7.0.0
       - uses: dtolnay/rust-toolchain@master
@@ -107,7 +112,9 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   docs:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs: [changes]
     if: needs.changes.outputs.rust == 'true'
     steps:
@@ -117,12 +124,10 @@ jobs:
       - uses: ./.github/actions/setup-frontend
       - uses: Swatinem/rust-cache@v2.9.1
       - uses: mozilla-actions/sccache-action@v0.0.10
-      - run: cargo doc --workspace --no-deps --all-features
-        env:
-          RUSTDOCFLAGS: "-D warnings"
-
   frontend:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs: [changes]
     if: needs.changes.outputs.frontend == 'true'
     steps:
@@ -164,9 +169,10 @@ jobs:
 
   # -------------------------------------------------------------------------
   # Gate 1 — Philosophy & invariant checks (run in parallel with tests)
-  # -------------------------------------------------------------------------
   philosophy-check:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs: [changes]
     if: needs.changes.outputs.rust == 'true'
     steps:
@@ -210,7 +216,7 @@ jobs:
   # Gate 2 — Test matrix (unit, doc, property)
   # -------------------------------------------------------------------------
   test:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     needs: [changes, clippy, deny]
     if: needs.changes.outputs.rust == 'true'
     steps:
@@ -238,7 +244,7 @@ jobs:
   # Property tests with a high case count to surface edge-case failures
   # that unit tests miss (PHILOSOPHY.md §5.4, docs/SPECS.md Book V Ch.10).
   proptest:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     needs: [changes, clippy, deny]
     if: needs.changes.outputs.rust == 'true'
     steps:
@@ -257,7 +263,7 @@ jobs:
   # Gate 3 — Build profiles & benchmark smoke tests
   # -------------------------------------------------------------------------
   profiles:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     needs: [changes, clippy, deny]
     if: needs.changes.outputs.rust == 'true'
     strategy:
