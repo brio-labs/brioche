@@ -381,6 +381,8 @@ fn gc_policy_counts_cycles() {
             policy.after_prediction(&mut ext).is_ok(),
             "after_prediction should succeed"
         );
+        let decision = policy.before_prediction(&[], &mut ext);
+        assert!(matches!(decision, Ok(PolicyDecision::Allow)));
     }
 
     let state = ext.get_or_insert_default::<GcPolicyState>();
@@ -409,6 +411,12 @@ fn gc_policy_respects_idle_flag() {
     assert!(
         policy.after_prediction(&mut ext).is_ok(),
         "after_prediction should succeed"
+    );
+    let decision = policy.before_prediction(&[], &mut ext);
+    assert_eq!(
+        decision,
+        Ok(PolicyDecision::RequestEffect(Effect::TriggerGc)),
+        "GC should trigger when idle threshold is met"
     );
     let state = ext.get_or_insert_default::<GcPolicyState>();
     assert_eq!(state.gcs_triggered, 1);

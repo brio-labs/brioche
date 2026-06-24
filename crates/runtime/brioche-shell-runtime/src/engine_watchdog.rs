@@ -89,11 +89,17 @@ impl std::fmt::Debug for EngineWatchdog {
             .field("telemetry", &self.telemetry)
             .field(
                 "serialize_and_restart_handler",
-                &self.serialize_and_restart_handler.as_ref().map(|_| "<handler>"),
+                &self
+                    .serialize_and_restart_handler
+                    .as_ref()
+                    .map(|_| "<handler>"),
             )
             .field(
                 "notify_and_degrade_handler",
-                &self.notify_and_degrade_handler.as_ref().map(|_| "<handler>"),
+                &self
+                    .notify_and_degrade_handler
+                    .as_ref()
+                    .map(|_| "<handler>"),
             )
             .finish()
     }
@@ -230,11 +236,21 @@ impl EngineWatchdog {
     async fn execute_recovery(&self) {
         match self.recovery_procedure {
             RecoveryProcedure::SerializeAndRestart => {
-                tracing::error!("watchdog recovery: SerializeAndRestart triggered");
+                let unacknowledged = self
+                    .transition_journal
+                    .as_ref()
+                    .map_or(0, |journal| journal.read_unacknowledged().len());
+                tracing::error!(
+                    unacknowledged,
+                    "watchdog recovery: SerializeAndRestart triggered"
+                );
                 self.telemetry.emit(
                     TelemetryLevel::Error,
                     "watchdog",
-                    "serialize-and-restart recovery procedure triggered",
+                    format!(
+                        "serialize-and-restart recovery procedure triggered ({} unacknowledged journal entries)",
+                        unacknowledged
+                    ),
                     None,
                 );
                 if let Some(handler) = &self.serialize_and_restart_handler {
@@ -317,7 +333,8 @@ mod tests {
     use crate::telemetry::{TelemetryChannel, TelemetryLevel};
 
     #[tokio::test]
-    async fn serialize_and_restart_emits_error_telemetry() {
+    async fn serialize_and_restart_emits_error_telemetry()
+    -> Result<(), tokio::sync::broadcast::error::RecvError> {
         let telemetry = TelemetryChannel::new(16);
         let mut rx = telemetry.subscribe();
 
@@ -326,13 +343,7 @@ mod tests {
 
         watchdog.execute_recovery().await;
 
-        let event = match rx.recv().await {
-            Ok(event) => event,
-            Err(_) => {
-                assert!(false, "expected a telemetry event");
-                return;
-            }
-        };
+        let event = rx.recv().await?;
 
         assert_eq!(event.level, TelemetryLevel::Error);
         assert_eq!(event.source, "watchdog");
@@ -341,6 +352,7 @@ mod tests {
             "message should indicate serialize-and-restart recovery: {}",
             event.message
         );
+        Ok(())
     }
 
     #[tokio::test]
@@ -357,7 +369,10 @@ mod tests {
 
         watchdog.execute_recovery().await;
 
-        assert!(invoked.load(Ordering::SeqCst), "handler should have been invoked");
+        assert!(
+            invoked.load(Ordering::SeqCst),
+            "handler should have been invoked"
+        );
     }
 
     #[tokio::test]

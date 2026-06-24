@@ -8,13 +8,90 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO, I-Shell-ToolResult-PassThrough
 
-use std::sync::Arc;
+use std::collections::BTreeMap;
+use std::sync::{Arc, RwLock};
 
-use crate::{BriocheShell, NetworkRecovery, PersistenceMode, ShellError};
 use brioche_core::{
     ActiveToolCall, AsyncTaskResult, ChatMessage, ErrorCode, ErrorDetail, SubRoutineHandle,
     SystemSignal, ToolResultDTO, UiWidget,
 };
+
+use crate::{BriocheShell, NetworkRecovery, PersistenceMode, ShellError};
+
+/// Synchronous CPU-bound computation handler.
+///
+/// Receives the serialized input payload and returns the serialized output.
+/// Handlers run on Tokio's `spawn_blocking` thread pool.
+///
+/// Refs: I-Shell-CpuTask-Dispatch
+pub type CpuTaskHandler = Arc<dyn Fn(&[u8]) -> Result<Vec<u8>, ShellError> + Send + Sync + 'static>;
+
+/// Registry of synchronous CPU-bound task handlers keyed by task ID.
+///
+/// Plugins register handlers for task IDs they emit via
+/// `#[brioche_offload_task]`. Unregistered tasks fall back to an identity
+/// passthrough so the runtime remains backward-compatible.
+///
+/// Uses `BTreeMap` for deterministic ordering and to satisfy
+/// I-Eco-OrderedCollections.
+///
+/// Refs: I-Shell-CpuTask-Dispatch, I-Eco-OrderedCollections
+#[derive(Clone, Default)]
+pub struct CpuTaskRegistry {
+    handlers: Arc<RwLock<BTreeMap<String, CpuTaskHandler>>>,
+}
+
+impl CpuTaskRegistry {
+    /// Creates an empty registry.
+    ///
+    /// Refs: I-Shell-CpuTask-Dispatch
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Register a handler for the given task ID.
+    ///
+    /// The handler receives the serialized input payload and must return the
+    /// serialized output. It runs on Tokio's `spawn_blocking` thread pool.
+    ///
+    /// # Complexity
+    /// O(log n) where n is the number of registered handlers.
+    ///
+    /// # Panics
+    /// Never panics. A poisoned lock is recovered with `into_inner`.
+    ///
+    /// Refs: I-Shell-CpuTask-Dispatch
+    pub fn register<F>(&mut self, task_id: impl Into<String>, handler: F)
+    where
+        F: Fn(&[u8]) -> Result<Vec<u8>, ShellError> + Send + Sync + 'static,
+    {
+        let mut guard = match self.handlers.write() {
+            Ok(g) => g,
+            Err(err) => err.into_inner(),
+        };
+        let _ = guard.insert(task_id.into(), Arc::new(handler));
+    }
+
+    /// Execute the handler for `task_id`, falling back to identity.
+    ///
+    /// # Complexity
+    /// O(log n) where n is the number of registered handlers.
+    ///
+    /// # Panics
+    /// Never panics. A poisoned lock is recovered with `into_inner`.
+    ///
+    /// Refs: I-Shell-CpuTask-Dispatch
+    pub fn execute(&self, task_id: &str, payload: &[u8]) -> Result<Vec<u8>, ShellError> {
+        let guard = match self.handlers.read() {
+            Ok(g) => g,
+            Err(err) => err.into_inner(),
+        };
+        match guard.get(task_id) {
+            Some(handler) => handler(payload),
+            None => Ok(payload.to_vec()),
+        }
+    }
+}
 
 /// Pluggable persistence boundary.
 ///
@@ -146,7 +223,7 @@ pub struct DefaultEffectExecutor<T, L, P> {
     ///
     /// The kernel emits structured widgets; downstream projection layers
     /// (Tauri, CLI) register this hook to consume them. When `None`, the
-    /// effect is silently dropped (Sprint 9 default).
+    /// effect is silently dropped.
     ///
     /// Refs: I-Shell-Projection-Independent
     ui_forwarder: Option<Arc<dyn Fn(UiWidget) + Send + Sync>>,
@@ -157,13 +234,19 @@ pub struct DefaultEffectExecutor<T, L, P> {
     ///
     /// Refs: I-UI-NoDirectDOM
     subroutine_restored_callback: Option<Arc<dyn Fn(SubRoutineHandle) + Send + Sync>>,
-    /// Whether `SystemIdle` should automatically trigger GC.
+    /// Shared conversational history mirror.
     ///
-    /// Default is `false`, preserving the Sprint 9 no-op behavior.
-    /// A future `GcPolicy` plugin will replace this static flag.
+    /// Used by context compression to select messages for summarization.
+    /// When `None`, summarization falls back to a no-op placeholder.
     ///
-    /// Refs: docs/SPECS.md §Book III-A
-    gc_on_idle: bool,
+    /// Refs: I-Shell-Runtime-OnlyIO
+    history: Option<Arc<tokio::sync::RwLock<Vec<ChatMessage>>>>,
+    /// Registry of CPU-bound computation handlers.
+    ///
+    /// When `None`, CPU tasks fall back to identity passthrough.
+    ///
+    /// Refs: I-Shell-CpuTask-Dispatch
+    cpu_task_registry: Option<Arc<CpuTaskRegistry>>,
 }
 
 impl<T, L, P> Clone for DefaultEffectExecutor<T, L, P> {
@@ -179,14 +262,16 @@ impl<T, L, P> Clone for DefaultEffectExecutor<T, L, P> {
                 .subroutine_restored_callback
                 .as_ref()
                 .map(Arc::clone),
-            gc_on_idle: self.gc_on_idle,
+            history: self.history.as_ref().map(Arc::clone),
+            cpu_task_registry: self.cpu_task_registry.as_ref().map(Arc::clone),
         }
     }
 }
 
 impl<T, L, P> DefaultEffectExecutor<T, L, P> {
-    /// Create a new executor with the given subsystems.
-    /// Refs: docs/SPECS.md §Book III-A
+    /// Creates a new effect executor with the given tools, LLM client, and persistence store.
+    ///
+    /// Refs: I-Shell-EffectExecutor-Construction
     pub fn new(tool_executor: T, llm_client: L, persistence: P) -> Self {
         Self {
             tool_executor: Arc::new(tool_executor),
@@ -196,7 +281,8 @@ impl<T, L, P> DefaultEffectExecutor<T, L, P> {
             network_recovery: None,
             ui_forwarder: None,
             subroutine_restored_callback: None,
-            gc_on_idle: false,
+            history: None,
+            cpu_task_registry: None,
         }
     }
 
@@ -238,14 +324,23 @@ impl<T, L, P> DefaultEffectExecutor<T, L, P> {
         self
     }
 
-    /// Enable automatic GC on every `SystemIdle` effect.
+    /// Attach the shared history mirror used for context compression.
     ///
-    /// Default is `false`. This is a Sprint 9 stop-gap until `GcPolicy`
-    /// drives GC decisions via `ExtensionStorage`.
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn with_history(mut self, history: Arc<tokio::sync::RwLock<Vec<ChatMessage>>>) -> Self {
+        self.history = Some(history);
+        self
+    }
+
+    /// Attach a registry of CPU-bound computation handlers.
     ///
-    /// Refs: docs/SPECS.md §Book III-A
-    pub fn with_gc_on_idle(mut self, enabled: bool) -> Self {
-        self.gc_on_idle = enabled;
+    /// When attached, `Effect::ExecuteCpuTask` payloads are dispatched to the
+    /// handler registered for the task ID. Unregistered tasks fall back to an
+    /// identity passthrough.
+    ///
+    /// Refs: I-Shell-CpuTask-Dispatch
+    pub fn with_cpu_task_registry(mut self, registry: Arc<CpuTaskRegistry>) -> Self {
+        self.cpu_task_registry = Some(registry);
         self
     }
 }
@@ -403,18 +498,36 @@ where
     }
 
     async fn trigger_summarization(&self, shell: &BriocheShell) -> Result<(), ShellError> {
-        // Sprint 9 stop-gap: emit a deterministic placeholder summary
-        // through the proper `AsyncTaskResult` channel. A future LLM-backed
-        // implementation will replace the dummy text with a compressed
-        // history produced by `LlmClient::summarize`.
-        let summary = ChatMessage::System {
-            content: "[summarization placeholder]".into(),
+        const KEEP_RECENT: usize = 2;
+
+        let messages_to_summarize = match &self.history {
+            Some(history) => {
+                let guard = history.read().await;
+                if guard.len() > KEEP_RECENT {
+                    guard[..guard.len() - KEEP_RECENT].to_vec()
+                } else {
+                    Vec::new()
+                }
+            }
+            None => {
+                // No history mirror available: emit a no-op placeholder
+                // rather than failing the effect.
+                return Ok(());
+            }
         };
+
+        if messages_to_summarize.is_empty() {
+            return Ok(());
+        }
+
+        let watermark = messages_to_summarize.len() as u32;
+        let summary = self
+            .llm_client
+            .summarize(shell, &messages_to_summarize)
+            .await?;
+
         shell
-            .send_async_task_result(AsyncTaskResult::SummarizationDone {
-                summary,
-                watermark: 0,
-            })
+            .send_async_task_result(AsyncTaskResult::SummarizationDone { summary, watermark })
             .await
     }
 
@@ -424,13 +537,14 @@ where
         payload: Vec<u8>,
         shell: &BriocheShell,
     ) -> Result<(), ShellError> {
-        let result = tokio::task::spawn_blocking(move || {
-            // Sprint 9: identity passthrough. The payload format and
-            // actual computation are defined by the offloading plugin.
-            payload
+        let registry = self.cpu_task_registry.clone();
+        let task_id_for_handler = task_id.clone();
+        let result = tokio::task::spawn_blocking(move || match registry {
+            Some(r) => r.execute(&task_id_for_handler, &payload),
+            None => Ok(payload),
         })
         .await
-        .map_err(|e| ShellError::EffectExecution(format!("cpu task panicked: {}", e)))?;
+        .map_err(|e| ShellError::EffectExecution(format!("cpu task panicked: {}", e)))??;
 
         shell
             .send_async_task_result(AsyncTaskResult::CpuTaskDone { task_id, result })
@@ -448,13 +562,11 @@ where
     async fn on_system_idle(
         &self,
         _shell: &BriocheShell,
-        session_id: &str,
+        _session_id: &str,
     ) -> Result<(), ShellError> {
-        // Sprint 9 stop-gap: static config flag. Sprint 16 will replace
-        // this with a `GcPolicy` plugin decision in `ExtensionStorage`.
-        if self.gc_on_idle {
-            self.trigger_gc(session_id).await?;
-        }
+        // GC is now requested by the `GcPolicy` plugin via `Effect::TriggerGc`.
+        // This hook is intentionally a no-op so the runtime can still observe
+        // idle transitions without coupling to a static config flag.
         Ok(())
     }
 
@@ -480,8 +592,7 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
 
-    use brioche_core::{AsyncTaskResult, ChatMessage, SubRoutineHandle, UiWidget};
-    use tokio::sync::mpsc;
+    use tokio::sync::{RwLock, mpsc};
 
     use super::*;
     use crate::{EchoToolExecutor, MockLlmClient};
@@ -512,7 +623,36 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cpu_task_emits_async_task_result() {
+    async fn cpu_task_dispatches_registered_handler() -> Result<(), ShellError> {
+        let (tx, mut rx) = mpsc::channel(4);
+        let shell = BriocheShell::test_with_async_channel(tx);
+        let mut registry = CpuTaskRegistry::new();
+        registry.register("double", |payload: &[u8]| {
+            Ok(payload.iter().flat_map(|&b| [b, b]).collect())
+        });
+        let executor =
+            DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), NoopPersistence)
+                .with_cpu_task_registry(Arc::new(registry));
+
+        executor
+            .execute_cpu_task("double".into(), vec![1, 2, 3], &shell)
+            .await?;
+
+        let result = rx.recv().await.ok_or_else(|| {
+            ShellError::EffectExecution("channel closed before async task result".into())
+        })?;
+        assert_eq!(
+            result,
+            AsyncTaskResult::CpuTaskDone {
+                task_id: "double".into(),
+                result: vec![1, 1, 2, 2, 3, 3],
+            }
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn cpu_task_falls_back_to_identity_when_unregistered() -> Result<(), ShellError> {
         let (tx, mut rx) = mpsc::channel(4);
         let shell = BriocheShell::test_with_async_channel(tx);
         let executor =
@@ -520,10 +660,11 @@ mod tests {
 
         executor
             .execute_cpu_task("task-1".into(), vec![1, 2, 3], &shell)
-            .await
-            .unwrap();
+            .await?;
 
-        let result = rx.recv().await.expect("expected async task result");
+        let result = rx.recv().await.ok_or_else(|| {
+            ShellError::EffectExecution("channel closed before async task result".into())
+        })?;
         assert_eq!(
             result,
             AsyncTaskResult::CpuTaskDone {
@@ -531,101 +672,133 @@ mod tests {
                 result: vec![1, 2, 3],
             }
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn summarization_emits_async_task_result() {
+    async fn summarization_emits_async_task_result() -> Result<(), ShellError> {
         let (tx, mut rx) = mpsc::channel(4);
         let shell = BriocheShell::test_with_async_channel(tx);
+        let history = Arc::new(RwLock::new(vec![
+            ChatMessage::User {
+                content: "a".into(),
+            },
+            ChatMessage::User {
+                content: "b".into(),
+            },
+            ChatMessage::User {
+                content: "c".into(),
+            },
+            ChatMessage::User {
+                content: "d".into(),
+            },
+            ChatMessage::User {
+                content: "e".into(),
+            },
+        ]));
         let executor =
-            DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), NoopPersistence);
+            DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), NoopPersistence)
+                .with_history(Arc::clone(&history));
 
-        executor.trigger_summarization(&shell).await.unwrap();
+        executor.trigger_summarization(&shell).await?;
 
-        let result = rx.recv().await.expect("expected async task result");
+        let result = rx.recv().await.ok_or_else(|| {
+            ShellError::EffectExecution("channel closed before async task result".into())
+        })?;
         assert!(
             matches!(
                 result,
                 AsyncTaskResult::SummarizationDone {
                     summary: ChatMessage::System { ref content },
-                    watermark: 0,
-                } if content == "[summarization placeholder]"
+                    watermark: 3,
+                } if content == "Mock summary of 3 messages"
             ),
-            "expected placeholder SummarizationDone, got {:?}",
+            "expected SummarizationDone for 3 summarized messages, got {:?}",
             result
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn forward_to_ui_invokes_callback() {
+    async fn forward_to_ui_invokes_callback() -> Result<(), ShellError> {
         let received = Arc::new(Mutex::new(None));
         let received_clone = Arc::clone(&received);
         let executor =
             DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), NoopPersistence)
                 .with_ui_forwarder(move |widget: UiWidget| {
-                    *received_clone.lock().unwrap() = Some(widget);
+                    assert!(
+                        received_clone
+                            .lock()
+                            .map(|mut guard| *guard = Some(widget))
+                            .is_ok()
+                    );
                 });
 
         let _shell = BriocheShell::test_with_async_channel(mpsc::channel(1).0);
         let widget = UiWidget::Status("ok".into());
-        executor.forward_to_ui(widget.clone()).await.unwrap();
+        executor.forward_to_ui(widget.clone()).await?;
 
-        assert_eq!(*received.lock().unwrap(), Some(widget));
+        assert!(received.lock().is_ok_and(|guard| *guard == Some(widget)));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn sub_routine_restored_invokes_callback() {
+    async fn sub_routine_restored_invokes_callback() -> Result<(), ShellError> {
         let received = Arc::new(Mutex::new(None));
         let received_clone = Arc::clone(&received);
         let executor =
             DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), NoopPersistence)
                 .with_subroutine_restored_callback(move |handle: SubRoutineHandle| {
-                    *received_clone.lock().unwrap() = Some(handle.as_str().to_string());
+                    assert!(
+                        received_clone
+                            .lock()
+                            .map(|mut guard| *guard = Some(handle.as_str().to_string()))
+                            .is_ok()
+                    );
                 });
 
         let _shell = BriocheShell::test_with_async_channel(mpsc::channel(1).0);
         let handle = SubRoutineHandle::new("sub-42");
-        executor.sub_routine_restored(handle.clone()).await.unwrap();
+        executor.sub_routine_restored(handle.clone()).await?;
 
-        assert_eq!(*received.lock().unwrap(), Some("sub-42".to_string()));
+        assert!(
+            received
+                .lock()
+                .is_ok_and(|guard| *guard == Some("sub-42".to_string()))
+        );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn trigger_gc_calls_persistence() {
+    async fn trigger_gc_calls_persistence() -> Result<(), ShellError> {
         let persistence = CountingPersistence::default();
         let executor =
             DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), persistence);
 
         let _shell = BriocheShell::test_with_async_channel(mpsc::channel(1).0);
-        executor.trigger_gc("session-a").await.unwrap();
+        executor.trigger_gc("session-a").await?;
 
         assert_eq!(
             executor.persistence.gc_count.load(Ordering::SeqCst),
             1,
             "gc should have been invoked once"
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn on_system_idle_honors_gc_on_idle_flag() {
+    async fn on_system_idle_does_not_trigger_gc() -> Result<(), ShellError> {
         let persistence = CountingPersistence::default();
         let executor =
             DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), persistence);
         let _shell = BriocheShell::test_with_async_channel(mpsc::channel(1).0);
 
-        executor.on_system_idle(&_shell, "session-b").await.unwrap();
+        executor.on_system_idle(&_shell, "session-b").await?;
         assert_eq!(
             executor.persistence.gc_count.load(Ordering::SeqCst),
             0,
-            "gc should be skipped when gc_on_idle is false"
+            "on_system_idle should not trigger GC; GC is policy-driven"
         );
-
-        let executor = executor.with_gc_on_idle(true);
-        executor.on_system_idle(&_shell, "session-b").await.unwrap();
-        assert_eq!(
-            executor.persistence.gc_count.load(Ordering::SeqCst),
-            1,
-            "gc should run when gc_on_idle is true"
-        );
+        Ok(())
     }
 }

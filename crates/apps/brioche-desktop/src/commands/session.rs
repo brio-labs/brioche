@@ -766,12 +766,14 @@ fn system_time_secs() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::state::DesktopState;
+    use std::collections::BTreeMap;
+
     use brioche_shell_persistence::{
         FlattenedAgentState, SessionHeadDTO, SessionSchemaVersion, SessionStoreEntry,
     };
-    use std::collections::BTreeMap;
+
+    use super::*;
+    use crate::state::DesktopState;
 
     async fn test_state(path: &str) -> Result<DesktopState, String> {
         DesktopState::new_with_path(path)

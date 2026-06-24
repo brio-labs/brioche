@@ -140,11 +140,29 @@ fn session_head_serialization_roundtrip() {
     assert_eq!(dto, restored);
 }
 
-#[test]
-fn subroutine_hydrator_roundtrip() {
+#[tokio::test]
+async fn subroutine_hydrator_roundtrip() {
+    let tmp = match tempfile::NamedTempFile::new() {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+    let store = new_session_store();
+    let storage = match RedbStorage::new(tmp.path(), store.clone()) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+
     let mut session = Session::new("hydrate-me");
     session.state = AgentState::Predicting { generation_id: 42 };
-    session.persisted_msg_count = 7;
+    session.persisted_msg_count = 2;
+    session.history = vec![
+        ChatMessage::System {
+            content: "system prompt".into(),
+        },
+        ChatMessage::User {
+            content: "hello".into(),
+        },
+    ];
 
     let dto = SessionHeadDTO::from_session(&session);
     let blob = match serialize_head(&dto) {
@@ -152,19 +170,38 @@ fn subroutine_hydrator_roundtrip() {
         Err(e) => unreachable!("{:?}", e),
     };
 
-    let hydrator = PersistenceSubRoutineHydrator;
+    if let Err(e) = storage
+        .save_messages("hydrate-me", &session.history, 0)
+        .await
+    {
+        unreachable!("{:?}", e);
+    }
+
+    let hydrator = PersistenceSubRoutineHydrator::new(storage);
     let hydrated = match hydrator.hydrate(&blob) {
         Ok(v) => v,
         Err(e) => unreachable!("{:?}", e),
     };
 
     assert_eq!(hydrated.id, "hydrate-me");
-    assert_eq!(hydrated.persisted_msg_count, 7);
+    assert_eq!(hydrated.persisted_msg_count, 2);
     assert!(matches!(
         hydrated.state,
         AgentState::Predicting { generation_id: 42 }
     ));
-    assert!(hydrated.history.is_empty());
+    assert_eq!(hydrated.history.len(), 2);
+    assert_eq!(
+        hydrated.history[0],
+        ChatMessage::System {
+            content: "system prompt".into(),
+        }
+    );
+    assert_eq!(
+        hydrated.history[1],
+        ChatMessage::User {
+            content: "hello".into(),
+        }
+    );
 }
 
 // ---------------------------------------------------------------------------

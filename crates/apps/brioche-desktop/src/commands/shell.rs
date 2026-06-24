@@ -469,8 +469,8 @@ CRITICAL RULES: \
     });
 
     let effect_executor =
-        DefaultEffectExecutor::new(tool_executor, llm_client.clone(), factory.redb.clone());
-
+        DefaultEffectExecutor::new(tool_executor, llm_client.clone(), factory.redb.clone())
+            .with_history(Arc::clone(&history));
     // Session callback — snapshot after each transition.
     let store_for_callback = Arc::clone(&factory.store);
     let session_callback: brioche_shell_runtime::SessionCallback =
@@ -487,11 +487,14 @@ CRITICAL RULES: \
 
     let session_id = session_id.into();
     let history_clone = Arc::clone(&history);
+    let redb_for_factory = factory.redb.clone();
     let shell = BriocheShell::new(
         move || {
             let (engine, session) = PluginBuilder::standard()
                 .with_subroutine_hydrator(Box::new(
-                    brioche_shell_persistence::PersistenceSubRoutineHydrator,
+                    brioche_shell_persistence::PersistenceSubRoutineHydrator::new(
+                        redb_for_factory.clone(),
+                    ),
                 ))
                 .build_with_session(&session_id);
             (engine, session)
@@ -502,7 +505,6 @@ CRITICAL RULES: \
             max_concurrent_effects: 32,
             persistence_mode: brioche_shell_runtime::PersistenceMode::Async,
             transition_journal_enabled: false,
-            gc_on_idle: false,
         },
         effect_executor,
         Some(session_callback),

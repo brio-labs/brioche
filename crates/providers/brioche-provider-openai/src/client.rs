@@ -412,9 +412,44 @@ impl OpenAiLlmClient {
             self.config.max_tokens,
             self.config.reasoning_effort.as_deref(),
             tools,
+            true,
         );
-        drop(tools_guard);
         (body, msg_count)
+    }
+
+    /// Build a non-streaming summarization request for the given messages.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    fn build_summary_request(&self, messages: &[ChatMessage]) -> serde_json::Value {
+        let summary_prompt = ChatMessage::System {
+            content: "Summarize the following conversation concisely. \
+                Preserve key facts, user intent, and any decisions or tool results. \
+                The summary will replace the messages it covers."
+                .into(),
+        };
+        let mut request_messages = crate::request::build_messages(&[summary_prompt]);
+        request_messages.extend(crate::request::build_messages(messages));
+        crate::request::build_request_body(
+            &self.config.model,
+            request_messages,
+            self.config.max_tokens.min(512),
+            None,
+            None,
+            false,
+        )
+    }
+
+    /// Extract the assistant content from a non-streaming completion response.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    fn extract_summary_text(body: &serde_json::Value) -> Option<String> {
+        body.get("choices")?
+            .as_array()?
+            .first()?
+            .get("message")?
+            .get("content")?
+            .as_str()
+            .map(|s| s.to_string())
     }
 
     /// Send the request and surface network or HTTP errors.
@@ -915,6 +950,37 @@ impl LlmClient for OpenAiLlmClient {
             .await?;
         let _ = self.ui_tx.send(LlmChunk::Done);
         Ok(())
+    }
+
+    async fn summarize(
+        &self,
+        shell: &BriocheShell,
+        messages: &[ChatMessage],
+    ) -> Result<ChatMessage, ShellError> {
+        if messages.is_empty() {
+            return Ok(ChatMessage::System {
+                content: "[no messages to summarize]".into(),
+            });
+        }
+
+        let _ = self
+            .ui_tx
+            .send(LlmChunk::Status("Summarizing conversation…".into()));
+
+        let url = format!("{}/chat/completions", self.config.base_url);
+        let body = self.build_summary_request(messages);
+
+        let response = self.send_request(shell, &body, &url).await?;
+        let json: serde_json::Value = response.json().await.map_err(|err| {
+            ShellError::EffectExecution(format!("failed to parse summary response: {err}"))
+        })?;
+
+        match Self::extract_summary_text(&json) {
+            Some(content) => Ok(ChatMessage::System { content }),
+            None => Ok(ChatMessage::System {
+                content: "[summary unavailable]".into(),
+            }),
+        }
     }
 
     async fn push_tool_results(&self, results: &[ToolResultDTO]) {

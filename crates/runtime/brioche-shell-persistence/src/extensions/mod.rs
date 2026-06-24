@@ -34,9 +34,7 @@ use std::sync::Arc;
 pub use amp_memory_client::{AmpMemoryEndpoint, AmpMemoryProvider};
 pub use context::{CompressorContextEngine, ContextEngine, ContextEngineInput};
 pub use footer::{FooterMetric, FooterMetricProvider};
-pub use memory_provider::{
-    LocalMemoryProvider, MemoryProvider, MemoryQuery, MemorySessionContext,
-};
+pub use memory_provider::{LocalMemoryProvider, MemoryProvider, MemoryQuery, MemorySessionContext};
 use serde::{Deserialize, Serialize};
 pub use settings_sections::{SettingsSection, SettingsSectionProvider};
 pub use skill_provider::{SkillProvider, SkillRegistry};

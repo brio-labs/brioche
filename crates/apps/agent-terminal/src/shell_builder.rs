@@ -79,8 +79,8 @@ CRITICAL RULES: \
     });
 
     let effect_executor =
-        DefaultEffectExecutor::new(tool_executor, llm_client.clone(), redb_storage.clone());
-
+        DefaultEffectExecutor::new(tool_executor, llm_client.clone(), redb_storage.clone())
+            .with_history(Arc::clone(&history));
     // Session callback — snapshot after each transition.
     let store_for_callback = Arc::clone(&session_store);
     let session_callback: brioche_shell_runtime::SessionCallback =
@@ -102,7 +102,9 @@ CRITICAL RULES: \
         move || {
             let (engine, mut session) = PluginBuilder::standard()
                 .with_subroutine_hydrator(Box::new(
-                    brioche_shell_persistence::PersistenceSubRoutineHydrator,
+                    brioche_shell_persistence::PersistenceSubRoutineHydrator::new(
+                        redb_storage.clone(),
+                    ),
                 ))
                 .build_with_session(&session_id);
             if let Some(head) = initial_head {
@@ -119,7 +121,6 @@ CRITICAL RULES: \
             max_concurrent_effects: 32,
             persistence_mode: brioche_shell_runtime::PersistenceMode::Async,
             transition_journal_enabled: false,
-            gc_on_idle: false,
         },
         effect_executor,
         Some(session_callback),

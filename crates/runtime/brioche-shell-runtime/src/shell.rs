@@ -103,13 +103,6 @@ pub struct ShellConfig {
     pub persistence_mode: PersistenceMode,
     /// Whether to enable the `TransitionJournal`.
     pub transition_journal_enabled: bool,
-    /// Whether `SystemIdle` should automatically trigger GC.
-    ///
-    /// This is a Sprint 9 stop-gap until a `GcPolicy` plugin drives
-    /// idle-time compaction. Default is `false`.
-    ///
-    /// Refs: docs/SPECS.md §Book III-A
-    pub gc_on_idle: bool,
 }
 
 impl Default for ShellConfig {
@@ -120,7 +113,6 @@ impl Default for ShellConfig {
             max_concurrent_effects: 32,
             persistence_mode: PersistenceMode::Async,
             transition_journal_enabled: true,
-            gc_on_idle: false,
         }
     }
 }
@@ -379,11 +371,32 @@ impl BriocheShell {
         crate::telemetry::install_default_subscriber(telemetry.clone());
 
         // Step 7 (continued): launch the engine watchdog.
+        let shell_for_serialize = shell.clone();
+        let shell_for_degrade = shell.clone();
         let watchdog = EngineWatchdog::default()
             .with_transition_journal(journal_for_watchdog)
-            .with_telemetry(telemetry);
+            .with_telemetry(telemetry)
+            .with_serialize_and_restart_handler(move || {
+                let shell = shell_for_serialize.clone();
+                tokio::spawn(async move {
+                    let _ = shell
+                        .send_system_signal(brioche_core::SystemSignal::EngineUnresponsive {
+                            procedure: "SerializeAndRestart".into(),
+                        })
+                        .await;
+                });
+            })
+            .with_notify_and_degrade_handler(move || {
+                let shell = shell_for_degrade.clone();
+                tokio::spawn(async move {
+                    let _ = shell
+                        .send_system_signal(brioche_core::SystemSignal::EngineUnresponsive {
+                            procedure: "NotifyAndDegrade".into(),
+                        })
+                        .await;
+                });
+            });
         task_tracker.spawn(watchdog.run(ping_tx, pong_rx));
-
         shell
     }
 
@@ -631,6 +644,13 @@ fn engine_thread_loop(
         if output_tx.blocking_send((effects, snapshot)).is_err() {
             // Async runtime dropped; shut down.
             break;
+        }
+
+        // Mark the transition as durably processed by the engine.
+        // Any entries still unacknowledged after a crash will be replayed
+        // by the watchdog on recovery.
+        if journal_enabled {
+            journal.acknowledge_all();
         }
     }
 }

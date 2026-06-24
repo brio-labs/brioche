@@ -456,6 +456,40 @@ impl RedbStorage {
         .map_err(|e| PersistenceError::Compression(e.to_string()))?
     }
 
+    /// Load all messages for a session in index order, synchronously.
+    ///
+    /// This is the blocking counterpart of [`Self::load_messages_for_session`],
+    /// intended for callers that run outside the async runtime (e.g. the
+    /// synchronous `SubRoutineHydrator::hydrate` callback on the engine thread).
+    ///
+    /// # Errors
+    /// Returns `PersistenceError::Redb` on database errors.
+    /// Returns `PersistenceError::Serialization` on MessagePack decode failure.
+    /// Returns `PersistenceError::Compression` on Zstd decompression failure.
+    ///
+    /// Refs: I-Shell-Load-Batch
+    pub fn load_messages_for_session_sync(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<(u32, ChatMessage)>, PersistenceError> {
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(MESSAGES_TABLE)?;
+        let range = table.iter()?;
+        let mut results = Vec::new();
+        for item in range {
+            let (k, v) = item?;
+            let (key_sid, idx) = k.value();
+            if key_sid != session_id {
+                continue;
+            }
+            let decompressed = maybe_decompress(v.value())?;
+            let msg = deserialize_message(&decompressed)?;
+            results.push((idx, msg));
+        }
+        results.sort_by_key(|(idx, _)| *idx);
+        Ok(results)
+    }
+
     /// Delete all messages for a session with index strictly less than
     /// `compaction_index`.
     ///

@@ -624,15 +624,16 @@ mod tests {
     fn empty_model_is_invalid() {
         let mut settings = Settings::default();
         assert!(
-            settings
-                .set("chat.model", Value::String("".into()))
-                .is_ok(),
+            settings.set("chat.model", Value::String("".into())).is_ok(),
             "set should succeed"
         );
-        let err = settings.validate().expect_err("empty model should fail");
-        assert!(err.contains("chat.model"));
+        assert!(
+            settings
+                .validate()
+                .is_err_and(|err| err.contains("chat.model")),
+            "empty model should fail"
+        );
     }
-
 
     #[test]
     fn invalid_base_url_is_invalid() {
@@ -643,10 +644,13 @@ mod tests {
                 .is_ok(),
             "set should succeed"
         );
-        let err = settings.validate().expect_err("bad URL should fail");
-        assert!(err.contains("chat.base_url"));
+        assert!(
+            settings
+                .validate()
+                .is_err_and(|err| err.contains("chat.base_url")),
+            "bad URL should fail"
+        );
     }
-
 
     #[test]
     fn target_exceeding_trigger_is_invalid() {
@@ -663,34 +667,37 @@ mod tests {
                 .is_ok(),
             "set should succeed"
         );
-        let err = settings
-            .validate()
-            .expect_err("target > trigger should fail");
-        assert!(err.contains("target_percentage"));
+        assert!(
+            settings
+                .validate()
+                .is_err_and(|err| err.contains("target_percentage")),
+            "target > trigger should fail"
+        );
     }
-
 
     #[test]
     fn empty_memory_endpoint_url_is_invalid() {
         let mut settings = Settings::default();
+        let mut endpoint = serde_json::Map::new();
+        endpoint.insert("id".into(), Value::String("test".into()));
+        endpoint.insert("name".into(), Value::String("Test".into()));
+        endpoint.insert("url".into(), Value::String("".into()));
+        endpoint.insert("api_key".into(), Value::Null);
+        endpoint.insert("scope".into(), Value::Null);
         assert!(
             settings
                 .set(
                     "memory.endpoints",
-                    Value::Array(vec![serde_json::json!({
-                        "id": "test",
-                        "name": "Test",
-                        "url": "",
-                        "api_key": null,
-                        "scope": null,
-                    })]),
+                    Value::Array(vec![Value::Object(endpoint)])
                 )
                 .is_ok(),
             "set should succeed"
         );
-        let err = settings
-            .validate()
-            .expect_err("empty endpoint URL should fail");
-        assert!(err.contains("memory.endpoints"));
+        assert!(
+            settings
+                .validate()
+                .is_err_and(|err| err.contains("memory.endpoints")),
+            "empty endpoint URL should fail"
+        );
     }
 }

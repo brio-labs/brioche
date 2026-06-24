@@ -7,7 +7,6 @@
 use brioche_desktop_lib::DesktopState;
 #[cfg(not(clippy))]
 use brioche_desktop_lib::commands;
-
 #[cfg(not(clippy))]
 use tauri::Manager;
 
