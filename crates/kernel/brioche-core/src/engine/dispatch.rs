@@ -238,18 +238,38 @@ impl BriocheEngine {
 
     /// Dispatch `RestoreSubRoutine` input.
     ///
-    /// Sprint 4 placeholder: creates a default child session.
-    /// Full `SessionHeadDTO` deserialization deferred to Sprint 5+.
+    /// If a `SubRoutineHydrator` is configured, the `head_blob` is decoded
+    /// and the resulting `Session` is inserted into the registry. On decode
+    /// failure the engine falls back to a blank child session and emits an
+    /// error effect so the shell can observe the inconsistency.
     ///
-    /// Refs: I-Shell-Session-NoSend
+    /// Refs: I-Shell-Session-NoSend, I-Persist-Idempotence
     fn dispatch_restore_subroutine(
         &mut self,
         _session: &mut Session,
         handle: &SubRoutineHandle,
-        _head_blob: &[u8],
+        head_blob: &[u8],
         effects: &mut Vec<Effect>,
     ) -> Result<(), BriocheError> {
-        let child = Session::new(handle.as_str());
+        let child = match self.governance.subroutine_hydrator.as_ref() {
+            Some(hydrator) => match hydrator.hydrate(head_blob) {
+                Ok(session) => session,
+                Err(err) => {
+                    effects.push(Effect::Error {
+                        code: ErrorCode::StateInconsistency,
+                        detail: ErrorDetail::TransitionFailed {
+                            reason: format!(
+                                "sub-routine head deserialization failed for {}: {err}",
+                                handle.as_str()
+                            ),
+                        },
+                    });
+                    Session::new(handle.as_str())
+                }
+            },
+            None => Session::new(handle.as_str()),
+        };
+
         self.routines.registry.insert(handle.clone(), child);
 
         effects.push(Effect::SubRoutineRestored {
@@ -363,5 +383,164 @@ impl BriocheEngine {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod subroutine_hydrator_tests {
+    use crate::{
+        BriocheEngine, BriocheEngineBuilder, BriocheError, DecisionAggregator, Effect, EngineInput,
+        ErrorCode, ErrorDetail, PluginResult, PolicyDecision, Session, SubRoutineHandle,
+        SubRoutineHydrator, SubRoutineLifecycleGuard,
+    };
+
+    struct MockDecisionAggregator;
+
+    impl DecisionAggregator for MockDecisionAggregator {
+        fn aggregate_decisions(
+            &self,
+            _decisions: Vec<PolicyDecision>,
+            _ext: &mut crate::ExtensionStorage,
+        ) -> PluginResult<PolicyDecision> {
+            Ok(PolicyDecision::Allow)
+        }
+    }
+
+    struct MockSubRoutineLifecycleGuard;
+
+    impl SubRoutineLifecycleGuard for MockSubRoutineLifecycleGuard {
+        fn on_exit(
+            &self,
+            _handle: crate::SubRoutineHandle,
+            _parent: &mut Session,
+            _registry: &mut crate::SessionRegistry,
+        ) -> PluginResult<Vec<Effect>> {
+            Ok(Vec::new())
+        }
+    }
+
+    struct FixedIdHydrator {
+        id: String,
+        fail: bool,
+    }
+
+    impl SubRoutineHydrator for FixedIdHydrator {
+        fn hydrate(&self, _head_blob: &[u8]) -> Result<Session, BriocheError> {
+            if self.fail {
+                Err(BriocheError::Serialization("bad blob".to_string()))
+            } else {
+                Ok(Session::new(self.id.clone()))
+            }
+        }
+    }
+
+    fn take_registered_child(engine: &mut BriocheEngine, handle: &SubRoutineHandle) -> Session {
+        match engine.routines.registry.remove(handle) {
+            Some(session) => session,
+            None => {
+                assert_eq!(1, 0, "child session should be registered");
+                Session::new("")
+            }
+        }
+    }
+
+    #[test]
+    fn hydrator_is_invoked_and_result_used() {
+        let mut engine = BriocheEngineBuilder::new()
+            .with_decision_aggregator(Box::new(MockDecisionAggregator))
+            .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+            .with_subroutine_hydrator(Box::new(FixedIdHydrator {
+                id: "hydrated-child".to_string(),
+                fail: false,
+            }))
+            .build();
+
+        let mut parent = Session::new("parent");
+        let handle = SubRoutineHandle::new("child-handle");
+        let effects = engine.transition(
+            &mut parent,
+            &EngineInput::RestoreSubRoutine {
+                handle: handle.clone(),
+                head_blob: vec![0x1, 0x2, 0x3],
+            },
+        );
+
+        assert!(effects.iter().any(|e| matches!(
+            e,
+            Effect::SubRoutineRestored { handle: h } if *h == handle
+        )));
+        assert!(effects.iter().any(|e| matches!(e, Effect::SaveSession)));
+
+        let child = take_registered_child(&mut engine, &handle);
+        assert_eq!(child.id, "hydrated-child");
+    }
+
+    #[test]
+    fn no_hydrator_falls_back_to_blank_session() {
+        let mut engine = BriocheEngineBuilder::new()
+            .with_decision_aggregator(Box::new(MockDecisionAggregator))
+            .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+            .build();
+
+        let mut parent = Session::new("parent");
+        let handle = SubRoutineHandle::new("blank-handle");
+        let effects = engine.transition(
+            &mut parent,
+            &EngineInput::RestoreSubRoutine {
+                handle: handle.clone(),
+                head_blob: Vec::new(),
+            },
+        );
+
+        assert!(effects.iter().any(|e| matches!(
+            e,
+            Effect::SubRoutineRestored { handle: h } if *h == handle
+        )));
+        assert!(effects.iter().any(|e| matches!(e, Effect::SaveSession)));
+        assert!(!effects.iter().any(|e| matches!(e, Effect::Error { .. })));
+
+        let child = take_registered_child(&mut engine, &handle);
+        assert_eq!(child.id, handle.as_str());
+    }
+
+    #[test]
+    fn hydrator_failure_emits_error_and_fallback() {
+        let mut engine = BriocheEngineBuilder::new()
+            .with_decision_aggregator(Box::new(MockDecisionAggregator))
+            .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+            .with_subroutine_hydrator(Box::new(FixedIdHydrator {
+                id: "ignored".to_string(),
+                fail: true,
+            }))
+            .build();
+
+        let mut parent = Session::new("parent");
+        let handle = SubRoutineHandle::new("failing-handle");
+        let effects = engine.transition(
+            &mut parent,
+            &EngineInput::RestoreSubRoutine {
+                handle: handle.clone(),
+                head_blob: vec![0xff],
+            },
+        );
+
+        assert!(
+            matches!(
+                effects.first(),
+                Some(Effect::Error {
+                    code: ErrorCode::StateInconsistency,
+                    detail: ErrorDetail::TransitionFailed { reason },
+                }) if reason.contains("bad blob")
+            ),
+            "expected TransitionFailed error, got {effects:?}"
+        );
+        assert!(effects.iter().any(|e| matches!(
+            e,
+            Effect::SubRoutineRestored { handle: h } if *h == handle
+        )));
+        assert!(effects.iter().any(|e| matches!(e, Effect::SaveSession)));
+
+        let child = take_registered_child(&mut engine, &handle);
+        assert_eq!(child.id, handle.as_str());
     }
 }

@@ -23,7 +23,7 @@ use crate::{
     ConsistencyVerifier, CycleRollbackPolicy, DecisionAggregator, Effect, EngineInput,
     EpochInterceptor, ErrorCode, ErrorDetail, GovernanceFailoverHandler, HookEffectConstraint,
     PluginSource, Session, SessionRegistry, SubRoutineHandle, SubRoutineHandler,
-    SubRoutineLifecycleGuard,
+    SubRoutineHydrator, SubRoutineLifecycleGuard,
 };
 
 mod builder;
@@ -63,6 +63,7 @@ pub use router::{PluginRouter, UnifiedRoutingTable};
 pub struct GovernanceKernel {
     pub(crate) epoch_interceptor: Option<Box<dyn EpochInterceptor>>,
     pub(crate) subroutine_handler: Option<Box<dyn SubRoutineHandler>>,
+    pub(crate) subroutine_hydrator: Option<Box<dyn SubRoutineHydrator>>,
     pub(crate) consistency_verifier: Option<Box<dyn ConsistencyVerifier>>,
     pub(crate) decision_aggregator: Option<Box<dyn DecisionAggregator>>,
     pub(crate) hook_effect_constraint: Option<Box<dyn HookEffectConstraint>>,

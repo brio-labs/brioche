@@ -15,9 +15,9 @@
 use std::any::{Any, TypeId};
 
 use crate::{
-    ChatMessage, Effect, EngineInput, ExtVTable, ExtensionStorage, PluginError, PluginResult,
-    PolicyDecision, Session, SessionRegistry, StreamAction, StreamEvent, SubRoutineHandle,
-    ToolCallDescriptor, ToolResultDTO,
+    BriocheError, ChatMessage, Effect, EngineInput, ExtVTable, ExtensionStorage, PluginError,
+    PluginResult, PolicyDecision, Session, SessionRegistry, StreamAction, StreamEvent,
+    SubRoutineHandle, ToolCallDescriptor, ToolResultDTO,
 };
 
 // ---------------------------------------------------------------------------
@@ -306,6 +306,35 @@ pub trait SubRoutineHandler: Send + Sync {
         child: &mut Session,
         input: &EngineInput,
     ) -> PluginResult<Option<Vec<Effect>>>;
+}
+
+/// Hydrates a sub-routine session from a persisted MessagePack head blob.
+///
+/// This is a boundary trait: `brioche-core` defines the contract, while
+/// `brioche-shell-persistence` supplies the MessagePack implementation.
+/// Keeping the trait in Core preserves the dependency direction
+/// (persistence depends on core, never the reverse).
+///
+/// # Complexity
+/// O(deserialization cost). The trait itself introduces no allocation.
+///
+/// # Panics
+/// Never panics. Implementations must return `BriocheError` on failure.
+///
+/// Refs: I-Shell-Session-NoSend, I-Persist-Idempotence
+pub trait SubRoutineHydrator: Send + Sync {
+    /// Deserialize `head_blob` into a `Session`.
+    ///
+    /// The returned `Session` is created in memory and can be inserted
+    /// into the `SessionRegistry` by the kernel.
+    ///
+    /// # Complexity
+    /// O(deserialization cost + session reconstruction).
+    ///
+    /// # Errors
+    /// Returns `BriocheError::Serialization` or another deterministic error
+    /// if the blob cannot be decoded.
+    fn hydrate(&self, head_blob: &[u8]) -> Result<Session, BriocheError>;
 }
 
 /// Post-transition mechanical consistency check.
