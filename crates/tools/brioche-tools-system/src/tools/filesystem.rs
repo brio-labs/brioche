@@ -48,16 +48,27 @@ fn object_schema(required: &[&str], properties: &[(&str, &str)]) -> serde_json::
 
 /// Reads the contents of a text file.
 /// Refs: docs/SPECS.md §Book III-C
-pub struct ReadFileTool;
+#[derive(Default)]
+pub struct ReadFileTool {
+    base_dir: Option<std::path::PathBuf>,
+}
+
+impl ReadFileTool {
+    /// Creates a new `ReadFileTool` with a base directory for resolving relative paths.
+    /// Refs: docs/SPECS.md §Book III-C
+    pub fn new(base_dir: Option<std::path::PathBuf>) -> Self {
+        Self { base_dir }
+    }
+}
 
 #[async_trait::async_trait]
 impl SystemTool for ReadFileTool {
-    fn name(&self) -> &'static str {
-        "read_file"
+    fn name(&self) -> String {
+        "read_file".into()
     }
 
-    fn description(&self) -> &'static str {
-        "Read the contents of a text file."
+    fn description(&self) -> String {
+        "Read the contents of a text file.".into()
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -72,9 +83,19 @@ impl SystemTool for ReadFileTool {
         args: serde_json::Value,
         _cancel: CancellationToken,
     ) -> Result<String, ToolError> {
-        let path = args["path"]
+        let path_raw = args["path"]
             .as_str()
             .ok_or_else(|| ToolError::InvalidArgs("missing 'path'".into()))?;
+        let path_expanded = expand_tilde(path_raw);
+        let path = if !std::path::Path::new(&path_expanded).is_absolute() {
+            if let Some(ref base) = self.base_dir {
+                base.join(&path_expanded)
+            } else {
+                std::path::PathBuf::from(path_expanded)
+            }
+        } else {
+            std::path::PathBuf::from(path_expanded)
+        };
         let content = tokio::fs::read_to_string(path).await?;
         Ok(content)
     }
@@ -82,16 +103,27 @@ impl SystemTool for ReadFileTool {
 
 /// Writes content to a text file.
 /// Refs: docs/SPECS.md §Book III-C
-pub struct WriteFileTool;
+#[derive(Default)]
+pub struct WriteFileTool {
+    base_dir: Option<std::path::PathBuf>,
+}
+
+impl WriteFileTool {
+    /// Creates a new `WriteFileTool` with a base directory for resolving relative paths.
+    /// Refs: docs/SPECS.md §Book III-C
+    pub fn new(base_dir: Option<std::path::PathBuf>) -> Self {
+        Self { base_dir }
+    }
+}
 
 #[async_trait::async_trait]
 impl SystemTool for WriteFileTool {
-    fn name(&self) -> &'static str {
-        "write_file"
+    fn name(&self) -> String {
+        "write_file".into()
     }
 
-    fn description(&self) -> &'static str {
-        "Write content to a text file. Creates the file if it does not exist."
+    fn description(&self) -> String {
+        "Write content to a text file. Creates the file if it does not exist.".into()
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -135,12 +167,21 @@ impl SystemTool for WriteFileTool {
         let path_raw = args["path"]
             .as_str()
             .ok_or_else(|| ToolError::InvalidArgs("missing 'path'".into()))?;
-        let path = expand_tilde(path_raw);
+        let path_expanded = expand_tilde(path_raw);
+        let path = if !std::path::Path::new(&path_expanded).is_absolute() {
+            if let Some(ref base) = self.base_dir {
+                base.join(&path_expanded)
+            } else {
+                std::path::PathBuf::from(path_expanded)
+            }
+        } else {
+            std::path::PathBuf::from(path_expanded)
+        };
         let content = args["content"].as_str().map_or("", |v| v);
         let append = args["append"].as_bool().is_some_and(|v| v);
 
         // Create parent directories if they don't exist.
-        if let Some(parent) = std::path::Path::new(&path).parent() {
+        if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
 
@@ -152,26 +193,47 @@ impl SystemTool for WriteFileTool {
                 .await?;
             file.write_all(content.as_bytes()).await?;
             file.flush().await?;
-            Ok(format!("appended {} bytes to {}", content.len(), path))
+            Ok(format!(
+                "appended {} bytes to {}",
+                content.len(),
+                path.display()
+            ))
         } else {
             tokio::fs::write(&path, content).await?;
-            Ok(format!("written {} bytes to {}", content.len(), path))
+            Ok(format!(
+                "written {} bytes to {}",
+                content.len(),
+                path.display()
+            ))
         }
     }
 }
 
 /// Lists the contents of a directory.
 /// Refs: docs/SPECS.md §Book III-C
-pub struct ListDirTool;
+/// Lists the contents of a directory.
+/// Refs: docs/SPECS.md §Book III-C
+#[derive(Default)]
+pub struct ListDirTool {
+    base_dir: Option<std::path::PathBuf>,
+}
+
+impl ListDirTool {
+    /// Creates a new `ListDirTool` with a base directory for resolving relative paths.
+    /// Refs: docs/SPECS.md §Book III-C
+    pub fn new(base_dir: Option<std::path::PathBuf>) -> Self {
+        Self { base_dir }
+    }
+}
 
 #[async_trait::async_trait]
 impl SystemTool for ListDirTool {
-    fn name(&self) -> &'static str {
-        "list_dir"
+    fn name(&self) -> String {
+        "list_dir".into()
     }
 
-    fn description(&self) -> &'static str {
-        "List the contents of a directory."
+    fn description(&self) -> String {
+        "List the contents of a directory.".into()
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -186,9 +248,19 @@ impl SystemTool for ListDirTool {
         args: serde_json::Value,
         _cancel: CancellationToken,
     ) -> Result<String, ToolError> {
-        let path = args["path"]
+        let path_raw = args["path"]
             .as_str()
             .ok_or_else(|| ToolError::InvalidArgs("missing 'path'".into()))?;
+        let path_expanded = expand_tilde(path_raw);
+        let path = if !std::path::Path::new(&path_expanded).is_absolute() {
+            if let Some(ref base) = self.base_dir {
+                base.join(&path_expanded)
+            } else {
+                std::path::PathBuf::from(path_expanded)
+            }
+        } else {
+            std::path::PathBuf::from(path_expanded)
+        };
         let mut entries = tokio::fs::read_dir(path).await?;
         let mut lines = Vec::new();
         while let Some(entry) = entries.next_entry().await? {
@@ -208,7 +280,7 @@ mod tests {
 
     #[test]
     fn write_file_schema_includes_append() {
-        let tool = WriteFileTool;
+        let tool = WriteFileTool::default();
         let schema = tool.parameters_schema();
         let required = schema.get("required").unwrap().as_array().unwrap();
         assert!(required.iter().any(|v| v == "path"));
@@ -225,7 +297,7 @@ mod tests {
     async fn write_file_appends_content() {
         let temp = tempfile::NamedTempFile::new().unwrap();
 
-        let tool = WriteFileTool;
+        let tool = WriteFileTool::default();
         let args = serde_json::json!({
             "path": temp.path().to_str().unwrap(),
             "content": "hello "

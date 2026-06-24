@@ -7,14 +7,14 @@
 
 use std::num::NonZeroUsize;
 
-use brioche_core::{AgentState, ChatMessage, Session};
+use brioche_core::{AgentState, ChatMessage, Session, SubRoutineHydrator};
 use brioche_shell_persistence::{
-    COMPRESSION_THRESHOLD, FlattenedAgentState, GcRunner, RedbStorage, SessionHeadDTO,
-    SessionSchemaVersion, SessionStoreEntry, SubRoutineCache, deserialize_head, extract_delta,
-    load_subroutine, maybe_compress, maybe_decompress, new_session_store, serialize_head,
+    COMPRESSION_THRESHOLD, FlattenedAgentState, GcRunner, PersistenceSubRoutineHydrator,
+    RedbStorage, SessionHeadDTO, SessionSchemaVersion, SessionStoreEntry, SubRoutineCache,
+    deserialize_head, extract_delta, load_subroutine, maybe_compress, maybe_decompress,
+    new_session_store, serialize_head,
 };
 use redb::ReadableDatabase;
-
 // ---------------------------------------------------------------------------
 // DTO conversion
 // ---------------------------------------------------------------------------
@@ -138,6 +138,70 @@ fn session_head_serialization_roundtrip() {
     };
 
     assert_eq!(dto, restored);
+}
+
+#[tokio::test]
+async fn subroutine_hydrator_roundtrip() {
+    let tmp = match tempfile::NamedTempFile::new() {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+    let store = new_session_store();
+    let storage = match RedbStorage::new(tmp.path(), store.clone()) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+
+    let mut session = Session::new("hydrate-me");
+    session.state = AgentState::Predicting { generation_id: 42 };
+    session.persisted_msg_count = 2;
+    session.history = vec![
+        ChatMessage::System {
+            content: "system prompt".into(),
+        },
+        ChatMessage::User {
+            content: "hello".into(),
+        },
+    ];
+
+    let dto = SessionHeadDTO::from_session(&session);
+    let blob = match serialize_head(&dto) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+
+    if let Err(e) = storage
+        .save_messages("hydrate-me", &session.history, 0)
+        .await
+    {
+        unreachable!("{:?}", e);
+    }
+
+    let hydrator = PersistenceSubRoutineHydrator::new(storage);
+    let hydrated = match hydrator.hydrate(&blob) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+
+    assert_eq!(hydrated.id, "hydrate-me");
+    assert_eq!(hydrated.persisted_msg_count, 2);
+    assert!(matches!(
+        hydrated.state,
+        AgentState::Predicting { generation_id: 42 }
+    ));
+    assert_eq!(hydrated.history.len(), 2);
+    assert_eq!(
+        hydrated.history[0],
+        ChatMessage::System {
+            content: "system prompt".into(),
+        }
+    );
+    assert_eq!(
+        hydrated.history[1],
+        ChatMessage::User {
+            content: "hello".into(),
+        }
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -857,22 +921,41 @@ async fn gc_interruptible_by_cancellation_token() {
 
     let gc = GcRunner::new();
 
-    // Cancel immediately before running.
-    gc.cancel();
-
+    // A fresh runner should complete the full scan.
     let removed = match gc.run_gc(&storage, "gc-cancel", 200).await {
         Ok(v) => v,
         Err(e) => unreachable!("{:?}", e),
     };
+    assert_eq!(
+        removed, 200,
+        "fresh runner should remove all eligible messages"
+    );
 
-    // Cancellation happens before or during the first iteration,
-    // so either 0 or a very small number of messages are removed.
-    // The important invariant is that the call returns without error
-    // and the transaction is still committed.
+    // Cancelling resets the token; the runner itself should not be
+    // pre-cancelled, so a subsequent run on new messages still works.
+    gc.cancel();
     assert!(
-        removed <= 1,
-        "expected at most 1 removal after immediate cancel, got {}",
-        removed
+        !gc.token().is_cancelled(),
+        "a fresh token must be installed after cancel"
+    );
+
+    let more: Vec<ChatMessage> = (200..250)
+        .map(|i| ChatMessage::User {
+            content: format!("msg-{}", i),
+        })
+        .collect();
+    match storage.save_messages("gc-cancel", &more, 200).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+
+    let removed = match gc.run_gc(&storage, "gc-cancel", 250).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+    assert_eq!(
+        removed, 50,
+        "runner must not be pre-cancelled after a reset"
     );
 
     // Verify the database is still consistent.
@@ -880,7 +963,7 @@ async fn gc_interruptible_by_cancellation_token() {
         Ok(v) => v,
         Err(e) => unreachable!("{:?}", e),
     };
-    assert_eq!(remaining.len(), 200);
+    assert_eq!(remaining.len(), 0);
 }
 
 // ---------------------------------------------------------------------------

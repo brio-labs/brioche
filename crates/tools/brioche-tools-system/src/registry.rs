@@ -125,9 +125,9 @@ pub enum ToolError {
 #[async_trait::async_trait]
 pub trait SystemTool: Send + Sync {
     /// Canonical tool name (unique identifier).
-    fn name(&self) -> &'static str;
+    fn name(&self) -> String;
     /// Human-readable description for the LLM.
-    fn description(&self) -> &'static str;
+    fn description(&self) -> String;
     /// JSON Schema of the tool's parameters.
     fn parameters_schema(&self) -> serde_json::Value;
     /// Execute the tool with the given arguments.
@@ -177,10 +177,10 @@ impl SystemToolExecutor {
             .values()
             .map(|tool| {
                 let mut function = serde_json::Map::new();
-                function.insert("name".into(), serde_json::Value::String(tool.name().into()));
+                function.insert("name".into(), serde_json::Value::String(tool.name()));
                 function.insert(
                     "description".into(),
-                    serde_json::Value::String(tool.description().into()),
+                    serde_json::Value::String(tool.description()),
                 );
                 function.insert("parameters".into(), tool.parameters_schema());
 

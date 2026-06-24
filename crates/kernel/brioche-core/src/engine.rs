@@ -23,7 +23,7 @@ use crate::{
     ConsistencyVerifier, CycleRollbackPolicy, DecisionAggregator, Effect, EngineInput,
     EpochInterceptor, ErrorCode, ErrorDetail, GovernanceFailoverHandler, HookEffectConstraint,
     PluginSource, Session, SessionRegistry, SubRoutineHandle, SubRoutineHandler,
-    SubRoutineLifecycleGuard,
+    SubRoutineHydrator, SubRoutineLifecycleGuard,
 };
 
 mod builder;
@@ -63,6 +63,7 @@ pub use router::{PluginRouter, UnifiedRoutingTable};
 pub struct GovernanceKernel {
     pub(crate) epoch_interceptor: Option<Box<dyn EpochInterceptor>>,
     pub(crate) subroutine_handler: Option<Box<dyn SubRoutineHandler>>,
+    pub(crate) subroutine_hydrator: Option<Box<dyn SubRoutineHydrator>>,
     pub(crate) consistency_verifier: Option<Box<dyn ConsistencyVerifier>>,
     pub(crate) decision_aggregator: Option<Box<dyn DecisionAggregator>>,
     pub(crate) hook_effect_constraint: Option<Box<dyn HookEffectConstraint>>,
@@ -226,8 +227,13 @@ impl BriocheEngine {
 
         // on_input hook (routed).
         match self.eval_on_input(session, input) {
-            InputResult::OverrideTransition(ov_effects, source_plugin) => {
+            InputResult::OverrideTransition(mut ov_effects, source_plugin) => {
                 self.log_override_transition(session, &source_plugin);
+                self.validate_hook_effects(
+                    crate::engine::hooks::HOOK_INDEX_ON_INPUT,
+                    "on_input",
+                    &mut ov_effects,
+                );
                 effects.extend(ov_effects);
                 self.finalize_transition(session, pre, &mut effects);
                 return effects;
@@ -241,7 +247,12 @@ impl BriocheEngine {
                 self.finalize_transition(session, pre, &mut effects);
                 return effects;
             }
-            InputResult::Accumulated(acc) => {
+            InputResult::Accumulated(mut acc) => {
+                self.validate_hook_effects(
+                    crate::engine::hooks::HOOK_INDEX_ON_INPUT,
+                    "on_input",
+                    &mut acc,
+                );
                 effects.extend(acc);
             }
             InputResult::Allow => {}

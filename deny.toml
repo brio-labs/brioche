@@ -17,6 +17,7 @@ confidence-threshold = 0.9
 allow = [
   "MIT",
   "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
   "BSD-3-Clause",
   "ISC",
   "MPL-2.0",
@@ -25,6 +26,26 @@ allow = [
   "CC0-1.0",
   "Zlib",
   "CDLA-Permissive-2.0",
+]
+
+[advisories]
+ignore = [
+  "RUSTSEC-2025-0080", # unic-common unmaintained, inherited transitively by Tauri
+  "RUSTSEC-2025-0100", # unic-ucd-ident unmaintained, inherited transitively by Tauri
+  "RUSTSEC-2025-0098", # unic-ucd-version unmaintained, inherited transitively by Tauri
+  "RUSTSEC-2025-0081", # unic-char-property unmaintained, inherited transitively by Tauri
+  "RUSTSEC-2025-0075", # unic-char-range unmaintained, inherited transitively by Tauri
+  "RUSTSEC-2024-0419", # gtk3 bindings unmaintained, inherited transitively by Tauri
+  "RUSTSEC-2024-0370", # proc-macro-error unmaintained, inherited transitively by Tauri
+  "RUSTSEC-2024-0417", # gdkx11 unmaintained, inherited transitively by Tauri
+  "RUSTSEC-2024-0414", # gdkx11-sys unmaintained, inherited transitively by Tauri
+  "RUSTSEC-2024-0415", # gtk unmaintained, inherited transitively by Tauri
+  "RUSTSEC-2024-0420", # gtk-sys unmaintained, inherited transitively by Tauri
+  "RUSTSEC-2024-0416", # gdk unmaintained, inherited transitively by Tauri
+  "RUSTSEC-2024-0418", # gdk-sys unmaintained, inherited transitively by Tauri
+  "RUSTSEC-2024-0413", # atk unmaintained, inherited transitively by Tauri
+  "RUSTSEC-2024-0412", # atk-sys unmaintained, inherited transitively by Tauri
+  "RUSTSEC-2024-0411", # gdkwayland-sys unmaintained, inherited transitively by Tauri
 ]
 
 [bans]

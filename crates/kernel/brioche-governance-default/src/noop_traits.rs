@@ -79,7 +79,7 @@ impl CowBudgetPolicy for NoopCowBudgetPolicy {
 pub struct NoopCycleRollbackPolicy;
 
 impl CycleRollbackPolicy for NoopCycleRollbackPolicy {
-    fn begin_hook(&mut self) {}
+    fn begin_hook(&mut self, _hook_name: &'static str) {}
 
     fn on_mutation(
         &mut self,

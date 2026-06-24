@@ -169,7 +169,7 @@ mod tests {
 /// Test state with disordered collection.
 ///
 /// # Invariants
-/// - I-Eco-OrderedCollections
+/// Refs: I-Eco-OrderedCollections
 ///
 /// Snapshot: FullClone (< 256 bytes).
 #[derive(BriocheExtensionType)]

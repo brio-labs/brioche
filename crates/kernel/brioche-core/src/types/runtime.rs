@@ -172,6 +172,11 @@ pub enum SystemSignal {
         /// Monotonically increasing milliseconds since session start.
         elapsed_ms: u64,
     },
+    /// The engine thread became unresponsive and recovery was triggered.
+    EngineUnresponsive {
+        /// Recovery procedure that was triggered.
+        procedure: String,
+    },
 }
 
 /// Result of an asynchronous task executed by the shell.

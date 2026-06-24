@@ -27,7 +27,7 @@ cargo run --package cargo-brioche-lint-invariants -- check-refs --root crates/
 
 # 6. Philosophy: unwrap/expect in core mechanism crates
 echo "=== Philosophy: unwrap/expect in core ==="
-if grep -rq "unwrap()\|expect(" crates/brioche-core/src/ crates/brioche-governance/src/; then
+if grep -rq "unwrap()\|expect(" crates/kernel/brioche-core/src/ crates/kernel/brioche-governance/src/; then
 	echo "ERROR: unwrap/expect found in brioche-core or brioche-governance"
 	exit 1
 fi

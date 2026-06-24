@@ -43,9 +43,9 @@ pub fn build_shell(
     let exec_tool = ExecuteCommandTool::new().with_policy(SandboxPolicy::Permissive);
 
     let tool_executor = SystemToolExecutor::new()
-        .with_tool(ReadFileTool)
-        .with_tool(WriteFileTool)
-        .with_tool(ListDirTool)
+        .with_tool(ReadFileTool::default())
+        .with_tool(WriteFileTool::default())
+        .with_tool(ListDirTool::default())
         .with_tool(exec_tool)
         .with_tool(FetchUrlTool);
 
@@ -79,12 +79,20 @@ CRITICAL RULES: \
     });
 
     let effect_executor =
-        DefaultEffectExecutor::new(tool_executor, llm_client.clone(), redb_storage.clone());
-
+        DefaultEffectExecutor::new(tool_executor, llm_client.clone(), redb_storage.clone())
+            .with_history(Arc::clone(&history));
     // Session callback — snapshot after each transition.
     let store_for_callback = Arc::clone(&session_store);
     let session_callback: brioche_shell_runtime::SessionCallback =
-        Box::new(move |session: &brioche_core::Session| {
+        Box::new(move |session: &mut brioche_core::Session| {
+            // Carry forward the last persisted watermark so the next delta
+            if let Ok(store) = store_for_callback.try_read()
+                && let Some(existing) = store.get(&session.id)
+            {
+                session.persisted_msg_count = session
+                    .persisted_msg_count
+                    .max(existing.head.persisted_msg_count);
+            }
             let head = brioche_shell_persistence::SessionHeadDTO::from_session(session);
             let entry = SessionStoreEntry {
                 head,
@@ -100,7 +108,13 @@ CRITICAL RULES: \
     let initial_history_for_factory = initial_history.clone();
     let shell = BriocheShell::new(
         move || {
-            let (engine, mut session) = PluginBuilder::standard().build_with_session(&session_id);
+            let (engine, mut session) = PluginBuilder::standard()
+                .with_subroutine_hydrator(Box::new(
+                    brioche_shell_persistence::PersistenceSubRoutineHydrator::new(
+                        redb_storage.clone(),
+                    ),
+                ))
+                .build_with_session(&session_id);
             if let Some(head) = initial_head {
                 session =
                     head.to_session(initial_history_for_factory.map_or(Default::default(), |v| v));
