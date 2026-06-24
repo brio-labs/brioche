@@ -3,12 +3,12 @@ name: Benchmarks
 on:
   pull_request:
     paths:
-      - "crates/brioche-core/**"
-      - "crates/brioche-governance/**"
-      - "crates/brioche-governance-default/**"
-      - "crates/brioche-shell-persistence/**"
-      - "crates/brioche-shell-runtime/**"
-
+      - "crates/kernel/brioche-core/**"
+      - "crates/kernel/brioche-governance/**"
+      - "crates/kernel/brioche-governance-default/**"
+      - "crates/runtime/brioche-shell-persistence/**"
+      - "crates/runtime/brioche-shell-runtime/**"
+      - "crates/runtime/brioche-shell-projection/**"
 permissions:
   contents: read
   pull-requests: write
@@ -23,6 +23,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+
+      # brioche-desktop embeds its frontend via tauri::generate_context!(), which
+      # expects crates/apps/brioche-desktop/frontend/dist to exist at compile time.
+      - uses: ./.github/actions/setup-frontend
+
       - name: Run benchmarks
         run: cargo bench --workspace | tee benchmark-results.txt
       - name: Check for benchmark results

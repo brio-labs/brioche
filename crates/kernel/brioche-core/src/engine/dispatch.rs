@@ -79,14 +79,16 @@ impl BriocheEngine {
         let route = self.router.routing_table.route_before_prediction.clone();
         let faults = self.eval_route(
             session,
+            "before_prediction",
             &route,
             |plugin, session| plugin.before_prediction(&session.history, &mut session.extensions),
             |decision| decisions.push(decision),
         );
+        let on_error_effects = self.eval_on_error(session, &faults);
+        effects.extend(on_error_effects);
         for (name, err) in faults {
             effects.push(Self::plugin_fault(name, err));
         }
-
         // DecisionAggregator (mandatory if present).
         if let Some(ref aggregator) = self.governance.decision_aggregator {
             match aggregator.aggregate_decisions(decisions, &mut session.extensions) {
@@ -106,10 +108,22 @@ impl BriocheEngine {
                         session.apply_history_edits(&edits)?;
                     }
                     PolicyDecision::RequestEffect(eff) => {
-                        effects.push(eff);
+                        let mut tmp = vec![eff];
+                        self.validate_hook_effects(
+                            crate::engine::hooks::HOOK_INDEX_BEFORE_PREDICTION,
+                            "before_prediction",
+                            &mut tmp,
+                        );
+                        effects.extend(tmp);
                     }
                     PolicyDecision::OverrideTransition(ov) => {
-                        effects.extend(ov);
+                        let mut tmp = ov;
+                        self.validate_hook_effects(
+                            crate::engine::hooks::HOOK_INDEX_BEFORE_PREDICTION,
+                            "before_prediction",
+                            &mut tmp,
+                        );
+                        effects.extend(tmp);
                         return Ok(());
                     }
                 },
@@ -149,8 +163,10 @@ impl BriocheEngine {
 
         // Evaluate stream event hooks.
         let route = self.router.routing_table.route_on_stream_event.clone();
+        let mut stream_effects = Vec::new();
         let faults = self.eval_route(
             session,
+            "on_stream_event",
             &route,
             |plugin, session| plugin.on_stream_event(event, &mut session.extensions),
             |action| match action {
@@ -159,13 +175,21 @@ impl BriocheEngine {
                     // Buffering is handled by the plugin / shell.
                 }
                 StreamAction::OffloadTask { task_id, payload } => {
-                    effects.push(Effect::ExecuteCpuTask {
+                    stream_effects.push(Effect::ExecuteCpuTask {
                         task_id: TaskId(task_id),
                         payload,
                     });
                 }
             },
         );
+        let on_error_effects = self.eval_on_error(session, &faults);
+        effects.extend(on_error_effects);
+        self.validate_hook_effects(
+            crate::engine::hooks::HOOK_INDEX_ON_STREAM_EVENT,
+            "on_stream_event",
+            &mut stream_effects,
+        );
+        effects.extend(stream_effects);
         for (name, err) in faults {
             effects.push(Self::plugin_fault(name, err));
         }
@@ -197,7 +221,6 @@ impl BriocheEngine {
     /// O(p + r) where p = plugins on `route_on_tool_result`,
     /// r = number of tool results.
     ///
-    /// Refs: I-Core-PluginOrder, I-Core-ActiveToolCall
     fn dispatch_tool_calls_result(
         &mut self,
         session: &mut Session,
@@ -213,10 +236,13 @@ impl BriocheEngine {
         let route = self.router.routing_table.route_on_tool_result.clone();
         let faults = self.eval_route(
             session,
+            "on_tool_result",
             &route,
             |plugin, session| plugin.on_tool_result(&mut mutable_results, &mut session.extensions),
             |_ok| {},
         );
+        let on_error_effects = self.eval_on_error(session, &faults);
+        effects.extend(on_error_effects);
         for (name, err) in faults {
             effects.push(Self::plugin_fault(name, err));
         }

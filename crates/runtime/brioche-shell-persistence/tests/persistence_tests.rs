@@ -921,22 +921,41 @@ async fn gc_interruptible_by_cancellation_token() {
 
     let gc = GcRunner::new();
 
-    // Cancel immediately before running.
-    gc.cancel();
-
+    // A fresh runner should complete the full scan.
     let removed = match gc.run_gc(&storage, "gc-cancel", 200).await {
         Ok(v) => v,
         Err(e) => unreachable!("{:?}", e),
     };
+    assert_eq!(
+        removed, 200,
+        "fresh runner should remove all eligible messages"
+    );
 
-    // Cancellation happens before or during the first iteration,
-    // so either 0 or a very small number of messages are removed.
-    // The important invariant is that the call returns without error
-    // and the transaction is still committed.
+    // Cancelling resets the token; the runner itself should not be
+    // pre-cancelled, so a subsequent run on new messages still works.
+    gc.cancel();
     assert!(
-        removed <= 1,
-        "expected at most 1 removal after immediate cancel, got {}",
-        removed
+        !gc.token().is_cancelled(),
+        "a fresh token must be installed after cancel"
+    );
+
+    let more: Vec<ChatMessage> = (200..250)
+        .map(|i| ChatMessage::User {
+            content: format!("msg-{}", i),
+        })
+        .collect();
+    match storage.save_messages("gc-cancel", &more, 200).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+
+    let removed = match gc.run_gc(&storage, "gc-cancel", 250).await {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+    assert_eq!(
+        removed, 50,
+        "runner must not be pre-cancelled after a reset"
     );
 
     // Verify the database is still consistent.
@@ -944,7 +963,7 @@ async fn gc_interruptible_by_cancellation_token() {
         Ok(v) => v,
         Err(e) => unreachable!("{:?}", e),
     };
-    assert_eq!(remaining.len(), 200);
+    assert_eq!(remaining.len(), 0);
 }
 
 // ---------------------------------------------------------------------------

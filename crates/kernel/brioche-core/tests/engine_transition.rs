@@ -1031,12 +1031,33 @@ fn transition_with_fast_hook_effect_constraint_blocks_disallowed_effect() {
     use brioche_core::EffectBit;
     use brioche_governance_default::FastHookEffectConstraint;
 
-    // Block all effects on hook transition (index 0) except Error and SystemIdle.
+    struct LlmRequestingPlugin;
+    impl BriochePlugin for LlmRequestingPlugin {
+        fn name(&self) -> &'static str {
+            "llm_requester"
+        }
+        fn capabilities(&self) -> PluginCapabilities {
+            PluginCapabilities::ON_INPUT
+        }
+        fn priority(&self) -> i16 {
+            100
+        }
+        fn on_input(
+            &self,
+            _input: &EngineInput,
+            _ext: &mut ExtensionStorage,
+        ) -> PluginResult<PolicyDecision> {
+            Ok(PolicyDecision::RequestEffect(Effect::RebuildRoutes))
+        }
+    }
+
+    // Block all effects on hook index 0 (on_input) except Error and SystemIdle.
     let mut masks = [0u64; 8];
     masks[0] = EffectBit::ERROR | EffectBit::SYSTEM_IDLE;
     let constraint = FastHookEffectConstraint::new(masks);
 
     let mut engine = BriocheEngineBuilder::new()
+        .with_plugin(Box::new(LlmRequestingPlugin))
         .with_hook_effect_constraint(Box::new(constraint))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
@@ -1045,13 +1066,12 @@ fn transition_with_fast_hook_effect_constraint_blocks_disallowed_effect() {
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
 
-    // CallLlmNetwork should be replaced by an error because it is disallowed.
-    assert!(!effects.iter().any(|e| matches!(e, Effect::CallLlmNetwork)));
+    // RebuildRoutes should be replaced by an error because it is disallowed.
+    assert!(!effects.iter().any(|e| matches!(e, Effect::RebuildRoutes)));
     assert!(effects.iter().any(|e| matches!(
         e, Effect::Error { code, .. } if *code == ErrorCode::StateInconsistency
     )));
 }
-
 #[test]
 fn transition_with_system_failover_guard_replaces_fault() {
     use brioche_governance_default::SystemFailoverGuard;
@@ -1125,7 +1145,7 @@ fn adaptive_undo_frame_guard_restores_mutated_extension() {
         current_generation: 42,
     });
 
-    guard.begin_hook();
+    guard.begin_hook("on_input");
 
     // Snapshot the current value via on_mutation.
     let type_id = std::any::TypeId::of::<brioche_core::EpochState>();
@@ -1151,7 +1171,7 @@ fn adaptive_undo_frame_guard_abandons_past_threshold() {
     let mut ext = ExtensionStorage::new();
     ext.insert(TestCowState { value: 7 });
 
-    guard.begin_hook();
+    guard.begin_hook("on_input");
 
     let type_id = std::any::TypeId::of::<TestCowState>();
     let vtable = TestCowState::build_vtable();
@@ -1166,6 +1186,165 @@ fn adaptive_undo_frame_guard_abandons_past_threshold() {
     let not_restored = ext.get_or_insert_default::<TestCowState>();
     // With adaptive budget, the result depends on budget; just verify no panic.
     assert!(not_restored.value == 123 || not_restored.value == 7);
+}
+
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, BriocheExtensionType,
+)]
+#[brioche(ext_id = "tests.rollback_a")]
+struct RollbackTypeA {
+    #[brioche(deterministic_order)]
+    payload: Vec<u8>,
+}
+
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, BriocheExtensionType,
+)]
+#[brioche(ext_id = "tests.rollback_b")]
+struct RollbackTypeB {
+    #[brioche(deterministic_order)]
+    payload: Vec<u8>,
+}
+struct MutatingPlugin;
+
+impl BriochePlugin for MutatingPlugin {
+    fn name(&self) -> &'static str {
+        "mutating"
+    }
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::ON_INPUT
+    }
+    fn priority(&self) -> i16 {
+        100
+    }
+    fn on_input(
+        &self,
+        _input: &EngineInput,
+        ext: &mut ExtensionStorage,
+    ) -> PluginResult<PolicyDecision> {
+        ext.get_or_insert_default::<RollbackTypeA>().payload = vec![1; 64];
+        ext.get_or_insert_default::<RollbackTypeB>().payload = vec![2; 64];
+        Ok(PolicyDecision::Allow)
+    }
+}
+
+#[test]
+fn engine_rolls_back_extensions_when_cow_budget_exceeded() {
+    // Give each extension type a different payload size so their estimated
+    // weights differ. Set the budget to exactly the sum so both are snapshotted
+    // and the cumulative weight triggers a rollback.
+    let snapshot_a = RollbackTypeA {
+        payload: vec![0; 32],
+    };
+    let snapshot_b = RollbackTypeB {
+        payload: vec![0; 16],
+    };
+    let weight_a = (RollbackTypeA::build_vtable().estimated_weight_bytes)(&snapshot_a);
+    let weight_b = (RollbackTypeB::build_vtable().estimated_weight_bytes)(&snapshot_b);
+
+    let guard = brioche_governance_default::UndoFrameGuard::with_max_cow_bytes(weight_a + weight_b);
+
+    let mut engine = BriocheEngineBuilder::new()
+        .with_plugin(Box::new(MutatingPlugin))
+        .with_cycle_rollback_policy(Box::new(guard))
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .build();
+
+    let mut session = Session::new("rollback-test");
+    session.extensions.insert(snapshot_a);
+    session.extensions.insert(snapshot_b);
+
+    let _effects = engine.transition(&mut session, &EngineInput::UserMessage("go".into()));
+
+    // Both payloads should be restored to their pre-hook values.
+    assert_eq!(
+        session
+            .extensions
+            .get_or_insert_default::<RollbackTypeA>()
+            .payload,
+        vec![0; 32]
+    );
+    assert_eq!(
+        session
+            .extensions
+            .get_or_insert_default::<RollbackTypeB>()
+            .payload,
+        vec![0; 16]
+    );
+}
+struct FaultingPlugin;
+
+impl BriochePlugin for FaultingPlugin {
+    fn name(&self) -> &'static str {
+        "faulting"
+    }
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::ON_INPUT
+    }
+    fn priority(&self) -> i16 {
+        100
+    }
+    fn on_input(
+        &self,
+        _input: &EngineInput,
+        _ext: &mut ExtensionStorage,
+    ) -> PluginResult<PolicyDecision> {
+        Err(brioche_core::PluginError::Fatal {
+            plugin_name: "faulting".into(),
+            message: "intentional fault".into(),
+        })
+    }
+}
+
+struct ErrorRecorderPlugin;
+
+impl BriochePlugin for ErrorRecorderPlugin {
+    fn name(&self) -> &'static str {
+        "recorder"
+    }
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::ON_ERROR
+    }
+    fn priority(&self) -> i16 {
+        0
+    }
+    fn on_error(
+        &self,
+        _error: &brioche_core::PluginError,
+        _ext: &mut ExtensionStorage,
+    ) -> PluginResult<PolicyDecision> {
+        Ok(PolicyDecision::RequestEffect(
+            brioche_core::Effect::SavePluginBlob {
+                plugin_id: brioche_core::PluginSource("recorder".into()),
+                data: vec![0xab],
+            },
+        ))
+    }
+}
+
+#[test]
+fn engine_invokes_on_error_hook_for_plugin_faults() {
+    let mut engine = BriocheEngineBuilder::new()
+        .with_plugin(Box::new(FaultingPlugin))
+        .with_plugin(Box::new(ErrorRecorderPlugin))
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .build();
+
+    let mut session = Session::new("on-error-test");
+    let effects = engine.transition(&mut session, &EngineInput::UserMessage("go".into()));
+
+    assert!(
+        effects.iter().any(|e| matches!(
+            e,
+            brioche_core::Effect::SavePluginBlob {
+                plugin_id: brioche_core::PluginSource(name),
+                data,
+            } if name == "recorder" && data == &[0xab]
+        )),
+        "on_error hook should emit the recorder effect"
+    );
 }
 
 #[test]

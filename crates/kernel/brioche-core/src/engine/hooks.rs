@@ -17,6 +17,17 @@ use crate::{
     PluginResult, PluginSource, PolicyDecision, Session,
 };
 
+/// Compact hook indices used for `HookEffectConstraint` validation.
+///
+/// These values must stay aligned with the masks produced by
+/// `FastHookEffectConstraint::standard()` in `brioche-governance-default`.
+///
+/// Refs: I-Core-HookEffect-O1
+pub(crate) const HOOK_INDEX_ON_INPUT: u8 = 0;
+pub(crate) const HOOK_INDEX_BEFORE_PREDICTION: u8 = 1;
+pub(crate) const HOOK_INDEX_ON_STREAM_EVENT: u8 = 2;
+pub(crate) const HOOK_INDEX_ON_ERROR: u8 = 6;
+
 impl BriocheEngine {
     /// Evaluate a pre-routed plugin hook with snapshot injection, rollback,
     /// and uniform error collection.
@@ -50,6 +61,7 @@ impl BriocheEngine {
     pub(crate) fn eval_route<R>(
         &mut self,
         session: &mut Session,
+        hook_name: &'static str,
         route: &[usize],
         mut hook: impl FnMut(&dyn BriochePlugin, &mut Session) -> PluginResult<R>,
         mut on_ok: impl FnMut(R),
@@ -70,7 +82,7 @@ impl BriocheEngine {
                     continue;
                 }
             };
-            let result = self.with_rollback(session, name, |engine, session| {
+            let result = self.with_rollback(session, hook_name, |engine, session| {
                 match engine.router.plugins.get(idx) {
                     Some(plugin) => hook(plugin.as_ref(), session),
                     None => Err(PluginError::Fatal {
@@ -105,10 +117,13 @@ impl BriocheEngine {
         let route = self.router.routing_table.route_after_prediction.clone();
         let faults = self.eval_route(
             session,
+            "after_prediction",
             &route,
             |plugin, session| plugin.after_prediction(&mut session.extensions),
             |_ok| {},
         );
+        let on_error_effects = self.eval_on_error(session, &faults);
+        effects.extend(on_error_effects);
         for (name, err) in faults {
             effects.push(Self::plugin_fault(name, err));
         }
@@ -130,6 +145,7 @@ impl BriocheEngine {
     ) -> InputResult {
         let mut accumulated = Vec::new();
         let mut override_transition: Option<(Vec<Effect>, PluginSource)> = None;
+        let mut faults = Vec::new();
 
         session.extensions.insert(session.snapshot());
         let route = self.router.routing_table.route_on_input.clone();
@@ -146,16 +162,16 @@ impl BriocheEngine {
                 continue;
             };
             let name = plugin.name();
-
-            let decision = self.with_rollback(session, name, |engine, session| {
-                match engine.router.plugins.get(idx) {
-                    Some(plugin) => plugin.as_ref().on_input(input, &mut session.extensions),
-                    None => Err(PluginError::Fatal {
-                        plugin_name: "<invalid_index>".into(),
-                        message: format!("plugin index {idx} out of bounds"),
-                    }),
-                }
-            });
+            let decision =
+                self.with_rollback(session, "on_input", |engine, session| {
+                    match engine.router.plugins.get(idx) {
+                        Some(plugin) => plugin.as_ref().on_input(input, &mut session.extensions),
+                        None => Err(PluginError::Fatal {
+                            plugin_name: "<invalid_index>".into(),
+                            message: format!("plugin index {idx} out of bounds"),
+                        }),
+                    }
+                });
 
             match decision {
                 Ok(PolicyDecision::Allow) => {}
@@ -192,9 +208,15 @@ impl BriocheEngine {
                     }
                 }
                 Err(err) => {
-                    accumulated.push(Self::plugin_fault(name, err));
+                    faults.push((name, err));
                 }
             }
+        }
+
+        let on_error_effects = self.eval_on_error(session, &faults);
+        accumulated.extend(on_error_effects);
+        for (name, err) in faults {
+            accumulated.push(Self::plugin_fault(name, err));
         }
 
         if let Some((effects, source)) = override_transition {
@@ -210,10 +232,14 @@ impl BriocheEngine {
     ///
     /// Plugins mutate `timeout_ms` and other fields in place.
     ///
-    /// Refs: I-Core-PluginOrder, I-Core-ActiveToolCall
-    /// Complexity: O(p) where p = plugins on route_on_tool_calls.
+    /// # Complexity
+    /// O(p) where p = plugins on `route_on_tool_calls`. One pre-routed
+    /// iteration; allocations are proportional to the number of faults.
+    ///
     /// # Panics
-    /// Never panics. Errors are returned as `Result::Err`.
+    /// Never panics. Plugin faults are emitted as `Effect::PluginFault`.
+    ///
+    /// Refs: I-Core-PluginOrder, I-Core-ActiveToolCall
     pub(crate) fn handle_tool_calls(
         &mut self,
         session: &mut Session,
@@ -223,13 +249,80 @@ impl BriocheEngine {
         let route = self.router.routing_table.route_on_tool_calls.clone();
         let faults = self.eval_route(
             session,
+            "on_tool_calls",
             &route,
             |plugin, session| plugin.on_tool_calls(descriptors, &mut session.extensions),
             |_ok| {},
         );
+        let on_error_effects = self.eval_on_error(session, &faults);
+        effects.extend(on_error_effects);
         for (name, err) in faults {
             effects.push(Self::plugin_fault(name, err));
         }
         Ok(())
+    }
+    /// Evaluate the `on_error` hook for intercepted plugin faults.
+    ///
+    /// Each plugin fault is forwarded to every plugin on the `on_error`
+    /// route. Plugins may request additional effects or override the
+    /// transition; `Allow`, `Block`, and `MutateHistory` decisions are
+    /// ignored because `on_error` is a reactive hook, not a gating hook.
+    ///
+    /// # Complexity
+    /// O(p * f) where p = plugins on `route_on_error`, f = number of faults.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Core-PluginOrder, I-Gov-ErrorHandling
+    pub(crate) fn eval_on_error(
+        &mut self,
+        session: &mut Session,
+        faults: &[(&'static str, PluginError)],
+    ) -> Vec<Effect> {
+        if faults.is_empty() {
+            return Vec::new();
+        }
+
+        let route = self.router.routing_table.route_on_error.clone();
+        if route.is_empty() {
+            return Vec::new();
+        }
+
+        let mut effects = Vec::new();
+        for &idx in &route {
+            let Some(plugin) = self.router.plugins.get(idx) else {
+                continue;
+            };
+            let name = plugin.name();
+
+            for (_fault_plugin, error) in faults {
+                let decision = self.with_rollback(session, "on_error", |engine, session| {
+                    match engine.router.plugins.get(idx) {
+                        Some(plugin) => plugin.as_ref().on_error(error, &mut session.extensions),
+                        None => Err(PluginError::Fatal {
+                            plugin_name: "<invalid_index>".into(),
+                            message: format!("plugin index {idx} out of bounds"),
+                        }),
+                    }
+                });
+
+                match decision {
+                    Ok(PolicyDecision::RequestEffect(eff)) => {
+                        effects.push(eff);
+                    }
+                    Ok(PolicyDecision::OverrideTransition(ov)) => {
+                        effects.extend(ov);
+                    }
+                    Ok(_) => {}
+                    Err(err) => {
+                        effects.push(Self::plugin_fault(name, err));
+                    }
+                }
+            }
+        }
+
+        self.validate_hook_effects(HOOK_INDEX_ON_ERROR, "on_error", &mut effects);
+        effects
     }
 }

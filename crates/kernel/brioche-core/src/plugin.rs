@@ -418,17 +418,78 @@ pub trait HookEffectConstraint: Send + Sync {
 /// Never panics.
 pub trait CycleRollbackPolicy: Send + Sync {
     /// Called by the kernel before each monitored hook.
-    fn begin_hook(&mut self);
+    ///
+    /// `hook_name` identifies the hook for per-hook budget policies and
+    /// telemetry. Implementations that do not need the name can ignore it.
+    ///
+    /// # Complexity
+    /// O(1). Resets the internal frame state.
+    ///
+    /// # Panics
+    /// Never panics.
+    fn begin_hook(&mut self, hook_name: &'static str);
 
     /// Called by the kernel when an extension is mutated for the first time
     /// in this hook. The VTable `clone_box` provides the clone.
+    ///
+    /// # Complexity
+    /// O(1) plus the cost of `clone_box` for the mutated extension.
+    ///
+    /// # Panics
+    /// Never panics.
     fn on_mutation(&mut self, type_id: TypeId, vtable: &ExtVTable, current: &dyn Any);
 
     /// Called if the budget is respected — mutations are kept.
+    ///
+    /// # Complexity
+    /// O(1). Clears the internal frame state.
+    ///
+    /// # Panics
+    /// Never panics.
     fn commit_hook(&mut self, ext: &mut ExtensionStorage);
 
     /// Called if the budget is exceeded — restoration from snapshots.
+    ///
+    /// # Complexity
+    /// O(k) where k = snapshotted extensions. Each is restored via
+    /// `ExtensionStorage::restore_boxed`.
+    ///
+    /// # Panics
+    /// Never panics.
     fn rollback_hook(&mut self, ext: &mut ExtensionStorage);
+
+    /// Returns `true` if the current frame weight exceeded the configured budget.
+    ///
+    /// The kernel consults this after a monitored hook to decide whether to
+    /// call `rollback_hook` or `commit_hook`. A default implementation that
+    /// always returns `false` preserves the old no-rollback behavior for
+    /// trivial implementations.
+    ///
+    /// # Complexity
+    /// O(1). Scalar comparison.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Gov-Rollback-BestEffort
+    fn is_budget_exceeded(&self) -> bool {
+        false
+    }
+
+    /// Attaches a per-hook COW budget policy.
+    ///
+    /// Implementations that do not support adaptive budgets can ignore the
+    /// policy. The kernel calls this once during engine construction if a
+    /// `CowBudgetPolicy` is configured via `BriocheEngineBuilder`.
+    ///
+    /// # Complexity
+    /// O(1). Option assignment.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Gov-CowBudget-Adaptative
+    fn set_cow_budget_policy(&mut self, _policy: Box<dyn CowBudgetPolicy>) {}
 }
 
 /// Mandatory. Cleanup of `SessionRegistry` on outgoing transition from `SubRoutine`.

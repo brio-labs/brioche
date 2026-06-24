@@ -156,5 +156,8 @@ impl SessionHeadDTO {
         session.state = self.state.clone().into();
         session.state_stack = self.state_stack.iter().cloned().map(Into::into).collect();
         session
+            .extensions
+            .restore_cold_snapshot(self.extensions.clone());
+        session
     }
 }

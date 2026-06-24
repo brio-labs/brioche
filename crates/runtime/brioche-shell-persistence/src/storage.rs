@@ -561,23 +561,47 @@ impl Persistence for RedbStorage {
             })?
         };
 
-        // 1. Persist the head DTO.
-        self.save_session_dto(&entry.head)
-            .await
-            .map_err(|e| ShellError::EffectExecution(e.to_string()))?;
+        let head = entry.head.clone();
+        let sid = session_id.to_string();
+        let db = Arc::clone(&self.db);
+        let delta = entry.messages[entry.head.persisted_msg_count..].to_vec();
+        let start_index = entry.head.persisted_msg_count;
 
-        // 2. Persist delta messages.
-        let delta = &entry.messages[entry.head.persisted_msg_count..];
-        if !delta.is_empty() {
-            self.save_messages(session_id, delta, entry.head.persisted_msg_count)
-                .await
-                .map_err(|e| ShellError::EffectExecution(e.to_string()))?;
-        }
+        // Serialize and commit head + delta messages in a single Redb
+        // transaction so the on-disk state is always consistent.
+        let new_count = tokio::task::spawn_blocking(move || {
+            let head_blob = serialize_head(&head)?;
+            let head_compressed = maybe_compress(head_blob)?;
 
-        // 3. Advance the watermark in the store.
+            let mut message_batch = Vec::with_capacity(delta.len());
+            for (offset, msg) in delta.iter().enumerate() {
+                let index = (start_index + offset) as u32;
+                let blob = serialize_message(msg)?;
+                let compressed = maybe_compress(blob)?;
+                message_batch.push(((sid.clone(), index), compressed));
+            }
+
+            let write_txn = db.begin_write()?;
+            {
+                let mut sessions = write_txn.open_table(SESSIONS_TABLE)?;
+                sessions.insert(sid.as_str(), head_compressed.as_slice())?;
+
+                let mut messages = write_txn.open_table(MESSAGES_TABLE)?;
+                for ((session_id, idx), compressed) in message_batch {
+                    messages.insert((session_id.as_str(), idx), compressed.as_slice())?;
+                }
+            }
+            write_txn.commit()?;
+            Ok::<_, PersistenceError>(entry.messages.len())
+        })
+        .await
+        .map_err(|e| ShellError::EffectExecution(e.to_string()))?
+        .map_err(|e| ShellError::EffectExecution(e.to_string()))?;
+
+        // Advance the watermark only after the atomic commit succeeds.
         let mut store = self.session_store.write().await;
         if let Some(entry) = store.get_mut(session_id) {
-            entry.head.persisted_msg_count = entry.messages.len();
+            entry.head.persisted_msg_count = new_count;
         }
 
         Ok(())
@@ -610,7 +634,7 @@ impl Persistence for RedbStorage {
 
     /// Run opportunistic GC for the given session.
     ///
-    /// Uses the session's `persisted_msg_count` as the compaction index:
+    /// Uses the session's `compaction_index` as the compaction watermark:
     /// messages with index strictly less than that value are safe to
     /// remove because they have already been folded into the head DTO.
     ///
@@ -620,13 +644,11 @@ impl Persistence for RedbStorage {
             let store = self.session_store.read().await;
             store
                 .get(session_id)
-                .map(|entry| entry.head.persisted_msg_count)
+                .map(|entry| entry.head.compaction_index)
         };
         let Some(index) = compaction_index else {
             return Ok(0);
         };
-        // The Redb message table uses `u32` indices; clamp defensively.
-        let index = index.min(u32::MAX as usize) as u32;
         self.gc_runner
             .run_gc(self, session_id, index)
             .await
@@ -647,9 +669,13 @@ use tokio_util::sync::CancellationToken;
 /// new user input never waits on I/O locks.
 ///
 /// Refs: docs/SPECS.md §Book III-B Ch 5, I-Persist-GC-Interrupt
+///
+/// The token is stored behind a mutex so cancellation can be requested
+/// through a shared reference and a fresh token is installed for the
+/// next run.
 #[derive(Clone, Debug)]
 pub struct GcRunner {
-    cancel: CancellationToken,
+    cancel: Arc<std::sync::Mutex<CancellationToken>>,
 }
 
 impl Default for GcRunner {
@@ -665,7 +691,7 @@ impl GcRunner {
     /// Refs: docs/SPECS.md §Book III-A
     pub fn new() -> Self {
         Self {
-            cancel: CancellationToken::new(),
+            cancel: Arc::new(std::sync::Mutex::new(CancellationToken::new())),
         }
     }
 
@@ -674,20 +700,41 @@ impl GcRunner {
     /// This is safe to call from any thread; it is non-blocking.
     /// The next iteration of the GC scan will observe the cancellation
     /// and break out of the loop, committing whatever deletions have
-    /// already been staged.
+    /// already been staged. A fresh token is installed so future runs
+    /// are not pre-cancelled.
     ///
     /// Refs: I-Persist-GC-Interrupt
+    ///
+    /// # Complexity
+    /// O(1). One mutex lock and one `CancellationToken` replacement.
+    ///
+    /// # Panics
+    /// Never panics. Poisoned mutexes are handled gracefully.
     pub fn cancel(&self) {
-        self.cancel.cancel();
+        let mut guard = match self.cancel.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let old = std::mem::replace(&mut *guard, CancellationToken::new());
+        old.cancel();
     }
 
-    /// Access the underlying cancellation token.
+    /// Access a clone of the current cancellation token.
     ///
     /// Used when integrating with `tokio::select!` in the shell.
     ///
     /// Refs: I-Persist-GC-Interrupt
-    pub fn token(&self) -> &CancellationToken {
-        &self.cancel
+    ///
+    /// # Complexity
+    /// O(1). One mutex lock and one `CancellationToken` clone.
+    ///
+    /// # Panics
+    /// Never panics. Poisoned mutexes are handled gracefully.
+    pub fn token(&self) -> CancellationToken {
+        match self.cancel.lock() {
+            Ok(guard) => guard.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        }
     }
 
     /// Run GC on a single session: remove all messages with index
@@ -718,7 +765,7 @@ impl GcRunner {
     ) -> Result<u64, PersistenceError> {
         let db = storage.db();
         let sid = session_id.to_string();
-        let cancel = self.cancel.clone();
+        let cancel = self.token();
 
         tokio::task::spawn_blocking(move || {
             let write_txn = db.begin_write()?;

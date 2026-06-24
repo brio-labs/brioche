@@ -227,8 +227,13 @@ impl BriocheEngine {
 
         // on_input hook (routed).
         match self.eval_on_input(session, input) {
-            InputResult::OverrideTransition(ov_effects, source_plugin) => {
+            InputResult::OverrideTransition(mut ov_effects, source_plugin) => {
                 self.log_override_transition(session, &source_plugin);
+                self.validate_hook_effects(
+                    crate::engine::hooks::HOOK_INDEX_ON_INPUT,
+                    "on_input",
+                    &mut ov_effects,
+                );
                 effects.extend(ov_effects);
                 self.finalize_transition(session, pre, &mut effects);
                 return effects;
@@ -242,7 +247,12 @@ impl BriocheEngine {
                 self.finalize_transition(session, pre, &mut effects);
                 return effects;
             }
-            InputResult::Accumulated(acc) => {
+            InputResult::Accumulated(mut acc) => {
+                self.validate_hook_effects(
+                    crate::engine::hooks::HOOK_INDEX_ON_INPUT,
+                    "on_input",
+                    &mut acc,
+                );
                 effects.extend(acc);
             }
             InputResult::Allow => {}

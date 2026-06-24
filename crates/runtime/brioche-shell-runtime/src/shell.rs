@@ -124,7 +124,7 @@ impl Default for ShellConfig {
 /// snapshot and pushing it to the persistence layer.
 ///
 /// Refs: I-Shell-Session-NoSend
-pub type SessionCallback = Box<dyn Fn(&Session) + Send>;
+pub type SessionCallback = Box<dyn Fn(&mut Session) + Send>;
 
 /// Command sent to the engine thread to rebuild routing tables.
 ///
@@ -637,7 +637,7 @@ fn engine_thread_loop(
         // Invoke the session callback (persistence snapshot) on the
         // engine thread while we still own the Session.
         if let Some(ref cb) = session_callback {
-            cb(&session);
+            cb(&mut session);
         }
 
         // Send results back to the async runtime.

@@ -84,7 +84,15 @@ CRITICAL RULES: \
     // Session callback — snapshot after each transition.
     let store_for_callback = Arc::clone(&session_store);
     let session_callback: brioche_shell_runtime::SessionCallback =
-        Box::new(move |session: &brioche_core::Session| {
+        Box::new(move |session: &mut brioche_core::Session| {
+            // Carry forward the last persisted watermark so the next delta
+            if let Ok(store) = store_for_callback.try_read()
+                && let Some(existing) = store.get(&session.id)
+            {
+                session.persisted_msg_count = session
+                    .persisted_msg_count
+                    .max(existing.head.persisted_msg_count);
+            }
             let head = brioche_shell_persistence::SessionHeadDTO::from_session(session);
             let entry = SessionStoreEntry {
                 head,

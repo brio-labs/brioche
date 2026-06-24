@@ -35,7 +35,6 @@ impl BriocheEngine {
         effects: &mut Vec<Effect>,
     ) {
         self.apply_subroutine_lifecycle_guard(session, pre, effects);
-        self.validate_hook_effects(effects);
         Self::ensure_rebuildroutes_last(effects);
         self.apply_consistency_check(session, effects);
         self.apply_governance_failover(session, effects);
@@ -75,13 +74,25 @@ impl BriocheEngine {
         }
     }
 
-    /// Validate effects against `HookEffectConstraint`.
+    /// Validate effects against `HookEffectConstraint` for a specific hook.
     ///
     /// `Effect::Error`, `Effect::PluginFault`, and `Effect::SystemIdle` are
-    /// unconditionally allowed regardless of constraint masks.
+    /// unconditionally allowed regardless of constraint masks. Disallowed
+    /// effects are replaced in-place with `Effect::Error`.
+    ///
+    /// # Complexity
+    /// O(e) where e = number of effects. One bitmask lookup per effect.
+    ///
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Core-HookEffect-O1
-    fn validate_hook_effects(&self, effects: &mut [Effect]) {
+    pub(crate) fn validate_hook_effects(
+        &self,
+        hook_index: u8,
+        hook_name: &'static str,
+        effects: &mut [Effect],
+    ) {
         let Some(ref constraint) = self.governance.hook_effect_constraint else {
             return;
         };
@@ -94,23 +105,22 @@ impl BriocheEngine {
                 continue;
             }
             let mask = effect_to_bitmask(effect);
-            if constraint.is_allowed_fast(0, mask) {
+            if constraint.is_allowed_fast(hook_index, mask) {
                 continue;
             }
             // Fallback: format discriminant. Cold path; allocates.
             let variant = format!("{:?}", std::mem::discriminant(effect));
-            if !constraint.is_allowed_fallback("transition", &variant) {
+            if !constraint.is_allowed_fallback(hook_name, &variant) {
                 *effect = Effect::Error {
                     code: ErrorCode::StateInconsistency,
                     detail: ErrorDetail::EffectNotAllowed {
-                        hook: "transition".to_string(),
-                        effect_variant: "Effect::Error".to_string(),
+                        hook: hook_name.to_string(),
+                        effect_variant: variant,
                     },
                 };
             }
         }
     }
-
     /// Run `ConsistencyVerifier` unless `RebuildRoutes` is present.
     ///
     /// A rebuild is a transactional barrier; consistency checks are skipped
