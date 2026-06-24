@@ -1036,12 +1036,15 @@ fn transition_with_fast_hook_effect_constraint_blocks_disallowed_effect() {
         fn name(&self) -> &'static str {
             "llm_requester"
         }
+
         fn capabilities(&self) -> PluginCapabilities {
             PluginCapabilities::ON_INPUT
         }
+
         fn priority(&self) -> i16 {
             100
         }
+
         fn on_input(
             &self,
             _input: &EngineInput,
@@ -1211,12 +1214,15 @@ impl BriochePlugin for MutatingPlugin {
     fn name(&self) -> &'static str {
         "mutating"
     }
+
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities::ON_INPUT
     }
+
     fn priority(&self) -> i16 {
         100
     }
+
     fn on_input(
         &self,
         _input: &EngineInput,
@@ -1279,12 +1285,15 @@ impl BriochePlugin for FaultingPlugin {
     fn name(&self) -> &'static str {
         "faulting"
     }
+
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities::ON_INPUT
     }
+
     fn priority(&self) -> i16 {
         100
     }
+
     fn on_input(
         &self,
         _input: &EngineInput,
@@ -1303,12 +1312,15 @@ impl BriochePlugin for ErrorRecorderPlugin {
     fn name(&self) -> &'static str {
         "recorder"
     }
+
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities::ON_ERROR
     }
+
     fn priority(&self) -> i16 {
         0
     }
+
     fn on_error(
         &self,
         _error: &brioche_core::PluginError,

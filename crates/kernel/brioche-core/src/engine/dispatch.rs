@@ -220,7 +220,6 @@ impl BriocheEngine {
     /// # Complexity
     /// O(p + r) where p = plugins on `route_on_tool_result`,
     /// r = number of tool results.
-    ///
     fn dispatch_tool_calls_result(
         &mut self,
         session: &mut Session,

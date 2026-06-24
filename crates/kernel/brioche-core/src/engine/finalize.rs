@@ -121,6 +121,7 @@ impl BriocheEngine {
             }
         }
     }
+
     /// Run `ConsistencyVerifier` unless `RebuildRoutes` is present.
     ///
     /// A rebuild is a transactional barrier; consistency checks are skipped

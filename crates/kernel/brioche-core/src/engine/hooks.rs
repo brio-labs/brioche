@@ -261,6 +261,7 @@ impl BriocheEngine {
         }
         Ok(())
     }
+
     /// Evaluate the `on_error` hook for intercepted plugin faults.
     ///
     /// Each plugin fault is forwarded to every plugin on the `on_error`

@@ -409,6 +409,7 @@ impl ExtensionStorage {
     pub fn cold_snapshot(&self) -> &BTreeMap<String, Vec<u8>> {
         &self.cold_snapshot
     }
+
     /// Replace the cold snapshot map with a persisted set of blobs.
     ///
     /// Used by persistence layers to hydrate plugin state into a fresh

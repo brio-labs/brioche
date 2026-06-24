@@ -233,6 +233,7 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
         self.cycle_rollback_policy = Some(policy);
         self
     }
+
     /// Inject a `CowBudgetPolicy`.
     ///
     /// The policy is forwarded to the configured `CycleRollbackPolicy`
