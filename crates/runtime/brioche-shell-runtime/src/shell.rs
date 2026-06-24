@@ -374,13 +374,15 @@ impl BriocheShell {
         let tick_emitter = TickEmitter::new(system_signal_tx, config.tick_interval_ms);
         task_tracker.spawn(tick_emitter.run());
 
-        // Step 7 (continued): launch the engine watchdog.
-        let watchdog = EngineWatchdog::default().with_transition_journal(journal_for_watchdog);
-        task_tracker.spawn(watchdog.run(ping_tx, pong_rx));
-
         // Step 4: install default telemetry subscriber.
         let telemetry = TelemetryChannel::new(256);
-        crate::telemetry::install_default_subscriber(telemetry);
+        crate::telemetry::install_default_subscriber(telemetry.clone());
+
+        // Step 7 (continued): launch the engine watchdog.
+        let watchdog = EngineWatchdog::default()
+            .with_transition_journal(journal_for_watchdog)
+            .with_telemetry(telemetry);
+        task_tracker.spawn(watchdog.run(ping_tx, pong_rx));
 
         shell
     }

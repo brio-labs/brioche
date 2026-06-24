@@ -14,6 +14,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant};
 
+use crate::telemetry::{TelemetryChannel, TelemetryLevel};
+
 /// Ping message sent by the watchdog to the engine thread.
 ///
 /// Refs: I-Shell-Watchdog-NoKill
@@ -60,7 +62,7 @@ pub enum RecoveryProcedure {
 /// `RecoveryProcedure` is triggered.
 ///
 /// Refs: I-Shell-Watchdog-NoKill, I-Shell-Watchdog-Recovery
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct EngineWatchdog {
     heartbeat_interval_ms: u64,
     max_response_delay_ms: u64,
@@ -69,6 +71,32 @@ pub struct EngineWatchdog {
     ///
     /// Refs: I-Shell-TransitionJournal
     transition_journal: Option<Arc<crate::TransitionJournal>>,
+    /// Telemetry channel for recovery events.
+    telemetry: TelemetryChannel,
+    /// Optional handler invoked for `SerializeAndRestart` recovery.
+    serialize_and_restart_handler: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// Optional handler invoked for `NotifyAndDegrade` recovery.
+    notify_and_degrade_handler: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+impl std::fmt::Debug for EngineWatchdog {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EngineWatchdog")
+            .field("heartbeat_interval_ms", &self.heartbeat_interval_ms)
+            .field("max_response_delay_ms", &self.max_response_delay_ms)
+            .field("recovery_procedure", &self.recovery_procedure)
+            .field("transition_journal", &self.transition_journal)
+            .field("telemetry", &self.telemetry)
+            .field(
+                "serialize_and_restart_handler",
+                &self.serialize_and_restart_handler.as_ref().map(|_| "<handler>"),
+            )
+            .field(
+                "notify_and_degrade_handler",
+                &self.notify_and_degrade_handler.as_ref().map(|_| "<handler>"),
+            )
+            .finish()
+    }
 }
 
 impl Default for EngineWatchdog {
@@ -78,6 +106,9 @@ impl Default for EngineWatchdog {
             max_response_delay_ms: 5000,
             recovery_procedure: RecoveryProcedure::NotifyAndDegrade,
             transition_journal: None,
+            telemetry: TelemetryChannel::new(64),
+            serialize_and_restart_handler: None,
+            notify_and_degrade_handler: None,
         }
     }
 }
@@ -91,6 +122,32 @@ impl EngineWatchdog {
     /// Refs: I-Shell-TransitionJournal
     pub fn with_transition_journal(mut self, journal: Arc<crate::TransitionJournal>) -> Self {
         self.transition_journal = Some(journal);
+        self
+    }
+
+    /// Attach the telemetry channel used to emit recovery events.
+    ///
+    /// Refs: I-Shell-Telemetry-NoKernel
+    pub fn with_telemetry(mut self, telemetry: TelemetryChannel) -> Self {
+        self.telemetry = telemetry;
+        self
+    }
+
+    /// Set the handler invoked when `SerializeAndRestart` recovery is triggered.
+    pub fn with_serialize_and_restart_handler<F>(mut self, handler: F) -> Self
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        self.serialize_and_restart_handler = Some(Arc::new(handler));
+        self
+    }
+
+    /// Set the handler invoked when `NotifyAndDegrade` recovery is triggered.
+    pub fn with_notify_and_degrade_handler<F>(mut self, handler: F) -> Self
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        self.notify_and_degrade_handler = Some(Arc::new(handler));
         self
     }
 }
@@ -108,6 +165,9 @@ impl EngineWatchdog {
             max_response_delay_ms,
             recovery_procedure,
             transition_journal: None,
+            telemetry: TelemetryChannel::new(64),
+            serialize_and_restart_handler: None,
+            notify_and_degrade_handler: None,
         }
     }
 
@@ -166,18 +226,28 @@ impl EngineWatchdog {
     async fn execute_recovery(&self) {
         match self.recovery_procedure {
             RecoveryProcedure::SerializeAndRestart => {
-                tracing::error!(
-                    "watchdog recovery: SerializeAndRestart triggered. \
-                     Sprint 10 placeholder — full restart logic deferred to Sprint 11."
+                tracing::error!("watchdog recovery: SerializeAndRestart triggered");
+                self.telemetry.emit(
+                    TelemetryLevel::Error,
+                    "watchdog",
+                    "serialize-and-restart recovery procedure triggered",
+                    None,
                 );
-                // TODO(Sprint 11): serialize session DTO, flush Redb, restart engine.
+                if let Some(handler) = &self.serialize_and_restart_handler {
+                    handler();
+                }
             }
             RecoveryProcedure::NotifyAndDegrade => {
-                tracing::error!(
-                    "watchdog recovery: NotifyAndDegrade triggered. \
-                     Sprint 10 placeholder — UI notification deferred to Shell Projection."
+                tracing::error!("watchdog recovery: NotifyAndDegrade triggered");
+                self.telemetry.emit(
+                    TelemetryLevel::Error,
+                    "watchdog",
+                    "degraded mode recovery procedure triggered",
+                    None,
                 );
-                // TODO(Sprint 14): emit ForwardToUi effect for degraded mode banner.
+                if let Some(handler) = &self.notify_and_degrade_handler {
+                    handler();
+                }
             }
         }
     }
@@ -231,5 +301,74 @@ impl EngineWatchdogHandle {
             // Best-effort send; if the watchdog has dropped, we ignore.
             let _ = self.pong_tx.try_send(pong);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use super::{EngineWatchdog, RecoveryProcedure};
+    use crate::telemetry::{TelemetryChannel, TelemetryLevel};
+
+    #[tokio::test]
+    async fn serialize_and_restart_emits_error_telemetry() {
+        let telemetry = TelemetryChannel::new(16);
+        let mut rx = telemetry.subscribe();
+
+        let watchdog = EngineWatchdog::new(1000, 5000, RecoveryProcedure::SerializeAndRestart)
+            .with_telemetry(telemetry);
+
+        watchdog.execute_recovery().await;
+
+        let event = match rx.recv().await {
+            Ok(event) => event,
+            Err(_) => {
+                assert!(false, "expected a telemetry event");
+                return;
+            }
+        };
+
+        assert_eq!(event.level, TelemetryLevel::Error);
+        assert_eq!(event.source, "watchdog");
+        assert!(
+            event.message.contains("serialize-and-restart"),
+            "message should indicate serialize-and-restart recovery: {}",
+            event.message
+        );
+    }
+
+    #[tokio::test]
+    async fn notify_and_degrade_invokes_handler() {
+        let telemetry = TelemetryChannel::new(16);
+        let invoked = Arc::new(AtomicBool::new(false));
+        let invoked_for_handler = Arc::clone(&invoked);
+
+        let watchdog = EngineWatchdog::new(1000, 5000, RecoveryProcedure::NotifyAndDegrade)
+            .with_telemetry(telemetry)
+            .with_notify_and_degrade_handler(move || {
+                invoked_for_handler.store(true, Ordering::SeqCst);
+            });
+
+        watchdog.execute_recovery().await;
+
+        assert!(invoked.load(Ordering::SeqCst), "handler should have been invoked");
+    }
+
+    #[tokio::test]
+    async fn default_recovery_does_not_panic_and_emits_telemetry() {
+        let telemetry = TelemetryChannel::new(16);
+        let mut rx = telemetry.subscribe();
+
+        let watchdog = EngineWatchdog::new(1000, 5000, RecoveryProcedure::NotifyAndDegrade)
+            .with_telemetry(telemetry);
+
+        watchdog.execute_recovery().await;
+
+        assert!(
+            rx.recv().await.is_ok(),
+            "a telemetry event should be emitted even with no handler"
+        );
     }
 }
