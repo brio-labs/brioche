@@ -19,7 +19,7 @@ env:
 
 jobs:
   bench:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

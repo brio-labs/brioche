@@ -19,7 +19,7 @@ jobs:
   # Gate 0 — Fast static checks (run in parallel)
   # -------------------------------------------------------------------------
   deny:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -29,7 +29,7 @@ jobs:
       - run: cargo deny check
 
   fmt:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -40,7 +40,7 @@ jobs:
   # Nightly rustfmt enforces imports_granularity, group_imports,
   # reorder_impl_items, and format_code_in_doc_comments (PHILOSOPHY.md §3.1).
   fmt-nightly:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
@@ -49,7 +49,7 @@ jobs:
       - run: cargo fmt --check
 
   clippy:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -64,7 +64,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   docs:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -79,7 +79,7 @@ jobs:
           RUSTDOCFLAGS: "-D warnings"
 
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-frontend
@@ -94,7 +94,7 @@ jobs:
   # Gate 0b — Dependency hygiene & architecture policy
   # -------------------------------------------------------------------------
   dependency-audit:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64
     needs: [clippy]
     steps:
       - uses: actions/checkout@v4
@@ -122,7 +122,7 @@ jobs:
   # Gate 1 — Philosophy & invariant checks (run in parallel with tests)
   # -------------------------------------------------------------------------
   philosophy-check:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -163,7 +163,7 @@ jobs:
   # Gate 2 — Test matrix (unit, doc, property)
   # -------------------------------------------------------------------------
   test:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64
     needs: [clippy, deny]
     steps:
       - uses: actions/checkout@v4
@@ -177,7 +177,7 @@ jobs:
       - run: cargo test --workspace --all-targets --all-features
 
   test-doc:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64
     needs: [clippy]
     steps:
       - uses: actions/checkout@v4
@@ -193,7 +193,7 @@ jobs:
   # Property tests with a high case count to surface edge-case failures
   # that unit tests miss (PHILOSOPHY.md §5.4, docs/SPECS.md Book V Ch.10).
   proptest:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64
     needs: [clippy, deny]
     steps:
       - uses: actions/checkout@v4
@@ -213,7 +213,7 @@ jobs:
   # Gate 3 — Build profiles & benchmark smoke tests
   # -------------------------------------------------------------------------
   profiles:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64
     needs: [clippy, deny]
     strategy:
       matrix:
@@ -247,7 +247,7 @@ jobs:
   # Benchmarks assert that hot-path budgets documented in PHILOSOPHY.md are
   # still met. We at least compile them and run a single iteration as smoke.
   benchmark-smoke:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64
     needs: [clippy, deny]
     steps:
       - uses: actions/checkout@v4
@@ -272,7 +272,7 @@ jobs:
   # Gate 4 — Security audit
   # -------------------------------------------------------------------------
   audit:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64
     needs: [deny]
     steps:
       - uses: actions/checkout@v4
