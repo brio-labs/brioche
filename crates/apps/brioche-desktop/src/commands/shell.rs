@@ -21,8 +21,8 @@ use brioche_shell_persistence::{
 };
 use brioche_shell_runtime::{BriocheShell, DefaultEffectExecutor, ShellConfig};
 use brioche_tools_system::{
-    ExecuteCommandTool, FetchUrlTool, ListDirTool, ReadFileTool, SandboxPolicy, SystemToolExecutor,
-    WriteFileTool,
+    AllowList, ExecuteCommandTool, FetchUrlTool, ListDirTool, ReadFileTool, SandboxPolicy,
+    SystemToolExecutor, WriteFileTool,
 };
 use lazy_static::lazy_static;
 use tokio::sync::broadcast;
@@ -372,8 +372,32 @@ pub fn build_shell(session_id: impl Into<String>, factory: &ShellFactory) -> She
         Some(std::path::PathBuf::from(&workspace_path))
     };
 
+    let mut command_allow_list = AllowList::new()
+        .with_command("git")
+        .with_command("cargo")
+        .with_command("pnpm")
+        .with_command("npm")
+        .with_command("node")
+        .with_command("python3")
+        .with_command("rustc")
+        .with_command("ls")
+        .with_command("cat")
+        .with_command("echo")
+        .with_command("mkdir")
+        .with_command("rm")
+        .with_command("cp")
+        .with_command("mv")
+        .with_command("pwd")
+        .with_command("find")
+        .with_command("grep")
+        .with_command("rg")
+        .with_command("code");
+    for command in factory.settings.allowed_commands() {
+        command_allow_list = command_allow_list.with_command(&command);
+    }
+
     let exec_tool = ExecuteCommandTool::new()
-        .with_policy(SandboxPolicy::Permissive)
+        .with_policy(SandboxPolicy::AllowList(command_allow_list))
         .with_default_cwd(workspace_path);
 
     let mut tool_executor = SystemToolExecutor::new()
