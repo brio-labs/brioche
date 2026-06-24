@@ -4,6 +4,22 @@ description: 'Install Node.js/pnpm and build the Tauri frontend assets'
 runs:
   using: composite
   steps:
+    - name: Cache pnpm store
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.local/share/pnpm/store
+          ~/.cache/pnpm
+        key: pnpm-store-${{ runner.os }}-${{ hashFiles('crates/apps/brioche-desktop/frontend/pnpm-lock.yaml') }}
+        restore-keys: |
+    - name: Cache built frontend assets
+      uses: actions/cache@v4
+      with:
+        path: crates/apps/brioche-desktop/frontend/dist
+        key: frontend-dist-${{ runner.os }}-${{ hashFiles('crates/apps/brioche-desktop/frontend/pnpm-lock.yaml', 'crates/apps/brioche-desktop/frontend/package.json', 'crates/apps/brioche-desktop/frontend/vite.config.ts', 'crates/apps/brioche-desktop/frontend/index.html', 'crates/apps/brioche-desktop/frontend/src/**') }}
+        restore-keys: |
+          frontend-dist-${{ runner.os }}-
+
     - uses: actions/setup-node@v4
       with:
         node-version: '22'

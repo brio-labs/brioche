@@ -10,6 +10,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTC_WRAPPER: sccache
+  SCCACHE_GHA_ENABLED: "true"
 
 jobs:
   verify:
@@ -20,11 +22,14 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - uses: ./.github/actions/setup-system-dependencies
+
       # brioche-desktop embeds its frontend via tauri::generate_context!(), which
       # expects crates/apps/brioche-desktop/frontend/dist to exist at compile time.
       - uses: ./.github/actions/setup-frontend
 
       - uses: Swatinem/rust-cache@v2
+      - uses: mozilla-actions/sccache-action@v0.0.7
 
       - name: Verify GPG-signed tag
         run: |
@@ -45,9 +50,10 @@ jobs:
           RUSTDOCFLAGS: "-D warnings"
 
       - name: Deny
-        run: |
-          cargo install cargo-deny
-          cargo deny check all
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - run: cargo deny check all
 
       - name: Benchmarks
         run: cargo bench --workspace
@@ -78,11 +84,16 @@ jobs:
 
       # brioche-desktop embeds its frontend via tauri::generate_context!(), which
       # expects crates/apps/brioche-desktop/frontend/dist to exist at compile time.
+      # Build the frontend ahead of the workspace compile for profiles that include
+      # the desktop crate.
       - uses: ./.github/actions/setup-frontend
         if: matrix.profile == 'desktop' || matrix.profile == 'full'
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/setup-system-dependencies
+        if: runner.os == 'Linux'
 
+      - uses: Swatinem/rust-cache@v2
+      - uses: mozilla-actions/sccache-action@v0.0.7
       # NOTE: Code signing and notarization are not configured for Brioche
       # Desktop 0.1. Release artifacts produced by this workflow are unsigned.
       # Platform-specific security warnings (macOS Gatekeeper, Windows
@@ -110,6 +121,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - uses: mozilla-actions/sccache-action@v0.0.7
 
       - name: Download release artifacts
         uses: actions/download-artifact@v4
