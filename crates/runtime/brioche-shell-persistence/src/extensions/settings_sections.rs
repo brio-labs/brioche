@@ -539,19 +539,34 @@ impl SettingsSectionProvider for ToolSettingsSection {
                 "command".into(),
                 "security".into(),
             ],
-            fields: vec![SettingsField {
-                key: "tools.user_tools_enabled".into(),
-                label: "Enable user-defined tools".into(),
-                field_type: FieldType::Boolean,
-                description: Some(
-                    "Allow custom tools that execute shell commands or HTTP requests. Disabled by default for security.".into(),
-                ),
-                placeholder: None,
-                options: vec![],
-                default_value: Some(serde_json::Value::Bool(false)),
-                protected: true,
-                keywords: vec!["user tools".into(), "security".into(), "enable".into()],
-            }],
+            fields: vec![
+                SettingsField {
+                    key: "tools.user_tools_enabled".into(),
+                    label: "Enable user-defined tools".into(),
+                    field_type: FieldType::Boolean,
+                    description: Some(
+                        "Allow custom tools that execute shell commands or HTTP requests. Disabled by default for security.".into(),
+                    ),
+                    placeholder: None,
+                    options: vec![],
+                    default_value: Some(serde_json::Value::Bool(false)),
+                    protected: true,
+                    keywords: vec!["user tools".into(), "security".into(), "enable".into()],
+                },
+                SettingsField {
+                    key: "tools.allowed_commands".into(),
+                    label: "Allowed commands".into(),
+                    field_type: FieldType::List,
+                    description: Some(
+                        "Additional command names allowed for the built-in `execute_command` tool. Each entry should be a single command name (for example, `rg` or `pnpm`). These extend the default allow-list and do not affect user-defined tools.".into(),
+                    ),
+                    placeholder: Some("[\"rg\", \"pnpm\"]".into()),
+                    options: vec![],
+                    default_value: Some(serde_json::Value::Array(Vec::new())),
+                    protected: false,
+                    keywords: vec!["execute_command".into(), "allowlist".into(), "sandbox".into(), "shell".into()],
+                },
+            ],
         }]
     }
 }

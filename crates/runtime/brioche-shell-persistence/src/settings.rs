@@ -172,9 +172,12 @@ impl Default for Settings {
         modules.insert(
             "tools".into(),
             Value::Object(
-                [("user_tools_enabled".into(), Value::Bool(false))]
-                    .into_iter()
-                    .collect(),
+                [
+                    ("user_tools_enabled".into(), Value::Bool(false)),
+                    ("allowed_commands".into(), Value::Array(Vec::new())),
+                ]
+                .into_iter()
+                .collect(),
             ),
         );
         modules.insert(
@@ -534,8 +537,6 @@ impl Settings {
         }
     }
 
-    /// Returns whether user-defined tools are enabled.
-    ///
     /// User-defined tools execute arbitrary shell commands or HTTP requests and
     /// are disabled by default for safety.
     ///
@@ -544,6 +545,25 @@ impl Settings {
         match self.get("tools.user_tools_enabled") {
             Some(Value::Bool(b)) => b,
             _ => false,
+        }
+    }
+
+    /// Returns additional command names the user has allowed for the built-in
+    /// `execute_command` tool.
+    ///
+    /// These names extend the desktop application's default allow-list.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn allowed_commands(&self) -> Vec<String> {
+        match self.get("tools.allowed_commands") {
+            Some(Value::Array(items)) => items
+                .iter()
+                .filter_map(|item| match item {
+                    Value::String(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
         }
     }
 }
