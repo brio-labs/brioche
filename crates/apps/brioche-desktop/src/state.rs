@@ -22,7 +22,7 @@ use brioche_provider_openai::{LlmChunk, OpenAiLlmClient};
 use brioche_shell_persistence::{
     ExtensionRegistry, RedbStorage, SessionStore, Settings, new_session_store,
 };
-use brioche_shell_runtime::BriocheShell;
+use brioche_shell_runtime::{BriocheShell, Persistence};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{RwLock, broadcast};
 
@@ -506,4 +506,47 @@ impl DesktopState {
         }
         Ok(())
     }
+}
+/// Persists the current session head and message history to Redb and the
+/// session metadata store.
+///
+/// This is the desktop's explicit auto-save hook. It flushes whatever the
+/// engine thread has pushed into the shared `SessionStore` so a crash does
+/// not lose the active conversation.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(M + I/O) where M is the number of messages. Performs blocking disk writes
+/// on a `spawn_blocking` task.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if the session manager is uninitialized or storage
+/// I/O fails.
+pub async fn persist_session(state: &DesktopState) -> Result<(), String> {
+    let factory = state.factory.read().await.clone();
+    let (session_id, metadata) = {
+        let manager_guard = state.manager.read().await;
+        let manager = manager_guard.as_ref().ok_or("No active session")?;
+        let session_id = manager.current_id().to_string();
+        let metadata = match manager.metadata(&session_id) {
+            Some(meta) => meta,
+            None => SessionMetadata::new(&session_id, factory.settings.working_dir()),
+        };
+        (session_id, metadata)
+    };
+
+    // Flush head + message delta via the shared session store.
+    factory
+        .redb
+        .save_session(&session_id)
+        .await
+        .map_err(|e| format!("Failed to persist session {session_id}: {e}"))?;
+
+    // Refresh metadata so the session remains discoverable after a crash.
+    let mut manager_guard = state.manager.write().await;
+    if let Some(manager) = manager_guard.as_mut() {
+        manager.insert_metadata(metadata)?;
+    }
+    Ok(())
 }

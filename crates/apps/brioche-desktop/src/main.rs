@@ -9,8 +9,11 @@ use brioche_desktop_lib::DesktopState;
 use brioche_desktop_lib::commands;
 
 #[cfg(not(clippy))]
+use tauri::Manager;
+
+#[cfg(not(clippy))]
 fn run_app(state: DesktopState) {
-    if let Err(e) = tauri::Builder::default()
+    let app = match tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(state)
@@ -64,11 +67,24 @@ fn run_app(state: DesktopState) {
             commands::attach_reference,
             commands::send_image,
         ])
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
     {
-        eprintln!("[brioche-desktop] ERROR: Tauri application failed: {}", e);
-        std::process::exit(1);
-    }
+        Ok(app) => app,
+        Err(e) => {
+            eprintln!("[brioche-desktop] ERROR: Tauri application failed: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { .. } = event {
+            if let Some(state) = app_handle.try_state::<DesktopState>() {
+                let _ = tauri::async_runtime::block_on(async {
+                    brioche_desktop_lib::persist_session(state.inner()).await
+                });
+            }
+        }
+    });
 }
 
 #[cfg(clippy)]

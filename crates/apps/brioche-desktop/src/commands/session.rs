@@ -6,7 +6,7 @@ use brioche_core::{ChatMessage, EngineInput};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
-use crate::state::{DesktopState, SessionMetadata};
+use crate::state::{DesktopState, SessionMetadata, persist_session};
 
 /// Role of a chat message participant.
 ///
@@ -165,12 +165,7 @@ async fn send_message_impl(
     let shell = manager.current_shell().ok_or("No active session")?.clone();
     let llm = manager.current_llm().ok_or("No active session")?.clone();
     let current_id = manager.current_id().to_string();
-
-    // Take the LLM receiver if available and spawn the forwarder.
-    if let Some(rx) = manager.take_llm_rx() {
-        let app_clone = app.clone();
-        tokio::spawn(forward_llm_chunks(app_clone, rx));
-    }
+    let rx = manager.take_llm_rx();
     drop(mgr);
 
     // Push to LLM history
@@ -183,6 +178,13 @@ async fn send_message_impl(
         .send_input(EngineInput::UserMessage(trimmed.to_string()))
         .await
         .map_err(|e| format!("Send error: {e}"))?;
+
+    // Stream the assistant response to the frontend and auto-save when done.
+    if let Some(rx) = rx {
+        let app_clone = app.clone();
+        forward_llm_chunks(app_clone, rx).await;
+        persist_session(state).await?;
+    }
 
     let _ = app.emit(
         "chat-message",
@@ -540,6 +542,7 @@ pub async fn switch_session(
     }
     let workspace = factory.settings.working_dir();
     DesktopState::initialize_memory_providers(&factory, &id, &workspace)?;
+    persist_session(state.inner()).await?;
     emit_system(&app, format!("Switched to session: {id}"));
     let _ = app.emit("session-changed", id);
     Ok(())
@@ -593,6 +596,7 @@ async fn new_session_impl(state: &DesktopState) -> Result<String, String> {
         manager.insert_metadata(SessionMetadata::new(&new_id, &workspace))?;
         manager.switch(&new_id);
     }
+    persist_session(state).await?;
     Ok(new_id)
 }
 
@@ -658,6 +662,7 @@ async fn load_session(app: &AppHandle, state: &DesktopState, id: &str) -> Result
         }
         manager.switch(id);
     }
+    persist_session(state).await?;
     emit_system(
         app,
         format!("Session '{}' loaded ({} messages).", id, messages.len()),
@@ -763,6 +768,10 @@ fn system_time_secs() -> u64 {
 mod tests {
     use super::*;
     use crate::state::DesktopState;
+    use brioche_shell_persistence::{
+        FlattenedAgentState, SessionHeadDTO, SessionSchemaVersion, SessionStoreEntry,
+    };
+    use std::collections::BTreeMap;
 
     async fn test_state(path: &str) -> Result<DesktopState, String> {
         DesktopState::new_with_path(path)
@@ -813,6 +822,71 @@ mod tests {
             messages.iter().any(|m| matches!(m.role, ChatRole::System)),
             "expected at least one system message after clear"
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn persist_session_writes_to_store() -> Result<(), String> {
+        let path = format!(
+            "/tmp/brioche-desktop-test-persist-{}-{}.redb",
+            system_time_secs(),
+            std::process::id()
+        );
+        let state = test_state(&path).await?;
+        state.ensure_manager().await?;
+
+        let session_id = {
+            let mgr = state.manager.read().await;
+            mgr.as_ref()
+                .ok_or("No active session")?
+                .current_id()
+                .to_string()
+        };
+
+        let entry = SessionStoreEntry {
+            head: SessionHeadDTO {
+                version: SessionSchemaVersion::V1,
+                id: session_id.clone(),
+                parent_id: None,
+                state: FlattenedAgentState::Idle,
+                state_stack: Vec::new(),
+                extensions: BTreeMap::new(),
+                persisted_msg_count: 0,
+                compaction_index: 0,
+            },
+            messages: vec![ChatMessage::User {
+                content: "hello persistence".into(),
+            }],
+        };
+
+        {
+            let factory = state.factory.read().await;
+            let mut store = factory.store.write().await;
+            store.insert(session_id.clone(), entry);
+        }
+
+        persist_session(&state).await?;
+
+        let factory = state.factory.read().await.clone();
+        let head = factory
+            .redb
+            .load_session(&session_id)
+            .await
+            .map_err(|e| format!("load session failed: {e}"))?
+            .ok_or("session head not found after persist")?;
+        assert_eq!(head.id, session_id);
+
+        let messages = factory
+            .redb
+            .load_messages_for_session(&session_id)
+            .await
+            .map_err(|e| format!("load messages failed: {e}"))?;
+        assert_eq!(messages.len(), 1, "expected one persisted message");
+        assert!(messages.iter().any(|(_, m)| matches!(
+            m,
+            ChatMessage::User { content } if content == "hello persistence"
+        )));
+
         Ok(())
     }
 }
