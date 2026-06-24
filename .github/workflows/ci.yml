@@ -15,7 +15,7 @@ on:
 
 permissions:
   contents: read
-
+  actions: write
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -35,8 +35,8 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend || 'true' }}
       lock: ${{ steps.filter.outputs.lock || 'true' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
+      - uses: actions/checkout@v7.0.0
+      - uses: dorny/paths-filter@v4.0.1
         if: github.event_name == 'pull_request'
         id: filter
         with:
@@ -62,9 +62,9 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.lock == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
       - uses: dtolnay/rust-toolchain@stable
-      - uses: mozilla-actions/sccache-action@v0.0.7
+      - uses: mozilla-actions/sccache-action@v0.0.10
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-deny
@@ -73,7 +73,7 @@ jobs:
   fmt:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -84,9 +84,10 @@ jobs:
   fmt-nightly:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly-2026-06-01
+      - uses: actions/checkout@v7.0.0
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: nightly-2026-06-15
           components: rustfmt
       - run: cargo fmt --check
 
@@ -95,14 +96,14 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.rust == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: ./.github/actions/setup-system-dependencies
       - uses: ./.github/actions/setup-frontend
-      - uses: Swatinem/rust-cache@v2
-      - uses: mozilla-actions/sccache-action@v0.0.7
+      - uses: Swatinem/rust-cache@v2.9.1
+      - uses: mozilla-actions/sccache-action@v0.0.10
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   docs:
@@ -110,12 +111,12 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.rust == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
       - uses: dtolnay/rust-toolchain@stable
       - uses: ./.github/actions/setup-system-dependencies
       - uses: ./.github/actions/setup-frontend
-      - uses: Swatinem/rust-cache@v2
-      - uses: mozilla-actions/sccache-action@v0.0.7
+      - uses: Swatinem/rust-cache@v2.9.1
+      - uses: mozilla-actions/sccache-action@v0.0.10
       - run: cargo doc --workspace --no-deps --all-features
         env:
           RUSTDOCFLAGS: "-D warnings"
@@ -125,7 +126,7 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.frontend == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
       - uses: ./.github/actions/setup-frontend
       - name: Build desktop frontend
         working-directory: crates/apps/brioche-desktop/frontend
@@ -142,10 +143,10 @@ jobs:
     needs: [changes, deny]
     if: needs.changes.outputs.lock == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: mozilla-actions/sccache-action@v0.0.7
+      - uses: Swatinem/rust-cache@v2.9.1
+      - uses: mozilla-actions/sccache-action@v0.0.10
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-machete
@@ -169,10 +170,10 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.rust == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: mozilla-actions/sccache-action@v0.0.7
+      - uses: Swatinem/rust-cache@v2.9.1
+      - uses: mozilla-actions/sccache-action@v0.0.10
 
       - name: Build custom lint crates
         run: |
@@ -213,12 +214,12 @@ jobs:
     needs: [changes, clippy, deny]
     if: needs.changes.outputs.rust == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
       - uses: dtolnay/rust-toolchain@stable
       - uses: ./.github/actions/setup-system-dependencies
       - uses: ./.github/actions/setup-frontend
-      - uses: Swatinem/rust-cache@v2
-      - uses: mozilla-actions/sccache-action@v0.0.7
+      - uses: Swatinem/rust-cache@v2.9.1
+      - uses: mozilla-actions/sccache-action@v0.0.10
       - run: cargo test --workspace --all-targets --all-features
 
   test-doc:
@@ -226,12 +227,12 @@ jobs:
     needs: [changes, clippy]
     if: needs.changes.outputs.rust == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
       - uses: dtolnay/rust-toolchain@stable
       - uses: ./.github/actions/setup-system-dependencies
       - uses: ./.github/actions/setup-frontend
-      - uses: Swatinem/rust-cache@v2
-      - uses: mozilla-actions/sccache-action@v0.0.7
+      - uses: Swatinem/rust-cache@v2.9.1
+      - uses: mozilla-actions/sccache-action@v0.0.10
       - run: cargo test --workspace --doc --all-features
 
   # Property tests with a high case count to surface edge-case failures
@@ -241,12 +242,12 @@ jobs:
     needs: [changes, clippy, deny]
     if: needs.changes.outputs.rust == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
       - uses: dtolnay/rust-toolchain@stable
       - uses: ./.github/actions/setup-system-dependencies
       - uses: ./.github/actions/setup-frontend
-      - uses: Swatinem/rust-cache@v2
-      - uses: mozilla-actions/sccache-action@v0.0.7
+      - uses: Swatinem/rust-cache@v2.9.1
+      - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Run property tests (high volume)
         run: cargo test --package brioche-core --test property_transition --all-features
         env:
@@ -263,7 +264,7 @@ jobs:
       matrix:
         profile: [headless, desktop, wasm-test, full]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
       - uses: dtolnay/rust-toolchain@stable
       - uses: ./.github/actions/setup-system-dependencies
 
@@ -274,8 +275,8 @@ jobs:
       - uses: ./.github/actions/setup-frontend
         if: matrix.profile == 'desktop' || matrix.profile == 'full'
 
-      - uses: Swatinem/rust-cache@v2
-      - uses: mozilla-actions/sccache-action@v0.0.7
+      - uses: Swatinem/rust-cache@v2.9.1
+      - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Build with profile ${{ matrix.profile }}
         run: |
           if [ "${{ matrix.profile }}" = "headless" ] || [ "${{ matrix.profile }}" = "wasm-test" ]; then
@@ -293,12 +294,12 @@ jobs:
     needs: [changes, clippy, deny]
     if: needs.changes.outputs.rust == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
       - uses: dtolnay/rust-toolchain@stable
       - uses: ./.github/actions/setup-system-dependencies
       - uses: ./.github/actions/setup-frontend
-      - uses: Swatinem/rust-cache@v2
-      - uses: mozilla-actions/sccache-action@v0.0.7
+      - uses: Swatinem/rust-cache@v2.9.1
+      - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Compile benchmarks
         run: cargo bench --workspace --no-run
       - name: Smoke-run key benchmarks (minimal sample)
@@ -322,7 +323,7 @@ jobs:
       security-events: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
