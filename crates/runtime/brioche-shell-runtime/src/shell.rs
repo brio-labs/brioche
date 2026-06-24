@@ -103,6 +103,13 @@ pub struct ShellConfig {
     pub persistence_mode: PersistenceMode,
     /// Whether to enable the `TransitionJournal`.
     pub transition_journal_enabled: bool,
+    /// Whether `SystemIdle` should automatically trigger GC.
+    ///
+    /// This is a Sprint 9 stop-gap until a `GcPolicy` plugin drives
+    /// idle-time compaction. Default is `false`.
+    ///
+    /// Refs: docs/SPECS.md §Book III-A
+    pub gc_on_idle: bool,
 }
 
 impl Default for ShellConfig {
@@ -113,6 +120,7 @@ impl Default for ShellConfig {
             max_concurrent_effects: 32,
             persistence_mode: PersistenceMode::Async,
             transition_journal_enabled: true,
+            gc_on_idle: false,
         }
     }
 }
@@ -375,6 +383,35 @@ impl BriocheShell {
         crate::telemetry::install_default_subscriber(telemetry);
 
         shell
+    }
+
+    /// Test-only constructor that exposes only the async-task result channel.
+    ///
+    /// Used by unit tests in sibling modules that need a `BriocheShell`
+    /// handle without spinning up the full engine thread.
+    ///
+    /// Refs: I-Shell-Drain-Atomic
+    #[cfg(test)]
+    pub(crate) fn test_with_async_channel(
+        tx: tokio::sync::mpsc::Sender<brioche_core::AsyncTaskResult>,
+    ) -> Self {
+        let (_input_tx, _input_rx) = tokio::sync::mpsc::channel(1);
+        let (_system_tx, _system_rx) = tokio::sync::mpsc::channel(1);
+        let (_gov_tx, _gov_rx) = tokio::sync::mpsc::channel(1);
+        let (_rebuild_tx, _rebuild_rx) = tokio::sync::mpsc::channel(1);
+
+        // Drop unused receivers so the senders do not block.
+        drop((_input_rx, _system_rx, _gov_rx, _rebuild_rx));
+
+        Self {
+            input_tx: _input_tx,
+            system_signal_tx: _system_tx,
+            governance_tx: _gov_tx,
+            async_task_result_tx: tx,
+            rebuild_tx: _rebuild_tx,
+            rebuild_in_progress: Arc::new(AtomicBool::new(false)),
+            task_tracker: TaskTracker::new(),
+        }
     }
 
     /// Send an `EngineInput` to the kernel.
@@ -694,10 +731,10 @@ where
             executor.execute_cpu_task(task_id.0, payload, shell).await?;
         }
         Effect::TriggerGc => {
-            executor.trigger_gc().await?;
+            executor.trigger_gc(&snapshot.session_id).await?;
         }
         Effect::SystemIdle => {
-            executor.on_system_idle(shell).await?;
+            executor.on_system_idle(shell, &snapshot.session_id).await?;
         }
         Effect::PluginFault { plugin_name, error } => {
             // End-to-end fault propagation:

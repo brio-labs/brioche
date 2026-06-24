@@ -115,6 +115,7 @@ CRITICAL RULES: \
             max_concurrent_effects: 32,
             persistence_mode: brioche_shell_runtime::PersistenceMode::Async,
             transition_journal_enabled: false,
+            gc_on_idle: false,
         },
         effect_executor,
         Some(session_callback),
