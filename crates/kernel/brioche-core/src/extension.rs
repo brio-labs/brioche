@@ -410,6 +410,21 @@ impl ExtensionStorage {
         &self.cold_snapshot
     }
 
+    /// Replace the cold snapshot map with a persisted set of blobs.
+    ///
+    /// Used by persistence layers to hydrate plugin state into a fresh
+    /// `Session` before it is passed back to the engine.
+    ///
+    /// Complexity: O(n) where n = number of extension blobs. One BTreeMap
+    /// replacement; no deserialization.
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Persist-Idempotence
+    pub fn restore_cold_snapshot(&mut self, snapshot: BTreeMap<String, Vec<u8>>) {
+        self.cold_snapshot = snapshot;
+    }
+
     /// Attach a `CycleRollbackPolicy` for the duration of a monitored hook.
     ///
     /// Complexity: O(1). No heap allocation.

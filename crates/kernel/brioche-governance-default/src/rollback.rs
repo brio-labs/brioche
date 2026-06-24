@@ -81,7 +81,7 @@ impl Default for UndoFrameGuard {
 }
 
 impl CycleRollbackPolicy for UndoFrameGuard {
-    fn begin_hook(&mut self) {
+    fn begin_hook(&mut self, _hook_name: &'static str) {
         self.active_frame = Some(Vec::new());
         self.current_frame_weight = 0;
         self.snapshotted_types.clear();
@@ -140,9 +140,7 @@ impl CycleRollbackPolicy for UndoFrameGuard {
 
     fn rollback_hook(&mut self, ext: &mut ExtensionStorage) {
         let budget_exceeded = self.current_frame_weight >= self.max_cow_bytes_per_hook;
-        if self.current_frame_weight < self.max_cow_bytes_per_hook
-            && let Some(frame) = self.active_frame.take()
-        {
+        if let Some(frame) = self.active_frame.take() {
             for (type_id, backup) in frame {
                 ext.restore_boxed(type_id, backup);
             }
@@ -157,6 +155,10 @@ impl CycleRollbackPolicy for UndoFrameGuard {
         self.active_frame = None;
         self.current_frame_weight = 0;
         self.snapshotted_types.clear();
+    }
+
+    fn is_budget_exceeded(&self) -> bool {
+        self.current_frame_weight >= self.max_cow_bytes_per_hook
     }
 }
 
@@ -219,7 +221,7 @@ impl Default for TieredUndoFrameGuard {
 }
 
 impl CycleRollbackPolicy for TieredUndoFrameGuard {
-    fn begin_hook(&mut self) {
+    fn begin_hook(&mut self, _hook_name: &'static str) {
         self.active_frame = Some(Vec::new());
         self.current_standard_weight = 0;
         self.current_best_effort_weight = 0;
@@ -288,10 +290,10 @@ impl CycleRollbackPolicy for TieredUndoFrameGuard {
     }
 
     fn rollback_hook(&mut self, ext: &mut ExtensionStorage) {
-        let can_restore = self.current_standard_weight < self.max_standard_bytes
-            && self.current_best_effort_weight < self.max_best_effort_bytes;
+        let budget_exceeded = self.current_standard_weight >= self.max_standard_bytes
+            || self.current_best_effort_weight >= self.max_best_effort_bytes;
 
-        if can_restore && let Some(frame) = self.active_frame.take() {
+        if let Some(frame) = self.active_frame.take() {
             for (type_id, backup) in frame {
                 ext.restore_boxed(type_id, backup);
             }
@@ -301,12 +303,17 @@ impl CycleRollbackPolicy for TieredUndoFrameGuard {
             hook_name: String::new(),
             was_rollback: true,
             frame_weight: self.current_standard_weight + self.current_best_effort_weight,
-            budget_exceeded: !can_restore,
+            budget_exceeded,
         });
         self.active_frame = None;
         self.current_standard_weight = 0;
         self.current_best_effort_weight = 0;
         self.snapshotted_types.clear();
+    }
+
+    fn is_budget_exceeded(&self) -> bool {
+        self.current_standard_weight >= self.max_standard_bytes
+            || self.current_best_effort_weight >= self.max_best_effort_bytes
     }
 }
 
@@ -382,10 +389,11 @@ impl Default for AdaptiveUndoFrameGuard {
 }
 
 impl CycleRollbackPolicy for AdaptiveUndoFrameGuard {
-    fn begin_hook(&mut self) {
+    fn begin_hook(&mut self, hook_name: &'static str) {
         self.active_frame = Some(Vec::new());
         self.current_frame_weight = 0;
         self.snapshotted_types.clear();
+        self.current_hook = hook_name.to_string();
     }
 
     fn on_mutation(&mut self, type_id: TypeId, vtable: &ExtVTable, current: &dyn Any) {
@@ -441,9 +449,7 @@ impl CycleRollbackPolicy for AdaptiveUndoFrameGuard {
     fn rollback_hook(&mut self, ext: &mut ExtensionStorage) {
         let max = self.effective_max();
         let budget_exceeded = self.current_frame_weight >= max;
-        if self.current_frame_weight < max
-            && let Some(frame) = self.active_frame.take()
-        {
+        if let Some(frame) = self.active_frame.take() {
             for (type_id, backup) in frame {
                 ext.restore_boxed(type_id, backup);
             }
@@ -458,6 +464,14 @@ impl CycleRollbackPolicy for AdaptiveUndoFrameGuard {
         self.active_frame = None;
         self.current_frame_weight = 0;
         self.snapshotted_types.clear();
+    }
+
+    fn is_budget_exceeded(&self) -> bool {
+        self.current_frame_weight >= self.effective_max()
+    }
+
+    fn set_cow_budget_policy(&mut self, policy: Box<dyn CowBudgetPolicy>) {
+        self.budget_policy = Some(policy);
     }
 }
 

@@ -12,12 +12,12 @@ pub struct FetchUrlTool;
 
 #[async_trait::async_trait]
 impl SystemTool for FetchUrlTool {
-    fn name(&self) -> &'static str {
-        "fetch_url"
+    fn name(&self) -> String {
+        "fetch_url".into()
     }
 
-    fn description(&self) -> &'static str {
-        "Fetch the content of a URL via HTTP GET."
+    fn description(&self) -> String {
+        "Fetch the content of a URL via HTTP GET.".into()
     }
 
     fn parameters_schema(&self) -> serde_json::Value {

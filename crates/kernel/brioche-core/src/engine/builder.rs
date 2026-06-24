@@ -4,9 +4,9 @@
 
 use super::{PluginRouter, UnifiedRoutingTable};
 use crate::{
-    BriocheEngine, BriochePlugin, ConsistencyVerifier, CycleRollbackPolicy, DecisionAggregator,
-    EpochInterceptor, GovernanceFailoverHandler, HookEffectConstraint, SubRoutineHandler,
-    SubRoutineLifecycleGuard,
+    BriocheEngine, BriochePlugin, ConsistencyVerifier, CowBudgetPolicy, CycleRollbackPolicy,
+    DecisionAggregator, EpochInterceptor, GovernanceFailoverHandler, HookEffectConstraint,
+    SubRoutineHandler, SubRoutineHydrator, SubRoutineLifecycleGuard,
 };
 
 /// Type-state marker: mandatory trait not yet injected.
@@ -54,10 +54,12 @@ pub struct BriocheEngineBuilder<DA = Missing, LG = Missing> {
     plugins: Vec<Box<dyn BriochePlugin>>,
     epoch_interceptor: Option<Box<dyn EpochInterceptor>>,
     subroutine_handler: Option<Box<dyn SubRoutineHandler>>,
+    subroutine_hydrator: Option<Box<dyn SubRoutineHydrator>>,
     consistency_verifier: Option<Box<dyn ConsistencyVerifier>>,
     decision_aggregator: Option<Box<dyn DecisionAggregator>>,
     hook_effect_constraint: Option<Box<dyn HookEffectConstraint>>,
     cycle_rollback_policy: Option<Box<dyn CycleRollbackPolicy>>,
+    cow_budget_policy: Option<Box<dyn CowBudgetPolicy>>,
     subroutine_lifecycle_guard: Option<Box<dyn SubRoutineLifecycleGuard>>,
     governance_failover_handler: Option<Box<dyn GovernanceFailoverHandler>>,
     default_tool_timeout_ms: u64,
@@ -94,10 +96,12 @@ impl BriocheEngineBuilder<Missing, Missing> {
             plugins: Vec::new(),
             epoch_interceptor: None,
             subroutine_handler: None,
+            subroutine_hydrator: None,
             consistency_verifier: None,
             decision_aggregator: None,
             hook_effect_constraint: None,
             cycle_rollback_policy: None,
+            cow_budget_policy: None,
             subroutine_lifecycle_guard: None,
             governance_failover_handler: None,
             default_tool_timeout_ms: 0,
@@ -112,17 +116,21 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
             plugins: self.plugins,
             epoch_interceptor: self.epoch_interceptor,
             subroutine_handler: self.subroutine_handler,
+            subroutine_hydrator: self.subroutine_hydrator,
             consistency_verifier: self.consistency_verifier,
             decision_aggregator: self.decision_aggregator,
             hook_effect_constraint: self.hook_effect_constraint,
             cycle_rollback_policy: self.cycle_rollback_policy,
+            cow_budget_policy: self.cow_budget_policy,
             subroutine_lifecycle_guard: self.subroutine_lifecycle_guard,
             governance_failover_handler: self.governance_failover_handler,
             default_tool_timeout_ms: self.default_tool_timeout_ms,
             _phantom: std::marker::PhantomData,
         }
     }
+}
 
+impl<DA, LG> BriocheEngineBuilder<DA, LG> {
     /// Register a plugin.
     ///
     /// Plugins are sorted by `(priority, name)` at `build()` time.
@@ -164,6 +172,20 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
     /// Refs: I-Comp-Epoch-Subroutine
     pub fn with_subroutine_handler(mut self, handler: Box<dyn SubRoutineHandler>) -> Self {
         self.subroutine_handler = Some(handler);
+        self
+    }
+
+    /// Inject a `SubRoutineHydrator`.
+    ///
+    /// # Complexity
+    /// O(1). One `Option` assignment.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Shell-Session-NoSend, I-Persist-Idempotence
+    pub fn with_subroutine_hydrator(mut self, hydrator: Box<dyn SubRoutineHydrator>) -> Self {
+        self.subroutine_hydrator = Some(hydrator);
         self
     }
 
@@ -209,6 +231,24 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
     /// Refs: I-Gov-Rollback-BestEffort
     pub fn with_cycle_rollback_policy(mut self, policy: Box<dyn CycleRollbackPolicy>) -> Self {
         self.cycle_rollback_policy = Some(policy);
+        self
+    }
+
+    /// Inject a `CowBudgetPolicy`.
+    ///
+    /// The policy is forwarded to the configured `CycleRollbackPolicy`
+    /// during `build()`. Implementations that do not support adaptive
+    /// budgets ignore it.
+    ///
+    /// # Complexity
+    /// O(1). One `Option` assignment.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Gov-CowBudget-Adaptative
+    pub fn with_cow_budget_policy(mut self, policy: Box<dyn CowBudgetPolicy>) -> Self {
+        self.cow_budget_policy = Some(policy);
         self
     }
 
@@ -341,6 +381,15 @@ impl BriocheEngineBuilder<Present, Present> {
     pub fn build(self) -> BriocheEngine {
         let routing_table = UnifiedRoutingTable::from_plugins(&self.plugins);
 
+        // Forward an optional CowBudgetPolicy to the CycleRollbackPolicy.
+        let cow_budget_policy = self.cow_budget_policy;
+        let mut cycle_rollback_policy = self.cycle_rollback_policy;
+        if let Some(rollback) = cycle_rollback_policy.as_mut()
+            && let Some(policy) = cow_budget_policy
+        {
+            rollback.set_cow_budget_policy(policy);
+        }
+
         BriocheEngine {
             router: PluginRouter {
                 plugins: self.plugins,
@@ -349,10 +398,11 @@ impl BriocheEngineBuilder<Present, Present> {
             governance: crate::engine::GovernanceKernel {
                 epoch_interceptor: self.epoch_interceptor,
                 subroutine_handler: self.subroutine_handler,
+                subroutine_hydrator: self.subroutine_hydrator,
                 consistency_verifier: self.consistency_verifier,
                 decision_aggregator: self.decision_aggregator,
                 hook_effect_constraint: self.hook_effect_constraint,
-                cycle_rollback_policy: self.cycle_rollback_policy,
+                cycle_rollback_policy,
                 subroutine_lifecycle_guard: self.subroutine_lifecycle_guard,
                 governance_failover_handler: self.governance_failover_handler,
                 default_tool_timeout_ms: self.default_tool_timeout_ms,

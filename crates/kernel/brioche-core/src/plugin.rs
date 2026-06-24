@@ -15,9 +15,9 @@
 use std::any::{Any, TypeId};
 
 use crate::{
-    ChatMessage, Effect, EngineInput, ExtVTable, ExtensionStorage, PluginError, PluginResult,
-    PolicyDecision, Session, SessionRegistry, StreamAction, StreamEvent, SubRoutineHandle,
-    ToolCallDescriptor, ToolResultDTO,
+    BriocheError, ChatMessage, Effect, EngineInput, ExtVTable, ExtensionStorage, PluginError,
+    PluginResult, PolicyDecision, Session, SessionRegistry, StreamAction, StreamEvent,
+    SubRoutineHandle, ToolCallDescriptor, ToolResultDTO,
 };
 
 // ---------------------------------------------------------------------------
@@ -145,7 +145,9 @@ pub trait BriochePlugin: Send + Sync {
     ///
     /// # Panics
     /// Never panics in the default implementation. Plugin implementations
-    /// must uphold I-Core-NoPanic.
+    /// must uphold the NoPanic invariant.
+    ///
+    /// Refs: I-Core-NoPanic
     fn on_input(
         &self,
         _input: &EngineInput,
@@ -162,7 +164,9 @@ pub trait BriochePlugin: Send + Sync {
     ///
     /// # Panics
     /// Never panics in the default implementation. Plugin implementations
-    /// must uphold I-Core-NoPanic.
+    /// must uphold the NoPanic invariant.
+    ///
+    /// Refs: I-Core-NoPanic
     fn before_prediction(
         &self,
         _history: &[ChatMessage],
@@ -179,7 +183,9 @@ pub trait BriochePlugin: Send + Sync {
     ///
     /// # Panics
     /// Never panics in the default implementation. Plugin implementations
-    /// must uphold I-Core-NoPanic.
+    /// must uphold the NoPanic invariant.
+    ///
+    /// Refs: I-Core-NoPanic
     fn on_stream_event(
         &self,
         _event: &StreamEvent,
@@ -195,7 +201,9 @@ pub trait BriochePlugin: Send + Sync {
     ///
     /// # Panics
     /// Never panics in the default implementation. Plugin implementations
-    /// must uphold I-Core-NoPanic.
+    /// must uphold the NoPanic invariant.
+    ///
+    /// Refs: I-Core-NoPanic
     fn after_prediction(&self, _ext: &mut ExtensionStorage) -> PluginResult<()> {
         Ok(())
     }
@@ -208,7 +216,9 @@ pub trait BriochePlugin: Send + Sync {
     ///
     /// # Panics
     /// Never panics in the default implementation. Plugin implementations
-    /// must uphold I-Core-NoPanic.
+    /// must uphold the NoPanic invariant.
+    ///
+    /// Refs: I-Core-NoPanic
     fn on_tool_calls(
         &self,
         _calls: &mut Vec<ToolCallDescriptor>,
@@ -225,7 +235,9 @@ pub trait BriochePlugin: Send + Sync {
     ///
     /// # Panics
     /// Never panics in the default implementation. Plugin implementations
-    /// must uphold I-Core-NoPanic.
+    /// must uphold the NoPanic invariant.
+    ///
+    /// Refs: I-Core-NoPanic
     fn on_tool_result(
         &self,
         _results: &mut Vec<ToolResultDTO>,
@@ -241,7 +253,9 @@ pub trait BriochePlugin: Send + Sync {
     ///
     /// # Panics
     /// Never panics in the default implementation. Plugin implementations
-    /// must uphold I-Core-NoPanic.
+    /// must uphold the NoPanic invariant.
+    ///
+    /// Refs: I-Core-NoPanic
     fn on_error(
         &self,
         _error: &PluginError,
@@ -292,6 +306,35 @@ pub trait SubRoutineHandler: Send + Sync {
         child: &mut Session,
         input: &EngineInput,
     ) -> PluginResult<Option<Vec<Effect>>>;
+}
+
+/// Hydrates a sub-routine session from a persisted MessagePack head blob.
+///
+/// This is a boundary trait: `brioche-core` defines the contract, while
+/// `brioche-shell-persistence` supplies the MessagePack implementation.
+/// Keeping the trait in Core preserves the dependency direction
+/// (persistence depends on core, never the reverse).
+///
+/// # Complexity
+/// O(deserialization cost). The trait itself introduces no allocation.
+///
+/// # Panics
+/// Never panics. Implementations must return `BriocheError` on failure.
+///
+/// Refs: I-Shell-Session-NoSend, I-Persist-Idempotence
+pub trait SubRoutineHydrator: Send + Sync {
+    /// Deserialize `head_blob` into a `Session`.
+    ///
+    /// The returned `Session` is created in memory and can be inserted
+    /// into the `SessionRegistry` by the kernel.
+    ///
+    /// # Complexity
+    /// O(deserialization cost + session reconstruction).
+    ///
+    /// # Errors
+    /// Returns `BriocheError::Serialization` or another deterministic error
+    /// if the blob cannot be decoded.
+    fn hydrate(&self, head_blob: &[u8]) -> Result<Session, BriocheError>;
 }
 
 /// Post-transition mechanical consistency check.
@@ -375,17 +418,78 @@ pub trait HookEffectConstraint: Send + Sync {
 /// Never panics.
 pub trait CycleRollbackPolicy: Send + Sync {
     /// Called by the kernel before each monitored hook.
-    fn begin_hook(&mut self);
+    ///
+    /// `hook_name` identifies the hook for per-hook budget policies and
+    /// telemetry. Implementations that do not need the name can ignore it.
+    ///
+    /// # Complexity
+    /// O(1). Resets the internal frame state.
+    ///
+    /// # Panics
+    /// Never panics.
+    fn begin_hook(&mut self, hook_name: &'static str);
 
     /// Called by the kernel when an extension is mutated for the first time
     /// in this hook. The VTable `clone_box` provides the clone.
+    ///
+    /// # Complexity
+    /// O(1) plus the cost of `clone_box` for the mutated extension.
+    ///
+    /// # Panics
+    /// Never panics.
     fn on_mutation(&mut self, type_id: TypeId, vtable: &ExtVTable, current: &dyn Any);
 
     /// Called if the budget is respected — mutations are kept.
+    ///
+    /// # Complexity
+    /// O(1). Clears the internal frame state.
+    ///
+    /// # Panics
+    /// Never panics.
     fn commit_hook(&mut self, ext: &mut ExtensionStorage);
 
     /// Called if the budget is exceeded — restoration from snapshots.
+    ///
+    /// # Complexity
+    /// O(k) where k = snapshotted extensions. Each is restored via
+    /// `ExtensionStorage::restore_boxed`.
+    ///
+    /// # Panics
+    /// Never panics.
     fn rollback_hook(&mut self, ext: &mut ExtensionStorage);
+
+    /// Returns `true` if the current frame weight exceeded the configured budget.
+    ///
+    /// The kernel consults this after a monitored hook to decide whether to
+    /// call `rollback_hook` or `commit_hook`. A default implementation that
+    /// always returns `false` preserves the old no-rollback behavior for
+    /// trivial implementations.
+    ///
+    /// # Complexity
+    /// O(1). Scalar comparison.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Gov-Rollback-BestEffort
+    fn is_budget_exceeded(&self) -> bool {
+        false
+    }
+
+    /// Attaches a per-hook COW budget policy.
+    ///
+    /// Implementations that do not support adaptive budgets can ignore the
+    /// policy. The kernel calls this once during engine construction if a
+    /// `CowBudgetPolicy` is configured via `BriocheEngineBuilder`.
+    ///
+    /// # Complexity
+    /// O(1). Option assignment.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Gov-CowBudget-Adaptative
+    fn set_cow_budget_policy(&mut self, _policy: Box<dyn CowBudgetPolicy>) {}
 }
 
 /// Mandatory. Cleanup of `SessionRegistry` on outgoing transition from `SubRoutine`.

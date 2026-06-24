@@ -3,7 +3,7 @@
 //! The [`LlmClient`] trait abstracts the SSE streaming connection to an
 //! LLM provider. The shell segments payloads according to
 //! [`MAX_INLINE_CHUNK`](brioche_core::MAX_INLINE_CHUNK) before injecting
-use brioche_core::{EngineInput, StreamEvent, ToolResultDTO};
+use brioche_core::{ChatMessage, EngineInput, StreamEvent, ToolResultDTO};
 use bytes::Bytes;
 
 /// them as `EngineInput::LlmStream`.
@@ -82,6 +82,17 @@ pub trait LlmClient: Send + Sync {
     /// Refs: I-Core-ChunkBudget
     async fn call_llm(&self, shell: &BriocheShell) -> Result<(), crate::ShellError>;
 
+    /// Summarize a slice of chat history into a single compressed message.
+    ///
+    /// This is used by context compression: the returned system message
+    /// replaces the summarized messages in the conversation history.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    async fn summarize(
+        &self,
+        shell: &BriocheShell,
+        messages: &[ChatMessage],
+    ) -> Result<ChatMessage, crate::ShellError>;
     /// Push tool execution results into the conversational history.
     ///
     /// Results MUST be pushed in the same order as the original
@@ -116,23 +127,35 @@ impl Default for MockLlmClient {
 #[async_trait::async_trait]
 impl LlmClient for MockLlmClient {
     async fn call_llm(&self, shell: &BriocheShell) -> Result<(), crate::ShellError> {
-        for text in &self.chunks {
-            // Segment into MAX_INLINE_CHUNK fragments.
-            let bytes = Bytes::from(text.clone());
-            for chunk in segment_bytes(bytes, brioche_core::MAX_INLINE_CHUNK) {
+        for chunk in &self.chunks {
+            let bytes = Bytes::from(chunk.clone());
+            for fragment in segment_bytes(bytes, brioche_core::MAX_INLINE_CHUNK) {
                 shell
                     .send_input(EngineInput::LlmStream(StreamEvent::TextChunk {
                         path: Default::default(),
-                        chunk,
+                        chunk: fragment,
                     }))
                     .await?;
             }
         }
+        shell
+            .send_input(EngineInput::LlmStream(StreamEvent::Done))
+            .await?;
         Ok(())
     }
 
+    async fn summarize(
+        &self,
+        _shell: &BriocheShell,
+        messages: &[ChatMessage],
+    ) -> Result<ChatMessage, crate::ShellError> {
+        Ok(ChatMessage::System {
+            content: format!("Mock summary of {} messages", messages.len()),
+        })
+    }
+
     async fn push_tool_results(&self, _results: &[ToolResultDTO]) {
-        // Mock client has no history mirror.
+        // Mock client has no persistent mirror.
     }
 }
 

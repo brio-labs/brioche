@@ -13,12 +13,17 @@ env:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-4x
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+
+      # brioche-desktop embeds its frontend via tauri::generate_context!(), which
+      # expects crates/apps/brioche-desktop/frontend/dist to exist at compile time.
+      - uses: ./.github/actions/setup-frontend
+
       - uses: Swatinem/rust-cache@v2
 
       - name: Verify GPG-signed tag
@@ -53,16 +58,16 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: warp-ubuntu-latest-x64-4x
             target: x86_64-unknown-linux-gnu
             profile: headless
-          - os: ubuntu-latest
+          - os: warp-ubuntu-latest-x64-4x
             target: x86_64-unknown-linux-gnu
             profile: full
-          - os: macos-latest
+          - os: warp-macos-latest-arm64-6x
             target: x86_64-apple-darwin
             profile: desktop
-          - os: macos-latest
+          - os: warp-macos-latest-arm64-6x
             target: aarch64-apple-darwin
             profile: desktop
     steps:
@@ -70,18 +75,48 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      # brioche-desktop embeds its frontend via tauri::generate_context!(), which
+      # expects crates/apps/brioche-desktop/frontend/dist to exist at compile time.
+      - uses: ./.github/actions/setup-frontend
+        if: matrix.profile == 'desktop' || matrix.profile == 'full'
+
       - uses: Swatinem/rust-cache@v2
+
+      # NOTE: Code signing and notarization are not configured for Brioche
+      # Desktop 0.1. Release artifacts produced by this workflow are unsigned.
+      # Platform-specific security warnings (macOS Gatekeeper, Windows
+      # SmartScreen, Linux AppImage) are expected. Do not add signing secrets
+      # or certificates here without a dedicated secret-management review.
       - name: Build release
         run: cargo build --workspace --profile ${{ matrix.profile }} --target ${{ matrix.target }}
 
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: brioche-${{ matrix.profile }}-${{ matrix.target }}
+          path: |
+            target/${{ matrix.target }}/${{ matrix.profile }}/agent-terminal
+            target/${{ matrix.target }}/${{ matrix.profile }}/brioche-desktop
+          if-no-files-found: ignore
+          retention-days: 7
+
   publish:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-4x
     needs: [build]
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Publish to crates.io
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish crates
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
@@ -94,3 +129,9 @@ jobs:
           cargo publish -p brioche-shell-projection --token "$CARGO_REGISTRY_TOKEN" || true
           cargo publish -p brioche-std --token "$CARGO_REGISTRY_TOKEN" || true
           cargo publish -p brioche-plugin-kit --token "$CARGO_REGISTRY_TOKEN" || true
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**
+          generate_release_notes: true

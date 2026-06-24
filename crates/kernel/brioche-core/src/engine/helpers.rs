@@ -112,7 +112,10 @@ impl BriocheEngine {
     /// Wrap a single plugin hook invocation with COW rollback.
     ///
     /// The `cycle_rollback_policy` is temporarily moved into
-    /// `session.extensions` before the hook and retrieved afterward.
+    /// `session.extensions` before the hook and retrieved afterward. After the
+    /// hook, the policy's budget is checked; if exceeded, `rollback_hook` is
+    /// called to restore snapshotted extension state, otherwise `commit_hook`
+    /// keeps the mutations.
     ///
     /// **Note on time instrumentation:** per-hook wall-clock timing is
     /// intentionally **not** performed in Core. `Instant::now()` is
@@ -126,12 +129,12 @@ impl BriocheEngine {
     pub(crate) fn with_rollback<R>(
         &mut self,
         session: &mut Session,
-        _plugin_name: &'static str,
+        hook_name: &'static str,
         f: impl FnOnce(&mut Self, &mut Session) -> R,
     ) -> R {
         let mut policy = self.governance.cycle_rollback_policy.take();
-        if let Some(ref mut p) = policy {
-            p.begin_hook();
+        if let Some(p) = &mut policy {
+            p.begin_hook(hook_name);
         }
 
         if let Some(p) = policy {
@@ -142,8 +145,12 @@ impl BriocheEngine {
 
         let mut policy = session.extensions.detach_rollback_policy();
 
-        if let Some(ref mut p) = policy {
-            p.commit_hook(&mut session.extensions);
+        if let Some(p) = &mut policy {
+            if p.is_budget_exceeded() {
+                p.rollback_hook(&mut session.extensions);
+            } else {
+                p.commit_hook(&mut session.extensions);
+            }
         }
 
         self.governance.cycle_rollback_policy = policy;

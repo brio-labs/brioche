@@ -19,7 +19,7 @@ jobs:
   # Gate 0 — Fast static checks (run in parallel)
   # -------------------------------------------------------------------------
   deny:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-4x
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -29,7 +29,7 @@ jobs:
       - run: cargo deny check
 
   fmt:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-4x
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -40,7 +40,7 @@ jobs:
   # Nightly rustfmt enforces imports_granularity, group_imports,
   # reorder_impl_items, and format_code_in_doc_comments (PHILOSOPHY.md §3.1).
   fmt-nightly:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-4x
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
@@ -49,30 +49,52 @@ jobs:
       - run: cargo fmt --check
 
   clippy:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-4x
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - name: Install system dependencies (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: ./.github/actions/setup-frontend
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   docs:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-4x
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install system dependencies (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: ./.github/actions/setup-frontend
       - uses: Swatinem/rust-cache@v2
       - run: cargo doc --workspace --no-deps --all-features
         env:
           RUSTDOCFLAGS: "-D warnings"
 
+  frontend:
+    runs-on: warp-ubuntu-latest-x64-4x
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-frontend
+      - name: Build desktop frontend
+        working-directory: crates/apps/brioche-desktop/frontend
+        run: pnpm run build
+      - name: Test desktop frontend
+        working-directory: crates/apps/brioche-desktop/frontend
+        run: pnpm test
+
   # -------------------------------------------------------------------------
   # Gate 0b — Dependency hygiene & architecture policy
   # -------------------------------------------------------------------------
   dependency-audit:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-4x
     needs: [clippy]
     steps:
       - uses: actions/checkout@v4
@@ -100,7 +122,7 @@ jobs:
   # Gate 1 — Philosophy & invariant checks (run in parallel with tests)
   # -------------------------------------------------------------------------
   philosophy-check:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-4x
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -141,31 +163,46 @@ jobs:
   # Gate 2 — Test matrix (unit, doc, property)
   # -------------------------------------------------------------------------
   test:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-4x
     needs: [clippy, deny]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install system dependencies (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: ./.github/actions/setup-frontend
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --all-targets --all-features
 
   test-doc:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-4x
     needs: [clippy]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install system dependencies (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: ./.github/actions/setup-frontend
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --doc --all-features
 
   # Property tests with a high case count to surface edge-case failures
   # that unit tests miss (PHILOSOPHY.md §5.4, docs/SPECS.md Book V Ch.10).
   proptest:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-4x
     needs: [clippy, deny]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install system dependencies (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: ./.github/actions/setup-frontend
       - uses: Swatinem/rust-cache@v2
       - name: Run property tests (high volume)
         run: cargo test --package brioche-core --test property_transition --all-features
@@ -176,7 +213,7 @@ jobs:
   # Gate 3 — Build profiles & benchmark smoke tests
   # -------------------------------------------------------------------------
   profiles:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-4x
     needs: [clippy, deny]
     strategy:
       matrix:
@@ -184,18 +221,42 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install system dependencies (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+
+      # brioche-desktop embeds its frontend via tauri::generate_context!(), which
+      # expects crates/apps/brioche-desktop/frontend/dist to exist at compile time.
+      # Build the frontend ahead of the workspace compile for profiles that include
+      # the desktop crate.
+      - uses: ./.github/actions/setup-frontend
+        if: matrix.profile == 'desktop' || matrix.profile == 'full'
+
       - uses: Swatinem/rust-cache@v2
       - name: Build with profile ${{ matrix.profile }}
-        run: cargo build --workspace --profile ${{ matrix.profile }}
+        run: |
+          if [ "${{ matrix.profile }}" = "headless" ] || [ "${{ matrix.profile }}" = "wasm-test" ]; then
+            # These profiles target non-desktop targets; brioche-desktop requires
+            # a built Tauri frontend, so exclude it from the compile matrix here.
+            cargo build --workspace --profile ${{ matrix.profile }} --exclude brioche-desktop
+          else
+            cargo build --workspace --profile ${{ matrix.profile }}
+          fi
 
   # Benchmarks assert that hot-path budgets documented in PHILOSOPHY.md are
   # still met. We at least compile them and run a single iteration as smoke.
   benchmark-smoke:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-4x
     needs: [clippy, deny]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install system dependencies (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: ./.github/actions/setup-frontend
       - uses: Swatinem/rust-cache@v2
       - name: Compile benchmarks
         run: cargo bench --workspace --no-run
@@ -211,7 +272,7 @@ jobs:
   # Gate 4 — Security audit
   # -------------------------------------------------------------------------
   audit:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-4x
     needs: [deny]
     steps:
       - uses: actions/checkout@v4

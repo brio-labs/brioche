@@ -14,8 +14,8 @@ use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
 use brioche_core::{
-    ActiveToolCall, BriocheEngineBuilder, EngineInput, Session, SignalDrainOrder, SystemSignal,
-    ToolResultDTO,
+    ActiveToolCall, BriocheEngineBuilder, ChatMessage, EngineInput, Session, SignalDrainOrder,
+    SystemSignal, ToolResultDTO,
 };
 use brioche_governance_default::{LexicographicDecisionAggregator, SubRoutineCleanupGuard};
 use brioche_shell_runtime::{
@@ -581,6 +581,16 @@ async fn network_recovery_emits_system_signal_on_exhaustion() {
         }
 
         async fn push_tool_results(&self, _results: &[ToolResultDTO]) {}
+
+        async fn summarize(
+            &self,
+            _shell: &BriocheShell,
+            _messages: &[ChatMessage],
+        ) -> Result<ChatMessage, brioche_shell_runtime::ShellError> {
+            Err(brioche_shell_runtime::ShellError::EffectExecution(
+                "summary unavailable".into(),
+            ))
+        }
     }
 
     let recovery = ExponentialBackoff {
