@@ -36,3 +36,30 @@ pub use storage::{
     load_subroutine, maybe_compress, maybe_decompress, new_session_store, serialize_head,
     serialize_message,
 };
+
+/// Hydrates a sub-routine session from a persisted MessagePack head blob.
+///
+/// This is the persistence-side implementation of the core
+/// `SubRoutineHydrator` trait. It decodes the blob with `deserialize_head`
+/// and reconstructs the session with an empty message history.
+///
+/// # Complexity
+/// O(deserialization cost + session reconstruction).
+///
+/// # Errors
+/// Returns `BriocheError::Serialization` if the blob cannot be decoded.
+///
+/// Refs: I-Shell-Session-NoSend, I-Persist-Idempotence
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PersistenceSubRoutineHydrator;
+
+impl brioche_core::SubRoutineHydrator for PersistenceSubRoutineHydrator {
+    fn hydrate(
+        &self,
+        head_blob: &[u8],
+    ) -> Result<brioche_core::Session, brioche_core::BriocheError> {
+        let dto = crate::deserialize_head(head_blob)
+            .map_err(|err| brioche_core::BriocheError::Serialization(err.to_string()))?;
+        Ok(dto.to_session(Vec::new()))
+    }
+}

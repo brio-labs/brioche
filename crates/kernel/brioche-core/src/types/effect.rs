@@ -43,7 +43,7 @@ pub enum EngineInput {
     RestoreSubRoutine {
         /// Handle for the restored sub-routine session.
         handle: SubRoutineHandle,
-        /// Serialized session head (postcard-encoded `SessionHeadDTO`).
+        /// Serialized session head (MessagePack-encoded `SessionHeadDTO`).
         head_blob: Vec<u8>,
     },
 }
