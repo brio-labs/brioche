@@ -134,6 +134,8 @@ impl EngineWatchdog {
     }
 
     /// Set the handler invoked when `SerializeAndRestart` recovery is triggered.
+    ///
+    /// Refs: I-Shell-Watchdog-Recovery
     pub fn with_serialize_and_restart_handler<F>(mut self, handler: F) -> Self
     where
         F: Fn() + Send + Sync + 'static,
@@ -143,6 +145,8 @@ impl EngineWatchdog {
     }
 
     /// Set the handler invoked when `NotifyAndDegrade` recovery is triggered.
+    ///
+    /// Refs: I-Shell-Watchdog-Recovery
     pub fn with_notify_and_degrade_handler<F>(mut self, handler: F) -> Self
     where
         F: Fn() + Send + Sync + 'static,
