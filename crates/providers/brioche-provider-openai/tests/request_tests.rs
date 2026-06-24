@@ -67,7 +67,7 @@ fn build_messages_truncates_tool_result() {
 #[test]
 fn build_request_body_includes_model_and_stream() {
     let messages = vec![simple_msg("user", "hi")];
-    let body = build_request_body("gpt-4o", messages, 4096, None, None);
+    let body = build_request_body("gpt-4o", messages, 4096, None, None, true);
     assert_eq!(body["model"], "gpt-4o");
     assert_eq!(body["stream"], true);
     assert_eq!(body["max_tokens"], 4096);
@@ -83,7 +83,7 @@ fn build_request_body_includes_tools_when_provided() {
     tool.insert("type".into(), serde_json::Value::String("function".into()));
     tool.insert("function".into(), serde_json::Value::Object(tool_func));
     let tools = vec![serde_json::Value::Object(tool)];
-    let body = build_request_body("gpt-4o", messages, 4096, None, Some(&tools));
+    let body = build_request_body("gpt-4o", messages, 4096, None, Some(&tools), true);
     assert!(body.get("tools").is_some());
     assert_eq!(body["tool_choice"], "auto");
 }
@@ -91,7 +91,7 @@ fn build_request_body_includes_tools_when_provided() {
 #[test]
 fn build_request_body_includes_reasoning_effort() {
     let messages = vec![simple_msg("user", "hi")];
-    let body = build_request_body("gpt-4o", messages, 4096, Some("high"), None);
+    let body = build_request_body("gpt-4o", messages, 4096, Some("high"), None, true);
     assert_eq!(body["reasoning"]["effort"], "high");
 }
 

@@ -124,7 +124,7 @@ impl Default for ShellConfig {
 /// snapshot and pushing it to the persistence layer.
 ///
 /// Refs: I-Shell-Session-NoSend
-pub type SessionCallback = Box<dyn Fn(&Session) + Send>;
+pub type SessionCallback = Box<dyn Fn(&mut Session) + Send>;
 
 /// Command sent to the engine thread to rebuild routing tables.
 ///
@@ -366,15 +366,67 @@ impl BriocheShell {
         let tick_emitter = TickEmitter::new(system_signal_tx, config.tick_interval_ms);
         task_tracker.spawn(tick_emitter.run());
 
-        // Step 7 (continued): launch the engine watchdog.
-        let watchdog = EngineWatchdog::default().with_transition_journal(journal_for_watchdog);
-        task_tracker.spawn(watchdog.run(ping_tx, pong_rx));
-
         // Step 4: install default telemetry subscriber.
         let telemetry = TelemetryChannel::new(256);
-        crate::telemetry::install_default_subscriber(telemetry);
+        crate::telemetry::install_default_subscriber(telemetry.clone());
 
+        // Step 7 (continued): launch the engine watchdog.
+        let shell_for_serialize = shell.clone();
+        let shell_for_degrade = shell.clone();
+        let watchdog = EngineWatchdog::default()
+            .with_transition_journal(journal_for_watchdog)
+            .with_telemetry(telemetry)
+            .with_serialize_and_restart_handler(move || {
+                let shell = shell_for_serialize.clone();
+                tokio::spawn(async move {
+                    let _ = shell
+                        .send_system_signal(brioche_core::SystemSignal::EngineUnresponsive {
+                            procedure: "SerializeAndRestart".into(),
+                        })
+                        .await;
+                });
+            })
+            .with_notify_and_degrade_handler(move || {
+                let shell = shell_for_degrade.clone();
+                tokio::spawn(async move {
+                    let _ = shell
+                        .send_system_signal(brioche_core::SystemSignal::EngineUnresponsive {
+                            procedure: "NotifyAndDegrade".into(),
+                        })
+                        .await;
+                });
+            });
+        task_tracker.spawn(watchdog.run(ping_tx, pong_rx));
         shell
+    }
+
+    /// Test-only constructor that exposes only the async-task result channel.
+    ///
+    /// Used by unit tests in sibling modules that need a `BriocheShell`
+    /// handle without spinning up the full engine thread.
+    ///
+    /// Refs: I-Shell-Drain-Atomic
+    #[cfg(test)]
+    pub(crate) fn test_with_async_channel(
+        tx: tokio::sync::mpsc::Sender<brioche_core::AsyncTaskResult>,
+    ) -> Self {
+        let (_input_tx, _input_rx) = tokio::sync::mpsc::channel(1);
+        let (_system_tx, _system_rx) = tokio::sync::mpsc::channel(1);
+        let (_gov_tx, _gov_rx) = tokio::sync::mpsc::channel(1);
+        let (_rebuild_tx, _rebuild_rx) = tokio::sync::mpsc::channel(1);
+
+        // Drop unused receivers so the senders do not block.
+        drop((_input_rx, _system_rx, _gov_rx, _rebuild_rx));
+
+        Self {
+            input_tx: _input_tx,
+            system_signal_tx: _system_tx,
+            governance_tx: _gov_tx,
+            async_task_result_tx: tx,
+            rebuild_tx: _rebuild_tx,
+            rebuild_in_progress: Arc::new(AtomicBool::new(false)),
+            task_tracker: TaskTracker::new(),
+        }
     }
 
     /// Send an `EngineInput` to the kernel.
@@ -585,13 +637,20 @@ fn engine_thread_loop(
         // Invoke the session callback (persistence snapshot) on the
         // engine thread while we still own the Session.
         if let Some(ref cb) = session_callback {
-            cb(&session);
+            cb(&mut session);
         }
 
         // Send results back to the async runtime.
         if output_tx.blocking_send((effects, snapshot)).is_err() {
             // Async runtime dropped; shut down.
             break;
+        }
+
+        // Mark the transition as durably processed by the engine.
+        // Any entries still unacknowledged after a crash will be replayed
+        // by the watchdog on recovery.
+        if journal_enabled {
+            journal.acknowledge_all();
         }
     }
 }
@@ -694,10 +753,10 @@ where
             executor.execute_cpu_task(task_id.0, payload, shell).await?;
         }
         Effect::TriggerGc => {
-            executor.trigger_gc().await?;
+            executor.trigger_gc(&snapshot.session_id).await?;
         }
         Effect::SystemIdle => {
-            executor.on_system_idle(shell).await?;
+            executor.on_system_idle(shell, &snapshot.session_id).await?;
         }
         Effect::PluginFault { plugin_name, error } => {
             // End-to-end fault propagation:

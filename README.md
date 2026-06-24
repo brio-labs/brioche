@@ -6,17 +6,24 @@ A deterministic, invariant-governed plugin execution kernel with layered archite
 
 | Crate | Layer | Description |
 |-------|-------|-------------|
-| `brioche-core` | Core | Synchronous kernel — pure mechanisms |
-| `brioche-governance` | Governance | Governance traits — policy contracts |
-| `brioche-governance-default` | Governance | Reference governance implementations |
-| `brioche-shell-runtime` | Shell | Runtime environment |
+| `agent-terminal` | Apps | Minimal terminal agent |
+| `brioche-core` | Kernel | Synchronous kernel — pure mechanisms |
+| `brioche-desktop` | Apps | Tauri desktop GUI |
+| `brioche-docgen` | Ecosystem | Documentation generator |
+| `brioche-governance` | Kernel | Governance traits — policy contracts |
+| `brioche-governance-default` | Kernel | Reference governance implementations |
+| `brioche-macro` | Kernel | Procedural macros |
+| `brioche-playground` | Ecosystem | Docker dev environment and playground |
+| `brioche-plugin-kit` | Ecosystem | Developer tooling and SDK |
+| `brioche-provider-openai` | Providers | OpenAI-compatible LLM provider |
+| `brioche-reedline` | Infra | Shared terminal infrastructure |
 | `brioche-shell-persistence` | Shell | Persistence layer |
 | `brioche-shell-projection` | Shell | Projection / UI layer |
+| `brioche-shell-runtime` | Shell | Runtime environment |
 | `brioche-std` | Ecosystem | Standard plugins |
-| `brioche-macro` | — | Procedural macros |
-| `brioche-plugin-kit` | — | Developer tooling |
-| `brioche-docgen` | — | Documentation generator |
-| `brioche-playground` | — | Docker dev environment |
+| `brioche-tools-system` | Tools | System tool executor |
+| `cargo-brioche-lint` | Infra | Cargo subcommand for linting plugins |
+| `cargo-brioche-lint-invariants` | Infra | Cargo subcommand for invariant checks |
 
 ## Quick Start
 

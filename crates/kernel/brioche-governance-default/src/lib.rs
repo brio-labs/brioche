@@ -70,7 +70,9 @@ pub use noop_traits::{
     NoopCowBudgetPolicy, NoopCycleRollbackPolicy, NoopGovernanceFailoverHandler,
     NoopHookEffectConstraint, PermissiveHookEffectConstraint,
 };
-pub use rollback::{AdaptiveUndoFrameGuard, RollbackFrameRecord, TieredUndoFrameGuard};
+pub use rollback::{
+    AdaptiveUndoFrameGuard, RollbackFrameRecord, TieredUndoFrameGuard, UndoFrameGuard,
+};
 pub use subroutines::{SubRoutineCleanupGuard, SubRoutineOrchestrator};
 pub use telemetry::{RollbackTelemetryState, TelemetryPlugin, TransitionConflictState};
 pub use timeouts::{SubRoutineTimeoutPolicy, SubRoutineTimerState, ToolTimeoutPolicy};

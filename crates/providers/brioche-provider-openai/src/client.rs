@@ -49,10 +49,21 @@ use crate::sse::SseParser;
 /// ```
 pub type SharedHistory = Arc<RwLock<Vec<ChatMessage>>>;
 
+/// Transform applied to the conversational history before building an LLM request.
+///
+/// The mirror history stays unchanged; only the request payload is affected.
+/// This hook is used by desktop extensions such as context engines and memory
+/// providers.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+pub type HistoryTransform = Arc<dyn Fn(&[ChatMessage]) -> Vec<ChatMessage> + Send + Sync>;
+
 /// OpenAI-compatible LLM client implementation.
 ///
 /// Handles SSE streaming, tool-call parsing, and payload segmentation.
 /// Broadcasts chunks to the projection layer via `broadcast::Sender<LlmChunk>`.
+/// A `history_transform` may be registered to compress or augment the
+/// conversation before each request without changing the mirror history.
 ///
 /// Refs: docs/SPECS.md §Book III-A, I-Core-ChunkBudget
 pub struct OpenAiLlmClient {
@@ -61,6 +72,7 @@ pub struct OpenAiLlmClient {
     tools_schema: Arc<RwLock<Vec<serde_json::Value>>>,
     ui_tx: broadcast::Sender<LlmChunk>,
     history: SharedHistory,
+    history_transform: Arc<std::sync::RwLock<Option<HistoryTransform>>>,
     pending_text: tokio::sync::Mutex<String>,
     pending_reasoning_text: tokio::sync::Mutex<String>,
     chunk_extractor: Arc<dyn ChunkExtractor>,
@@ -75,6 +87,7 @@ impl Clone for OpenAiLlmClient {
             tools_schema: Arc::clone(&self.tools_schema),
             ui_tx: self.ui_tx.clone(),
             history: Arc::clone(&self.history),
+            history_transform: Arc::clone(&self.history_transform),
             pending_text: tokio::sync::Mutex::new(String::new()),
             pending_reasoning_text: tokio::sync::Mutex::new(String::new()),
             chunk_extractor: Arc::clone(&self.chunk_extractor),
@@ -115,6 +128,7 @@ impl OpenAiLlmClient {
             tools_schema: Arc::new(RwLock::new(Vec::new())),
             ui_tx,
             history: Arc::clone(&history),
+            history_transform: Arc::new(std::sync::RwLock::new(None)),
             pending_text: tokio::sync::Mutex::new(String::new()),
             pending_reasoning_text: tokio::sync::Mutex::new(String::new()),
             chunk_extractor,
@@ -156,6 +170,21 @@ impl OpenAiLlmClient {
     pub async fn set_tools_schema(&self, schemas: Vec<serde_json::Value>) {
         let mut guard = self.tools_schema.write().await;
         *guard = schemas;
+    }
+
+    /// Set a transform applied to the history before each LLM request.
+    ///
+    /// The mirror history is left untouched so the UI and persistence still
+    /// see the full conversation. Only the request payload sent to the provider
+    /// is transformed.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn set_history_transform(&self, transform: Option<HistoryTransform>) {
+        let mut guard = match self.history_transform.write() {
+            Ok(g) => g,
+            Err(e) => e.into_inner(),
+        };
+        *guard = transform;
     }
 
     /// Segment a `Bytes` payload according to `MAX_INLINE_CHUNK`.
@@ -356,7 +385,17 @@ impl OpenAiLlmClient {
     /// O(n) where n = history length (build_messages copies).
     async fn build_request(&self) -> (serde_json::Value, usize) {
         let history_guard = self.history.read().await;
-        let messages = crate::request::build_messages(&history_guard);
+        let transformed = {
+            let transform_guard = match self.history_transform.read() {
+                Ok(g) => g,
+                Err(e) => e.into_inner(),
+            };
+            match transform_guard.as_ref() {
+                Some(transform) => transform(&history_guard),
+                None => history_guard.iter().cloned().collect(),
+            }
+        };
+        let messages = crate::request::build_messages(&transformed);
         let msg_count = messages.len();
         drop(history_guard);
 
@@ -373,9 +412,44 @@ impl OpenAiLlmClient {
             self.config.max_tokens,
             self.config.reasoning_effort.as_deref(),
             tools,
+            true,
         );
-        drop(tools_guard);
         (body, msg_count)
+    }
+
+    /// Build a non-streaming summarization request for the given messages.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    fn build_summary_request(&self, messages: &[ChatMessage]) -> serde_json::Value {
+        let summary_prompt = ChatMessage::System {
+            content: "Summarize the following conversation concisely. \
+                Preserve key facts, user intent, and any decisions or tool results. \
+                The summary will replace the messages it covers."
+                .into(),
+        };
+        let mut request_messages = crate::request::build_messages(&[summary_prompt]);
+        request_messages.extend(crate::request::build_messages(messages));
+        crate::request::build_request_body(
+            &self.config.model,
+            request_messages,
+            self.config.max_tokens.min(512),
+            None,
+            None,
+            false,
+        )
+    }
+
+    /// Extract the assistant content from a non-streaming completion response.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    fn extract_summary_text(body: &serde_json::Value) -> Option<String> {
+        body.get("choices")?
+            .as_array()?
+            .first()?
+            .get("message")?
+            .get("content")?
+            .as_str()
+            .map(|s| s.to_string())
     }
 
     /// Send the request and surface network or HTTP errors.
@@ -876,6 +950,37 @@ impl LlmClient for OpenAiLlmClient {
             .await?;
         let _ = self.ui_tx.send(LlmChunk::Done);
         Ok(())
+    }
+
+    async fn summarize(
+        &self,
+        shell: &BriocheShell,
+        messages: &[ChatMessage],
+    ) -> Result<ChatMessage, ShellError> {
+        if messages.is_empty() {
+            return Ok(ChatMessage::System {
+                content: "[no messages to summarize]".into(),
+            });
+        }
+
+        let _ = self
+            .ui_tx
+            .send(LlmChunk::Status("Summarizing conversation…".into()));
+
+        let url = format!("{}/chat/completions", self.config.base_url);
+        let body = self.build_summary_request(messages);
+
+        let response = self.send_request(shell, &body, &url).await?;
+        let json: serde_json::Value = response.json().await.map_err(|err| {
+            ShellError::EffectExecution(format!("failed to parse summary response: {err}"))
+        })?;
+
+        match Self::extract_summary_text(&json) {
+            Some(content) => Ok(ChatMessage::System { content }),
+            None => Ok(ChatMessage::System {
+                content: "[summary unavailable]".into(),
+            }),
+        }
     }
 
     async fn push_tool_results(&self, results: &[ToolResultDTO]) {

@@ -6,8 +6,9 @@
 //! Refs: I-Eco-ExtensionOverMod, I-Eco-OrderedCollections
 
 use brioche_core::{
-    AgentStateTag, BriocheExtensionType, BriochePlugin, ChatMessage, Effect, ExtensionStorage,
-    PluginCapabilities, PluginResult, PolicyDecision, SessionSnapshot,
+    AgentStateTag, AsyncTaskResult, BriocheExtensionType, BriochePlugin, ChatMessage, Effect,
+    ExtensionStorage, HistoryEdit, PluginCapabilities, PluginResult, PolicyDecision,
+    SessionSnapshot, SignalBuffer,
 };
 
 /// GC policy state.
@@ -74,14 +75,14 @@ impl BriochePlugin for GcPolicy {
     }
 
     fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::AFTER_PREDICTION
+        PluginCapabilities::BEFORE_PREDICTION | PluginCapabilities::AFTER_PREDICTION
     }
 
     fn priority(&self) -> i16 {
-        200 // Very late observer — only trigger GC after all other processing
+        200 // Late observer — let interceptors run first
     }
 
-    /// Triggers GC if cycle threshold is met.
+    /// Increments the GC cycle counter and stores the current policy config.
     ///
     /// # Complexity
     /// O(1). Two ExtensionStorage reads.
@@ -91,7 +92,32 @@ impl BriochePlugin for GcPolicy {
     ///
     /// Refs: I-Eco-ExtensionOverMod
     fn after_prediction(&self, ext: &mut ExtensionStorage) -> PluginResult<()> {
-        // Read snapshot first so the mutable borrow ends before state access.
+        let state = ext.get_or_insert_default::<GcPolicyState>();
+        state.cycle_interval = self.cycle_interval;
+        state.only_when_idle = self.only_when_idle;
+        state.cycles_since_gc += 1;
+        Ok(())
+    }
+
+    /// Requests `Effect::TriggerGc` when the cycle threshold is met and the
+    /// idle policy is satisfied.
+    ///
+    /// # Complexity
+    /// O(1). Two ExtensionStorage reads.
+    ///
+    /// # Panics
+    /// Never panics. No indexing or conditional allocation.
+    ///
+    /// Refs: I-Eco-ExtensionOverMod
+    fn before_prediction(
+        &self,
+        _history: &[ChatMessage],
+        ext: &mut ExtensionStorage,
+    ) -> PluginResult<PolicyDecision> {
+        if self.cycle_interval == 0 {
+            return Ok(PolicyDecision::Allow);
+        }
+
         let is_idle = {
             let snapshot = ext.get_or_insert_default::<SessionSnapshot>();
             snapshot.current_state == AgentStateTag::Idle
@@ -100,24 +126,14 @@ impl BriochePlugin for GcPolicy {
         let state = ext.get_or_insert_default::<GcPolicyState>();
         state.cycle_interval = self.cycle_interval;
         state.only_when_idle = self.only_when_idle;
-        state.cycles_since_gc += 1;
-
-        if self.cycle_interval == 0 {
-            return Ok(());
-        }
 
         if state.cycles_since_gc >= self.cycle_interval && (!self.only_when_idle || is_idle) {
             state.cycles_since_gc = 0;
             state.gcs_triggered += 1;
-            // GC is requested as a side-effect via a mechanism not directly
-            // available in after_prediction (which returns PluginResult<()>).
-            // In a full shell integration, the plugin would emit a telemetry
-            // event or the shell would poll GcPolicyState.
-            // For Sprint 16, we update state only; the shell checks
-            // GcPolicyState.gcs_triggered to decide when to emit TriggerGc.
+            return Ok(PolicyDecision::RequestEffect(Effect::TriggerGc));
         }
 
-        Ok(())
+        Ok(PolicyDecision::Allow)
     }
 }
 
@@ -185,26 +201,42 @@ impl BriochePlugin for ContextOptimizer {
         -5 // After interceptors, before prediction
     }
 
-    /// Triggers summarization if history exceeds the threshold.
-    ///
-    /// # Complexity
-    /// O(1). Only checks history length.
-    ///
-    /// # Panics
-    /// Never panics. No indexing or allocation on the hot path.
-    ///
-    /// Refs: I-Eco-ExtensionOverMod
     fn before_prediction(
         &self,
         history: &[ChatMessage],
         ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
-        let state = ext.get_or_insert_default::<ContextOptimizerState>();
-        state.max_messages = self.max_messages;
-        state.threshold_percent = self.threshold_percent;
+        {
+            let state = ext.get_or_insert_default::<ContextOptimizerState>();
+            state.max_messages = self.max_messages;
+            state.threshold_percent = self.threshold_percent;
+        }
+
+        // If a summarization task completed, replace the summarized prefix
+        // with the compressed system message before deciding whether further
+        // compression is needed.
+        let buffer = ext.get_or_insert_default::<SignalBuffer>();
+        if let Some(result) = buffer.async_task_results.iter().find_map(|ar| match ar {
+            AsyncTaskResult::SummarizationDone { summary, watermark } => {
+                Some((summary.clone(), *watermark))
+            }
+            _ => None,
+        }) {
+            let (summary, watermark) = result;
+            let watermark = (watermark as usize).min(history.len());
+            let keep_last = history.len() - watermark;
+            return Ok(PolicyDecision::MutateHistory(vec![
+                HistoryEdit::Truncate { keep_last },
+                HistoryEdit::Insert {
+                    index: 0,
+                    message: summary,
+                },
+            ]));
+        }
 
         let threshold = (self.max_messages * self.threshold_percent as usize) / 100;
         if threshold > 0 && history.len() >= threshold {
+            let state = ext.get_or_insert_default::<ContextOptimizerState>();
             state.summarizations_triggered += 1;
             return Ok(PolicyDecision::RequestEffect(Effect::TriggerSummarization));
         }

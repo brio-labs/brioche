@@ -47,6 +47,10 @@ brioche-tools-system = { path = "crates/tools/brioche-tools-system" }
 brioche-reedline = { path = "crates/infra/brioche-reedline" }
 cargo-brioche-lint-invariants = { path = "crates/infra/cargo-brioche-lint-invariants" }
 cargo-brioche-lint = { path = "crates/infra/cargo-brioche-lint" }
+dirs = "6"
+reqwest = { version = "0.13", features = ["json"] }
+lazy_static = "1"
+base64-simd = "0.8"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
@@ -70,8 +74,11 @@ opt-level = "s"
 
 [profile.desktop]
 inherits = "release"
-lto = true
+lto = "fat"
 codegen-units = 1
+strip = true
+panic = "abort"
+opt-level = "s"
 
 [profile.wasm-test]
 inherits = "release"
@@ -83,3 +90,10 @@ inherits = "release"
 lto = "fat"
 codegen-units = 1
 strip = true
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"
+opt-level = "s"

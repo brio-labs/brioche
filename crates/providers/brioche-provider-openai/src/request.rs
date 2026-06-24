@@ -155,6 +155,8 @@ pub fn build_messages(history: &[ChatMessage]) -> Vec<serde_json::Value> {
 ///
 /// `tools` is optional. When provided, the `tools` field is injected
 /// into the payload to enable function calling mode.
+/// `stream` controls whether the provider returns an SSE stream.
+///
 /// Refs: docs/SPECS.md §Book III-B
 pub fn build_request_body(
     model: &str,
@@ -162,6 +164,7 @@ pub fn build_request_body(
     max_tokens: u32,
     reasoning_effort: Option<&str>,
     tools: Option<&[serde_json::Value]>,
+    stream: bool,
 ) -> serde_json::Value {
     let mut body = serde_json::Map::new();
     body.insert("model".into(), serde_json::Value::String(model.into()));
@@ -170,7 +173,7 @@ pub fn build_request_body(
         "max_tokens".into(),
         serde_json::Value::Number(max_tokens.into()),
     );
-    body.insert("stream".into(), serde_json::Value::Bool(true));
+    body.insert("stream".into(), serde_json::Value::Bool(stream));
 
     if let Some(effort) = reasoning_effort {
         let mut reasoning = serde_json::Map::new();

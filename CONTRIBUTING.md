@@ -18,8 +18,8 @@
 rustup toolchain install stable
 rustup component add rustfmt clippy
 cargo install cargo-deny cargo-nextest
-cargo install --path crates/brioche-lint-invariants
-cargo install --path crates/brioche-docgen
+cargo install --path crates/infra/cargo-brioche-lint-invariants
+cargo install --path crates/ecosystem/brioche-docgen
 ```
 
 ## Repository Setup
@@ -63,7 +63,7 @@ All code must pass:
 cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo deny check all
-cargo brioche lint-invariants --check-refs --check-matrix
+cargo brioche-lint-invariants --check-refs --check-matrix
 ```
 
 ### Determinism and Collections

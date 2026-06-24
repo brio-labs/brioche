@@ -113,7 +113,7 @@ impl MockEngine {
     ///
     /// # Panics
     /// Never panics under normal operation. A panic indicates a bug in
-    /// `brioche-core` (violating I-Core-NoPanic).
+    /// `brioche-core` (violating the NoPanic contract).
     ///
     /// Refs: I-Eco-ExtensionOverMod
     pub fn transition(&mut self, input: EngineInput) -> Vec<Effect> {

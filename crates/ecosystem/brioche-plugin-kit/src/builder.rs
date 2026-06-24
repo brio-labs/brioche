@@ -8,7 +8,7 @@
 use brioche_core::{
     BriocheEngine, BriocheEngineBuilder, BriochePlugin, ConsistencyVerifier, CycleRollbackPolicy,
     DecisionAggregator, EpochInterceptor, GovernanceFailoverHandler, HookEffectConstraint, Present,
-    Session, SubRoutineHandler, SubRoutineLifecycleGuard,
+    Session, SubRoutineHandler, SubRoutineHydrator, SubRoutineLifecycleGuard,
 };
 use brioche_governance_default::GovernanceProfile;
 
@@ -101,6 +101,14 @@ impl PluginBuilder {
     /// Refs: I-Gov-Profile-Agnostic
     pub fn with_subroutine_handler(mut self, handler: Box<dyn SubRoutineHandler>) -> Self {
         self.inner = self.inner.with_subroutine_handler(handler);
+        self
+    }
+
+    /// Override the `SubRoutineHydrator`.
+    ///
+    /// Refs: I-Shell-Session-NoSend, I-Persist-Idempotence
+    pub fn with_subroutine_hydrator(mut self, hydrator: Box<dyn SubRoutineHydrator>) -> Self {
+        self.inner = self.inner.with_subroutine_hydrator(hydrator);
         self
     }
 

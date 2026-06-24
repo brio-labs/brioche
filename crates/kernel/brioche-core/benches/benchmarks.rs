@@ -80,7 +80,7 @@ impl ConsistencyVerifier for MockConsistencyVerifier {
 
 struct MockCycleRollbackPolicy;
 impl CycleRollbackPolicy for MockCycleRollbackPolicy {
-    fn begin_hook(&mut self) {}
+    fn begin_hook(&mut self, _hook_name: &'static str) {}
 
     fn on_mutation(
         &mut self,
@@ -398,7 +398,7 @@ mod governance {
                 (guard, ext)
             })
             .bench_local_refs(|(guard, ext)| {
-                guard.begin_hook();
+                guard.begin_hook("on_input");
 
                 let type_id = std::any::TypeId::of::<brioche_core::EpochState>();
                 let vtable = brioche_core::EpochState::build_vtable();
@@ -431,7 +431,7 @@ mod governance {
                 (guard, ext)
             })
             .bench_local_refs(|(guard, ext)| {
-                guard.begin_hook();
+                guard.begin_hook("on_input");
 
                 let type_id = std::any::TypeId::of::<brioche_core::EpochState>();
                 let vtable = brioche_core::EpochState::build_vtable();

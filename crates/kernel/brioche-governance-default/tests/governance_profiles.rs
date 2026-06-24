@@ -180,7 +180,7 @@ fn tiered_undo_frame_guard_restores_critical_type() {
         current_generation: 42,
     });
 
-    guard.begin_hook();
+    guard.begin_hook("on_input");
 
     let type_id = std::any::TypeId::of::<brioche_core::EpochState>();
     let vtable = brioche_core::EpochState::build_vtable();
@@ -261,7 +261,7 @@ fn adaptive_undo_frame_guard_restores_on_budget() {
         current_generation: 7,
     });
 
-    guard.begin_hook();
+    guard.begin_hook("on_input");
 
     let type_id = std::any::TypeId::of::<brioche_core::EpochState>();
     let vtable = brioche_core::EpochState::build_vtable();

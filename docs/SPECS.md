@@ -176,13 +176,12 @@ Brioche is a secure monolithic SDK for language model orchestration. It resolves
 
 ### 1.2 Global topology
 
-The system is divided into six watertight architectural layers, interconnected only by typed message channels. Policy complexity lives in extension crates that register onto mechanism hooks. The **Agent Layer** is the composition site: each agent (e.g. `agent-terminal`, `agent-tui`) wires concrete implementations of the traits defined in lower layers (`ToolExecutor`, `LlmClient`, `Persistence`) into a runnable binary. Terminal agents use `brioche-reedline` (shared reedline infrastructure) directly above the Shell Runtime; desktop/web agents use `brioche-shell-projection` (Vue 3 / Tauri IPC) above the Shell Runtime.
+The system is divided into six watertight architectural layers, interconnected only by typed message channels. Policy complexity lives in extension crates that register onto mechanism hooks. The **Agent Layer** is the composition site: each agent (e.g. `agent-terminal`) wires concrete implementations of the traits defined in lower layers (`ToolExecutor`, `LlmClient`, `Persistence`) into a runnable binary. Terminal agents use `brioche-reedline` (shared reedline infrastructure) directly above the Shell Runtime; desktop/web agents use `brioche-shell-projection` (Vue 3 / Tauri IPC) above the Shell Runtime.
 
 ```mermaid
 flowchart TB
     subgraph AGENT["🤖 Agent Layer"]
         AGENT_TERM["agent-terminal<br/>(reedline)<br/>[Minimal TUI]"]
-        AGENT_TUI["agent-tui<br/>(rich TUI)<br/>[MCP / LSP / Subagents]"]
         AGENT_DESK["brioche-ui<br/>(Vue 3 / Tauri)<br/>[Desktop / Web UI]"]
     end
 
@@ -208,11 +207,10 @@ flowchart TB
 
     AGENT_DESK <-->|"Tauri IPC<br/>(Invoke/Events)<br/>Binary MessagePack"| SHELL_PROJ_APP
     AGENT_TERM -->|"brioche-reedline<br/>(ExternalPrinter)"| SHELL_RT_APP
-    AGENT_TUI -->|"brioche-reedline + brioche-tools-*"| SHELL_RT_APP
     SHELL_PROJ_APP <-->|"ForwardToUi effects processed"| SHELL_RT_APP
+    SHELL_PERS_APP <-->|"SaveSession / SavePluginBlob<br/>executed"| SHELL_RT_APP
     SHELL_RT_APP <-->|"EngineInput (mpsc)"| CORE_APP
     SHELL_RT_APP <-->|"Vec&lt;Effect&gt;"| CORE_APP
-    SHELL_PERS_APP <-->|"SaveSession / SavePluginBlob<br/>executed"| SHELL_RT_APP
     GOV_APP -->|"Injected traits"| CORE_APP
     CORE_APP -->|"ExtensionStorage"| GOV_APP
 ```
@@ -227,12 +225,12 @@ Crates are grouped into categorized subfolders that map to the Books:
 |---|---|---|
 | `crates/kernel/` | I + II | `brioche-core`, `brioche-macro`, `brioche-governance`, `brioche-governance-default` |
 | `crates/runtime/` | III-A/B/C | `brioche-shell-runtime`, `brioche-shell-persistence`, `brioche-shell-projection` |
-| `crates/providers/` | III-A | `brioche-provider-openai`, `brioche-provider-router` |
-| `crates/tools/` | III-A / IV | `brioche-tools-system`, `brioche-tools-mcp`, `brioche-tools-subagent`, `brioche-tools-lsp`, `brioche-tools-web` |
+| `crates/providers/` | III-A | `brioche-provider-openai` |
+| `crates/tools/` | III-A / IV | `brioche-tools-system` |
 | `crates/ecosystem/` | IV | `brioche-std`, `brioche-plugin-kit`, `brioche-docgen`, `brioche-playground` |
-| `crates/apps/` | — | `agent-terminal`, `agent-tui` |
-| `crates/infra/` | — | `brioche-reedline`, `cargo-brioche-lint`, `cargo-brioche-lint-invariants` |
+| `crates/apps/` | — | `agent-terminal` |
 
+> **0.1 release scope note:** The provider, tool, and agent extension crates `brioche-provider-router`, `brioche-tools-mcp`, `brioche-tools-subagent`, `brioche-tools-lsp`, `brioche-tools-web`, and `agent-tui` are intentionally deferred to post-0.1 work. The v0.1.0 release ships `brioche-provider-openai`, `brioche-tools-system`, and `agent-terminal` only.
 **Event flow:**
 
 1. The user triggers an action on the UI.
@@ -3620,12 +3618,12 @@ Upon receipt of `Effect::TriggerGc` (emitted by the `GcPolicy` plugin), if the d
 <br>
 
 ---
-
+> **Scope note:** This book covers the **desktop / web UI projection** layer (Vue 3 + Tauri IPC). The terminal agent (`agent-terminal`) does not use this layer; it uses `brioche-reedline` (shared terminal infrastructure) for REPL, session management, and rendering. `brioche-shell-projection` is strictly for desktop and web frontends.
 ---
 
 # BOOK III-C — THE SHELL PROJECTION BOOK
 
-> **Scope note:** This book covers the **desktop / web UI projection** layer (Vue 3 + Tauri IPC). Terminal agents (`agent-terminal`, `agent-tui`) do not use this layer; they use `brioche-reedline` (shared terminal infrastructure) for REPL, session management, and rendering. `brioche-shell-projection` is strictly for desktop and web frontends.
+> **Scope note:** This book covers the **desktop / web UI projection** layer (Vue 3 + Tauri IPC). The terminal agent (`agent-terminal`) does not use this layer; it uses `brioche-reedline` (shared terminal infrastructure) for REPL, session management, and rendering. `brioche-shell-projection` is strictly for desktop and web frontends.
 
 ---
 

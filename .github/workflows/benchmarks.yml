@@ -3,12 +3,13 @@ name: Benchmarks
 on:
   pull_request:
     paths:
-      - "crates/brioche-core/**"
-      - "crates/brioche-governance/**"
-      - "crates/brioche-governance-default/**"
-      - "crates/brioche-shell-persistence/**"
-      - "crates/brioche-shell-runtime/**"
-
+      - ".github/workflows/benchmarks.yml"
+      - "crates/kernel/brioche-core/**"
+      - "crates/kernel/brioche-governance/**"
+      - "crates/kernel/brioche-governance-default/**"
+      - "crates/runtime/brioche-shell-persistence/**"
+      - "crates/runtime/brioche-shell-runtime/**"
+      - "crates/runtime/brioche-shell-projection/**"
 permissions:
   contents: read
   pull-requests: write
@@ -18,11 +19,21 @@ env:
 
 jobs:
   bench:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-4x
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+
+      - name: Install system dependencies (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+
+      # brioche-desktop embeds its frontend via tauri::generate_context!(), which
+      # expects crates/apps/brioche-desktop/frontend/dist to exist at compile time.
+      - uses: ./.github/actions/setup-frontend
+
       - name: Run benchmarks
         run: cargo bench --workspace | tee benchmark-results.txt
       - name: Check for benchmark results
