@@ -225,12 +225,13 @@ pub struct SessionStoreEntry {
 /// Implements the `Persistence` trait from `brioche-shell-runtime` so it
 /// can be plugged into `DefaultEffectExecutor`.
 ///
-/// Clone is cheap (all fields are `Arc`-wrapped or `Copy`).
+/// Clone is cheap (all fields are `Arc`-wrapped or `COPY`).
 /// Refs: docs/SPECS.md §Book III-A
 #[derive(Clone)]
 pub struct RedbStorage {
     db: Arc<Database>,
     session_store: SessionStore,
+    gc_runner: Arc<GcRunner>,
 }
 
 impl RedbStorage {
@@ -249,6 +250,7 @@ impl RedbStorage {
         Ok(Self {
             db: Arc::new(db),
             session_store,
+            gc_runner: Arc::new(GcRunner::new()),
         })
     }
 
@@ -570,6 +572,31 @@ impl Persistence for RedbStorage {
         .await
         .map_err(|e| ShellError::EffectExecution(e.to_string()))?
         .map_err(|e| ShellError::EffectExecution(e.to_string()))
+    }
+
+    /// Run opportunistic GC for the given session.
+    ///
+    /// Uses the session's `persisted_msg_count` as the compaction index:
+    /// messages with index strictly less than that value are safe to
+    /// remove because they have already been folded into the head DTO.
+    ///
+    /// Refs: I-Persist-GC-Interrupt, I-Persist-SaveSession
+    async fn gc(&self, session_id: &str) -> Result<u64, ShellError> {
+        let compaction_index = {
+            let store = self.session_store.read().await;
+            store
+                .get(session_id)
+                .map(|entry| entry.head.persisted_msg_count)
+        };
+        let Some(index) = compaction_index else {
+            return Ok(0);
+        };
+        // The Redb message table uses `u32` indices; clamp defensively.
+        let index = index.min(u32::MAX as usize) as u32;
+        self.gc_runner
+            .run_gc(self, session_id, index)
+            .await
+            .map_err(|e| ShellError::EffectExecution(e.to_string()))
     }
 }
 
