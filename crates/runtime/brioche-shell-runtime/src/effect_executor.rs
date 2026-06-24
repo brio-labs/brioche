@@ -10,12 +10,11 @@
 
 use std::sync::Arc;
 
-use brioche_core::{
-    ActiveToolCall, ChatMessage, ErrorCode, ErrorDetail, SubRoutineHandle, SystemSignal,
-    ToolResultDTO, UiWidget,
-};
-
 use crate::{BriocheShell, NetworkRecovery, PersistenceMode, ShellError};
+use brioche_core::{
+    ActiveToolCall, AsyncTaskResult, ChatMessage, ErrorCode, ErrorDetail, SubRoutineHandle,
+    SystemSignal, ToolResultDTO, UiWidget,
+};
 
 /// Pluggable persistence boundary.
 ///
@@ -30,6 +29,16 @@ pub trait Persistence: Send + Sync {
 
     /// Persist a cold plugin blob.
     async fn save_plugin_blob(&self, plugin_id: &str, data: Vec<u8>) -> Result<(), ShellError>;
+
+    /// Run opportunistic garbage collection for the given session.
+    ///
+    /// Returns the number of stale entries removed. Implementations that
+    /// do not support GC may return `Ok(0)`.
+    ///
+    /// Refs: I-Persist-GC-Interrupt
+    async fn gc(&self, _session_id: &str) -> Result<u64, ShellError> {
+        Ok(0)
+    }
 }
 
 /// No-op persistence for testing and headless profiles.
@@ -95,10 +104,14 @@ pub trait EffectExecutor: Clone + Send + Sync + 'static {
     ) -> Result<(), ShellError>;
 
     /// Trigger opportunistic garbage collection.
-    async fn trigger_gc(&self) -> Result<(), ShellError>;
+    async fn trigger_gc(&self, session_id: &str) -> Result<(), ShellError>;
 
     /// Handle `SystemIdle` — may decide to trigger GC.
-    async fn on_system_idle(&self, shell: &BriocheShell) -> Result<(), ShellError>;
+    async fn on_system_idle(
+        &self,
+        shell: &BriocheShell,
+        session_id: &str,
+    ) -> Result<(), ShellError>;
 
     /// Rebuild routing tables (transactional barrier).
     async fn rebuild_routes(&self) -> Result<(), ShellError>;
@@ -129,6 +142,28 @@ pub struct DefaultEffectExecutor<T, L, P> {
     ///
     /// Refs: I-Shell-Network-Signal
     network_recovery: Option<Arc<dyn NetworkRecovery>>,
+    /// Optional callback invoked on every `Effect::ForwardToUi`.
+    ///
+    /// The kernel emits structured widgets; downstream projection layers
+    /// (Tauri, CLI) register this hook to consume them. When `None`, the
+    /// effect is silently dropped (Sprint 9 default).
+    ///
+    /// Refs: I-Shell-Projection-Independent
+    ui_forwarder: Option<Arc<dyn Fn(UiWidget) + Send + Sync>>,
+    /// Optional callback invoked when a sub-routine finishes restoration.
+    ///
+    /// Projection layers use this to transition the accordion from
+    /// `Loading` to `Loaded`. When `None`, the effect is a no-op.
+    ///
+    /// Refs: I-UI-NoDirectDOM
+    subroutine_restored_callback: Option<Arc<dyn Fn(SubRoutineHandle) + Send + Sync>>,
+    /// Whether `SystemIdle` should automatically trigger GC.
+    ///
+    /// Default is `false`, preserving the Sprint 9 no-op behavior.
+    /// A future `GcPolicy` plugin will replace this static flag.
+    ///
+    /// Refs: docs/SPECS.md §Book III-A
+    gc_on_idle: bool,
 }
 
 impl<T, L, P> Clone for DefaultEffectExecutor<T, L, P> {
@@ -139,6 +174,12 @@ impl<T, L, P> Clone for DefaultEffectExecutor<T, L, P> {
             persistence: Arc::clone(&self.persistence),
             persistence_mode: self.persistence_mode,
             network_recovery: self.network_recovery.as_ref().map(Arc::clone),
+            ui_forwarder: self.ui_forwarder.as_ref().map(Arc::clone),
+            subroutine_restored_callback: self
+                .subroutine_restored_callback
+                .as_ref()
+                .map(Arc::clone),
+            gc_on_idle: self.gc_on_idle,
         }
     }
 }
@@ -153,6 +194,9 @@ impl<T, L, P> DefaultEffectExecutor<T, L, P> {
             persistence: Arc::new(persistence),
             persistence_mode: PersistenceMode::Async,
             network_recovery: None,
+            ui_forwarder: None,
+            subroutine_restored_callback: None,
+            gc_on_idle: false,
         }
     }
 
@@ -169,6 +213,39 @@ impl<T, L, P> DefaultEffectExecutor<T, L, P> {
     /// Refs: I-Shell-Network-Signal
     pub fn with_network_recovery<R: NetworkRecovery + 'static>(mut self, recovery: R) -> Self {
         self.network_recovery = Some(Arc::new(recovery));
+        self
+    }
+
+    /// Register a callback for `Effect::ForwardToUi`.
+    ///
+    /// Refs: I-Shell-Projection-Independent
+    pub fn with_ui_forwarder<F: Fn(UiWidget) + Send + Sync + 'static>(
+        mut self,
+        forwarder: F,
+    ) -> Self {
+        self.ui_forwarder = Some(Arc::new(forwarder));
+        self
+    }
+
+    /// Register a callback for `Effect::SubRoutineRestored`.
+    ///
+    /// Refs: I-UI-NoDirectDOM
+    pub fn with_subroutine_restored_callback<F: Fn(SubRoutineHandle) + Send + Sync + 'static>(
+        mut self,
+        callback: F,
+    ) -> Self {
+        self.subroutine_restored_callback = Some(Arc::new(callback));
+        self
+    }
+
+    /// Enable automatic GC on every `SystemIdle` effect.
+    ///
+    /// Default is `false`. This is a Sprint 9 stop-gap until `GcPolicy`
+    /// drives GC decisions via `ExtensionStorage`.
+    ///
+    /// Refs: docs/SPECS.md §Book III-A
+    pub fn with_gc_on_idle(mut self, enabled: bool) -> Self {
+        self.gc_on_idle = enabled;
         self
     }
 }
@@ -289,9 +366,10 @@ where
             .await
     }
 
-    async fn forward_to_ui(&self, _widget: UiWidget) -> Result<(), ShellError> {
-        // In Sprint 9 this is a no-op; Shell Projection (Sprint 14)
-        // will wire this to the Tauri IPC layer.
+    async fn forward_to_ui(&self, widget: UiWidget) -> Result<(), ShellError> {
+        if let Some(forwarder) = &self.ui_forwarder {
+            forwarder(widget);
+        }
         Ok(())
     }
 
@@ -325,26 +403,19 @@ where
     }
 
     async fn trigger_summarization(&self, shell: &BriocheShell) -> Result<(), ShellError> {
-        // Background summarization: invoke a lightweight LLM call and
-        // emit AsyncTaskResult::SummarizationDone when complete.
-        // Sprint 9 placeholder: immediately emit a dummy result.
+        // Sprint 9 stop-gap: emit a deterministic placeholder summary
+        // through the proper `AsyncTaskResult` channel. A future LLM-backed
+        // implementation will replace the dummy text with a compressed
+        // history produced by `LlmClient::summarize`.
         let summary = ChatMessage::System {
             content: "[summarization placeholder]".into(),
         };
-        let result = brioche_core::AsyncTaskResult::SummarizationDone {
-            summary,
-            watermark: 0,
-        };
-        // In a full implementation the LLM client would perform the
-        // summarization and then send the result via the async task
-        // result channel. For Sprint 9 we inject directly.
         shell
-            .send_input(brioche_core::EngineInput::UserMessage(
-                "[summarization complete]".into(),
-            ))
-            .await?;
-        let _ = result;
-        Ok(())
+            .send_async_task_result(AsyncTaskResult::SummarizationDone {
+                summary,
+                watermark: 0,
+            })
+            .await
     }
 
     async fn execute_cpu_task(
@@ -354,32 +425,36 @@ where
         shell: &BriocheShell,
     ) -> Result<(), ShellError> {
         let result = tokio::task::spawn_blocking(move || {
-            // Placeholder: identity transformation.
+            // Sprint 9: identity passthrough. The payload format and
+            // actual computation are defined by the offloading plugin.
             payload
         })
         .await
         .map_err(|e| ShellError::EffectExecution(format!("cpu task panicked: {}", e)))?;
 
         shell
-            .send_input(brioche_core::EngineInput::UserMessage(format!(
-                "[cpu task {} done]",
-                task_id
-            )))
-            .await?;
-        let _ = result;
+            .send_async_task_result(AsyncTaskResult::CpuTaskDone { task_id, result })
+            .await
+    }
+
+    async fn trigger_gc(&self, session_id: &str) -> Result<(), ShellError> {
+        let removed = self.persistence.gc(session_id).await?;
+        if removed > 0 {
+            tracing::info!(session_id, removed, "GC completed");
+        }
         Ok(())
     }
 
-    async fn trigger_gc(&self) -> Result<(), ShellError> {
-        // Sprint 12 will implement opportunistic GC via the persistence layer.
-        // Sprint 9 placeholder: log and return.
-        tracing::info!("GC triggered (placeholder)");
-        Ok(())
-    }
-
-    async fn on_system_idle(&self, _shell: &BriocheShell) -> Result<(), ShellError> {
-        // GcPolicy (Sprint 16) will decide on TriggerGc after SystemIdle.
-        // Sprint 9: no automatic GC decision.
+    async fn on_system_idle(
+        &self,
+        _shell: &BriocheShell,
+        session_id: &str,
+    ) -> Result<(), ShellError> {
+        // Sprint 9 stop-gap: static config flag. Sprint 16 will replace
+        // this with a `GcPolicy` plugin decision in `ExtensionStorage`.
+        if self.gc_on_idle {
+            self.trigger_gc(session_id).await?;
+        }
         Ok(())
     }
 
@@ -392,9 +467,165 @@ where
         Ok(())
     }
 
-    async fn sub_routine_restored(&self, _handle: SubRoutineHandle) -> Result<(), ShellError> {
-        // Sprint 13 will update SubRoutineCache (L1/L2).
-        // Sprint 9 placeholder.
+    async fn sub_routine_restored(&self, handle: SubRoutineHandle) -> Result<(), ShellError> {
+        if let Some(callback) = &self.subroutine_restored_callback {
+            callback(handle);
+        }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    use brioche_core::{AsyncTaskResult, ChatMessage, SubRoutineHandle, UiWidget};
+    use tokio::sync::mpsc;
+
+    use super::*;
+    use crate::{EchoToolExecutor, MockLlmClient};
+
+    /// A test persistence layer that counts GC invocations.
+    #[derive(Clone, Debug, Default)]
+    struct CountingPersistence {
+        gc_count: Arc<AtomicU64>,
+    }
+
+    #[async_trait::async_trait]
+    impl Persistence for CountingPersistence {
+        async fn save_session(&self, _session_id: &str) -> Result<(), ShellError> {
+            Ok(())
+        }
+
+        async fn save_plugin_blob(
+            &self,
+            _plugin_id: &str,
+            _data: Vec<u8>,
+        ) -> Result<(), ShellError> {
+            Ok(())
+        }
+
+        async fn gc(&self, _session_id: &str) -> Result<u64, ShellError> {
+            Ok(self.gc_count.fetch_add(1, Ordering::SeqCst) + 1)
+        }
+    }
+
+    #[tokio::test]
+    async fn cpu_task_emits_async_task_result() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let shell = BriocheShell::test_with_async_channel(tx);
+        let executor =
+            DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), NoopPersistence);
+
+        executor
+            .execute_cpu_task("task-1".into(), vec![1, 2, 3], &shell)
+            .await
+            .unwrap();
+
+        let result = rx.recv().await.expect("expected async task result");
+        assert_eq!(
+            result,
+            AsyncTaskResult::CpuTaskDone {
+                task_id: "task-1".into(),
+                result: vec![1, 2, 3],
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn summarization_emits_async_task_result() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let shell = BriocheShell::test_with_async_channel(tx);
+        let executor =
+            DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), NoopPersistence);
+
+        executor.trigger_summarization(&shell).await.unwrap();
+
+        let result = rx.recv().await.expect("expected async task result");
+        assert!(
+            matches!(
+                result,
+                AsyncTaskResult::SummarizationDone {
+                    summary: ChatMessage::System { ref content },
+                    watermark: 0,
+                } if content == "[summarization placeholder]"
+            ),
+            "expected placeholder SummarizationDone, got {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn forward_to_ui_invokes_callback() {
+        let received = Arc::new(Mutex::new(None));
+        let received_clone = Arc::clone(&received);
+        let executor =
+            DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), NoopPersistence)
+                .with_ui_forwarder(move |widget: UiWidget| {
+                    *received_clone.lock().unwrap() = Some(widget);
+                });
+
+        let _shell = BriocheShell::test_with_async_channel(mpsc::channel(1).0);
+        let widget = UiWidget::Status("ok".into());
+        executor.forward_to_ui(widget.clone()).await.unwrap();
+
+        assert_eq!(*received.lock().unwrap(), Some(widget));
+    }
+
+    #[tokio::test]
+    async fn sub_routine_restored_invokes_callback() {
+        let received = Arc::new(Mutex::new(None));
+        let received_clone = Arc::clone(&received);
+        let executor =
+            DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), NoopPersistence)
+                .with_subroutine_restored_callback(move |handle: SubRoutineHandle| {
+                    *received_clone.lock().unwrap() = Some(handle.as_str().to_string());
+                });
+
+        let _shell = BriocheShell::test_with_async_channel(mpsc::channel(1).0);
+        let handle = SubRoutineHandle::new("sub-42");
+        executor.sub_routine_restored(handle.clone()).await.unwrap();
+
+        assert_eq!(*received.lock().unwrap(), Some("sub-42".to_string()));
+    }
+
+    #[tokio::test]
+    async fn trigger_gc_calls_persistence() {
+        let persistence = CountingPersistence::default();
+        let executor =
+            DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), persistence);
+
+        let _shell = BriocheShell::test_with_async_channel(mpsc::channel(1).0);
+        executor.trigger_gc("session-a").await.unwrap();
+
+        assert_eq!(
+            executor.persistence.gc_count.load(Ordering::SeqCst),
+            1,
+            "gc should have been invoked once"
+        );
+    }
+
+    #[tokio::test]
+    async fn on_system_idle_honors_gc_on_idle_flag() {
+        let persistence = CountingPersistence::default();
+        let executor =
+            DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), persistence);
+        let _shell = BriocheShell::test_with_async_channel(mpsc::channel(1).0);
+
+        executor.on_system_idle(&_shell, "session-b").await.unwrap();
+        assert_eq!(
+            executor.persistence.gc_count.load(Ordering::SeqCst),
+            0,
+            "gc should be skipped when gc_on_idle is false"
+        );
+
+        let executor = executor.with_gc_on_idle(true);
+        executor.on_system_idle(&_shell, "session-b").await.unwrap();
+        assert_eq!(
+            executor.persistence.gc_count.load(Ordering::SeqCst),
+            1,
+            "gc should run when gc_on_idle is true"
+        );
     }
 }
