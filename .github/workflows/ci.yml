@@ -322,6 +322,11 @@ jobs:
       checks: write
       security-events: write
       pull-requests: write
+    env:
+      # rustsec/audit-check installs cargo-audit itself; sccache is not set up
+      # in this job, so disable the global RUSTC_WRAPPER to avoid a missing
+      # binary error during `cargo install cargo-audit`.
+      RUSTC_WRAPPER: ""
     steps:
       - uses: actions/checkout@v7.0.0
       - uses: rustsec/audit-check@v2
