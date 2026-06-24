@@ -78,6 +78,18 @@ jobs:
         env:
           RUSTDOCFLAGS: "-D warnings"
 
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-frontend
+      - name: Build desktop frontend
+        working-directory: crates/apps/brioche-desktop/frontend
+        run: pnpm run build
+      - name: Test desktop frontend
+        working-directory: crates/apps/brioche-desktop/frontend
+        run: pnpm test
+
   # -------------------------------------------------------------------------
   # Gate 0b — Dependency hygiene & architecture policy
   # -------------------------------------------------------------------------

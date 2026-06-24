@@ -4,6 +4,48 @@ Tauri v2 desktop GUI for Brioche.
 
 ## Quick Start
 
+### Platform Prerequisites
+
+Before building, ensure the following tools are installed for your platform.
+
+### Linux
+
+- **webkit2gtk / webkit2gtk-4.1** — required by Tauri for WebKit rendering.
+- **build-essential** — C/C++ compiler and Make.
+- **curl** or **wget** — for fetching tooling.
+- **Node.js** and **pnpm** — for the frontend build.
+
+On Debian/Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install webkit2gtk-4.1 build-essential curl
+```
+
+Enable pnpm via corepack:
+
+```bash
+corepack enable
+corepack prepare pnpm@latest --activate
+```
+
+### macOS
+
+- **Xcode Command Line Tools** — provides clang and other build tools:
+  ```bash
+  xcode-select --install
+  ```
+- **Node.js** and **pnpm**.
+
+### Windows
+
+- **Microsoft Edge WebView2 Runtime** — required by Tauri; usually pre-installed
+  on Windows 11 and recent Windows 10 builds. Download from Microsoft if it is
+  missing.
+- **Visual Studio Build Tools** with the **C++ workload** (or a full Visual
+  Studio install with C++ support).
+- **Node.js** and **pnpm**.
+
 ### Release mode (uses static frontend, no dev server needed)
 
 ```bash
@@ -29,6 +71,14 @@ Terminal 2:
 ```bash
 cargo run -p brioche-desktop
 ```
+
+## No Telemetry
+
+Brioche Desktop does not collect telemetry, analytics, crash reports, or usage
+statistics, and it makes no network requests to Brioche or third-party analytics
+services. The only network traffic the app generates is the chat inference
+traffic you configure (for example, calls to your chosen base URL and model
+provider).
 
 ## Environment Variables
 
