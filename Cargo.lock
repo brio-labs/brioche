@@ -498,6 +498,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "brioche-lint-core"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "tempfile",
+ "walkdir",
+]
+
+[[package]]
 name = "brioche-macro"
 version = "0.1.0"
 dependencies = [
@@ -739,8 +748,8 @@ dependencies = [
 name = "cargo-brioche-lint"
 version = "0.1.0"
 dependencies = [
+ "brioche-lint-core",
  "clap",
- "walkdir",
 ]
 
 [[package]]
@@ -748,11 +757,11 @@ name = "cargo-brioche-lint-invariants"
 version = "0.1.0"
 dependencies = [
  "brioche-governance-default",
+ "brioche-lint-core",
  "clap",
  "regex",
  "serde",
  "serde_json",
- "walkdir",
 ]
 
 [[package]]

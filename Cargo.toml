@@ -45,6 +45,7 @@ brioche-playground = { path = "crates/ecosystem/brioche-playground" }
 brioche-provider-openai = { path = "crates/providers/brioche-provider-openai" }
 brioche-tools-system = { path = "crates/tools/brioche-tools-system" }
 brioche-reedline = { path = "crates/infra/brioche-reedline" }
+brioche-lint-core = { path = "crates/infra/brioche-lint-core" }
 cargo-brioche-lint-invariants = { path = "crates/infra/cargo-brioche-lint-invariants" }
 cargo-brioche-lint = { path = "crates/infra/cargo-brioche-lint" }
 dirs = "6"
