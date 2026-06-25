@@ -237,7 +237,6 @@ INVARIANT_CRATES = [
 
 INVARIANT_PATTERNS = [
     "Refs: I-",
-    "Refs: SPECS",
     "Refs: docs/SPECS",
     "# Invariants",
     "# Invariant",
