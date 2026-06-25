@@ -76,7 +76,7 @@ impl SystemTool for ExecuteCommandTool {
     }
 
     fn description(&self) -> String {
-        "Execute a shell command. Only allowed commands are permitted by default.".into()
+        "Execute a command. Only allowed commands are permitted by default.".into()
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -86,7 +86,7 @@ impl SystemTool for ExecuteCommandTool {
         command.insert("type".into(), serde_json::Value::String("string".into()));
         command.insert(
             "description".into(),
-            serde_json::Value::String("The shell command to execute".into()),
+            serde_json::Value::String("The command to execute".into()),
         );
         props.insert("command".into(), serde_json::Value::Object(command));
 
@@ -117,12 +117,18 @@ impl SystemTool for ExecuteCommandTool {
             .as_str()
             .ok_or_else(|| ToolError::InvalidArgs("missing 'command'".into()))?;
 
+        validate_no_shell_metacharacters(command)?;
+        let argv = split_command(command)?;
+        let program = argv
+            .first()
+            .ok_or_else(|| ToolError::InvalidArgs("command is empty".into()))?;
+
         match &self.policy {
             SandboxPolicy::Permissive => {
-                tracing::warn!(command, "executing command in permissive sandbox");
+                tracing::warn!(command, program, "executing command in permissive sandbox");
             }
             SandboxPolicy::AllowList(list) => {
-                if !list.is_allowed(command) {
+                if !list.is_allowed(program) {
                     if let Some(ref handler) = self.confirm_handler {
                         let cmd = command.to_string();
                         let handler = Arc::clone(handler);
@@ -169,13 +175,9 @@ impl SystemTool for ExecuteCommandTool {
             }
         }
 
-        let mut cmd = tokio::process::Command::new("sh");
-        cmd.arg("-c").arg(command);
-
-        if let Some(cwd) = args["cwd"].as_str() {
-            cmd.current_dir(cwd);
-        } else if let Some(ref default_cwd) = self.default_cwd {
-            cmd.current_dir(default_cwd);
+        let mut cmd = tokio::process::Command::new(program);
+        for arg in argv.iter().skip(1) {
+            cmd.arg(arg);
         }
 
         let child = cmd.spawn()?;
@@ -223,4 +225,87 @@ impl SystemTool for ExecuteCommandTool {
 
         Ok(result)
     }
+}
+
+/// Rejects commands that contain shell metacharacters.
+///
+/// Because `ExecuteCommandTool` no longer invokes `/bin/sh -c`,
+/// metacharacters are not interpreted; rejecting them defends against
+/// accidental or malicious shell syntax in user input.
+fn validate_no_shell_metacharacters(command: &str) -> Result<(), ToolError> {
+    for c in command.chars() {
+        if matches!(
+            c,
+            ';' | '|' | '&' | '$' | '`' | '\n' | '\r' | '<' | '>' | '(' | ')' | '{' | '}'
+        ) {
+            return Err(ToolError::InvalidArgs(format!(
+                "command contains shell metacharacter: {c}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Splits a command string into an argv vector.
+///
+/// Supports single and double quotes and backslash escaping outside
+/// single quotes. Returns `ToolError::InvalidArgs` on unclosed quotes
+/// or a trailing backslash.
+fn split_command(command: &str) -> Result<Vec<String>, ToolError> {
+    let mut argv = Vec::new();
+    let mut current = String::new();
+    let mut chars = command.chars().peekable();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut in_token = false;
+
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' if !in_double_quote => {
+                in_single_quote = !in_single_quote;
+                in_token = true;
+            }
+            '"' if !in_single_quote => {
+                in_double_quote = !in_double_quote;
+                in_token = true;
+            }
+            '\\' if !in_single_quote => match chars.next() {
+                Some(next) => {
+                    current.push(next);
+                    in_token = true;
+                }
+                None => {
+                    return Err(ToolError::InvalidArgs(
+                        "command ends with a backslash".into(),
+                    ));
+                }
+            },
+            c if c.is_whitespace() && !in_single_quote && !in_double_quote => {
+                if in_token {
+                    argv.push(std::mem::take(&mut current));
+                    in_token = false;
+                }
+            }
+            c => {
+                current.push(c);
+                in_token = true;
+            }
+        }
+    }
+
+    if in_single_quote || in_double_quote {
+        return Err(ToolError::InvalidArgs(
+            "command has an unclosed quote".into(),
+        ));
+    }
+
+    if in_token {
+        argv.push(current);
+    }
+
+    if argv.is_empty() {
+        return Err(ToolError::InvalidArgs("command is empty".into()));
+    }
+
+    Ok(argv)
 }
