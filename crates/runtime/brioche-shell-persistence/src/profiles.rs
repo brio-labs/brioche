@@ -14,6 +14,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::Secret;
+
 /// A user profile.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
@@ -29,8 +31,8 @@ pub struct Profile {
     pub provider: String,
     /// The model ID for this profile.
     pub model: String,
-    /// The API key (encrypted at rest in production).
-    pub api_key: String,
+    /// The API key.
+    pub api_key: Secret,
     /// Custom system prompt.
     pub system_prompt: Option<String>,
     /// Temperature setting (0.0 - 2.0).
@@ -64,7 +66,7 @@ impl Default for ProfileConfig {
                 description: Some("Default profile".into()),
                 provider: "openrouter".into(),
                 model: "qwen/qwen3.7-plus".into(),
-                api_key: String::new(),
+                api_key: Secret::default(),
                 system_prompt: None,
                 temperature: Some(0.7),
                 max_tokens: Some(4096),
@@ -148,7 +150,7 @@ impl ProfileConfig {
             description: None,
             provider,
             model,
-            api_key,
+            api_key: Secret::from(api_key),
             system_prompt: None,
             temperature: Some(0.7),
             max_tokens: Some(4096),
