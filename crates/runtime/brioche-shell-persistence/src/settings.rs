@@ -210,7 +210,11 @@ impl Settings {
         if let Ok(data) = std::fs::read_to_string(&path)
             && let Ok(mut settings) = serde_json::from_str::<Settings>(&data)
         {
-            // Merge missing default module values so upgrades keep working.
+            // Decrypt any encrypted-at-rest secret values before use.
+            let mut modules: serde_json::Map<String, Value> =
+                std::mem::take(&mut settings.modules).into_iter().collect();
+            crate::secret::decrypt_secret_values(&mut modules);
+            settings.modules = modules.into_iter().collect();
             let defaults = Self::default();
             for (key, value) in defaults.modules {
                 settings.modules.entry(key).or_insert(value);
@@ -235,7 +239,12 @@ impl Settings {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create config dir: {e}"))?;
         }
-        let data = serde_json::to_string_pretty(self)
+        let mut settings = self.clone();
+        let mut modules: serde_json::Map<String, Value> =
+            std::mem::take(&mut settings.modules).into_iter().collect();
+        crate::secret::encrypt_secret_values(&mut modules);
+        settings.modules = modules.into_iter().collect();
+        let data = serde_json::to_string_pretty(&settings)
             .map_err(|e| format!("Failed to serialize settings: {e}"))?;
         std::fs::write(&path, data).map_err(|e| format!("Failed to write settings: {e}"))
     }

@@ -155,7 +155,7 @@ impl From<&profiles::Profile> for ProfilePayload {
             description: p.description.clone(),
             provider: p.provider.clone(),
             model: p.model.clone(),
-            api_key: p.api_key.clone(),
+            api_key: p.api_key.expose().to_string(),
             system_prompt: p.system_prompt.clone(),
             temperature: p.temperature,
             max_tokens: p.max_tokens,
