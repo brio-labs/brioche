@@ -155,34 +155,44 @@ impl BriocheEngine {
     /// If the handler itself errors, the original fault is preserved.
     /// Skipped when `RebuildRoutes` is present (transactional barrier).
     ///
+    /// Non-fault effects are moved, not cloned, so the presence of a single
+    /// fault does not force a copy of the entire effect vector.
+    ///
+    /// # Complexity
+    /// O(e) where e = number of effects. One pass; allocates the replacement
+    /// vector only when at least one fault is present.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
     /// Refs: I-Gov-Failover
     fn apply_governance_failover(&self, session: &mut Session, effects: &mut Vec<Effect>) {
         let Some(ref handler) = self.governance.governance_failover_handler else {
             return;
         };
-        if effects.iter().any(|e| matches!(e, Effect::RebuildRoutes)) {
+        let has_rebuild = effects.iter().any(|e| matches!(e, Effect::RebuildRoutes));
+        let has_fault = effects
+            .iter()
+            .any(|e| matches!(e, Effect::PluginFault { .. }));
+        if has_rebuild || !has_fault {
             return;
         }
 
-        let mut replacement_effects = Vec::new();
-        let mut has_fault = false;
-        for effect in effects.iter() {
+        let mut replacement_effects = Vec::with_capacity(effects.len());
+        for effect in effects.drain(..) {
             if let Effect::PluginFault { .. } = effect {
-                has_fault = true;
-                match handler.handle_failure(session, effect) {
+                match handler.handle_failure(session, &effect) {
                     Ok(Some(failover)) => {
                         replacement_effects.extend(failover);
                     }
                     Ok(None) | Err(_) => {
-                        replacement_effects.push(effect.clone());
+                        replacement_effects.push(effect);
                     }
                 }
             } else {
-                replacement_effects.push(effect.clone());
+                replacement_effects.push(effect);
             }
         }
-        if has_fault {
-            *effects = replacement_effects;
-        }
+        *effects = replacement_effects;
     }
 }
