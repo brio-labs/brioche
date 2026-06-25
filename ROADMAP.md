@@ -211,6 +211,7 @@ The following areas are already in good shape and should not be regressed:
 | P5-TEST-04 | #168: Rewrote `effect_executor_tests.rs` to exercise every `Effect` variant via `MockLlmClient`/`EchoToolExecutor`. |
 | P3-SEC-10 | #172: `ToolExecutor::Command` template interpolation now validates placeholder keys and balanced braces. |
 | P3-SEC-11 | #172: Default tool allow-list tightened; `cargo`, `rustc`, `git`, `find` are now opt-in. |
+| P0-SEC-01 | #161: `ShellTool::execute_command` hardened against shell injection with argument validation. |
 
 ---
 
