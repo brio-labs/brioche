@@ -24,7 +24,9 @@ use brioche_core::{
     ChatMessage, MAX_INLINE_CHUNK, StreamEvent, ToolCallDescriptor, ToolOutcome, ToolResultDTO,
 };
 use brioche_shell_runtime::{
-    BriocheShell, EngineInput, LlmChunk, LlmClient, ShellError, SystemSignal,
+    ALLOWED_SCHEMES, BLOCKED_HOSTS, BriocheShell, DEFAULT_CONNECT_TIMEOUT, DEFAULT_MAX_REDIRECTS,
+    DEFAULT_MAX_RESPONSE_BYTES, EngineInput, HttpClientError, LlmChunk, LlmClient, ShellError,
+    SystemSignal, read_body_with_size_limit, validate_url,
 };
 use bytes::Bytes;
 use futures_util::StreamExt;
@@ -108,13 +110,15 @@ impl OpenAiLlmClient {
     /// Refs: docs/SPECS.md §Book III-B
     pub fn new(config: OpenAiConfig) -> (Self, broadcast::Receiver<LlmChunk>, SharedHistory) {
         let http = match reqwest::Client::builder()
-            // No global request timeout — streaming generations can
-            // take minutes (e.g. 80KB file writes). Idle detection
-            // is handled by the per-chunk READ_TIMEOUT in call_llm().
+            .connect_timeout(DEFAULT_CONNECT_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::limited(DEFAULT_MAX_REDIRECTS))
             .build()
         {
-            Ok(c) => c,
-            Err(_) => reqwest::Client::new(),
+            Ok(client) => client,
+            Err(err) => {
+                tracing::warn!(error = %err, "failed to build hardened HTTP client; falling back");
+                reqwest::Client::new()
+            }
         };
 
         let (ui_tx, ui_rx) = broadcast::channel(256);
@@ -185,6 +189,21 @@ impl OpenAiLlmClient {
             Err(e) => e.into_inner(),
         };
         *guard = transform;
+    }
+
+    /// Emit a terminal error to both the projection and the kernel.
+    ///
+    /// This guarantees that every transport/provider failure surfaces as a
+    /// `StreamEvent::Error` so the kernel can finalise the prediction.
+    async fn emit_stream_error(
+        &self,
+        shell: &BriocheShell,
+        message: String,
+    ) -> Result<(), ShellError> {
+        let _ = self.ui_tx.send(LlmChunk::Error(message.clone()));
+        shell
+            .send_input(EngineInput::LlmStream(StreamEvent::Error { message }))
+            .await
     }
 
     /// Segment a `Bytes` payload according to `MAX_INLINE_CHUNK`.
@@ -464,6 +483,19 @@ impl OpenAiLlmClient {
     ) -> Result<reqwest::Response, ShellError> {
         let body_str = body.to_string();
 
+        if let Err(err) = validate_url(url, ALLOWED_SCHEMES, BLOCKED_HOSTS) {
+            let msg = match err {
+                HttpClientError::UrlNotAllowed { .. } => format!("URL not allowed: {url}"),
+                other => format!("URL validation failed for {url}: {other}"),
+            };
+            tracing::error!(%msg, "OpenAI request URL rejected");
+            let _ = self.emit_stream_error(shell, msg.clone()).await;
+            shell
+                .send_system_signal(SystemSignal::NetworkUnavailable { reason: msg })
+                .await?;
+            return Err(ShellError::EffectExecution("url".into()));
+        }
+
         let _ = self.ui_tx.send(LlmChunk::Status(format!(
             "HTTP POST {} — ~{} chars",
             url,
@@ -488,7 +520,7 @@ impl OpenAiLlmClient {
             Err(err) => {
                 let msg = format!("Network error: {err}");
                 tracing::error!(error = %err, "OpenAI request failed");
-                let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
+                let _ = self.emit_stream_error(shell, msg.clone()).await;
                 shell
                     .send_system_signal(SystemSignal::NetworkUnavailable { reason: msg })
                     .await?;
@@ -498,7 +530,12 @@ impl OpenAiLlmClient {
 
         if !response.status().is_success() {
             let status = response.status();
-            let body_text = response.text().await.ok().map_or(String::new(), |t| t);
+            let body_bytes = read_body_with_size_limit(response, DEFAULT_MAX_RESPONSE_BYTES)
+                .await
+                .map_err(|err| {
+                    ShellError::EffectExecution(format!("failed to read error response: {err}"))
+                })?;
+            let body_text = String::from_utf8_lossy(&body_bytes).into_owned();
             let compact = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body_text) {
                 json.get("error")
                     .and_then(|e| e.get("message"))
@@ -512,7 +549,7 @@ impl OpenAiLlmClient {
             };
             let msg = format!("HTTP {status}: {compact}");
             tracing::error!(status = %status, error = %body_text, "OpenAI HTTP error");
-            let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
+            let _ = self.emit_stream_error(shell, msg.clone()).await;
             shell
                 .send_system_signal(SystemSignal::NetworkUnavailable { reason: msg })
                 .await?;
@@ -537,11 +574,11 @@ impl OpenAiLlmClient {
     ) -> Result<(), ShellError> {
         if let Some(err_msg) = self.error_detector.detect_error(event) {
             tracing::error!(%err_msg, "SSE provider error");
-            let _ = self.ui_tx.send(LlmChunk::Error(err_msg.clone()));
+            let _ = self.emit_stream_error(shell, err_msg.clone()).await;
             shell
                 .send_system_signal(SystemSignal::NetworkUnavailable { reason: err_msg })
                 .await?;
-            return Ok(());
+            return Err(ShellError::EffectExecution("provider_error".into()));
         }
 
         let Some(choices) = event.get("choices").and_then(|c| c.as_array()) else {
@@ -687,7 +724,7 @@ impl OpenAiLlmClient {
                         acc.finish_reason
                     );
                     tracing::warn!(%diag, "SSE read timeout");
-                    let _ = self.ui_tx.send(LlmChunk::Warning(diag.clone()));
+                    let _ = self.emit_stream_error(shell, diag.clone()).await;
                     shell
                         .send_system_signal(SystemSignal::NetworkUnavailable { reason: diag })
                         .await?;
@@ -721,7 +758,7 @@ impl OpenAiLlmClient {
                     }
                     let msg = format!("SSE error: {err}");
                     tracing::error!(error = %err, "SSE stream error");
-                    let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
+                    let _ = self.emit_stream_error(shell, msg.clone()).await;
                     shell
                         .send_system_signal(SystemSignal::NetworkUnavailable { reason: msg })
                         .await?;
@@ -751,7 +788,7 @@ impl OpenAiLlmClient {
                 Err(err) => {
                     let msg = format!("SSE parser error: {err}");
                     tracing::error!(%msg, "SSE parser aborted after repeated malformed lines");
-                    let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
+                    let _ = self.emit_stream_error(shell, msg.clone()).await;
                     shell
                         .send_system_signal(SystemSignal::NetworkUnavailable { reason: msg })
                         .await?;
