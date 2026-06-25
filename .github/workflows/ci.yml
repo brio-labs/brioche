@@ -260,8 +260,12 @@ jobs:
           PROPTEST_CASES: "10000"
 
   # -------------------------------------------------------------------------
-  # Gate 3 — Build profiles & benchmark smoke tests
+  # Gate 3 — Profile smoke checks & benchmark smoke tests
   # -------------------------------------------------------------------------
+  # Use `cargo check` here instead of `cargo build`. It validates that the
+  # workspace compiles under each release profile (features, cfg flags,
+  # profile-specific dependencies) without paying for codegen, LTO, and linking.
+  # The release workflow runs the full `cargo build --profile` with fat LTO.
   profiles:
     runs-on: ubuntu-latest
     permissions:
@@ -272,14 +276,6 @@ jobs:
     strategy:
       matrix:
         profile: [headless, desktop, wasm-test, full]
-    env:
-      # CI-only: use thin LTO instead of fat LTO for profile smoke builds.
-      # This keeps builds much faster while still exercising the LTO code path.
-      # The release workflow still builds with the full fat LTO profiles.
-      CARGO_PROFILE_HEADLESS_LTO: "thin"
-      CARGO_PROFILE_DESKTOP_LTO: "thin"
-      CARGO_PROFILE_WASM_TEST_LTO: "thin"
-      CARGO_PROFILE_FULL_LTO: "thin"
     steps:
       - uses: actions/checkout@v7.0.0
       - uses: dtolnay/rust-toolchain@stable
@@ -294,14 +290,14 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2.9.1
       - uses: mozilla-actions/sccache-action@v0.0.10
-      - name: Build with profile ${{ matrix.profile }}
+      - name: Check profile ${{ matrix.profile }}
         run: |
           if [ "${{ matrix.profile }}" = "headless" ] || [ "${{ matrix.profile }}" = "wasm-test" ]; then
             # These profiles target non-desktop targets; brioche-desktop requires
             # a built Tauri frontend, so exclude it from the compile matrix here.
-            cargo build --workspace --profile ${{ matrix.profile }} --exclude brioche-desktop
+            cargo check --workspace --profile ${{ matrix.profile }} --exclude brioche-desktop
           else
-            cargo build --workspace --profile ${{ matrix.profile }}
+            cargo check --workspace --profile ${{ matrix.profile }}
           fi
   benchmark-smoke:
     runs-on: ubuntu-latest
@@ -317,8 +313,8 @@ jobs:
       - uses: ./.github/actions/setup-frontend
       - uses: Swatinem/rust-cache@v2.9.1
       - uses: mozilla-actions/sccache-action@v0.0.10
-      - name: Compile benchmarks
-        run: cargo bench --workspace --no-run
+      - name: Check benchmarks compile
+        run: cargo check --workspace --benches
       - name: Smoke-run key benchmarks (minimal sample)
         run: |
           # Divan: --test runs each benchmark once to verify they execute
