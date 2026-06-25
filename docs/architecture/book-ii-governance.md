@@ -83,12 +83,11 @@ Merge rule:
 
 ```rust
 pub trait SignalDrainOrder: Send + Sync {
-    fn drain(&self) -> Vec<EngineInput>;
+    fn drain(&self) -> SignalDrainBatch;
 }
 ```
 
-**Mandatory.** Defines the invariant drain order of separate channels: `SystemSignal` → `GovernanceNotification` → `AsyncTaskResult`. Implemented by the shell (`SignalMultiplexer`), not by the kernel.
-
+**Mandatory.** Defines the invariant drain order of separate channels: `SystemSignal` → `GovernanceNotification` → `AsyncTaskResult`. Implemented by the shell (`SignalMultiplexer` or `UnifiedEventBus`), not by the kernel. The returned `SignalDrainBatch` is injected into `ExtensionStorage` as `SignalBuffer` before each transition cycle.
 
 ### 2.6 HookEffectConstraint
 
@@ -107,16 +106,16 @@ pub trait HookEffectConstraint: Send + Sync {
 
 ```rust
 pub trait CycleRollbackPolicy: Send + Sync {
-    fn begin_hook(&self);
-    fn on_mutation(&self, type_id: TypeId, vtable: &ExtVTable, current: &dyn Any);
-    fn commit_hook(&self);
-    fn rollback_hook(&self, ext: &mut ExtensionStorage);
+    fn begin_hook(&mut self, hook_name: &'static str);
+    fn on_mutation(&mut self, type_id: TypeId, vtable: &ExtVTable, current: &dyn Any);
+    fn commit_hook(&mut self, ext: &mut ExtensionStorage);
+    fn rollback_hook(&mut self, ext: &mut ExtensionStorage);
+    fn is_budget_exceeded(&self) -> bool { false }
+    fn set_cow_budget_policy(&mut self, _policy: Box<dyn CowBudgetPolicy>) {}
 }
 ```
 
-**Optional.** Provides a granular COW (Copy-On-Write) mechanism to restore the state of `ExtensionStorage` in case of budget overrun. Without injection, the kernel emits `PluginFault` without restoration.
-
-> **Sprint 6 Note**: the mechanical integration into `ExtensionStorage` (automatic `on_mutation` call on first `get_mut`) is planned for Sprint 7. The trait and its null implementation `NoopCycleRollbackPolicy` are delivered.
+**Optional.** Provides a granular COW (Copy-On-Write) mechanism to restore the state of `ExtensionStorage` in case of budget overrun. Without injection, the kernel emits `PluginFault` without restoration. The kernel calls `begin_hook` before each monitored hook, `on_mutation` on the first write to an extension, and either `commit_hook` or `rollback_hook` at the end of the hook depending on `is_budget_exceeded`.
 
 **Reference implementation** : `NoopCycleRollbackPolicy` (`brioche-governance-default`).
 
@@ -164,14 +163,14 @@ pub trait CowBudgetPolicy: Send + Sync {
 
 The order is invariant and hard-coded in `BriocheEngine::transition()`:
 
-1. **Inject `SessionSnapshot`** dans `ExtensionStorage`.
+1. **Inject `SessionSnapshot`** into `ExtensionStorage`.
 2. **`EpochInterceptor`** — if `Block`, immediate return.
-3. **`SubRoutineHandler`** — si `SubRoutine` et `Some(effects)`, short-circuit.
+3. **`SubRoutineHandler`** — if in `SubRoutine` and `Some(effects)`, short-circuit.
 4. **`on_input` hook** — pre-computed route.
-5. **Dispatch principal** (`UserMessage`, `LlmStream`, `ToolCallsResult`, `RestoreSubRoutine`).
-6. **`SubRoutineLifecycleGuard`** — si sortie de `SubRoutine`.
+5. **Main dispatch** (`UserMessage`, `LlmStream`, `ToolCallsResult`, `RestoreSubRoutine`).
+6. **`SubRoutineLifecycleGuard`** — on exit from `SubRoutine`.
 7. **`HookEffectConstraint`** — validation of emitted effects.
-8. **`RebuildRoutes` position guarantee** — tronque tout ce qui suit.
+8. **`RebuildRoutes` position guarantee** — truncates everything after it.
 9. **`ConsistencyVerifier`** — except if `RebuildRoutes` present.
 10. **`GovernanceFailoverHandler`** — replaces `PluginFault` if injected.
 
@@ -181,7 +180,7 @@ The order is invariant and hard-coded in `BriocheEngine::transition()`:
 - `DecisionAggregator` missing
 - `SubRoutineLifecycleGuard` missing
 
-Tous les autres traits sont optionnels.
+All other traits are optional.
 
 ---
 
@@ -189,17 +188,17 @@ Tous les autres traits sont optionnels.
 
 The `brioche-governance-default` crate provides the reference implementations:
 
-| Trait | Implementation | Fichier |
-|-------|----------------|---------|
-| `EpochInterceptor` | `EpochGuard` | `epoch_guard.rs` |
-| `DecisionAggregator` | `LexicographicDecisionAggregator` | `policy_aggregator.rs` |
-| `SubRoutineLifecycleGuard` | `SubRoutineCleanupGuard` | `subroutine_cleanup_guard.rs` |
-| `ConsistencyVerifier` | `StateConsistencyGuard` | `state_consistency_guard.rs` |
-| `HookEffectConstraint` | `FastHookEffectConstraint` | `hook_effect_constraint.rs` |
-| `CycleRollbackPolicy` | `NoopCycleRollbackPolicy` | `noop_rollback_policy.rs` |
-| `GovernanceFailoverHandler` | `SystemFailoverGuard` | `system_failover_guard.rs` |
-| `SubRoutineHandler` | `SubRoutineOrchestrator` | `subroutine_orchestrator.rs` |
+| Trait | Implementation | File |
+|-------|----------------|------|
+| `EpochInterceptor` | `EpochGuard` | `guards.rs` |
+| `DecisionAggregator` | `LexicographicDecisionAggregator` | `aggregators.rs` |
+| `SubRoutineLifecycleGuard` | `SubRoutineCleanupGuard` | `subroutines.rs` |
+| `ConsistencyVerifier` | `StateConsistencyGuard` | `guards.rs` |
+| `HookEffectConstraint` | `FastHookEffectConstraint` | `aggregators.rs` |
+| `CycleRollbackPolicy` | `NoopCycleRollbackPolicy` | `noop_traits.rs` |
+| `GovernanceFailoverHandler` | `SystemFailoverGuard` | `guards.rs` |
+| `SubRoutineHandler` | `SubRoutineOrchestrator` | `subroutines.rs` |
 
 ---
 
-*Last updated: 2026-05-26 — Sprint 6 complete*
+*Last updated: 2026-06-25 — Sprint 6 complete; Phase 6 docs maintenance*
