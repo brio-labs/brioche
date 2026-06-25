@@ -1,20 +1,23 @@
 [package]
-name = "cargo-brioche-lint"
+name = "brioche-lint-core"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Cargo subcommand for linting Brioche plugins"
+description = "Shared library for Brioche lint tooling"
 
-[[bin]]
-name = "cargo-brioche-lint"
-path = "src/main.rs"
+[lib]
+name = "brioche_lint_core"
+path = "src/lib.rs"
 
 [dependencies]
-brioche-lint-core = { workspace = true }
 clap = { version = "4", features = ["derive"] }
+walkdir = "2"
+
+[dev-dependencies]
+tempfile = "3"
 
 [lints]
 workspace = true

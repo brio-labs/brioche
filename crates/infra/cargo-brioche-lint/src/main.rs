@@ -12,11 +12,11 @@
 //!
 //! Refs: docs/SPECS.md §Book IV Ch 3 §3.5
 
-use std::fs;
-use std::path::PathBuf;
+use std::path::Path;
 
+use brioche_lint_core::report;
+use brioche_lint_core::walk;
 use clap::Parser;
-use walkdir::WalkDir;
 
 /// CLI arguments.
 ///
@@ -25,9 +25,8 @@ use walkdir::WalkDir;
 #[command(name = "cargo-brioche-lint")]
 #[command(about = "Lint Brioche plugins for forbidden patterns")]
 struct Cli {
-    /// Path to the plugin crate.
-    #[arg(long, short, default_value = ".")]
-    path: PathBuf,
+    #[command(flatten)]
+    path: brioche_lint_core::PathArg,
 }
 
 /// A single lint violation.
@@ -45,18 +44,18 @@ struct Violation {
 /// Refs: docs/SPECS.md §Book IV Ch 3 §3.5
 fn main() {
     let cli = Cli::parse();
-    let violations = lint_directory(&cli.path);
+    let violations = lint_directory(&cli.path.path);
 
     if violations.is_empty() {
-        println!("No violations found ✓");
-        std::process::exit(0);
+        report::print_success("No violations found");
+        std::process::exit(brioche_lint_core::ExitCode::Success as i32);
     }
 
-    println!("Found {} violation(s):\n", violations.len());
+    report::print_violation_header(violations.len());
     for v in &violations {
-        println!("  {}:{} — {}", v.file, v.line, v.message);
+        report::print_file_violation(std::path::Path::new(&v.file), v.line, &v.message);
     }
-    std::process::exit(1);
+    std::process::exit(brioche_lint_core::ExitCode::Violations as i32);
 }
 
 /// Scan a directory for lint violations.
@@ -64,29 +63,14 @@ fn main() {
 /// # Complexity
 /// O(n · m) where n = files scanned, m = lines per file.
 ///
-/// Refs: docs/SPECS.md §Book IV Ch 3 §3.5
-fn lint_directory(root: &PathBuf) -> Vec<Violation> {
+fn lint_directory(root: &Path) -> Vec<Violation> {
     let mut violations = Vec::new();
 
-    for entry in WalkDir::new(root)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            let p = e.path();
-            p.extension().is_some_and(|ext| ext == "rs")
-                && !p.components().any(|c| {
-                    let s = c.as_os_str().to_string_lossy();
-                    s == "target" || s == ".git"
-                })
-        })
-    {
-        let path = entry.path();
-        let contents = match fs::read_to_string(path) {
-            Ok(c) => c,
-            Err(_) => continue,
+    for path in walk::walk_rust_files(root) {
+        let Some(contents) = walk::read_source_file(&path) else {
+            continue;
         };
-
-        lint_file_contents(path, &contents, &mut violations);
+        lint_file_contents(&path, &contents, &mut violations);
     }
 
     violations

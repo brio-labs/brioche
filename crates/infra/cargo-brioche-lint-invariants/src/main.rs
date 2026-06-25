@@ -11,12 +11,11 @@
 //!
 //! Refs: docs/SPECS.md §Book IV Ch 3 §3.4
 
-use std::fs;
-use std::path::PathBuf;
-
+use brioche_lint_core::report;
+use brioche_lint_core::walk;
 use clap::{Parser, Subcommand};
 use regex::Regex;
-use walkdir::WalkDir;
+use std::path::Path;
 
 /// Known invariant categories and their prefixes.
 ///
@@ -70,9 +69,8 @@ struct Cli {
     #[command(subcommand)]
     command: Commands,
 
-    /// Root directory to scan (default: current directory).
-    #[arg(long, global = true)]
-    root: Option<PathBuf>,
+    #[command(flatten)]
+    path: brioche_lint_core::PathArg,
 
     /// Output format.
     #[arg(long, global = true, default_value = "text")]
@@ -116,10 +114,7 @@ struct FileResult {
 /// Refs: docs/SPECS.md §Book IV Ch 3 §3.4
 fn main() {
     let cli = Cli::parse();
-    let root = match cli.root {
-        Some(p) => p,
-        None => PathBuf::from("."),
-    };
+    let root = cli.path.path;
 
     match cli.command {
         Commands::CheckRefs => {
@@ -127,7 +122,7 @@ fn main() {
                 Ok(r) => r,
                 Err(err) => {
                     eprintln!("internal error: {err}");
-                    std::process::exit(2);
+                    std::process::exit(brioche_lint_core::ExitCode::InternalError as i32);
                 }
             };
             if cli.format == "json" {
@@ -136,22 +131,24 @@ fn main() {
                 print_text(&results);
             }
             let has_errors = results.iter().any(|r| !r.unknown_refs.is_empty());
-            std::process::exit(if has_errors { 1 } else { 0 });
+            std::process::exit(if has_errors {
+                brioche_lint_core::ExitCode::Violations as i32
+            } else {
+                brioche_lint_core::ExitCode::Success as i32
+            });
         }
         Commands::CheckMatrix => {
             let violations = check_matrix();
             if violations.is_empty() {
-                println!("Governance compatibility matrix check: OK");
-                std::process::exit(0);
+                report::print_success("Governance compatibility matrix check: OK");
+                std::process::exit(brioche_lint_core::ExitCode::Success as i32);
             }
             println!(
                 "Governance compatibility matrix check: {} issue(s)",
                 violations.len()
             );
-            for v in &violations {
-                println!("  - {v}");
-            }
-            std::process::exit(1);
+            report::print_bullet_list(&violations);
+            std::process::exit(brioche_lint_core::ExitCode::Violations as i32);
         }
     }
 }
@@ -162,7 +159,7 @@ fn main() {
 /// O(n · m) where n = files scanned, m = lines per file.
 ///
 /// Refs: docs/SPECS.md §Book IV Ch 3 §3.4
-fn check_refs(root: &PathBuf) -> Result<Vec<FileResult>, String> {
+fn check_refs(root: &Path) -> Result<Vec<FileResult>, String> {
     let ref_re = Regex::new(r"Refs:\s*([A-Za-z0-9_/.-]+(?:\s*,\s*[A-Za-z0-9_/.-]+)*)")
         .map_err(|e| format!("failed to compile ref regex: {e}"))?;
     let invariant_re = Regex::new(r"^I-[A-Za-z]+-[A-Za-z0-9_-]+$")
@@ -170,22 +167,9 @@ fn check_refs(root: &PathBuf) -> Result<Vec<FileResult>, String> {
 
     let mut results = Vec::new();
 
-    for entry in WalkDir::new(root)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            let p = e.path();
-            p.extension().is_some_and(|ext| ext == "rs" || ext == "md")
-                && !p.components().any(|c| {
-                    let s = c.as_os_str().to_string_lossy();
-                    s == "target" || s == ".git"
-                })
-        })
-    {
-        let path = entry.path();
-        let contents = match fs::read_to_string(path) {
-            Ok(c) => c,
-            Err(_) => continue,
+    for path in walk::walk_rust_and_markdown_files(root) {
+        let Some(contents) = walk::read_source_file(&path) else {
+            continue;
         };
 
         let mut refs = Vec::new();
@@ -296,7 +280,7 @@ fn print_text(results: &[FileResult]) {
     }
 
     if total_unknown == 0 {
-        println!("All invariant references are valid ✓");
+        report::print_success("All invariant references are valid");
     }
 }
 
@@ -317,8 +301,6 @@ mod tests {
 
     #[test]
     fn accepts_valid_invariant_refs() {
-        let _contents = "/// Refs: I-Core-Pure, I-Gov-Decision-Required";
-        let _root = PathBuf::from(".");
         // Unit-test the regex directly by calling check_refs on a temp dir would
         // be noisy; instead exercise validation helpers.
         assert!(has_known_category("I-Core-Pure"));
