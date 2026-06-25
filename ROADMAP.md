@@ -213,6 +213,9 @@ The following areas are already in good shape and should not be regressed:
 | P3-SEC-11 | #172: Default tool allow-list tightened; `cargo`, `rustc`, `git`, `find` are now opt-in. |
 | P0-SEC-01 | #161: `ShellTool::execute_command` hardened against shell injection with argument validation. |
 | P0-SEC-02/03/05 | #164: Shell shutdown, rebuild-in-progress barrier/guard, and tool cancellation token. |
+| P5-TEST-09 | #160: Added `HistoryEdit` edge-case tests for Replace, Truncate, and out-of-bounds. |
+| P6-MAINT-06 | #163: Extracted shared `brioche-lint-core` library crate. |
+| P3-SEC-08 | #173: `OpenAiConfig` validates non-empty `api_key` and `model` before requests. |
 
 ---
 
