@@ -1,7 +1,7 @@
 //! Book I — The Core Book: Plugin hook evaluation.
 //!
-//! Canonical implementation of plugin route iteration with snapshot injection,
-//! COW rollback, and uniform error collection.
+//! Canonical implementation of plugin route iteration with COW rollback
+//! and uniform error collection.
 //!
 //! ## Invariants upheld
 //! - I-Core-StreamNoBranch: Iterates pre-routed indices directly.
@@ -13,8 +13,8 @@
 use super::{BriocheEngine, InputResult};
 use crate::types::InconsistencySource;
 use crate::{
-    BriocheError, BriochePlugin, Effect, EngineInput, ErrorCode, ErrorDetail, PluginError,
-    PluginResult, PluginSource, PolicyDecision, Session,
+    BriocheError, BriochePlugin, CycleRollbackPolicy, Effect, EngineInput, ErrorCode, ErrorDetail,
+    PluginError, PluginResult, PluginSource, PolicyDecision, Session,
 };
 
 /// Compact hook indices used for `HookEffectConstraint` validation.
@@ -29,8 +29,8 @@ pub(crate) const HOOK_INDEX_ON_STREAM_EVENT: u8 = 2;
 pub(crate) const HOOK_INDEX_ON_ERROR: u8 = 6;
 
 impl BriocheEngine {
-    /// Evaluate a pre-routed plugin hook with snapshot injection, rollback,
-    /// and uniform error collection.
+    /// Evaluate a pre-routed plugin hook with rollback and uniform error
+    /// collection.
     ///
     /// `hook` receives `(plugin, session)` and returns a `PluginResult<R>`.
     /// `on_ok` is called for each successful result.
@@ -38,9 +38,8 @@ impl BriocheEngine {
     /// Returns a vector of `(plugin_name, error)` pairs for any plugin
     /// failures. The caller decides how to materialize these into effects.
     ///
-    /// Snapshot is injected once before the loop. Rollback is applied
-    /// per-plugin. This is the single canonical implementation of the
-    /// iteration pattern; no caller may replicate it.
+    /// Rollback is applied per-plugin. This is the single canonical
+    /// implementation of the iteration pattern; no caller may replicate it.
     ///
     /// ## Architectural Note
     /// The `hook` closure takes `&dyn BriochePlugin`. PHILOSOPHY.md §1
@@ -52,24 +51,24 @@ impl BriocheEngine {
     /// rather than a dynamic dispatch on the hot-path routing decision.
     ///
     /// # Complexity
-    /// O(p) where p = route length. One snapshot insertion, one rollback
-    /// per plugin.
+    /// O(p) where p = route length. One rollback per plugin; no route-table
+    /// allocation.
     ///
     /// Refs: I-Core-StreamNoBranch, I-Gov-Rollback-BestEffort
     /// # Panics
     /// Never panics. Errors are returned as `Result::Err`.
     pub(crate) fn eval_route<R>(
-        &mut self,
+        plugins: &[Box<dyn BriochePlugin>],
+        rollback_policy: &mut Option<Box<dyn CycleRollbackPolicy>>,
         session: &mut Session,
         hook_name: &'static str,
         route: &[usize],
         mut hook: impl FnMut(&dyn BriochePlugin, &mut Session) -> PluginResult<R>,
         mut on_ok: impl FnMut(R),
     ) -> Vec<(&'static str, PluginError)> {
-        session.extensions.insert(session.snapshot());
         let mut errors = Vec::new();
         for &idx in route {
-            let name = match self.router.plugins.get(idx) {
+            let name = match plugins.get(idx) {
                 Some(p) => p.name(),
                 None => {
                     errors.push((
@@ -82,15 +81,16 @@ impl BriocheEngine {
                     continue;
                 }
             };
-            let result = self.with_rollback(session, hook_name, |engine, session| {
-                match engine.router.plugins.get(idx) {
+            let result =
+                Self::with_rollback(rollback_policy, session, hook_name, |session| match plugins
+                    .get(idx)
+                {
                     Some(plugin) => hook(plugin.as_ref(), session),
                     None => Err(PluginError::Fatal {
                         plugin_name: "<invalid_index>".into(),
                         message: format!("plugin index {idx} out of bounds"),
                     }),
-                }
-            });
+                });
             match result {
                 Ok(r) => on_ok(r),
                 Err(err) => errors.push((name, err)),
@@ -117,14 +117,20 @@ impl BriocheEngine {
         session: &mut Session,
         effects: &mut Vec<Effect>,
     ) {
-        let route = self.router.routing_table.route_after_prediction.clone();
-        let faults = self.eval_route(
-            session,
-            "after_prediction",
-            &route,
-            |plugin, session| plugin.after_prediction(&mut session.extensions),
-            |_ok| {},
-        );
+        let faults = {
+            let plugins = &self.router.plugins;
+            let route = &self.router.routing_table.route_after_prediction;
+            let rollback_policy = &mut self.governance.cycle_rollback_policy;
+            Self::eval_route(
+                plugins,
+                rollback_policy,
+                session,
+                "after_prediction",
+                route,
+                |plugin, session| plugin.after_prediction(&mut session.extensions),
+                |_ok| {},
+            )
+        };
         let on_error_effects = self.eval_on_error(session, &faults);
         effects.extend(on_error_effects);
         for (name, err) in faults {
@@ -149,14 +155,15 @@ impl BriocheEngine {
         session: &mut Session,
         input: &EngineInput,
     ) -> InputResult {
+        let plugins = &self.router.plugins;
+        let route = &self.router.routing_table.route_on_input;
+
         let mut accumulated = Vec::new();
         let mut override_transition: Option<(Vec<Effect>, PluginSource)> = None;
         let mut faults = Vec::new();
 
-        session.extensions.insert(session.snapshot());
-        let route = self.router.routing_table.route_on_input.clone();
-        for &idx in &route {
-            let Some(plugin) = self.router.plugins.get(idx) else {
+        for &idx in route {
+            let Some(plugin) = plugins.get(idx) else {
                 accumulated.push(Effect::Error {
                     code: ErrorCode::StateInconsistency,
                     detail: ErrorDetail::StateInconsistent {
@@ -168,16 +175,18 @@ impl BriocheEngine {
                 continue;
             };
             let name = plugin.name();
-            let decision =
-                self.with_rollback(session, "on_input", |engine, session| {
-                    match engine.router.plugins.get(idx) {
-                        Some(plugin) => plugin.as_ref().on_input(input, &mut session.extensions),
-                        None => Err(PluginError::Fatal {
-                            plugin_name: "<invalid_index>".into(),
-                            message: format!("plugin index {idx} out of bounds"),
-                        }),
-                    }
-                });
+            let decision = Self::with_rollback(
+                &mut self.governance.cycle_rollback_policy,
+                session,
+                "on_input",
+                |session| match plugins.get(idx) {
+                    Some(plugin) => plugin.as_ref().on_input(input, &mut session.extensions),
+                    None => Err(PluginError::Fatal {
+                        plugin_name: "<invalid_index>".into(),
+                        message: format!("plugin index {idx} out of bounds"),
+                    }),
+                },
+            );
 
             match decision {
                 Ok(PolicyDecision::Allow) => {}
@@ -252,14 +261,20 @@ impl BriocheEngine {
         descriptors: &mut Vec<crate::ToolCallDescriptor>,
         effects: &mut Vec<Effect>,
     ) -> Result<(), BriocheError> {
-        let route = self.router.routing_table.route_on_tool_calls.clone();
-        let faults = self.eval_route(
-            session,
-            "on_tool_calls",
-            &route,
-            |plugin, session| plugin.on_tool_calls(descriptors, &mut session.extensions),
-            |_ok| {},
-        );
+        let faults = {
+            let plugins = &self.router.plugins;
+            let route = &self.router.routing_table.route_on_tool_calls;
+            let rollback_policy = &mut self.governance.cycle_rollback_policy;
+            Self::eval_route(
+                plugins,
+                rollback_policy,
+                session,
+                "on_tool_calls",
+                route,
+                |plugin, session| plugin.on_tool_calls(descriptors, &mut session.extensions),
+                |_ok| {},
+            )
+        };
         let on_error_effects = self.eval_on_error(session, &faults);
         effects.extend(on_error_effects);
         for (name, err) in faults {
@@ -291,28 +306,31 @@ impl BriocheEngine {
             return Vec::new();
         }
 
-        let route = self.router.routing_table.route_on_error.clone();
+        let route = &self.router.routing_table.route_on_error;
         if route.is_empty() {
             return Vec::new();
         }
 
         let mut effects = Vec::new();
-        for &idx in &route {
+        for &idx in route {
             let Some(plugin) = self.router.plugins.get(idx) else {
                 continue;
             };
             let name = plugin.name();
 
             for (_fault_plugin, error) in faults {
-                let decision = self.with_rollback(session, "on_error", |engine, session| {
-                    match engine.router.plugins.get(idx) {
+                let decision = Self::with_rollback(
+                    &mut self.governance.cycle_rollback_policy,
+                    session,
+                    "on_error",
+                    |session| match self.router.plugins.get(idx) {
                         Some(plugin) => plugin.as_ref().on_error(error, &mut session.extensions),
                         None => Err(PluginError::Fatal {
                             plugin_name: "<invalid_index>".into(),
                             message: format!("plugin index {idx} out of bounds"),
                         }),
-                    }
-                });
+                    },
+                );
 
                 match decision {
                     Ok(PolicyDecision::RequestEffect(eff)) => {
