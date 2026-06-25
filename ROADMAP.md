@@ -201,6 +201,8 @@ The following areas are already in good shape and should not be regressed:
 | P4-CI-13 | #154: Quoted PR metadata in `.github/workflows/conventional-commits.yml` to prevent shell injection. |
 | P4-CI-14 | #154: Removed unused `scripts/check-invariants.sh`. |
 | P4-CI-15 | #154: `crates/kernel/brioche-macro/Cargo.toml` now uses `[lints] workspace = true`. |
+| P4-CI-09 | #170: `clippy::cognitive_complexity` promoted to `warn` in workspace lints. |
+| P4-CI-10 | #170: `cargo tree --duplicates` added to dependency-audit CI job. |
 | P2-PERF-03 | #167: `ExtensionStorage::insert` skips `cold_snapshot` for `NoSnapshot` types. |
 | P2-PERF-04 | #167: `apply_governance_failover` avoids cloning non-fault effects via in-place partitioning. |
 | P2-PERF-05 | #167: `append_state_effects` clone cost removed/documented; argument strings use `Arc\u003cstr\u003e`. |
