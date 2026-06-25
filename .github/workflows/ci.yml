@@ -63,6 +63,7 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '**/Cargo.toml'
+              - 'deny.toml'
 
   # -------------------------------------------------------------------------
   # Gate 0 — Fast static checks (run in parallel)

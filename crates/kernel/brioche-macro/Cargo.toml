@@ -23,10 +23,5 @@ brioche-governance = { workspace = true }
 brioche-plugin-kit = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 
-[lints.clippy]
-unwrap_used = "deny"
-expect_used = "deny"
-panic = "deny"
-
-[lints.rust]
-missing_docs = "deny"
+[lints]
+workspace = true
