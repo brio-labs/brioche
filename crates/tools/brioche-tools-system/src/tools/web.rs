@@ -46,11 +46,25 @@ impl SystemTool for FetchUrlTool {
         args: serde_json::Value,
         cancel: CancellationToken,
     ) -> Result<String, ToolError> {
+        use brioche_shell_runtime::{
+            ALLOWED_SCHEMES, BLOCKED_HOSTS, DEFAULT_MAX_REDIRECTS, DEFAULT_MAX_RESPONSE_BYTES,
+            DEFAULT_REQUEST_TIMEOUT, HttpClientError, build_http_client, read_body_with_size_limit,
+            validate_url,
+        };
+
         let url = args["url"]
             .as_str()
             .ok_or_else(|| ToolError::InvalidArgs("missing 'url'".into()))?;
 
-        let client = reqwest::Client::new();
+        validate_url(url, ALLOWED_SCHEMES, BLOCKED_HOSTS).map_err(|err| match err {
+            HttpClientError::UrlNotAllowed { .. } => {
+                ToolError::InvalidArgs(format!("URL not allowed: {url}"))
+            }
+            other => ToolError::Io(std::io::Error::other(other.to_string())),
+        })?;
+
+        let client = build_http_client(DEFAULT_REQUEST_TIMEOUT, DEFAULT_MAX_REDIRECTS)
+            .map_err(|err| ToolError::Io(std::io::Error::other(err.to_string())))?;
         let request = client.get(url);
 
         let response = tokio::select! {
@@ -68,10 +82,10 @@ impl SystemTool for FetchUrlTool {
             response.map_err(|err| ToolError::Io(std::io::Error::other(err.to_string())))?;
 
         let status = response.status();
-        let body = response
-            .text()
+        let body = read_body_with_size_limit(response, DEFAULT_MAX_RESPONSE_BYTES)
             .await
             .map_err(|err| ToolError::Io(std::io::Error::other(err.to_string())))?;
+        let body = String::from_utf8_lossy(&body);
 
         if !status.is_success() {
             return Err(ToolError::Io(std::io::Error::other(format!(
@@ -80,6 +94,6 @@ impl SystemTool for FetchUrlTool {
             ))));
         }
 
-        Ok(body)
+        Ok(body.into_owned())
     }
 }
