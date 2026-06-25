@@ -21,9 +21,12 @@
 pub mod dto;
 pub mod extensions;
 pub mod profiles;
+pub mod secret;
 pub mod settings;
 pub mod skills;
 pub mod storage;
+
+pub use secret::{Secret, SecretError};
 
 pub use dto::{FlattenedAgentState, SessionHeadDTO, SessionSchemaVersion};
 pub use extensions::*;
