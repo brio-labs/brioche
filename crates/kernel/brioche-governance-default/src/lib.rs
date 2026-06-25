@@ -86,3 +86,35 @@ pub use tree_decision_aggregator::{
 // GovernanceProfile is re-exported at crate root for one-line bootstrap.
 mod profile;
 pub use profile::{BriocheEngineBuilderExt, GovernanceProfile};
+
+// ---------------------------------------------------------------------------
+// Priority constants
+// ---------------------------------------------------------------------------
+
+/// Named evaluation priorities for governance-default plugins.
+///
+/// Lower values run earlier. Ties are broken lexicographically by plugin
+/// `name`. Using named constants makes the cross-plugin ordering policy
+/// explicit and searchable.
+///
+/// Refs: I-Core-PluginOrder
+pub struct Priority;
+
+impl Priority {
+    /// Very early `on_error` handler — quarantine before recovery.
+    pub const QUARANTINE: i16 = -100;
+    /// Early input interceptor — recover from cascading failures.
+    pub const RECOVERY: i16 = -50;
+    /// Input guard — enforce sub-routine depth limits.
+    pub const DEPTH_GUARD: i16 = -40;
+    /// Sub-routine timeout enforcement.
+    pub const SUBROUTINE_TIMEOUT: i16 = -30;
+    /// Tool timeout bounds before `ExecuteTools`.
+    pub const TOOL_TIMEOUT: i16 = -10;
+    /// Tool result formatting before other plugins inspect results.
+    pub const TOOL_FORMATTER: i16 = 10;
+    /// Stream-event argument accumulation.
+    pub const ARGUMENT_ACCUMULATOR: i16 = 20;
+    /// Late telemetry observer.
+    pub const TELEMETRY: i16 = 100;
+}

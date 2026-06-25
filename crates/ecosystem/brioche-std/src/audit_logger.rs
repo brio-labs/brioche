@@ -11,6 +11,8 @@ use brioche_core::{
     PluginResult, PolicyDecision,
 };
 
+use crate::Priority;
+
 /// Single audit log entry.
 ///
 /// # Invariants
@@ -82,7 +84,7 @@ impl BriochePlugin for AuditLogger {
     }
 
     fn priority(&self) -> i16 {
-        -100 // Very early — log before any interceptor can block
+        Priority::AUDIT_LOGGER // Very early — log before any interceptor can block
     }
 
     /// Logs the input and requests a blob flush if batch is full.

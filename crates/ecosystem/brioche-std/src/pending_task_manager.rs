@@ -13,6 +13,8 @@ use brioche_core::{
     PluginResult, PolicyDecision, SignalBuffer, ToolResultDTO,
 };
 
+use crate::Priority;
+
 /// Marker string that a tool result must contain to be treated as pending.
 const PENDING_MARKER: &str = "__PENDING__";
 
@@ -102,7 +104,7 @@ impl BriochePlugin for PendingTaskManager {
     }
 
     fn priority(&self) -> i16 {
-        20 // After primary processors
+        Priority::PENDING_TASK // After primary processors
     }
 
     /// Inspects tool results for pending task indicators.

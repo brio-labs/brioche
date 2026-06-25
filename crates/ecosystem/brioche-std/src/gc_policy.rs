@@ -11,6 +11,8 @@ use brioche_core::{
     SessionSnapshot, SignalBuffer,
 };
 
+use crate::Priority;
+
 /// GC policy state.
 ///
 /// ## Snapshot strategy
@@ -79,7 +81,7 @@ impl BriochePlugin for GcPolicy {
     }
 
     fn priority(&self) -> i16 {
-        200 // Late observer — let interceptors run first
+        Priority::GC_OBSERVER // Late observer — let interceptors run first
     }
 
     /// Increments the GC cycle counter and stores the current policy config.
@@ -198,7 +200,7 @@ impl BriochePlugin for ContextOptimizer {
     }
 
     fn priority(&self) -> i16 {
-        -5 // After interceptors, before prediction
+        Priority::CONTEXT_OPTIMIZER // After interceptors, before prediction
     }
 
     fn before_prediction(

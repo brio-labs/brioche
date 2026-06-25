@@ -7,6 +7,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::Priority;
 use brioche_core::{
     AgentStateTag, BriochePlugin, EngineInput, ExtensionStorage, PluginCapabilities, PluginResult,
     PolicyDecision, SessionSnapshot, ToolCallDescriptor,
@@ -67,7 +68,7 @@ impl BriochePlugin for ToolTimeoutPolicy {
     }
 
     fn priority(&self) -> i16 {
-        -10
+        Priority::TOOL_TIMEOUT
     }
 
     /// Applies the default timeout and caps to `max_timeout_ms`.
@@ -164,7 +165,7 @@ impl BriochePlugin for SubRoutineTimeoutPolicy {
     }
 
     fn priority(&self) -> i16 {
-        -30
+        Priority::SUBROUTINE_TIMEOUT
     }
 
     /// Checks active sub-routine timers for expiry.
