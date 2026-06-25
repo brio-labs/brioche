@@ -120,6 +120,26 @@ impl SystemTool for ExecuteCommandTool {
         match &self.policy {
             SandboxPolicy::Permissive => {
                 tracing::warn!(command, "executing command in permissive sandbox");
+                if let Some(ref handler) = self.confirm_handler {
+                    let cmd = command.to_string();
+                    let handler = Arc::clone(handler);
+                    let confirmed = tokio::task::spawn_blocking(move || handler(&cmd))
+                        .await
+                        .map_err(|e| {
+                            ToolError::Io(std::io::Error::other(format!(
+                                "confirm task failed: {e}"
+                            )))
+                        })?;
+                    if !confirmed {
+                        return Err(ToolError::SandboxDenied(format!(
+                            "command '{command}' was denied by user"
+                        )));
+                    }
+                } else {
+                    return Err(ToolError::SandboxDenied(format!(
+                        "command '{command}' requires confirmation in permissive sandbox"
+                    )));
+                }
             }
             SandboxPolicy::AllowList(list) => {
                 if !list.is_allowed(command) {
