@@ -213,6 +213,9 @@ fn engine_input_strategy() -> impl Strategy<Value = EngineInput> {
         prop_oneof![
             Just(StreamEvent::Done),
             Just(StreamEvent::Pass),
+            Just(StreamEvent::Error {
+                message: "test error".into(),
+            }),
             ("[a-z0-9]{1,8}", "[a-z0-9]{1,8}").prop_map(|(id, name)| StreamEvent::ToolCallStart {
                 path: ExecutionPath::default(),
                 id,
