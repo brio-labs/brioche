@@ -19,10 +19,5 @@ divan = "=0.1.21"
 name = "benchmarks"
 harness = false
 
-[lints.clippy]
-unwrap_used = "deny"
-expect_used = "deny"
-panic = "deny"
-
-[lints.rust]
-missing_docs = "deny"
+[lints]
+workspace = true

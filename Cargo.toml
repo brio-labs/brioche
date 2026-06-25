@@ -22,7 +22,7 @@ repository = "https://github.com/brio-labs/brioche"
 [workspace.dependencies]
 async-trait = "0.1"
 bytes = "1"
-brioche-core = { path = "crates/kernel/brioche-core" }
+brioche-core = { path = "crates/kernel/brioche-core", version = "0.1.0" }
 serde_json = "1"
 tokio = { version = "1", features = [
   "rt-multi-thread",
@@ -32,30 +32,37 @@ tokio = { version = "1", features = [
 ] }
 tokio-util = { version = "0.7", features = ["rt"] }
 tracing = "0.1"
-brioche-governance = { path = "crates/kernel/brioche-governance" }
-brioche-governance-default = { path = "crates/kernel/brioche-governance-default" }
-brioche-shell-runtime = { path = "crates/runtime/brioche-shell-runtime" }
-brioche-shell-persistence = { path = "crates/runtime/brioche-shell-persistence" }
-brioche-shell-projection = { path = "crates/runtime/brioche-shell-projection" }
-brioche-std = { path = "crates/ecosystem/brioche-std" }
-brioche-macro = { path = "crates/kernel/brioche-macro" }
-brioche-plugin-kit = { path = "crates/ecosystem/brioche-plugin-kit" }
-brioche-docgen = { path = "crates/ecosystem/brioche-docgen" }
-brioche-playground = { path = "crates/ecosystem/brioche-playground" }
-brioche-provider-openai = { path = "crates/providers/brioche-provider-openai" }
-brioche-tools-system = { path = "crates/tools/brioche-tools-system" }
-brioche-reedline = { path = "crates/infra/brioche-reedline" }
-cargo-brioche-lint-invariants = { path = "crates/infra/cargo-brioche-lint-invariants" }
-cargo-brioche-lint = { path = "crates/infra/cargo-brioche-lint" }
+brioche-governance = { path = "crates/kernel/brioche-governance", version = "0.1.0" }
+brioche-governance-default = { path = "crates/kernel/brioche-governance-default", version = "0.1.0" }
+brioche-shell-runtime = { path = "crates/runtime/brioche-shell-runtime", version = "0.1.0" }
+brioche-shell-persistence = { path = "crates/runtime/brioche-shell-persistence", version = "0.1.0" }
+brioche-shell-projection = { path = "crates/runtime/brioche-shell-projection", version = "0.1.0" }
+brioche-std = { path = "crates/ecosystem/brioche-std", version = "0.1.0" }
+brioche-macro = { path = "crates/kernel/brioche-macro", version = "0.1.0" }
+brioche-plugin-kit = { path = "crates/ecosystem/brioche-plugin-kit", version = "0.1.0" }
+brioche-docgen = { path = "crates/ecosystem/brioche-docgen", version = "0.1.0" }
+brioche-playground = { path = "crates/ecosystem/brioche-playground", version = "0.1.0" }
+brioche-provider-openai = { path = "crates/providers/brioche-provider-openai", version = "0.1.0" }
+brioche-tools-system = { path = "crates/tools/brioche-tools-system", version = "0.1.0" }
+brioche-reedline = { path = "crates/infra/brioche-reedline", version = "0.1.0" }
+cargo-brioche-lint-invariants = { path = "crates/infra/cargo-brioche-lint-invariants", version = "0.1.0" }
+cargo-brioche-lint = { path = "crates/infra/cargo-brioche-lint", version = "0.1.0" }
 dirs = "6"
 reqwest = { version = "0.13", features = ["json"] }
 lazy_static = "1"
 base64-simd = "0.8"
 
+# Tauri desktop stack — aligned on 2.x and reviewed quarterly
+tauri = { version = "2", features = ["custom-protocol"] }
+tauri-build = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+
 [workspace.lints.clippy]
 unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
+cognitive_complexity = "warn"
 
 [workspace.lints.rust]
 missing_docs = "warn"

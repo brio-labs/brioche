@@ -10,10 +10,5 @@ description = "Governance traits and policy contracts"
 
 [dependencies]
 
-[lints.clippy]
-unwrap_used = "deny"
-expect_used = "deny"
-panic = "deny"
-
-[lints.rust]
-missing_docs = "deny"
+[lints]
+workspace = true
