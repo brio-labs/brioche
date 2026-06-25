@@ -429,6 +429,40 @@ impl BriocheShell {
         }
     }
 
+    /// Test-only constructor that exposes all shell channels.
+    ///
+    /// Returns the shell plus receivers for `EngineInput`, `SystemSignal`,
+    /// `AsyncTaskResult`, and `GovernanceNotification`. This lets integration
+    /// tests observe the side effects of `EffectExecutor` implementations
+    /// without spinning up the engine thread.
+    ///
+    /// Refs: I-Shell-Drain-Atomic
+    pub fn test_with_channels() -> (
+        Self,
+        mpsc::Receiver<EngineInput>,
+        mpsc::Receiver<SystemSignal>,
+        mpsc::Receiver<brioche_core::AsyncTaskResult>,
+        mpsc::Receiver<GovernanceNotification>,
+    ) {
+        let (input_tx, input_rx) = mpsc::channel(64);
+        let (system_tx, system_rx) = mpsc::channel(64);
+        let (gov_tx, gov_rx) = mpsc::channel(64);
+        let (async_tx, async_rx) = mpsc::channel(64);
+        let (_rebuild_tx, _rebuild_rx) = mpsc::channel(1);
+        drop(_rebuild_rx);
+
+        let shell = Self {
+            input_tx,
+            system_signal_tx: system_tx,
+            governance_tx: gov_tx,
+            async_task_result_tx: async_tx,
+            rebuild_tx: _rebuild_tx,
+            rebuild_in_progress: Arc::new(AtomicBool::new(false)),
+            task_tracker: TaskTracker::new(),
+        };
+        (shell, input_rx, system_rx, async_rx, gov_rx)
+    }
+
     /// Send an `EngineInput` to the kernel.
     ///
     /// Returns `Err(ShellError::RebuildInProgress)` if a route
