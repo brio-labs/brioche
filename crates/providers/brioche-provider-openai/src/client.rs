@@ -746,7 +746,19 @@ impl OpenAiLlmClient {
                 )));
             }
 
-            for event in parser.feed(&chunk) {
+            let events = match parser.feed(&chunk) {
+                Ok(events) => events,
+                Err(err) => {
+                    let msg = format!("SSE parser error: {err}");
+                    tracing::error!(%msg, "SSE parser aborted after repeated malformed lines");
+                    let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
+                    shell
+                        .send_system_signal(SystemSignal::NetworkUnavailable { reason: msg })
+                        .await?;
+                    return Err(ShellError::EffectExecution("sse".into()));
+                }
+            };
+            for event in events {
                 event_count += 1;
                 tracing::debug!(event = %event.to_string(), "SSE event");
                 self.process_sse_event(shell, &event, &mut acc).await?;
