@@ -102,10 +102,9 @@ jobs:
         with:
           toolchain: nightly-2026-06-15
           components: rustfmt
-      - run: cargo fmt --check
 
   clippy:
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-8vcpu-ubuntu-2404-arm
     needs: [changes]
     if: needs.changes.outputs.rust == 'true'
     steps:
