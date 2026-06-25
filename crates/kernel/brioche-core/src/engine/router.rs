@@ -45,7 +45,8 @@ impl UnifiedRoutingTable {
     ///
     /// Convenience wrapper over `from_plugins_filtered` with all indices active.
     ///
-    /// Complexity: O(p log p) where p = number of plugins.
+    /// # Complexity
+    /// O(p log p) where p = number of plugins.
     ///
     /// Refs: I-Core-Pure
     /// # Panics
@@ -61,7 +62,8 @@ impl UnifiedRoutingTable {
     /// included in the routing table. Used by `rebuild_routes` during
     /// quarantine events.
     ///
-    /// Complexity: O(p log p) where p = number of active plugins.
+    /// # Complexity
+    /// O(p log p) where p = number of active plugins.
     ///
     /// Refs: I-Gov-Rebuild-Barrier
     /// # Panics
