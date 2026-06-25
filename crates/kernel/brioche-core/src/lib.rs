@@ -26,7 +26,7 @@ pub use brioche_macro::BriocheExtensionType;
 pub use engine::{BriocheEngine, BriocheEngineBuilder, Missing, Present, UnifiedRoutingTable};
 pub use extension::{
     BriocheExtensionType, CloneBoxFn, DefaultConstructFn, DeserializeFn, ExtVTable,
-    ExtensionStorage, SerializeFn, SnapshotStrategy, WeightFn,
+    ExtensionStorage, SerializeError, SerializeFn, SnapshotStrategy, WeightFn,
 };
 pub use plugin::{
     BriochePlugin, ConsistencyVerifier, CowBudgetPolicy, CycleRollbackPolicy, DecisionAggregator,

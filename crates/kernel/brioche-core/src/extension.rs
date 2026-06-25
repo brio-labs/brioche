@@ -33,17 +33,54 @@ pub enum SnapshotStrategy {
     CriticalFullClone,
 }
 
+/// Error returned when a `BriocheExtensionType` cannot be serialized.
+///
+/// The error message describes why serialization failed. It is intentionally
+/// a concrete, owned type so that VTable function pointers remain object-safe
+/// and callers can propagate the failure without depending on `postcard`.
+///
+/// Refs: I-Core-VTableClone
+#[derive(Clone, Debug, PartialEq)]
+pub struct SerializeError {
+    message: String,
+}
+
+impl SerializeError {
+    /// Create a new serialization error from any string-like value.
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+
+    /// Return the error message.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+impl std::fmt::Display for SerializeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for SerializeError {}
+
 /// Serialize a type-erased instance to a binary blob.
 ///
 /// # Complexity
 /// O(serialization cost). Deterministic for `BriocheExtensionType`s.
 ///
+/// # Errors
+/// Returns `Err(SerializeError)` if serialization fails. Callers must surface
+/// the error instead of persisting an empty blob.
+///
 /// # Panics
-/// Never panics. Implementations must return an empty blob or map
-/// errors rather than panic.
+/// Never panics.
 ///
 /// Refs: I-Core-VTableClone
-pub type SerializeFn = fn(&dyn Any) -> Vec<u8>;
+pub type SerializeFn = fn(&dyn Any) -> Result<Vec<u8>, SerializeError>;
 
 /// Deserialize a binary blob into a type-erased instance.
 ///
@@ -125,6 +162,9 @@ pub struct ExtVTable {
     /// Unique extension identifier, matching `BriocheExtensionType::EXT_ID`.
     pub ext_id: &'static str,
     /// Serialize a type-erased instance to a binary blob.
+    ///
+    /// Returns `Err(SerializeError)` if serialization fails. Callers must
+    /// surface the error instead of persisting an empty blob.
     ///
     /// Refs: I-Core-VTableClone
     pub serialize: SerializeFn,
@@ -323,12 +363,16 @@ impl ExtensionStorage {
     /// and stored in `cold_snapshot`, then placed in `hot_map` for fast
     /// access.
     ///
+    /// # Errors
+    /// Returns `Err(SerializeError)` if serialization fails. In that case,
+    /// neither `cold_snapshot` nor `hot_map` is updated.
+    ///
     /// Complexity: O(serialization cost). Two `BTreeMap` insertions.
     /// # Panics
     /// Never panics.
     ///
     /// Refs: I-Core-Pure
-    pub fn insert<T>(&mut self, value: T)
+    pub fn insert<T>(&mut self, value: T) -> Result<(), SerializeError>
     where
         T: BriocheExtensionType + 'static,
     {
@@ -337,12 +381,13 @@ impl ExtensionStorage {
             self.register::<T>();
         }
         if let Some(vtable) = self.registry.get(&type_id) {
-            let blob = (vtable.serialize)(&value);
+            let blob = (vtable.serialize)(&value)?;
             self.cold_snapshot.insert(vtable.ext_id.to_string(), blob);
             self.hot_map.insert(type_id, Box::new(value));
         }
         // Defensive: if vtable is missing, value is silently dropped.
         // This should never happen because register was called above.
+        Ok(())
     }
 
     /// Get a mutable reference to a typed extension, if present.

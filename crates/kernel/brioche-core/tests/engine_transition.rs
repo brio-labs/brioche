@@ -897,9 +897,10 @@ fn transition_with_epoch_guard_blocks_stale_generation() {
 
     let mut session = Session::new("test");
     // Simulate an advanced epoch
-    session.extensions.insert(brioche_core::EpochState {
+    let result = session.extensions.insert(brioche_core::EpochState {
         current_generation: 5,
     });
+    assert!(result.is_ok(), "EpochState serializes: {result:?}");
 
     let effects = engine.transition(
         &mut session,
@@ -926,9 +927,10 @@ fn transition_with_epoch_guard_allows_current_generation() {
         .build();
 
     let mut session = Session::new("test");
-    session.extensions.insert(brioche_core::EpochState {
+    let result = session.extensions.insert(brioche_core::EpochState {
         current_generation: 7,
     });
+    assert!(result.is_ok(), "EpochState serializes: {result:?}");
 
     let r1 = session.push_state(AgentState::Predicting { generation_id: 7 });
     assert!(r1.is_ok());
@@ -1144,9 +1146,10 @@ fn adaptive_undo_frame_guard_restores_mutated_extension() {
 
     let mut guard = AdaptiveUndoFrameGuard::new();
     let mut ext = ExtensionStorage::new();
-    ext.insert(brioche_core::EpochState {
+    let result = ext.insert(brioche_core::EpochState {
         current_generation: 42,
     });
+    assert!(result.is_ok(), "EpochState serializes: {result:?}");
 
     guard.begin_hook("on_input");
 
@@ -1172,7 +1175,8 @@ fn adaptive_undo_frame_guard_abandons_past_threshold() {
 
     let mut guard = AdaptiveUndoFrameGuard::new(); // budget will likely be exceeded by TestCowState
     let mut ext = ExtensionStorage::new();
-    ext.insert(TestCowState { value: 7 });
+    let result = ext.insert(TestCowState { value: 7 });
+    assert!(result.is_ok(), "TestCowState serializes: {result:?}");
 
     guard.begin_hook("on_input");
 
@@ -1258,8 +1262,10 @@ fn engine_rolls_back_extensions_when_cow_budget_exceeded() {
         .build();
 
     let mut session = Session::new("rollback-test");
-    session.extensions.insert(snapshot_a);
-    session.extensions.insert(snapshot_b);
+    let result = session.extensions.insert(snapshot_a);
+    assert!(result.is_ok(), "RollbackTypeA serializes: {result:?}");
+    let result = session.extensions.insert(snapshot_b);
+    assert!(result.is_ok(), "RollbackTypeB serializes: {result:?}");
 
     let _effects = engine.transition(&mut session, &EngineInput::UserMessage("go".into()));
 
@@ -1440,11 +1446,11 @@ fn engine_with_adaptive_undo_frame_guard_instruments_hooks() {
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
         .build();
-
     let mut session = Session::new("test");
-    session.extensions.insert(brioche_core::EpochState {
+    let result = session.extensions.insert(brioche_core::EpochState {
         current_generation: 1,
     });
+    assert!(result.is_ok(), "EpochState serializes: {result:?}");
 
     // The hook mutates EpochState; COW instrumentation should not interfere
     // with normal operation (commit_hook is called when budget is respected).

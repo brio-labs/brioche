@@ -416,14 +416,12 @@ pub fn derive_brioche_extension_type(input: TokenStream) -> TokenStream {
             where
                 Self: Sized,
             {
-                fn serialize(any: &dyn ::core::any::Any) -> ::std::vec::Vec<u8> {
+                fn serialize(any: &dyn ::core::any::Any) -> ::core::result::Result<::std::vec::Vec<u8>, ::brioche_core::SerializeError> {
                     if let Some(this) = any.downcast_ref::<#name>() {
-                        match ::brioche_core::postcard::to_stdvec(this) {
-                            Ok(v) => v,
-                            Err(_) => ::std::vec::Vec::new(),
-                        }
+                        ::brioche_core::postcard::to_stdvec(this)
+                            .map_err(|e| ::brioche_core::SerializeError::new(format!("serialize failed: {}", e)))
                     } else {
-                        ::std::vec::Vec::new()
+                        Err(::brioche_core::SerializeError::new("downcast failed during serialization"))
                     }
                 }
                 fn deserialize(bytes: &[u8]) -> ::core::result::Result<::std::boxed::Box<dyn ::core::any::Any + Send + Sync>, ::std::string::String> {

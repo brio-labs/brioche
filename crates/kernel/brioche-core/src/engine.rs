@@ -203,7 +203,14 @@ impl BriocheEngine {
         let pre = self.capture_pre_transition_state(session);
 
         // Inject a shared snapshot for all pre-mutation hooks.
-        session.extensions.insert(session.snapshot());
+        if let Err(err) = session.extensions.insert(session.snapshot()) {
+            return vec![Effect::Error {
+                code: ErrorCode::StateInconsistency,
+                detail: ErrorDetail::TransitionFailed {
+                    reason: format!("failed to persist session snapshot: {}", err),
+                },
+            }];
+        }
 
         let mut effects = Vec::new();
 

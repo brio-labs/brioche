@@ -206,7 +206,8 @@ fn snapshot_as_extension_type_roundtrip() {
         current_state: AgentStateTag::ExecutingTools,
         state_stack_depth: 3,
     };
-    storage.insert(snap.clone());
+    let result = storage.insert(snap.clone());
+    assert!(result.is_ok(), "SessionSnapshot serializes: {result:?}");
 
     let retrieved = storage.get_mut::<SessionSnapshot>();
     if let Some(snap) = retrieved {
