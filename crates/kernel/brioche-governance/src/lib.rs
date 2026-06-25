@@ -1,4 +1,5 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
+#![deny(missing_docs)]
 
 //! # Brioche Governance — Book II
 //!

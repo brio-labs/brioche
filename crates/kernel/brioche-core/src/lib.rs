@@ -1,4 +1,5 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
+#![deny(missing_docs)]
 
 //! Book I — The Core Book: Synchronous kernel and pure mechanisms.
 //!

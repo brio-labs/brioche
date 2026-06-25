@@ -1,4 +1,5 @@
 //! # Brioche Governance Default — Book II (Implementations)
+#![deny(missing_docs)]
 //!
 //! Reference implementations of governance traits defined in
 //! `brioche-governance`. These are the default plugins shipped with
