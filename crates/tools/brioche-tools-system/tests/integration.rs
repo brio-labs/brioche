@@ -259,4 +259,35 @@ async fn schema_validation_rejects_invalid_json() {
         }
         other => unreachable!("expected BusinessError, got {other:?}"),
     }
+
+#[tokio::test]
+async fn sandbox_blocks_command_injection_when_first_token_is_allowed() {
+    let executor = SystemToolExecutor::new().with_tool(ExecuteCommandTool::new().with_policy(
+        SandboxPolicy::AllowList(AllowList::new().with_command("ls")),
+    ));
+
+    let call = ActiveToolCall {
+        tool_id: "1".into(),
+        tool_name: "execute_command".into(),
+        arguments: r#"{"command":"ls; rm -rf /"}"#.into(),
+        timeout_ms: 5000,
+    };
+    let result = executor.execute(&call, CancellationToken::new()).await;
+
+    assert!(
+        matches!(result.outcome, brioche_core::ToolOutcome::BusinessError(_)),
+        "expected business error, got {:?}",
+        result.outcome
+    );
+    let err = match result.outcome {
+        brioche_core::ToolOutcome::BusinessError(e) => e,
+        other => {
+            let _ = other;
+            return;
+        }
+    };
+    assert!(
+        err.contains("shell metacharacter"),
+        "error should mention shell metacharacter: {err}"
+    );
 }
