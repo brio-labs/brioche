@@ -459,8 +459,43 @@ impl SystemTool for UserDefinedTool {
 ///
 /// Values are JSON-encoded; strings are inserted without quotes.
 ///
+/// Placeholder keys must match `^[a-zA-Z0-9_]+$` and braces must be balanced;
+/// otherwise an `InvalidArgs` error is returned.
+///
 /// Refs: I-Shell-Runtime-OnlyIO
-fn interpolate(template: &str, args: &serde_json::Value) -> String {
+fn interpolate(template: &str, args: &serde_json::Value) -> Result<String, ToolError> {
+    // Validate placeholder keys and brace balance before substitution.
+    if let serde_json::Value::Object(map) = args {
+        for key in map.keys() {
+            if !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                return Err(ToolError::InvalidArgs(format!(
+                    "placeholder key '{key}' contains invalid characters"
+                )));
+            }
+        }
+    }
+
+    let mut depth: i32 = 0;
+    for ch in template.chars() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth < 0 {
+                    return Err(ToolError::InvalidArgs(
+                        "unbalanced braces in command template".into(),
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+    if depth != 0 {
+        return Err(ToolError::InvalidArgs(
+            "unbalanced braces in command template".into(),
+        ));
+    }
+
     let mut result = template.to_string();
     if let serde_json::Value::Object(map) = args {
         for (key, value) in map {
@@ -472,7 +507,7 @@ fn interpolate(template: &str, args: &serde_json::Value) -> String {
             result = result.replace(&placeholder, &rendered);
         }
     }
-    result
+    Ok(result)
 }
 
 async fn execute_command(
@@ -481,7 +516,7 @@ async fn execute_command(
     args: serde_json::Value,
     cancel: CancellationToken,
 ) -> Result<String, ToolError> {
-    let command = interpolate(template, &args);
+    let command = interpolate(template, &args)?;
 
     let mut cmd = tokio::process::Command::new("sh");
     cmd.arg("-c").arg(&command);

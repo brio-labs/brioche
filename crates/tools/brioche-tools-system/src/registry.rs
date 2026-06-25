@@ -77,15 +77,16 @@ impl AllowList {
 }
 
 impl Default for AllowList {
+    /// Default allow-list contains only read-only, safe commands.
+    ///
+    /// Compilers and version-control tools (`cargo`, `rustc`, `git`)
+    /// and broad filesystem scanners (`find`) are opt-in via
+    /// `with_command` to reduce default blast radius.
     fn default() -> Self {
         Self::new()
             .with_command("ls")
             .with_command("cat")
             .with_command("grep")
-            .with_command("find")
-            .with_command("git")
-            .with_command("cargo")
-            .with_command("rustc")
             .with_command("pwd")
             .with_command("echo")
             .with_command("head")
