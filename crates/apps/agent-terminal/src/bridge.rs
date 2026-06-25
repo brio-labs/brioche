@@ -119,7 +119,7 @@ async fn handle_slash_command(
                 let mgr = manager.read().await;
                 for id in mgr.list() {
                     if let Some(shell) = mgr.get(id) {
-                        shell.shutdown();
+                        shell.shutdown().await;
                     }
                 }
             }

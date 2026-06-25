@@ -13,7 +13,7 @@ use std::sync::{Arc, RwLock};
 
 use brioche_core::{
     ActiveToolCall, AsyncTaskResult, ChatMessage, ErrorCode, ErrorDetail, SubRoutineHandle,
-    SystemSignal, ToolResultDTO, UiWidget,
+    SystemSignal, ToolOutcome, ToolResultDTO, UiWidget,
 };
 
 use crate::{BriocheShell, NetworkRecovery, PersistenceMode, ShellError};
@@ -150,6 +150,12 @@ pub trait EffectExecutor: Clone + Send + Sync + 'static {
     ///
     /// `generation_id` is captured from the engine state snapshot so the
     /// shell never reads `Session` directly.
+    ///
+    /// # Cancel safety
+    /// Each tool runs in its own spawned task with a child cancellation
+    /// token. Cancelling the shell-level token interrupts tool execution;
+    /// dropping this future abandons the spawned tool tasks. No locks are
+    /// held across await points.
     async fn execute_tools(
         &self,
         calls: Vec<ActiveToolCall>,
@@ -410,14 +416,13 @@ where
         generation_id: u64,
         shell: &BriocheShell,
     ) -> Result<(), ShellError> {
-        use brioche_core::{EngineInput, ToolOutcome};
-        use tokio_util::sync::CancellationToken;
+        use brioche_core::EngineInput;
 
         let mut handles = Vec::with_capacity(calls.len());
 
         for call in calls {
             let tool_executor = Arc::clone(&self.tool_executor);
-            let cancel = CancellationToken::new();
+            let cancel = shell.cancellation_token().child_token();
             // ActiveToolCall.timeout_ms is the mechanical source of truth.
             // The kernel's seal() already materializes this from the descriptor
             // with default_tool_timeout_ms as fallback (docs/SPECS.md §Book III-A Ch 1).
@@ -427,6 +432,7 @@ where
                 let result = tokio::select! {
                     biased;
                     _ = tokio::time::sleep(tokio::time::Duration::from_millis(timeout_ms)) => {
+                        cancel.cancel();
                         ToolResultDTO {
                             tool_id: call.tool_id.clone(),
                             tool_name: call.tool_name.clone(),
@@ -589,13 +595,16 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
 
+    use brioche_core::{EngineInput, ToolOutcome};
     use tokio::sync::{RwLock, mpsc};
+    use tokio_util::sync::CancellationToken;
 
     use super::*;
-    use crate::{EchoToolExecutor, MockLlmClient};
+    use crate::{EchoToolExecutor, MockLlmClient, ToolExecutor};
 
     /// A test persistence layer that counts GC invocations.
     #[derive(Clone, Debug, Default)]
@@ -800,5 +809,64 @@ mod tests {
             "on_system_idle should not trigger GC; GC is policy-driven"
         );
         Ok(())
+    }
+
+    #[derive(Clone, Default)]
+    struct CancellableToolExecutor {
+        started: Arc<AtomicBool>,
+    }
+
+    #[async_trait::async_trait]
+    impl ToolExecutor for CancellableToolExecutor {
+        async fn execute(
+            &self,
+            call: &brioche_core::ActiveToolCall,
+            cancel: CancellationToken,
+        ) -> brioche_core::ToolResultDTO {
+            self.started.store(true, Ordering::SeqCst);
+            cancel.cancelled().await;
+            brioche_core::ToolResultDTO {
+                tool_id: call.tool_id.clone(),
+                tool_name: call.tool_name.clone(),
+                outcome: ToolOutcome::Success("cancelled".into()),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_tools_stops_on_shell_cancellation() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let shell = BriocheShell::test_with_async_channel(tx);
+        let executor = DefaultEffectExecutor::new(
+            CancellableToolExecutor::default(),
+            MockLlmClient::default(),
+            NoopPersistence,
+        );
+
+        let call = brioche_core::ActiveToolCall {
+            tool_id: "t1".into(),
+            tool_name: "hang".into(),
+            arguments: serde_json::Value::Null,
+            timeout_ms: 60_000,
+        };
+
+        let shell_c = shell.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            shell_c.cancellation_token().cancel();
+        });
+
+        let start = Instant::now();
+        executor.execute_tools(vec![call], 1, &shell).await.unwrap();
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "tool should stop quickly after cancellation, took {:?}",
+            elapsed
+        );
+
+        let result = rx.recv().await.expect("ToolCallsResult should be sent");
+        assert!(matches!(result, EngineInput::ToolCallsResult { .. }));
     }
 }
