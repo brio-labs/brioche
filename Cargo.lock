@@ -437,6 +437,7 @@ dependencies = [
 name = "brioche-core"
 version = "0.1.0"
 dependencies = [
+ "brioche-governance",
  "brioche-governance-default",
  "brioche-macro",
  "bytes",

@@ -66,8 +66,11 @@ impl BriocheEngine {
             return;
         };
 
-        match guard.on_exit(handle, session, &mut self.routines.registry) {
-            Ok(guard_effects) => effects.extend(guard_effects),
+        self.routines.registry.remove(&handle);
+
+        match guard.on_exit(&*session, &mut self.routines.registry) {
+            Ok(Some(guard_effects)) => effects.extend(guard_effects),
+            Ok(None) => {}
             Err(err) => {
                 effects.push(Self::plugin_fault("subroutine_lifecycle_guard", err));
             }
@@ -108,9 +111,9 @@ impl BriocheEngine {
             if constraint.is_allowed_fast(hook_index, mask) {
                 continue;
             }
-            // Fallback: format discriminant. Cold path; allocates.
-            let variant = format!("{:?}", std::mem::discriminant(effect));
-            if !constraint.is_allowed_fallback(hook_name, &variant) {
+            // Fallback: concrete effect validation. Cold path.
+            if !constraint.is_allowed(hook_index, effect) {
+                let variant = format!("{:?}", std::mem::discriminant(effect));
                 *effect = Effect::Error {
                     code: ErrorCode::StateInconsistency,
                     detail: ErrorDetail::EffectNotAllowed {

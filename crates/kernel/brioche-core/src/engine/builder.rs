@@ -4,7 +4,7 @@
 
 use super::{PluginRouter, UnifiedRoutingTable};
 use crate::{
-    BriocheEngine, BriochePlugin, ConsistencyVerifier, CowBudgetPolicy, CycleRollbackPolicy,
+    BriocheEngine, BriochePlugin, ConsistencyVerifier, CoreTypes, CycleRollbackPolicy,
     DecisionAggregator, EpochInterceptor, GovernanceFailoverHandler, HookEffectConstraint,
     SubRoutineHandler, SubRoutineHydrator, SubRoutineLifecycleGuard,
 };
@@ -51,17 +51,16 @@ pub struct Present;
 ///
 /// Refs: I-Core-BuilderTypeState, I-Gov-Decision-Required, I-Gov-SubRoutineLifecycle-Guard
 pub struct BriocheEngineBuilder<DA = Missing, LG = Missing> {
-    plugins: Vec<Box<dyn BriochePlugin>>,
-    epoch_interceptor: Option<Box<dyn EpochInterceptor>>,
-    subroutine_handler: Option<Box<dyn SubRoutineHandler>>,
-    subroutine_hydrator: Option<Box<dyn SubRoutineHydrator>>,
-    consistency_verifier: Option<Box<dyn ConsistencyVerifier>>,
-    decision_aggregator: Option<Box<dyn DecisionAggregator>>,
-    hook_effect_constraint: Option<Box<dyn HookEffectConstraint>>,
-    cycle_rollback_policy: Option<Box<dyn CycleRollbackPolicy>>,
-    cow_budget_policy: Option<Box<dyn CowBudgetPolicy>>,
-    subroutine_lifecycle_guard: Option<Box<dyn SubRoutineLifecycleGuard>>,
-    governance_failover_handler: Option<Box<dyn GovernanceFailoverHandler>>,
+    plugins: Vec<Box<dyn BriochePlugin<CoreTypes>>>,
+    epoch_interceptor: Option<Box<dyn EpochInterceptor<CoreTypes>>>,
+    subroutine_handler: Option<Box<dyn SubRoutineHandler<CoreTypes>>>,
+    subroutine_hydrator: Option<Box<dyn SubRoutineHydrator<CoreTypes>>>,
+    consistency_verifier: Option<Box<dyn ConsistencyVerifier<CoreTypes>>>,
+    decision_aggregator: Option<Box<dyn DecisionAggregator<CoreTypes>>>,
+    hook_effect_constraint: Option<Box<dyn HookEffectConstraint<CoreTypes>>>,
+    cycle_rollback_policy: Option<Box<dyn CycleRollbackPolicy<CoreTypes>>>,
+    subroutine_lifecycle_guard: Option<Box<dyn SubRoutineLifecycleGuard<CoreTypes>>>,
+    governance_failover_handler: Option<Box<dyn GovernanceFailoverHandler<CoreTypes>>>,
     default_tool_timeout_ms: u64,
     _phantom: std::marker::PhantomData<(DA, LG)>,
 }
@@ -101,7 +100,6 @@ impl BriocheEngineBuilder<Missing, Missing> {
             decision_aggregator: None,
             hook_effect_constraint: None,
             cycle_rollback_policy: None,
-            cow_budget_policy: None,
             subroutine_lifecycle_guard: None,
             governance_failover_handler: None,
             default_tool_timeout_ms: 0,
@@ -121,7 +119,6 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
             decision_aggregator: self.decision_aggregator,
             hook_effect_constraint: self.hook_effect_constraint,
             cycle_rollback_policy: self.cycle_rollback_policy,
-            cow_budget_policy: self.cow_budget_policy,
             subroutine_lifecycle_guard: self.subroutine_lifecycle_guard,
             governance_failover_handler: self.governance_failover_handler,
             default_tool_timeout_ms: self.default_tool_timeout_ms,
@@ -142,7 +139,7 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
     /// Never panics.
     ///
     /// Refs: I-Core-PluginOrder
-    pub fn with_plugin(mut self, plugin: Box<dyn BriochePlugin>) -> Self {
+    pub fn with_plugin(mut self, plugin: Box<dyn BriochePlugin<CoreTypes>>) -> Self {
         self.plugins.push(plugin);
         self
     }
@@ -156,7 +153,7 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
     /// Never panics.
     ///
     /// Refs: I-Comp-Epoch-First
-    pub fn with_epoch_interceptor(mut self, interceptor: Box<dyn EpochInterceptor>) -> Self {
+    pub fn with_epoch_interceptor(mut self, interceptor: Box<dyn EpochInterceptor<CoreTypes>>) -> Self {
         self.epoch_interceptor = Some(interceptor);
         self
     }
@@ -170,7 +167,7 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
     /// Never panics.
     ///
     /// Refs: I-Comp-Epoch-Subroutine
-    pub fn with_subroutine_handler(mut self, handler: Box<dyn SubRoutineHandler>) -> Self {
+    pub fn with_subroutine_handler(mut self, handler: Box<dyn SubRoutineHandler<CoreTypes>>) -> Self {
         self.subroutine_handler = Some(handler);
         self
     }
@@ -184,7 +181,7 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
     /// Never panics.
     ///
     /// Refs: I-Shell-Session-NoSend, I-Persist-Idempotence
-    pub fn with_subroutine_hydrator(mut self, hydrator: Box<dyn SubRoutineHydrator>) -> Self {
+    pub fn with_subroutine_hydrator(mut self, hydrator: Box<dyn SubRoutineHydrator<CoreTypes>>) -> Self {
         self.subroutine_hydrator = Some(hydrator);
         self
     }
@@ -198,7 +195,7 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
     /// Never panics.
     ///
     /// Refs: I-Gov-Rebuild-Barrier
-    pub fn with_consistency_verifier(mut self, verifier: Box<dyn ConsistencyVerifier>) -> Self {
+    pub fn with_consistency_verifier(mut self, verifier: Box<dyn ConsistencyVerifier<CoreTypes>>) -> Self {
         self.consistency_verifier = Some(verifier);
         self
     }
@@ -214,7 +211,7 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
     /// Refs: I-Core-HookEffect-O1
     pub fn with_hook_effect_constraint(
         mut self,
-        constraint: Box<dyn HookEffectConstraint>,
+        constraint: Box<dyn HookEffectConstraint<CoreTypes>>,
     ) -> Self {
         self.hook_effect_constraint = Some(constraint);
         self
@@ -229,28 +226,11 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
     /// Never panics.
     ///
     /// Refs: I-Gov-Rollback-BestEffort
-    pub fn with_cycle_rollback_policy(mut self, policy: Box<dyn CycleRollbackPolicy>) -> Self {
+    pub fn with_cycle_rollback_policy(mut self, policy: Box<dyn CycleRollbackPolicy<CoreTypes>>) -> Self {
         self.cycle_rollback_policy = Some(policy);
         self
     }
 
-    /// Inject a `CowBudgetPolicy`.
-    ///
-    /// The policy is forwarded to the configured `CycleRollbackPolicy`
-    /// during `build()`. Implementations that do not support adaptive
-    /// budgets ignore it.
-    ///
-    /// # Complexity
-    /// O(1). One `Option` assignment.
-    ///
-    /// # Panics
-    /// Never panics.
-    ///
-    /// Refs: I-Gov-CowBudget-Adaptative
-    pub fn with_cow_budget_policy(mut self, policy: Box<dyn CowBudgetPolicy>) -> Self {
-        self.cow_budget_policy = Some(policy);
-        self
-    }
 
     /// Inject a `GovernanceFailoverHandler`.
     ///
@@ -263,7 +243,7 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
     /// Refs: I-Gov-Failover
     pub fn with_governance_failover_handler(
         mut self,
-        handler: Box<dyn GovernanceFailoverHandler>,
+        handler: Box<dyn GovernanceFailoverHandler<CoreTypes>>,
     ) -> Self {
         self.governance_failover_handler = Some(handler);
         self
@@ -302,7 +282,7 @@ impl<LG> BriocheEngineBuilder<Missing, LG> {
     /// Refs: I-Gov-Decision-Required
     pub fn with_decision_aggregator(
         mut self,
-        aggregator: Box<dyn DecisionAggregator>,
+        aggregator: Box<dyn DecisionAggregator<CoreTypes>>,
     ) -> BriocheEngineBuilder<Present, LG> {
         self.decision_aggregator = Some(aggregator);
         self.change_type()
@@ -319,7 +299,7 @@ impl<LG> BriocheEngineBuilder<Present, LG> {
     /// Never panics.
     ///
     /// Refs: I-Gov-Decision-Required
-    pub fn with_decision_aggregator(mut self, aggregator: Box<dyn DecisionAggregator>) -> Self {
+    pub fn with_decision_aggregator(mut self, aggregator: Box<dyn DecisionAggregator<CoreTypes>>) -> Self {
         self.decision_aggregator = Some(aggregator);
         self
     }
@@ -339,7 +319,7 @@ impl<DA> BriocheEngineBuilder<DA, Missing> {
     /// Refs: I-Gov-SubRoutineLifecycle-Guard
     pub fn with_subroutine_lifecycle_guard(
         mut self,
-        guard: Box<dyn SubRoutineLifecycleGuard>,
+        guard: Box<dyn SubRoutineLifecycleGuard<CoreTypes>>,
     ) -> BriocheEngineBuilder<DA, Present> {
         self.subroutine_lifecycle_guard = Some(guard);
         self.change_type()
@@ -358,7 +338,7 @@ impl<DA> BriocheEngineBuilder<DA, Present> {
     /// Refs: I-Gov-SubRoutineLifecycle-Guard
     pub fn with_subroutine_lifecycle_guard(
         mut self,
-        guard: Box<dyn SubRoutineLifecycleGuard>,
+        guard: Box<dyn SubRoutineLifecycleGuard<CoreTypes>>,
     ) -> Self {
         self.subroutine_lifecycle_guard = Some(guard);
         self
@@ -381,15 +361,6 @@ impl BriocheEngineBuilder<Present, Present> {
     pub fn build(self) -> BriocheEngine {
         let routing_table = UnifiedRoutingTable::from_plugins(&self.plugins);
 
-        // Forward an optional CowBudgetPolicy to the CycleRollbackPolicy.
-        let cow_budget_policy = self.cow_budget_policy;
-        let mut cycle_rollback_policy = self.cycle_rollback_policy;
-        if let Some(rollback) = cycle_rollback_policy.as_mut()
-            && let Some(policy) = cow_budget_policy
-        {
-            rollback.set_cow_budget_policy(policy);
-        }
-
         BriocheEngine {
             router: PluginRouter {
                 plugins: self.plugins,
@@ -402,7 +373,7 @@ impl BriocheEngineBuilder<Present, Present> {
                 consistency_verifier: self.consistency_verifier,
                 decision_aggregator: self.decision_aggregator,
                 hook_effect_constraint: self.hook_effect_constraint,
-                cycle_rollback_policy,
+                cycle_rollback_policy: self.cycle_rollback_policy,
                 subroutine_lifecycle_guard: self.subroutine_lifecycle_guard,
                 governance_failover_handler: self.governance_failover_handler,
                 default_tool_timeout_ms: self.default_tool_timeout_ms,

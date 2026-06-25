@@ -14,7 +14,8 @@ use super::BriocheEngine;
 use crate::types::InconsistencySource;
 use crate::{
     AgentState, BriocheError, ChatMessage, Effect, EngineInput, ErrorCode, ErrorDetail,
-    PolicyDecision, Session, StreamAction, StreamEvent, SubRoutineHandle, TaskId, ToolResultDTO,
+    PluginError, PolicyDecision, Session, StreamAction, StreamEvent, SubRoutineHandle, TaskId,
+    ToolResultDTO,
 };
 
 impl BriocheEngine {
@@ -78,23 +79,31 @@ impl BriocheEngine {
         session.push_state(AgentState::Predicting { generation_id })?;
 
         // before_prediction hook: collect decisions.
-        let mut decisions = Vec::new();
+        let mut decisions: Vec<(PluginSource, PolicyDecision)> = Vec::new();
         let route = self.router.routing_table.route_before_prediction.clone();
         let faults = self.eval_route(
             session,
             "before_prediction",
             &route,
-            |plugin, session| plugin.before_prediction(&session.history, &mut session.extensions),
-            |decision| decisions.push(decision),
+            |plugin, session| {
+                let decision = plugin
+                    .as_before_prediction()
+                    .ok_or(PluginError::Fatal {
+                        plugin_name: "<capability_missing>".into(),
+                        message: "plugin missing BeforePrediction capability".into(),
+                    })?
+                    .before_prediction(&session.history, &mut session.extensions)?;
+                Ok((PluginSource(plugin.name().into()), decision))
+            },
+            |entry| decisions.push(entry),
         );
         let on_error_effects = self.eval_on_error(session, &faults);
         effects.extend(on_error_effects);
         for (name, err) in faults {
             effects.push(Self::plugin_fault(name, err));
         }
-        // DecisionAggregator (mandatory if present).
         if let Some(ref aggregator) = self.governance.decision_aggregator {
-            match aggregator.aggregate_decisions(decisions, &mut session.extensions) {
+            match aggregator.aggregate_decisions(&decisions) {
                 Ok(decision) => match decision {
                     PolicyDecision::Allow => {}
                     PolicyDecision::Block { reason } => {
@@ -171,7 +180,15 @@ impl BriocheEngine {
             session,
             "on_stream_event",
             &route,
-            |plugin, session| plugin.on_stream_event(event, &mut session.extensions),
+            |plugin, session| {
+                plugin
+                    .as_on_stream_event()
+                    .ok_or(PluginError::Fatal {
+                        plugin_name: "<capability_missing>".into(),
+                        message: "plugin missing OnStreamEvent capability".into(),
+                    })?
+                    .on_stream_event(event, &mut session.extensions)
+            },
             |action| match action {
                 StreamAction::Pass => {}
                 StreamAction::Hold => {
@@ -240,7 +257,15 @@ impl BriocheEngine {
             session,
             "on_tool_result",
             &route,
-            |plugin, session| plugin.on_tool_result(&mut mutable_results, &mut session.extensions),
+            |plugin, session| {
+                plugin
+                    .as_on_tool_result()
+                    .ok_or(PluginError::Fatal {
+                        plugin_name: "<capability_missing>".into(),
+                        message: "plugin missing OnToolResult capability".into(),
+                    })?
+                    .on_tool_result(&mut mutable_results, &mut session.extensions)
+            },
             |_ok| {},
         );
         let on_error_effects = self.eval_on_error(session, &faults);
@@ -417,14 +442,14 @@ impl BriocheEngine {
 #[cfg(test)]
 mod subroutine_hydrator_tests {
     use crate::{
-        BriocheEngine, BriocheEngineBuilder, BriocheError, DecisionAggregator, Effect, EngineInput,
-        ErrorCode, ErrorDetail, PluginResult, PolicyDecision, Session, SubRoutineHandle,
-        SubRoutineHydrator, SubRoutineLifecycleGuard,
+        BriocheEngine, BriocheEngineBuilder, BriocheError, CoreTypes, DecisionAggregator, Effect,
+        EngineInput, ErrorCode, ErrorDetail, PluginResult, PolicyDecision, Session,
+        SubRoutineHandle, SubRoutineHydrator, SubRoutineLifecycleGuard,
     };
 
     struct MockDecisionAggregator;
 
-    impl DecisionAggregator for MockDecisionAggregator {
+    impl DecisionAggregator<CoreTypes> for MockDecisionAggregator {
         fn aggregate_decisions(
             &self,
             _decisions: Vec<PolicyDecision>,
@@ -436,7 +461,7 @@ mod subroutine_hydrator_tests {
 
     struct MockSubRoutineLifecycleGuard;
 
-    impl SubRoutineLifecycleGuard for MockSubRoutineLifecycleGuard {
+    impl SubRoutineLifecycleGuard<CoreTypes> for MockSubRoutineLifecycleGuard {
         fn on_exit(
             &self,
             _handle: crate::SubRoutineHandle,
@@ -452,7 +477,7 @@ mod subroutine_hydrator_tests {
         fail: bool,
     }
 
-    impl SubRoutineHydrator for FixedIdHydrator {
+    impl SubRoutineHydrator<CoreTypes> for FixedIdHydrator {
         fn hydrate(&self, _head_blob: &[u8]) -> Result<Session, BriocheError> {
             if self.fail {
                 Err(BriocheError::Serialization("bad blob".to_string()))

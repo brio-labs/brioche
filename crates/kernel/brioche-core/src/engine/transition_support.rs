@@ -103,16 +103,22 @@ impl BriocheEngine {
             AgentState::SubRoutine(h) => h,
             _ => return None,
         };
-        let child = self.routines.registry.get_mut(handle)?;
+        // Keep handle available for error reporting if needed.
+        let _ = handle;
 
-        match handler.handle_subroutine(session, child, input) {
+        match handler.handle_subroutine(session, &mut self.routines.registry, input) {
             Ok(Some(sub_effects)) => {
                 effects.extend(sub_effects);
                 Some(())
             }
             Ok(None) => None,
-            Err(err) => {
-                effects.push(Self::plugin_fault("subroutine_handler", err));
+                effects.push(Self::plugin_fault(
+                    "subroutine_handler",
+                    PluginError::Fatal {
+                        plugin_name: "subroutine_handler".into(),
+                        message: err.to_string(),
+                    },
+                ));
                 None
             }
         }
@@ -121,10 +127,10 @@ impl BriocheEngine {
     /// Wrap a single plugin hook invocation with COW rollback.
     ///
     /// The `cycle_rollback_policy` is temporarily moved into
-    /// `session.extensions` before the hook and retrieved afterward. After the
-    /// hook, the policy's budget is checked; if exceeded, `rollback_hook` is
-    /// called to restore snapshotted extension state, otherwise `commit_hook`
-    /// keeps the mutations.
+    /// `session.extensions` before the hook and retrieved afterward. At the
+    /// end of the hook, `commit_hook` is invoked so the policy can finalize
+    /// the frame (discarding or restoring snapshots according to its own
+    /// budget accounting).
     ///
     /// **Note on time instrumentation:** per-hook wall-clock timing is
     /// intentionally **not** performed in Core. `Instant::now()` is
@@ -158,11 +164,7 @@ impl BriocheEngine {
         let mut policy = session.extensions.detach_rollback_policy();
 
         if let Some(p) = &mut policy {
-            if p.is_budget_exceeded() {
-                p.rollback_hook(&mut session.extensions);
-            } else {
-                p.commit_hook(&mut session.extensions);
-            }
+            p.commit_hook(&mut session.extensions);
         }
 
         self.governance.cycle_rollback_policy = policy;

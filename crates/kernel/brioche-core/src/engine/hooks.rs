@@ -13,8 +13,8 @@
 use super::{BriocheEngine, InputResult};
 use crate::types::InconsistencySource;
 use crate::{
-    BriocheError, BriochePlugin, Effect, EngineInput, ErrorCode, ErrorDetail, PluginError,
-    PluginResult, PluginSource, PolicyDecision, Session,
+    BriocheError, BriochePlugin, CoreTypes, Effect, EngineInput, ErrorCode, ErrorDetail,
+    PluginError, PluginResult, PluginSource, PolicyDecision, Session,
 };
 
 /// Compact hook indices used for `HookEffectConstraint` validation.
@@ -43,9 +43,9 @@ impl BriocheEngine {
     /// iteration pattern; no caller may replicate it.
     ///
     /// ## Architectural Note
-    /// The `hook` closure takes `&dyn BriochePlugin`. PHILOSOPHY.md §1
+    /// The `hook` closure takes `&dyn BriochePlugin<CoreTypes>`. PHILOSOPHY.md §1
     /// discourages vtables, but the plugin container stores heterogeneous
-    /// concrete types (`Vec<Box<dyn BriochePlugin>>`). Dispatch itself is
+    /// concrete types (`Vec<Box<dyn BriochePlugin<CoreTypes>>>`). Dispatch itself is
     /// pre-routed via `UnifiedRoutingTable` (O(1) index lookup); the vtable
     /// is only used for the actual heterogeneous method call after the
     /// route has been resolved. This is a documented, bounded indirection
@@ -63,7 +63,7 @@ impl BriocheEngine {
         session: &mut Session,
         hook_name: &'static str,
         route: &[usize],
-        mut hook: impl FnMut(&dyn BriochePlugin, &mut Session) -> PluginResult<R>,
+        mut hook: impl FnMut(&dyn BriochePlugin<CoreTypes>, &mut Session) -> PluginResult<R>,
         mut on_ok: impl FnMut(R),
     ) -> Vec<(&'static str, PluginError)> {
         session.extensions.insert(session.snapshot());
@@ -122,7 +122,15 @@ impl BriocheEngine {
             session,
             "after_prediction",
             &route,
-            |plugin, session| plugin.after_prediction(&mut session.extensions),
+            |plugin, session| {
+                plugin
+                    .as_after_prediction()
+                    .ok_or(PluginError::Fatal {
+                        plugin_name: "<capability_missing>".into(),
+                        message: "plugin missing AfterPrediction capability".into(),
+                    })?
+                    .after_prediction(&mut session.extensions)
+            },
             |_ok| {},
         );
         let on_error_effects = self.eval_on_error(session, &faults);
@@ -171,7 +179,14 @@ impl BriocheEngine {
             let decision =
                 self.with_rollback(session, "on_input", |engine, session| {
                     match engine.router.plugins.get(idx) {
-                        Some(plugin) => plugin.as_ref().on_input(input, &mut session.extensions),
+                        Some(plugin) => plugin
+                            .as_ref()
+                            .as_on_input()
+                            .ok_or(PluginError::Fatal {
+                                plugin_name: "<capability_missing>".into(),
+                                message: "plugin missing OnInput capability".into(),
+                            })?
+                            .on_input(input, &mut session.extensions),
                         None => Err(PluginError::Fatal {
                             plugin_name: "<invalid_index>".into(),
                             message: format!("plugin index {idx} out of bounds"),
@@ -257,7 +272,15 @@ impl BriocheEngine {
             session,
             "on_tool_calls",
             &route,
-            |plugin, session| plugin.on_tool_calls(descriptors, &mut session.extensions),
+            |plugin, session| {
+                plugin
+                    .as_on_tool_calls()
+                    .ok_or(PluginError::Fatal {
+                        plugin_name: "<capability_missing>".into(),
+                        message: "plugin missing OnToolCalls capability".into(),
+                    })?
+                    .on_tool_calls(descriptors, &mut session.extensions)
+            },
             |_ok| {},
         );
         let on_error_effects = self.eval_on_error(session, &faults);
@@ -306,7 +329,14 @@ impl BriocheEngine {
             for (_fault_plugin, error) in faults {
                 let decision = self.with_rollback(session, "on_error", |engine, session| {
                     match engine.router.plugins.get(idx) {
-                        Some(plugin) => plugin.as_ref().on_error(error, &mut session.extensions),
+                        Some(plugin) => plugin
+                            .as_ref()
+                            .as_on_error()
+                            .ok_or(PluginError::Fatal {
+                                plugin_name: "<capability_missing>".into(),
+                                message: "plugin missing OnError capability".into(),
+                            })?
+                            .on_error(error, &mut session.extensions),
                         None => Err(PluginError::Fatal {
                             plugin_name: "<invalid_index>".into(),
                             message: format!("plugin index {idx} out of bounds"),

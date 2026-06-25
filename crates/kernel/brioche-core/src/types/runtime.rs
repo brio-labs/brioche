@@ -83,10 +83,11 @@ pub enum StreamEvent {
 /// O(1) for construction and field/variant access.
 /// # Panics
 /// Never panics.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum StreamAction {
     /// Let the chunk pass through.
+    #[default]
     Pass,
     /// Hold the chunk (buffering).
     Hold,

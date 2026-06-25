@@ -2,8 +2,7 @@
 //!
 //! Refs: I-Core-StreamNoBranch, I-Core-PluginOrder
 
-use crate::{BriochePlugin, PluginCapabilities};
-
+use crate::{BriochePlugin, CoreTypes, PluginCapabilities};
 /// Pre-computed routing table that eliminates runtime capability checks.
 ///
 /// At engine initialization, plugins are sorted by `(priority, name)` and
@@ -51,7 +50,7 @@ impl UnifiedRoutingTable {
     /// Refs: I-Core-Pure
     /// # Panics
     /// Never panics.
-    pub fn from_plugins(plugins: &[Box<dyn BriochePlugin>]) -> Self {
+    pub fn from_plugins(plugins: &[Box<dyn BriochePlugin<CoreTypes>>]) -> Self {
         let all_indices: Vec<usize> = (0..plugins.len()).collect();
         Self::from_plugins_filtered(plugins, &all_indices)
     }
@@ -69,7 +68,7 @@ impl UnifiedRoutingTable {
     /// # Panics
     /// Panics only if an index is out of bounds; callers must validate lengths.
     pub fn from_plugins_filtered(
-        plugins: &[Box<dyn BriochePlugin>],
+        plugins: &[Box<dyn BriochePlugin<CoreTypes>>],
         active_indices: &[usize],
     ) -> Self {
         let mut indexed: Vec<(usize, i16, &'static str)> = active_indices
@@ -106,7 +105,7 @@ impl UnifiedRoutingTable {
 
     fn collect_route(
         sorted: &[(usize, i16, &'static str)],
-        plugins: &[Box<dyn BriochePlugin>],
+        plugins: &[Box<dyn BriochePlugin<CoreTypes>>],
         has_cap: impl Fn(PluginCapabilities) -> bool,
     ) -> Vec<usize> {
         sorted
@@ -123,7 +122,7 @@ impl UnifiedRoutingTable {
 /// delegates routing queries but never mutates the plugin vector directly.
 ///
 /// # Data Layout
-/// `Vec<Box<dyn BriochePlugin>>` (heap, one per plugin) plus an owned
+/// `Vec<Box<dyn BriochePlugin<CoreTypes>>>` (heap, one per plugin) plus an owned
 /// `UnifiedRoutingTable`. Plugins are heterogeneous concrete types; the
 /// vtable indirection is required to store them in a single vector.
 ///
@@ -135,6 +134,6 @@ impl UnifiedRoutingTable {
 ///
 /// Refs: I-Core-StreamNoBranch, I-Core-PluginOrder
 pub struct PluginRouter {
-    pub(crate) plugins: Vec<Box<dyn BriochePlugin>>,
+    pub(crate) plugins: Vec<Box<dyn BriochePlugin<CoreTypes>>>,
     pub(crate) routing_table: UnifiedRoutingTable,
 }

@@ -59,10 +59,11 @@ pub enum EngineInput {
 /// O(1) for construction and field/variant access.
 /// # Panics
 /// Never panics.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum PolicyDecision {
     /// Allow the current operation to proceed.
+    #[default]
     Allow,
     /// Block the current operation with a reason.
     Block {

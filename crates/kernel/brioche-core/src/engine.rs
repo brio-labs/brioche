@@ -20,7 +20,7 @@
 //! Refs: docs/SPECS.md §4, §5; PHILOSOPHY.md §1, §2, §7
 
 use crate::{
-    ConsistencyVerifier, CycleRollbackPolicy, DecisionAggregator, Effect, EngineInput,
+    ConsistencyVerifier, CoreTypes, CycleRollbackPolicy, DecisionAggregator, Effect, EngineInput,
     EpochInterceptor, ErrorCode, ErrorDetail, GovernanceFailoverHandler, HookEffectConstraint,
     PluginSource, Session, SessionRegistry, SubRoutineHandle, SubRoutineHandler,
     SubRoutineHydrator, SubRoutineLifecycleGuard,
@@ -61,15 +61,15 @@ pub use router::{PluginRouter, UnifiedRoutingTable};
 ///
 /// Refs: I-Comp-Epoch-First, I-Gov-Decision-Required
 pub struct GovernanceKernel {
-    pub(crate) epoch_interceptor: Option<Box<dyn EpochInterceptor>>,
-    pub(crate) subroutine_handler: Option<Box<dyn SubRoutineHandler>>,
-    pub(crate) subroutine_hydrator: Option<Box<dyn SubRoutineHydrator>>,
-    pub(crate) consistency_verifier: Option<Box<dyn ConsistencyVerifier>>,
-    pub(crate) decision_aggregator: Option<Box<dyn DecisionAggregator>>,
-    pub(crate) hook_effect_constraint: Option<Box<dyn HookEffectConstraint>>,
-    pub(crate) cycle_rollback_policy: Option<Box<dyn CycleRollbackPolicy>>,
-    pub(crate) subroutine_lifecycle_guard: Option<Box<dyn SubRoutineLifecycleGuard>>,
-    pub(crate) governance_failover_handler: Option<Box<dyn GovernanceFailoverHandler>>,
+    pub(crate) epoch_interceptor: Option<Box<dyn EpochInterceptor<CoreTypes>>>,
+    pub(crate) subroutine_handler: Option<Box<dyn SubRoutineHandler<CoreTypes>>>,
+    pub(crate) subroutine_hydrator: Option<Box<dyn SubRoutineHydrator<CoreTypes>>>,
+    pub(crate) consistency_verifier: Option<Box<dyn ConsistencyVerifier<CoreTypes>>>,
+    pub(crate) decision_aggregator: Option<Box<dyn DecisionAggregator<CoreTypes>>>,
+    pub(crate) hook_effect_constraint: Option<Box<dyn HookEffectConstraint<CoreTypes>>>,
+    pub(crate) cycle_rollback_policy: Option<Box<dyn CycleRollbackPolicy<CoreTypes>>>,
+    pub(crate) subroutine_lifecycle_guard: Option<Box<dyn SubRoutineLifecycleGuard<CoreTypes>>>,
+    pub(crate) governance_failover_handler: Option<Box<dyn GovernanceFailoverHandler<CoreTypes>>>,
     pub(crate) default_tool_timeout_ms: u64,
 }
 
