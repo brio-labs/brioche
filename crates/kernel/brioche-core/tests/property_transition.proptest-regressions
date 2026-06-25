@@ -6,3 +6,4 @@
 # everyone who runs the test benefits from these saved cases.
 cc 183dbdef145f6edd622bcfde557ed32f3c63ce4bb8b8a39e5c3dd17eead049f7 # shrinks to input = LlmStream(Pass)
 cc 6f4ec79a7f707ec3fa041dc0f3ebae72cfcd02a368fa3b39073fd22bbb118202 # shrinks to input = LlmStream(ToolCallStart { path: ExecutionPath { nodes: [] }, id: "0", name: "a" })
+cc cf491daf7c1cd1bbfa8ecf14adb5d11e7bcbe80cd6029681e08aec3bb50e552e # shrinks to ops = [Replace(Failure), Transition(UserMessage(""))]
