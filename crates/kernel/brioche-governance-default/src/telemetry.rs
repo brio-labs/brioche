@@ -7,6 +7,7 @@
 //!
 //! Refs: I-Core-ActiveToolCall, I-Gov-OverrideTrace, I-Gov-Rollback-BestEffort
 
+use crate::Priority;
 use brioche_core::{
     BriochePlugin, ExtensionStorage, PluginCapabilities, PluginResult, RollbackEventLog,
     StreamAction, StreamEvent, SupersededTransitionTraceLog, ToolCallDescriptor,
@@ -125,7 +126,7 @@ impl BriochePlugin for TelemetryPlugin {
     }
 
     fn priority(&self) -> i16 {
-        100
+        Priority::TELEMETRY
     }
 
     /// Counts `ToolCallStart` and `ToolCallDone` events.

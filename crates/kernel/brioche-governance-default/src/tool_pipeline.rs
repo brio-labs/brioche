@@ -9,6 +9,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::Priority;
 use brioche_core::{
     BriochePlugin, ExtensionStorage, PluginCapabilities, PluginError, PluginResult,
     ToolCallDescriptor, ToolOutcome, ToolResultDTO, TruncatedToolResult, tool_outcome_to_string,
@@ -89,7 +90,7 @@ impl BriochePlugin for ToolResultFormatter {
     }
 
     fn priority(&self) -> i16 {
-        10 // Early formatter — apply limits before other plugins inspect
+        Priority::TOOL_FORMATTER // Early formatter — apply limits before other plugins inspect
     }
 
     fn on_tool_result(

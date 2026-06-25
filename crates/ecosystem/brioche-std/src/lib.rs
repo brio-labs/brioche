@@ -39,3 +39,37 @@ pub use pending_task_manager::{
     PendingTaskInfo, PendingTaskManager, PendingTaskState, PendingTaskStatus,
 };
 pub use token_tracker::{TokenTracker, TokenTrackerState};
+
+// ---------------------------------------------------------------------------
+// Priority constants
+// ---------------------------------------------------------------------------
+
+/// Named evaluation priorities for standard ecosystem plugins.
+///
+/// Lower values run earlier. Ties are broken lexicographically by plugin
+/// `name`. Constants that overlap with `brioche_governance_default::Priority`
+/// are documented with the tie-breaking rule.
+///
+/// Refs: I-Core-PluginOrder
+pub struct Priority;
+
+impl Priority {
+    /// Very early input logger — record before interceptors block.
+    ///
+    /// Ties with `brioche_governance_default::Priority::QUARANTINE`;
+    /// lexicographic order (`audit_logger` < `quarantine_manager`) wins.
+    pub const AUDIT_LOGGER: i16 = -100;
+    /// Early `before_prediction` guard — break tool-call loops.
+    pub const CIRCUIT_BREAKER: i16 = -20;
+    /// Context optimization just before prediction.
+    pub const CONTEXT_OPTIMIZER: i16 = -5;
+    /// Tool-result pending-task detection.
+    ///
+    /// Ties with `brioche_governance_default::Priority::ARGUMENT_ACCUMULATOR`;
+    /// lexicographic order (`json_argument_accumulator` < `pending_task_manager`) wins.
+    pub const PENDING_TASK: i16 = 20;
+    /// Late `before_prediction` token estimator.
+    pub const TOKEN_TRACKER: i16 = 60;
+    /// Late `after_prediction` GC trigger.
+    pub const GC_OBSERVER: i16 = 200;
+}
