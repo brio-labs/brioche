@@ -203,6 +203,8 @@ The following areas are already in good shape and should not be regressed:
 | P2-PERF-03 | #167: `ExtensionStorage::insert` skips `cold_snapshot` for `NoSnapshot` types. |
 | P2-PERF-04 | #167: `apply_governance_failover` avoids cloning non-fault effects via in-place partitioning. |
 | P2-PERF-05 | #167: `append_state_effects` clone cost removed/documented; argument strings use `Arc\u003cstr\u003e`. |
+| P5-TEST-03 | #168: Extended `replay_journal.rs` with tool-call, subroutine restore, epoch mismatch, plugin fault, and wraparound scenarios. |
+| P5-TEST-04 | #168: Rewrote `effect_executor_tests.rs` to exercise every `Effect` variant via `MockLlmClient`/`EchoToolExecutor`. |
 
 ---
 
