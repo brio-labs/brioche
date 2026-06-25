@@ -79,14 +79,22 @@ impl BriocheEngine {
 
         // before_prediction hook: collect decisions.
         let mut decisions = Vec::new();
-        let route = self.router.routing_table.route_before_prediction.clone();
-        let faults = self.eval_route(
-            session,
-            "before_prediction",
-            &route,
-            |plugin, session| plugin.before_prediction(&session.history, &mut session.extensions),
-            |decision| decisions.push(decision),
-        );
+        let faults = {
+            let plugins = &self.router.plugins;
+            let route = &self.router.routing_table.route_before_prediction;
+            let rollback_policy = &mut self.governance.cycle_rollback_policy;
+            BriocheEngine::eval_route(
+                plugins,
+                rollback_policy,
+                session,
+                "before_prediction",
+                route,
+                |plugin, session| {
+                    plugin.before_prediction(&session.history, &mut session.extensions)
+                },
+                |decision| decisions.push(decision),
+            )
+        };
         let on_error_effects = self.eval_on_error(session, &faults);
         effects.extend(on_error_effects);
         for (name, err) in faults {
@@ -165,26 +173,32 @@ impl BriocheEngine {
         }
 
         // Evaluate stream event hooks.
-        let route = self.router.routing_table.route_on_stream_event.clone();
         let mut stream_effects = Vec::new();
-        let faults = self.eval_route(
-            session,
-            "on_stream_event",
-            &route,
-            |plugin, session| plugin.on_stream_event(event, &mut session.extensions),
-            |action| match action {
-                StreamAction::Pass => {}
-                StreamAction::Hold => {
-                    // Buffering is handled by the plugin / shell.
-                }
-                StreamAction::OffloadTask { task_id, payload } => {
-                    stream_effects.push(Effect::ExecuteCpuTask {
-                        task_id: TaskId(task_id),
-                        payload,
-                    });
-                }
-            },
-        );
+        let faults = {
+            let plugins = &self.router.plugins;
+            let route = &self.router.routing_table.route_on_stream_event;
+            let rollback_policy = &mut self.governance.cycle_rollback_policy;
+            BriocheEngine::eval_route(
+                plugins,
+                rollback_policy,
+                session,
+                "on_stream_event",
+                route,
+                |plugin, session| plugin.on_stream_event(event, &mut session.extensions),
+                |action| match action {
+                    StreamAction::Pass => {}
+                    StreamAction::Hold => {
+                        // Buffering is handled by the plugin / shell.
+                    }
+                    StreamAction::OffloadTask { task_id, payload } => {
+                        stream_effects.push(Effect::ExecuteCpuTask {
+                            task_id: TaskId(task_id),
+                            payload,
+                        });
+                    }
+                },
+            )
+        };
         let on_error_effects = self.eval_on_error(session, &faults);
         effects.extend(on_error_effects);
         self.validate_hook_effects(
@@ -235,14 +249,22 @@ impl BriocheEngine {
 
         // on_tool_result hook: in-place mutation.
         let mut mutable_results = results.to_vec();
-        let route = self.router.routing_table.route_on_tool_result.clone();
-        let faults = self.eval_route(
-            session,
-            "on_tool_result",
-            &route,
-            |plugin, session| plugin.on_tool_result(&mut mutable_results, &mut session.extensions),
-            |_ok| {},
-        );
+        let faults = {
+            let plugins = &self.router.plugins;
+            let route = &self.router.routing_table.route_on_tool_result;
+            let rollback_policy = &mut self.governance.cycle_rollback_policy;
+            BriocheEngine::eval_route(
+                plugins,
+                rollback_policy,
+                session,
+                "on_tool_result",
+                route,
+                |plugin, session| {
+                    plugin.on_tool_result(&mut mutable_results, &mut session.extensions)
+                },
+                |_ok| {},
+            )
+        };
         let on_error_effects = self.eval_on_error(session, &faults);
         effects.extend(on_error_effects);
         for (name, err) in faults {
