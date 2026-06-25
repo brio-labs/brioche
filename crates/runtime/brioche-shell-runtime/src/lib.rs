@@ -20,6 +20,7 @@
 
 pub mod effect_executor;
 pub mod engine_watchdog;
+pub mod http_client;
 pub mod llm_client;
 pub mod network_recovery;
 pub mod shell;
@@ -36,6 +37,11 @@ pub use brioche_core::{
 pub use effect_executor::{DefaultEffectExecutor, EffectExecutor, NoopPersistence, Persistence};
 pub use engine_watchdog::{
     EngineWatchdog, EngineWatchdogHandle, RecoveryProcedure, WatchdogPing, WatchdogPong,
+};
+pub use http_client::{
+    ALLOWED_SCHEMES, BLOCKED_HOSTS, DEFAULT_CONNECT_TIMEOUT, DEFAULT_MAX_REDIRECTS,
+    DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_REQUEST_TIMEOUT, HttpClientError, build_http_client,
+    read_body_with_size_limit, validate_url,
 };
 pub use llm_client::{LlmChunk, LlmClient, MockLlmClient};
 pub use network_recovery::{ExponentialBackoff, NetworkRecovery, NoRetry};
