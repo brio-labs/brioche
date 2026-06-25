@@ -13,6 +13,8 @@ use brioche_core::{
     PluginResult,
 };
 
+use crate::Priority;
+
 /// Token tracking state.
 ///
 /// ## Snapshot strategy
@@ -93,7 +95,7 @@ impl BriochePlugin for TokenTracker {
     }
 
     fn priority(&self) -> i16 {
-        60 // Late observer — let interceptors run first
+        Priority::TOKEN_TRACKER // Late observer — let interceptors run first
     }
 
     /// Computes input token estimates from history before prediction.

@@ -8,6 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::Priority;
 use brioche_core::{
     AgentStateTag, BriochePlugin, Effect, EngineInput, ExtensionStorage, PluginCapabilities,
     PluginError, PluginResult, PolicyDecision, SessionSnapshot,
@@ -88,7 +89,7 @@ impl BriochePlugin for QuarantineManager {
     }
 
     fn priority(&self) -> i16 {
-        -100 // Very early on_error handler
+        Priority::QUARANTINE // Very early on_error handler
     }
 
     fn on_error(
@@ -203,7 +204,7 @@ impl BriochePlugin for RecoveryPolicy {
     }
 
     fn priority(&self) -> i16 {
-        -50 // Early interceptor, after epoch but before business logic
+        Priority::RECOVERY // Early interceptor, after epoch but before business logic
     }
 
     /// Prepares the recovery state (shell adapter in Sprint 9+).
