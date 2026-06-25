@@ -11,8 +11,8 @@
 
 use super::{BriocheEngine, PreTransitionState};
 use crate::{
-    ActiveToolCall, AgentState, Effect, EngineInput, EpochAction, ErrorCode, ErrorDetail,
-    PluginError, PluginSource, Session,
+    ActiveToolCall, AgentState, CycleRollbackPolicy, Effect, EngineInput, EpochAction, ErrorCode,
+    ErrorDetail, PluginError, PluginSource, Session,
 };
 
 impl BriocheEngine {
@@ -139,12 +139,12 @@ impl BriocheEngine {
     /// # Panics
     /// Never panics.
     pub(crate) fn with_rollback<R>(
-        &mut self,
+        rollback_policy: &mut Option<Box<dyn CycleRollbackPolicy>>,
         session: &mut Session,
         hook_name: &'static str,
-        f: impl FnOnce(&mut Self, &mut Session) -> R,
+        f: impl FnOnce(&mut Session) -> R,
     ) -> R {
-        let mut policy = self.governance.cycle_rollback_policy.take();
+        let mut policy = rollback_policy.take();
         if let Some(p) = &mut policy {
             p.begin_hook(hook_name);
         }
@@ -153,7 +153,7 @@ impl BriocheEngine {
             session.extensions.attach_rollback_policy(p);
         }
 
-        let result = f(self, session);
+        let result = f(session);
 
         let mut policy = session.extensions.detach_rollback_policy();
 
@@ -165,7 +165,7 @@ impl BriocheEngine {
             }
         }
 
-        self.governance.cycle_rollback_policy = policy;
+        *rollback_policy = policy;
         result
     }
 
