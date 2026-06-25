@@ -229,3 +229,134 @@ impl BriochePlugin for SubRoutineTimeoutPolicy {
         Ok(PolicyDecision::Allow)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use brioche_core::{
+        AgentStateTag, BriochePlugin, EngineInput, ExtensionStorage, PolicyDecision,
+        SessionSnapshot, SignalBuffer, SubRoutineHandle, SystemSignal, ToolCallDescriptor,
+    };
+
+    use super::{SubRoutineTimeoutPolicy, SubRoutineTimerState, ToolTimeoutPolicy};
+
+    #[test]
+    fn tool_timeout_policy_applies_default_when_missing() {
+        let policy = ToolTimeoutPolicy::with_default_timeout(15000);
+        let mut ext = ExtensionStorage::new();
+        let mut calls = vec![ToolCallDescriptor {
+            tool_id: "t1".into(),
+            tool_name: "calc".into(),
+            arguments: "{}".into(),
+            timeout_ms: None,
+        }];
+
+        assert!(policy.on_tool_calls(&mut calls, &mut ext).is_ok());
+        assert_eq!(calls[0].timeout_ms, Some(15000));
+    }
+
+    #[test]
+    fn tool_timeout_policy_caps_to_max() {
+        let policy = ToolTimeoutPolicy::with_bounds(10000, 20000);
+        let mut ext = ExtensionStorage::new();
+        let mut calls = vec![ToolCallDescriptor {
+            tool_id: "t1".into(),
+            tool_name: "calc".into(),
+            arguments: "{}".into(),
+            timeout_ms: Some(50000),
+        }];
+
+        assert!(policy.on_tool_calls(&mut calls, &mut ext).is_ok());
+        assert_eq!(calls[0].timeout_ms, Some(20000));
+    }
+
+    #[test]
+    fn tool_timeout_policy_preserves_value_under_max() {
+        let policy = ToolTimeoutPolicy::with_bounds(10000, 20000);
+        let mut ext = ExtensionStorage::new();
+        let mut calls = vec![ToolCallDescriptor {
+            tool_id: "t1".into(),
+            tool_name: "calc".into(),
+            arguments: "{}".into(),
+            timeout_ms: Some(15000),
+        }];
+
+        assert!(policy.on_tool_calls(&mut calls, &mut ext).is_ok());
+        assert_eq!(calls[0].timeout_ms, Some(15000));
+    }
+
+    #[test]
+    fn subroutine_timeout_policy_clears_timers_when_not_in_subroutine() {
+        let policy = SubRoutineTimeoutPolicy::new();
+        let mut ext = ExtensionStorage::new();
+        ext.insert(SessionSnapshot {
+            current_state: AgentStateTag::Idle,
+            state_stack_depth: 0,
+        });
+        ext.insert(SubRoutineTimerState {
+            last_tick_ms: 0,
+            timers: [(SubRoutineHandle::new("sub"), (0, 1000))]
+                .into_iter()
+                .collect(),
+        });
+
+        let decision = policy.on_input(&EngineInput::UserMessage("hi".into()), &mut ext);
+        assert!(matches!(decision, Ok(PolicyDecision::Allow)));
+
+        let state = ext.get_or_insert_default::<SubRoutineTimerState>();
+        assert!(state.timers.is_empty());
+    }
+
+    #[test]
+    fn subroutine_timeout_policy_blocks_expired_timer() {
+        let policy = SubRoutineTimeoutPolicy::new();
+        let mut ext = ExtensionStorage::new();
+        ext.insert(SessionSnapshot {
+            current_state: AgentStateTag::SubRoutine,
+            state_stack_depth: 1,
+        });
+        ext.insert(SignalBuffer {
+            system_signals: vec![SystemSignal::Tick { elapsed_ms: 1500 }],
+            governance_notifications: vec![],
+            async_task_results: vec![],
+        });
+        ext.insert(SubRoutineTimerState {
+            last_tick_ms: 0,
+            timers: [(SubRoutineHandle::new("sub"), (0, 1000))]
+                .into_iter()
+                .collect(),
+        });
+
+        let decision = policy.on_input(&EngineInput::UserMessage("tick".into()), &mut ext);
+        assert!(matches!(decision, Ok(PolicyDecision::Block { .. })));
+
+        let state = ext.get_or_insert_default::<SubRoutineTimerState>();
+        assert!(!state.timers.contains_key(&SubRoutineHandle::new("sub")));
+    }
+
+    #[test]
+    fn subroutine_timeout_policy_allows_active_timer() {
+        let policy = SubRoutineTimeoutPolicy::new();
+        let mut ext = ExtensionStorage::new();
+        ext.insert(SessionSnapshot {
+            current_state: AgentStateTag::SubRoutine,
+            state_stack_depth: 1,
+        });
+        ext.insert(SignalBuffer {
+            system_signals: vec![SystemSignal::Tick { elapsed_ms: 500 }],
+            governance_notifications: vec![],
+            async_task_results: vec![],
+        });
+        ext.insert(SubRoutineTimerState {
+            last_tick_ms: 0,
+            timers: [(SubRoutineHandle::new("sub"), (0, 1000))]
+                .into_iter()
+                .collect(),
+        });
+
+        let decision = policy.on_input(&EngineInput::UserMessage("tick".into()), &mut ext);
+        assert!(matches!(decision, Ok(PolicyDecision::Allow)));
+
+        let state = ext.get_or_insert_default::<SubRoutineTimerState>();
+        assert!(state.timers.contains_key(&SubRoutineHandle::new("sub")));
+    }
+}

@@ -247,3 +247,142 @@ impl BriochePlugin for RecoveryPolicy {
         Ok(PolicyDecision::Allow)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use brioche_core::{
+        AgentStateTag, BriochePlugin, Effect, EngineInput, ExtensionStorage, PluginError,
+        PolicyDecision, SessionSnapshot,
+    };
+
+    use super::{QuarantineManager, QuarantineState, RecoveryPolicy, RecoveryState};
+
+    #[test]
+    fn quarantine_manager_allows_soft_error() {
+        let manager = QuarantineManager::new();
+        let mut ext = ExtensionStorage::new();
+
+        let error = PluginError::Soft {
+            plugin_name: "soft_plugin".into(),
+            message: "minor".into(),
+        };
+
+        let decision = manager.on_error(&error, &mut ext);
+        assert!(matches!(decision, Ok(PolicyDecision::Allow)));
+
+        let state = ext.get_or_insert_default::<QuarantineState>();
+        assert!(state.quarantined.is_empty());
+    }
+
+    #[test]
+    fn quarantine_manager_quarantines_on_fatal() {
+        let manager = QuarantineManager::new();
+        let mut ext = ExtensionStorage::new();
+
+        let error = PluginError::Fatal {
+            plugin_name: "bad_plugin".into(),
+            message: "simulated fatal".into(),
+        };
+
+        let decision = manager.on_error(&error, &mut ext);
+        assert!(matches!(
+            decision,
+            Ok(PolicyDecision::RequestEffect(Effect::RebuildRoutes))
+        ));
+
+        let state = ext.get_or_insert_default::<QuarantineState>();
+        assert!(state.quarantined.contains("bad_plugin"));
+    }
+
+    #[test]
+    fn quarantine_manager_increments_fault_counts() {
+        let manager = QuarantineManager::new();
+        let mut ext = ExtensionStorage::new();
+
+        let error = PluginError::Fatal {
+            plugin_name: "bad_plugin".into(),
+            message: "first".into(),
+        };
+
+        let _ = manager.on_error(&error, &mut ext);
+        let _ = manager.on_error(&error, &mut ext);
+
+        let state = ext.get_or_insert_default::<QuarantineState>();
+        assert_eq!(state.quarantined.len(), 1);
+        assert_eq!(state.fault_counts.len(), 1);
+        let count = match state.fault_counts.values().next() {
+            Some(&v) => v,
+            None => 0,
+        };
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn recovery_policy_allows_healthy_state() {
+        let policy = RecoveryPolicy::new();
+        let mut ext = ExtensionStorage::new();
+        ext.insert(SessionSnapshot {
+            current_state: AgentStateTag::Idle,
+            state_stack_depth: 0,
+        });
+
+        let decision = policy.on_input(&EngineInput::UserMessage("hi".into()), &mut ext);
+        assert!(matches!(decision, Ok(PolicyDecision::Allow)));
+    }
+
+    #[test]
+    fn recovery_policy_increments_on_failure() {
+        let policy = RecoveryPolicy::with_max_recoveries(3);
+        let mut ext = ExtensionStorage::new();
+        ext.insert(SessionSnapshot {
+            current_state: AgentStateTag::Failure,
+            state_stack_depth: 0,
+        });
+
+        let _ = policy.on_input(&EngineInput::UserMessage("try".into()), &mut ext);
+        let state = ext.get_or_insert_default::<RecoveryState>();
+        assert_eq!(state.consecutive_recoveries, 1);
+        assert!(state.last_error.is_some());
+    }
+
+    #[test]
+    fn recovery_policy_blocks_after_max_recoveries() {
+        let policy = RecoveryPolicy::with_max_recoveries(2);
+        let mut ext = ExtensionStorage::new();
+        ext.insert(SessionSnapshot {
+            current_state: AgentStateTag::Failure,
+            state_stack_depth: 0,
+        });
+
+        let first = policy.on_input(&EngineInput::UserMessage("a".into()), &mut ext);
+        assert!(matches!(first, Ok(PolicyDecision::Allow)));
+
+        let second = policy.on_input(&EngineInput::UserMessage("b".into()), &mut ext);
+        assert!(matches!(second, Ok(PolicyDecision::Block { .. })));
+
+        let state = ext.get_or_insert_default::<RecoveryState>();
+        assert_eq!(state.inputs_blocked, 1);
+    }
+
+    #[test]
+    fn recovery_policy_resets_after_recovery() {
+        let policy = RecoveryPolicy::with_max_recoveries(3);
+        let mut ext = ExtensionStorage::new();
+        ext.insert(SessionSnapshot {
+            current_state: AgentStateTag::Failure,
+            state_stack_depth: 0,
+        });
+
+        let _ = policy.on_input(&EngineInput::UserMessage("fail".into()), &mut ext);
+
+        ext.insert(SessionSnapshot {
+            current_state: AgentStateTag::Idle,
+            state_stack_depth: 0,
+        });
+        let _ = policy.on_input(&EngineInput::UserMessage("ok".into()), &mut ext);
+
+        let state = ext.get_or_insert_default::<RecoveryState>();
+        assert_eq!(state.consecutive_recoveries, 0);
+        assert!(state.last_error.is_none());
+    }
+}

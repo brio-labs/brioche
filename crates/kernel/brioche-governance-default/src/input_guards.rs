@@ -234,3 +234,148 @@ impl BriochePlugin for JsonArgumentAccumulator {
         Ok(StreamAction::Pass)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use brioche_core::{
+        AgentStateTag, BriochePlugin, Effect, EngineInput, ErrorCode, ExtensionStorage,
+        PolicyDecision, SessionSnapshot, StreamAction, StreamEvent,
+    };
+
+    use super::{DepthGuard, JsonArgumentAccumulator, calculate_depth};
+
+    #[test]
+    fn calculate_depth_adds_one_for_subroutine_state() {
+        assert_eq!(calculate_depth(3, AgentStateTag::SubRoutine), 4);
+    }
+
+    #[test]
+    fn calculate_depth_uses_stack_depth_for_other_states() {
+        assert_eq!(calculate_depth(3, AgentStateTag::Idle), 3);
+        assert_eq!(calculate_depth(3, AgentStateTag::Predicting), 3);
+        assert_eq!(calculate_depth(3, AgentStateTag::ExecutingTools), 3);
+        assert_eq!(calculate_depth(3, AgentStateTag::Failure), 3);
+    }
+
+    #[test]
+    fn depth_guard_allows_input_below_limit() {
+        let guard = DepthGuard::with_max_depth(5);
+        let mut ext = ExtensionStorage::new();
+        ext.insert(SessionSnapshot {
+            current_state: AgentStateTag::Idle,
+            state_stack_depth: 2,
+        });
+
+        let decision = guard.on_input(&EngineInput::UserMessage("hello".into()), &mut ext);
+        assert!(matches!(decision, Ok(PolicyDecision::Allow)));
+    }
+
+    #[test]
+    fn depth_guard_blocks_at_limit() {
+        let guard = DepthGuard::with_max_depth(3);
+        let mut ext = ExtensionStorage::new();
+        ext.insert(SessionSnapshot {
+            current_state: AgentStateTag::SubRoutine,
+            state_stack_depth: 2,
+        });
+
+        let decision = guard.on_input(&EngineInput::UserMessage("deep".into()), &mut ext);
+        assert!(
+            matches!(
+                decision,
+                Ok(PolicyDecision::OverrideTransition(ref effects))
+                    if effects.iter().any(|e| matches!(e, Effect::Error { code, .. } if *code == ErrorCode::StateInconsistency))
+            ),
+            "expected OverrideTransition with StateInconsistency error"
+        );
+    }
+
+    #[test]
+    fn depth_guard_ignores_non_user_messages() {
+        let guard = DepthGuard::with_max_depth(1);
+        let mut ext = ExtensionStorage::new();
+        ext.insert(SessionSnapshot {
+            current_state: AgentStateTag::SubRoutine,
+            state_stack_depth: 5,
+        });
+
+        let decision = guard.on_input(&EngineInput::LlmStream(StreamEvent::Done), &mut ext);
+        assert!(matches!(decision, Ok(PolicyDecision::Allow)));
+    }
+
+    #[test]
+    fn depth_guard_updates_depth_state() {
+        let guard = DepthGuard::with_max_depth(10);
+        let mut ext = ExtensionStorage::new();
+        ext.insert(SessionSnapshot {
+            current_state: AgentStateTag::SubRoutine,
+            state_stack_depth: 4,
+        });
+
+        let _ = guard.on_input(&EngineInput::UserMessage("msg".into()), &mut ext);
+        let state = ext.get_or_insert_default::<super::DepthState>();
+        assert_eq!(state.current_depth, 5);
+    }
+
+    #[test]
+    fn json_argument_accumulator_collects_fragments() {
+        let plugin = JsonArgumentAccumulator::new();
+        let mut ext = ExtensionStorage::new();
+
+        let chunk1 = StreamEvent::ToolArgumentChunk {
+            path: Default::default(),
+            id: "tc1".into(),
+            chunk: b"{\"x\":".as_slice().into(),
+        };
+        let chunk2 = StreamEvent::ToolArgumentChunk {
+            path: Default::default(),
+            id: "tc1".into(),
+            chunk: b"1}".as_slice().into(),
+        };
+
+        assert!(plugin.on_stream_event(&chunk1, &mut ext).is_ok());
+        assert!(plugin.on_stream_event(&chunk2, &mut ext).is_ok());
+
+        let state = ext.get_or_insert_default::<super::JsonArgumentAccumulatorState>();
+        assert_eq!(state.accumulated.get("tc1"), Some(&"{\"x\":1}".to_string()));
+        assert_eq!(state.total_fragments, 2);
+    }
+
+    #[test]
+    fn json_argument_accumulator_clears_on_done() {
+        let plugin = JsonArgumentAccumulator::new();
+        let mut ext = ExtensionStorage::new();
+
+        let chunk = StreamEvent::ToolArgumentChunk {
+            path: Default::default(),
+            id: "tc1".into(),
+            chunk: b"frag".as_slice().into(),
+        };
+        assert!(plugin.on_stream_event(&chunk, &mut ext).is_ok());
+
+        let done = StreamEvent::ToolCallDone {
+            path: Default::default(),
+        };
+        assert!(plugin.on_stream_event(&done, &mut ext).is_ok());
+
+        let state = ext.get_or_insert_default::<super::JsonArgumentAccumulatorState>();
+        assert!(state.accumulated.is_empty());
+    }
+
+    #[test]
+    fn json_argument_accumulator_ignores_unrelated_events() {
+        let plugin = JsonArgumentAccumulator::new();
+        let mut ext = ExtensionStorage::new();
+
+        let text = StreamEvent::TextChunk {
+            path: Default::default(),
+            chunk: b"hello".as_slice().into(),
+        };
+        let action = plugin.on_stream_event(&text, &mut ext);
+        assert!(matches!(action, Ok(StreamAction::Pass)));
+
+        let state = ext.get_or_insert_default::<super::JsonArgumentAccumulatorState>();
+        assert!(state.accumulated.is_empty());
+        assert_eq!(state.total_fragments, 0);
+    }
+}
