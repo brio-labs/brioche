@@ -195,6 +195,7 @@ The following areas are already in good shape and should not be regressed:
 | P1-PERF-01 | #157: `eval_route` and dispatch helpers now accept `&[usize]` and iterate without cloning route tables. |
 | P1-PERF-02 | #157: `SessionSnapshot` injected once at top of `transition()`; redundant hook inserts removed. |
 | P5-TEST-01 | #166: Populated `tests/{integration,property,replay,bench}/` with exercising `.rs` suites. |
+| P5-TEST-02 | #169: Added `proptest` for `AgentState` sequences (push/pop, stack depth, generation_id monotonicity, Failure rejection). |
 | P4-CI-07 | #154: `deny.toml` added to CI `lock` path filter so policy changes trigger the deny job. |
 | P4-CI-12 | #154: Fixed broken unwrap/expect regex in `scripts/pre-commit.sh`. |
 | P4-CI-13 | #154: Quoted PR metadata in `.github/workflows/conventional-commits.yml` to prevent shell injection. |
