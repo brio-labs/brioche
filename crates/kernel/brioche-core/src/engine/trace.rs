@@ -37,7 +37,8 @@ impl ToolCallAccumulator {
     /// Inserts a fresh `ToolCallDescriptor` into the pending map.
     /// If the same `id` is started twice, the second overwrites the first.
     ///
-    /// Complexity: O(log t) where t = pending descriptors.
+    /// # Complexity
+    /// O(log t) where t = pending descriptors.
     ///
     /// Refs: I-Core-ActiveToolCall
     /// # Panics
@@ -60,7 +61,9 @@ impl ToolCallAccumulator {
     /// No-op if the `id` is not present (e.g., the stream was interleaved
     /// or the start event was dropped).
     ///
-    /// Complexity: O(log t) for the map lookup + O(k) for the string append,
+    /// # Complexity
+    /// O(log t) for the map lookup + O(k) for the string append,
+    ///
     /// where k = chunk length.
     ///
     /// Refs: I-Core-ActiveToolCall
@@ -80,7 +83,8 @@ impl ToolCallAccumulator {
     /// The internal accumulator is cleared. Subsequent calls return an empty
     /// `Vec` until new `ToolCallStart` events arrive.
     ///
-    /// Complexity: O(t) where t = number of pending descriptors.
+    /// # Complexity
+    /// O(t) where t = number of pending descriptors.
     ///
     /// Refs: I-Core-ActiveToolCall
     /// # Panics
@@ -150,7 +154,10 @@ impl BriocheEngine {
     /// Log an `OverrideTransition` to the in-memory trace log.
     ///
     /// Refs: I-Gov-Trace-Log
-    /// Complexity: O(1). One Vec push (amortized).
+    ///
+    /// # Complexity
+    /// O(1). One Vec push (amortized).
+    ///
     /// # Panics
     /// Never panics.
     pub(crate) fn log_override_transition(
@@ -175,7 +182,10 @@ impl BriocheEngine {
     /// Log a superseded `OverrideTransition` to the in-memory trace log.
     ///
     /// Refs: I-Gov-Trace-Log
-    /// Complexity: O(1). One Vec push (amortized).
+    ///
+    /// # Complexity
+    /// O(1). One Vec push (amortized).
+    ///
     /// # Panics
     /// Never panics.
     pub(crate) fn log_superseded_transition(

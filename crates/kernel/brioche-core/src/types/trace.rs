@@ -85,8 +85,12 @@ impl TransitionTraceLog {
 
     /// Push a trace entry, evicting the oldest if at capacity.
     ///
-    /// Complexity: O(n) in the worst case (vec shift at capacity),
-    /// bounded by `CAPACITY` (128). Never panics.
+    /// # Complexity
+    /// O(n) in the worst case (vec shift at capacity), bounded by
+    /// `CAPACITY` (128).
+    ///
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Gov-OverrideTrace
     pub fn push(&mut self, entry: TransitionTrace) {
@@ -98,7 +102,9 @@ impl TransitionTraceLog {
 
     /// Take all entries, leaving the log empty.
     ///
-    /// Complexity: O(1).
+    /// # Complexity
+    /// O(1).
+    ///
     /// # Panics
     /// Never panics.
     ///
@@ -148,8 +154,12 @@ impl SupersededTransitionTraceLog {
 
     /// Push a trace entry, evicting the oldest if at capacity.
     ///
-    /// Complexity: O(n) in the worst case (vec shift at capacity),
-    /// bounded by `CAPACITY` (128). Never panics.
+    /// # Complexity
+    /// O(n) in the worst case (vec shift at capacity), bounded by
+    /// `CAPACITY` (128).
+    ///
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Gov-OverrideTrace
     pub fn push(&mut self, entry: SupersededTransitionTrace) {
@@ -161,7 +171,9 @@ impl SupersededTransitionTraceLog {
 
     /// Take all entries, leaving the log empty.
     ///
-    /// Complexity: O(1).
+    /// # Complexity
+    /// O(1).
+    ///
     /// # Panics
     /// Never panics.
     ///
