@@ -913,6 +913,11 @@ impl OpenAiLlmClient {
 #[async_trait::async_trait]
 impl LlmClient for OpenAiLlmClient {
     async fn call_llm(&self, shell: &BriocheShell) -> Result<(), ShellError> {
+        if let Err(err) = self.config.validate() {
+            let _ = self.ui_tx.send(LlmChunk::Error(err.to_string()));
+            return Err(ShellError::EffectExecution(err.to_string()));
+        }
+
         let url = format!("{}/chat/completions", self.config.base_url);
 
         let turn = {
