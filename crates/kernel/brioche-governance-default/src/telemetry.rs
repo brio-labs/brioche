@@ -7,11 +7,12 @@
 //!
 //! Refs: I-Core-ActiveToolCall, I-Gov-OverrideTrace, I-Gov-Rollback-BestEffort
 
-use crate::Priority;
 use brioche_core::{
     BriochePlugin, ExtensionStorage, PluginCapabilities, PluginResult, RollbackEventLog,
     StreamAction, StreamEvent, SupersededTransitionTraceLog, ToolCallDescriptor,
 };
+
+use crate::Priority;
 
 /// Detected tool call counter.
 ///

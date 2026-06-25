@@ -8,11 +8,12 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::Priority;
 use brioche_core::{
     AgentStateTag, BriochePlugin, Effect, EngineInput, ExtensionStorage, PluginCapabilities,
     PluginError, PluginResult, PolicyDecision, SessionSnapshot,
 };
+
+use crate::Priority;
 
 // ---------------------------------------------------------------------------
 // QuarantineManager
