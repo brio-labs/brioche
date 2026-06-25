@@ -9,11 +9,12 @@
 
 use std::collections::BTreeMap;
 
-use crate::Priority;
 use brioche_core::{
     BriochePlugin, ExtensionStorage, PluginCapabilities, PluginError, PluginResult,
     ToolCallDescriptor, ToolOutcome, ToolResultDTO, TruncatedToolResult, tool_outcome_to_string,
 };
+
+use crate::Priority;
 
 // ---------------------------------------------------------------------------
 // ToolResultFormatter
