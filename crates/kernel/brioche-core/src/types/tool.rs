@@ -63,7 +63,8 @@ pub struct ActiveToolCall {
 /// This ensures every `ActiveToolCall` has a concrete timeout — never zero
 /// unless explicitly requested by the descriptor.
 ///
-/// Complexity: O(1). No heap allocation.
+/// # Complexity
+/// O(1). No heap allocation.
 ///
 /// Refs: I-Core-ActiveToolCall
 /// # Panics
@@ -89,7 +90,8 @@ pub fn seal_single(descriptor: ToolCallDescriptor, default_timeout_ms: u64) -> A
 /// timeout. Use the engine's configured `default_tool_timeout_ms()` to
 /// preserve consistency with the main dispatch path.
 ///
-/// Complexity: O(n) where n = number of descriptors. Allocates one `Vec`.
+/// # Complexity
+/// O(n) where n = number of descriptors. Allocates one `Vec`.
 ///
 /// Refs: I-Core-ActiveToolCall
 /// # Panics
@@ -107,7 +109,8 @@ pub fn seal(descriptors: Vec<ToolCallDescriptor>, default_timeout_ms: u64) -> Ve
 /// `dispatch_tool_calls_result` and `SubRoutineOrchestrator` to eliminate
 /// duplication and keep mechanism code minimal.
 ///
-/// Complexity: O(1). May clone an inner `String`.
+/// # Complexity
+/// O(1). May clone an inner `String`.
 ///
 /// Refs: I-Comp-Pure-Logic
 /// # Panics
@@ -196,7 +199,8 @@ pub struct TruncatedToolResult {
 impl TruncatedToolResult {
     /// Creates a truncation record from the full content and a byte limit.
     ///
-    /// Complexity: O(1). One `String` allocation for the preview.
+    /// # Complexity
+    /// O(1). One `String` allocation for the preview.
     ///
     /// Refs: I-Comp-Pure-Logic
     /// # Panics
@@ -216,7 +220,11 @@ impl TruncatedToolResult {
 
     /// Serializes to a JSON string for injection into `ToolOutcome::Success`.
     ///
-    /// Complexity: O(n) where n = JSON length. One `String` allocation.
+    /// # Complexity
+    /// O(n) where n = JSON length. One `String` allocation.
+    ///
+    /// # Panics
+    /// Never panics.
     ///
     /// # Errors
     /// Returns `BriocheError::Serialization` if JSON serialization fails.

@@ -106,7 +106,10 @@ impl BriocheEngine {
     /// plugin errors but does not short-circuit.
     ///
     /// Refs: I-Core-PluginOrder, I-Core-StreamNoBranch
-    /// Complexity: O(p) where p = plugins on route_after_prediction.
+    ///
+    /// # Complexity
+    /// O(p) where p = plugins on route_after_prediction.
+    ///
     /// # Panics
     /// Never panics.
     pub(crate) fn eval_after_prediction(
@@ -135,7 +138,10 @@ impl BriocheEngine {
     /// logged as superseded. `Block` short-circuits immediately.
     ///
     /// Refs: I-Core-PluginOrder, I-Gov-Decision-Required
-    /// Complexity: O(p) where p = plugins on route_on_input.
+    ///
+    /// # Complexity
+    /// O(p) where p = plugins on route_on_input.
+    ///
     /// # Panics
     /// Panics only if an index is out of bounds; callers must validate lengths.
     pub(crate) fn eval_on_input(

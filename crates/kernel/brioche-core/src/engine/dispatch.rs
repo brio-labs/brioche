@@ -24,7 +24,10 @@ impl BriocheEngine {
     /// `Vec`, eliminating per-transition allocations.
     ///
     /// Refs: I-Core-StreamNoBranch, I-Core-RetVecEffect
-    /// Complexity: O(1) dispatch + O(handler cost).
+    ///
+    /// # Complexity
+    /// O(1) dispatch + O(handler cost).
+    ///
     /// # Panics
     /// Never panics. Errors are returned as `Result::Err`.
     pub(crate) fn dispatch_input(

@@ -274,7 +274,9 @@ impl UiWidget {
     /// Used by the projection layer for registry lookup and priority
     /// classification while the ecosystem migrates to structured variants.
     ///
-    /// Complexity: O(1).
+    /// # Complexity
+    /// O(1).
+    ///
     /// # Panics
     /// Never panics.
     ///
@@ -564,7 +566,9 @@ impl EffectBit {
 
 /// Map an `Effect` to its bitmask constant.
 ///
-/// Complexity: O(1). Match on enum variant.
+/// # Complexity
+/// O(1). Match on enum variant.
+///
 /// # Panics
 /// Never panics. The match is exhaustive over all `Effect` variants.
 ///

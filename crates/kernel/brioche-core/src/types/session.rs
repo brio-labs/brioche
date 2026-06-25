@@ -132,8 +132,12 @@ type NotSendSync = std::marker::PhantomData<*mut ()>;
 ///
 /// `Session` is strictly `!Send` and `!Sync`. A single thread owns it.
 /// Concurrent mutation is prevented by the type system.
+///
 /// # Complexity
 /// O(1) for construction and field/variant access.
+///
+/// # Panics
+/// Never panics.
 ///
 /// Refs: I-Core-Pure, I-Core-NoPanic, I-Shell-Session-NoSend
 pub struct Session {
@@ -182,7 +186,9 @@ impl std::fmt::Debug for Session {
 impl Session {
     /// Create a new session in `AgentState::Idle`.
     ///
-    /// Complexity: O(1). Allocates empty collections.
+    /// # Complexity
+    /// O(1). Allocates empty collections.
+    ///
     /// # Panics
     /// Never panics.
     ///
@@ -203,10 +209,11 @@ impl Session {
 
     /// Push the current state onto the stack and transition to `new_state`.
     ///
-    /// Used when entering `Predicting` or `ExecutingTools` with context
-    /// that must later be restored.
+    /// # Complexity
+    /// O(1). One `Vec` push.
     ///
-    /// Complexity: O(1). One `Vec` push.
+    /// # Panics
+    /// Never panics.
     ///
     /// # Errors
     /// Returns `BriocheError::InvalidStateTransition` if the transition
@@ -226,7 +233,11 @@ impl Session {
 
     /// Pop the top state from the stack and restore it.
     ///
-    /// Complexity: O(1). One `Vec` pop.
+    /// # Complexity
+    /// O(1). One `Vec` pop.
+    ///
+    /// # Panics
+    /// Never panics.
     ///
     /// # Errors
     /// Returns `BriocheError::InvalidStateTransition` if the stack is empty.
@@ -249,7 +260,9 @@ impl Session {
     /// The kernel injects this into `ExtensionStorage` before each hook
     /// so that plugins can read session state without direct field access.
     ///
-    /// Complexity: O(1). No allocation.
+    /// # Complexity
+    /// O(1). No allocation.
+    ///
     /// # Panics
     /// Never panics.
     ///
@@ -266,7 +279,9 @@ impl Session {
     /// Moves `pending_assistant_text` into a `ChatMessage::Assistant` and
     /// clears the buffer. No-op if the buffer is empty.
     ///
-    /// Complexity: O(1). One `Vec` push if text exists.
+    /// # Complexity
+    /// O(1). One `Vec` push if text exists.
+    ///
     /// # Panics
     /// Never panics.
     ///
@@ -283,8 +298,12 @@ impl Session {
 
     /// Apply a sequence of `HistoryEdit`s to the session, validating indices.
     ///
-    /// Complexity: O(e) where e = number of edits. One `Vec` insert/replace
-    /// per edit, plus one `drain` for `Truncate`.
+    /// # Complexity
+    /// O(e) where e = number of edits. One `Vec` insert/replace per edit,
+    /// plus one `drain` for `Truncate`.
+    ///
+    /// # Panics
+    /// Never panics.
     ///
     /// # Errors
     /// Returns `BriocheError::InvalidStateTransition` if an index is out of bounds.
@@ -373,7 +392,9 @@ impl std::fmt::Debug for SessionRegistry {
 impl SessionRegistry {
     /// Create an empty registry.
     ///
-    /// Complexity: O(1).
+    /// # Complexity
+    /// O(1).
+    ///
     /// # Panics
     /// Never panics.
     ///
@@ -388,7 +409,9 @@ impl SessionRegistry {
 
     /// Insert a sub-routine session.
     ///
-    /// Complexity: O(log n) where n = number of sub-routines.
+    /// # Complexity
+    /// O(log n) where n = number of sub-routines.
+    ///
     /// # Panics
     /// Never panics.
     ///
@@ -399,7 +422,9 @@ impl SessionRegistry {
 
     /// Get a mutable reference to a sub-routine session.
     ///
-    /// Complexity: O(log n).
+    /// # Complexity
+    /// O(log n).
+    ///
     /// # Panics
     /// Never panics.
     ///
@@ -410,7 +435,9 @@ impl SessionRegistry {
 
     /// Remove a sub-routine session, returning it if present.
     ///
-    /// Complexity: O(log n).
+    /// # Complexity
+    /// O(log n).
+    ///
     /// # Panics
     /// Never panics.
     ///
@@ -421,7 +448,9 @@ impl SessionRegistry {
 
     /// Returns `true` if the registry contains the given handle.
     ///
-    /// Complexity: O(log n).
+    /// # Complexity
+    /// O(log n).
+    ///
     /// # Panics
     /// Never panics.
     ///
@@ -434,7 +463,9 @@ impl SessionRegistry {
     ///
     /// Called by the kernel on every outgoing transition from `SubRoutine`.
     ///
-    /// Complexity: O(log n).
+    /// # Complexity
+    /// O(log n).
+    ///
     /// # Panics
     /// Never panics.
     ///
@@ -445,7 +476,9 @@ impl SessionRegistry {
 
     /// Get the current exit count for a handle.
     ///
-    /// Complexity: O(log n).
+    /// # Complexity
+    /// O(log n).
+    ///
     /// # Panics
     /// Never panics.
     ///
@@ -459,7 +492,9 @@ impl SessionRegistry {
 
     /// Iterate over all registered handles.
     ///
-    /// Complexity: O(1) for the iterator creation.
+    /// # Complexity
+    /// O(1) for the iterator creation.
+    ///
     /// # Panics
     /// Never panics.
     ///
@@ -509,7 +544,9 @@ impl AgentState {
     ///
     /// Returns `None` for states that carry no generation context.
     ///
-    /// Complexity: O(1). One pattern match.
+    /// # Complexity
+    /// O(1). One pattern match.
+    ///
     /// # Panics
     /// Never panics.
     ///
