@@ -99,6 +99,10 @@ impl GovernanceProfile {
     fn apply_permissive(
         builder: BriocheEngineBuilder<Missing, Missing>,
     ) -> BriocheEngineBuilder<Present, Present> {
+        tracing::warn!(
+            "GovernanceProfile::Permissive selected; minimal safeguards active. \
+             Use only for prototyping and testing."
+        );
         builder
             .with_epoch_interceptor(Box::new(EpochGuard))
             .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
