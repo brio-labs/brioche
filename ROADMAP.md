@@ -194,6 +194,7 @@ The following areas are already in good shape and should not be regressed:
 | P6-DOC-06 | #156: Added ADR-004 (`SignalDrainOrder`/`SignalBuffer`) and ADR-005 (`GovernanceProfile`/`BriocheEngineBuilderExt`). |
 | P1-PERF-01 | #157: `eval_route` and dispatch helpers now accept `&[usize]` and iterate without cloning route tables. |
 | P1-PERF-02 | #157: `SessionSnapshot` injected once at top of `transition()`; redundant hook inserts removed. |
+| P5-TEST-01 | #166: Populated `tests/{integration,property,replay,bench}/` with exercising `.rs` suites. |
 
 ---
 
