@@ -171,6 +171,9 @@ jobs:
       - name: Detect unused dependencies
         run: cargo machete
 
+      - name: Surface duplicate transitive crates
+        run: cargo tree --duplicates
+
       - name: Enforce architectural dependency boundaries
         run: |
           # Book IV / Infrastructure: brioche-std must NOT depend on shell/runtime crates.

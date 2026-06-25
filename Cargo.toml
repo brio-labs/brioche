@@ -56,6 +56,7 @@ base64-simd = "0.8"
 unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
+cognitive_complexity = "warn"
 
 [workspace.lints.rust]
 missing_docs = "warn"
