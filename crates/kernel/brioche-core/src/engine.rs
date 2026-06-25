@@ -29,10 +29,10 @@ use crate::{
 mod builder;
 mod dispatch;
 mod finalize;
-mod helpers;
 mod hooks;
 mod router;
 mod trace;
+mod transition_support;
 
 pub use builder::{BriocheEngineBuilder, Missing, Present};
 pub use router::{PluginRouter, UnifiedRoutingTable};
