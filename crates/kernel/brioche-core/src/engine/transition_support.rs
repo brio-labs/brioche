@@ -1,6 +1,6 @@
 //! Book I — The Core Book: `BriocheEngine` helper methods.
 //!
-//! Small, focused helpers used by `transition()` and dispatch.
+//! Small, focused transition support functions used by `transition()` and dispatch.
 //! Each function is a pure mechanism with a documented complexity contract.
 //!
 //! ## Invariants upheld
