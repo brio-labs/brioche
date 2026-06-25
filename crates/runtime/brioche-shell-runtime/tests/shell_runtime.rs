@@ -215,7 +215,7 @@ async fn effect_executor_tools_parallel() {
 async fn shell_graceful_shutdown() {
     let shell = build_shell();
 
-    shell.shutdown();
+    shell.shutdown().await;
 
     // After shutdown, sending should eventually fail.
     // The exact timing depends on the engine thread noticing the
