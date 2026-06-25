@@ -12,6 +12,8 @@ use brioche_core::{
     PluginResult, PolicyDecision,
 };
 
+use crate::Priority;
+
 /// Circuit breaker state.
 ///
 /// ## Snapshot strategy
@@ -67,7 +69,7 @@ impl BriochePlugin for CircuitBreaker {
     }
 
     fn priority(&self) -> i16 {
-        -20 // Early — block before expensive prediction
+        Priority::CIRCUIT_BREAKER // Early — block before expensive prediction
     }
 
     /// Scans history for consecutive identical tool calls.

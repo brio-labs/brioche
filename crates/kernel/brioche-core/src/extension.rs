@@ -34,18 +34,71 @@ pub enum SnapshotStrategy {
 }
 
 /// Serialize a type-erased instance to a binary blob.
+///
+/// # Complexity
+/// O(serialization cost). Deterministic for `BriocheExtensionType`s.
+///
+/// # Panics
+/// Never panics. Implementations must return an empty blob or map
+/// errors rather than panic.
+///
+/// Refs: I-Core-VTableClone
 pub type SerializeFn = fn(&dyn Any) -> Vec<u8>;
 
 /// Deserialize a binary blob into a type-erased instance.
+///
+/// # Complexity
+/// O(deserialization cost).
+///
+/// # Errors
+/// Returns `Err` if the blob is corrupted, truncated, or version-incompatible.
+/// Callers should fall back to `DefaultConstructFn`.
+///
+/// # Panics
+/// Never panics.
+///
+/// Refs: I-Core-VTableClone
 pub type DeserializeFn = fn(&[u8]) -> Result<Box<dyn Any + Send + Sync>, String>;
 
 /// Clone a type-erased instance.
+///
+/// Used by `CycleRollbackPolicy` for granular COW snapshots.
+///
+/// # Complexity
+/// O(clone cost). Deterministic for `BriocheExtensionType`s.
+///
+/// # Panics
+/// Never panics.
+///
+/// Refs: I-Core-VTableClone
 pub type CloneBoxFn = fn(&dyn Any) -> Box<dyn Any + Send + Sync>;
 
 /// Estimate the instance weight in bytes.
+///
+/// Used by `CycleRollbackPolicy` to decide whether a type fits within
+/// the per-hook COW budget.
+///
+/// # Complexity
+/// O(1) for the call. Implementations may scan the instance.
+///
+/// # Panics
+/// Never panics.
+///
+/// Refs: I-Core-VTableClone
 pub type WeightFn = fn(&dyn Any) -> usize;
 
 /// Construct a default type-erased instance.
+///
+/// Used by `get_or_insert_default` and `hydrate_plugin` as a fallback
+/// when deserialization fails or no cold snapshot exists.
+///
+/// # Complexity
+/// O(default construction cost).
+///
+/// # Panics
+/// Never panics.
+///
+/// Refs: I-Core-VTableClone
 pub type DefaultConstructFn = fn() -> Box<dyn Any + Send + Sync>;
 
 /// Function table for per-type (de)serialization, cloning, and default construction.

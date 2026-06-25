@@ -110,29 +110,97 @@ impl std::ops::BitOr for PluginCapabilities {
 /// Panics only if an index is out of bounds; callers must validate lengths.
 pub trait BriochePlugin: Send + Sync {
     /// Unique plugin name, used for total ordering and traceability.
+    ///
+    /// Must be globally unique within an engine. The name is used as a
+    /// tie-breaker when two plugins share the same `priority`.
+    ///
+    /// # Complexity
+    /// O(1). Returns a static string.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Core-PluginOrder
     fn name(&self) -> &'static str;
 
     /// Hook subscriptions. Determines which routes the plugin is placed on.
+    ///
+    /// The kernel pre-computes a `UnifiedRoutingTable` from these masks at
+    /// engine construction time. The hot path then uses the route index,
+    /// never the bitmask.
+    ///
+    /// # Complexity
+    /// O(1). Returns a bitmask.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Core-StreamNoBranch
     fn capabilities(&self) -> PluginCapabilities;
 
     /// Deterministic evaluation order. Lower priority = evaluated first.
-    /// Ties are broken by `name` lexicographically.
+    ///
+    /// Ties are broken by `name` lexicographically. Use named constants
+    /// (e.g. `Priority::DepthGuard`) instead of magic numbers.
+    ///
+    /// # Complexity
+    /// O(1). Returns a scalar.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Core-PluginOrder
     fn priority(&self) -> i16 {
         0
     }
 
     /// Reserved keys in `ExtensionStorage`. Format: `"plugin_name::state_name"`.
+    ///
+    /// Returning owned keys allows the engine to snapshot/restore only the
+    /// state belonging to this plugin. An empty slice means the plugin
+    /// stores no persisted state.
+    ///
+    /// # Complexity
+    /// O(1). Returns a static slice.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Core-ExtO1
     fn owned_state_keys(&self) -> &'static [&'static str] {
         &[]
     }
 
     /// Serializes the default state into a binary blob for resilient storage.
+    ///
+    /// Used by persistence layers when no prior state exists. The default
+    /// implementation returns an empty blob; plugins with state should
+    /// override this.
+    ///
+    /// # Complexity
+    /// O(1) for the default implementation. Plugin-defined otherwise.
+    ///
+    /// # Panics
+    /// Never panics in the default implementation.
+    ///
+    /// Refs: I-Persist-Idempotence
     fn default_state_blob(&self) -> Vec<u8> {
         vec![]
     }
 
     /// Attempts to deserialize a blob. On failure, the engine calls
     /// `default_state_blob`.
+    ///
+    /// The default implementation always fails, which is appropriate for
+    /// stateless plugins.
+    ///
+    /// # Complexity
+    /// O(1) for the default implementation. Plugin-defined otherwise.
+    ///
+    /// # Panics
+    /// Never panics in the default implementation.
+    ///
+    /// Refs: I-Persist-Idempotence
     fn deserialize_state(&self, _raw: &[u8]) -> Result<Box<dyn Any + Send + Sync>, String> {
         Err("Not implemented".into())
     }
@@ -280,7 +348,20 @@ pub trait BriochePlugin: Send + Sync {
 /// # Panics
 /// Never panics.
 pub trait EpochInterceptor: Send + Sync {
-    /// Intercept epoch.
+    /// Intercept the current epoch to enforce temporal isolation.
+    ///
+    /// Compares the `generation_id` carried by `input` against the
+    /// current epoch stored in `ExtensionStorage`. Returns
+    /// `EpochAction::Block` if the input belongs to a stale epoch.
+    ///
+    /// # Complexity
+    /// O(1). One `ExtensionStorage` read plus a scalar comparison.
+    ///
+    /// # Panics
+    /// Never panics. Implementations must return `PluginError` rather
+    /// than panic.
+    ///
+    /// Refs: I-Comp-Epoch-First, I-Gov-Epoch-Reject
     fn intercept_epoch(
         &self,
         input: &EngineInput,
@@ -299,7 +380,20 @@ pub trait EpochInterceptor: Send + Sync {
 /// # Panics
 /// Never panics.
 pub trait SubRoutineHandler: Send + Sync {
-    /// Handle subroutine.
+    /// Delegate or resolve a sub-routine transition.
+    ///
+    /// Called when the parent session is in `AgentState::SubRoutine`.
+    /// The handler may read `parent`, mutate `child`, and optionally
+    /// return effects that short-circuit standard dispatch.
+    ///
+    /// # Complexity
+    /// O(1) for the trait call. Implementations may incur lookup cost.
+    ///
+    /// # Panics
+    /// Never panics. Implementations must return `PluginError` rather
+    /// than panic.
+    ///
+    /// Refs: I-Comp-Epoch-Subroutine
     fn handle_subroutine(
         &self,
         parent: &mut Session,
@@ -348,7 +442,21 @@ pub trait SubRoutineHydrator: Send + Sync {
 /// # Panics
 /// Never panics.
 pub trait ConsistencyVerifier: Send + Sync {
-    /// Verify consistency.
+    /// Verify mechanical consistency of `session` after a transition.
+    ///
+    /// Implementations may mutate `session` to repair inconsistency,
+    /// returning effects (typically `OverrideTransition`) that communicate
+    /// the repair to the shell.
+    ///
+    /// # Complexity
+    /// O(1) for the trait call. Implementations must document their own
+    /// complexity.
+    ///
+    /// # Panics
+    /// Never panics. Implementations must return `PluginError` rather
+    /// than panic.
+    ///
+    /// Refs: I-Core-NoPanic
     fn verify_consistency(&self, session: &mut Session) -> PluginResult<Option<Vec<Effect>>>;
 }
 
@@ -358,11 +466,24 @@ pub trait ConsistencyVerifier: Send + Sync {
 ///
 /// Refs: I-Gov-Decision-Required
 /// # Complexity
-/// O(1). No heap allocation.
+/// O(d) where d = number of decisions. At least one linear pass.
 /// # Panics
 /// Never panics.
 pub trait DecisionAggregator: Send + Sync {
-    /// Aggregate decisions.
+    /// Reduce a vector of per-plugin decisions into a single decision.
+    ///
+    /// The kernel calls this after the `before_prediction` hook has been
+    /// evaluated for every plugin. The returned decision determines
+    /// whether prediction proceeds, is blocked, or is overridden.
+    ///
+    /// # Complexity
+    /// O(d) where d = number of decisions.
+    ///
+    /// # Panics
+    /// Never panics. Implementations must return `PluginError` rather
+    /// than panic.
+    ///
+    /// Refs: I-Gov-Decision-Required
     fn aggregate_decisions(
         &self,
         decisions: Vec<PolicyDecision>,
@@ -385,7 +506,21 @@ pub trait DecisionAggregator: Send + Sync {
 /// # Panics
 /// Never panics.
 pub trait SignalDrainOrder: Send + Sync {
-    /// Drain.
+    /// Drain pending signals from all channels into a batch.
+    ///
+    /// The returned `SignalDrainBatch` follows the canonical order:
+    /// `SystemSignal` → `GovernanceNotification` → `AsyncTaskResult`.
+    /// The kernel injects this batch into `ExtensionStorage` as
+    /// `SignalBuffer` before calling `transition()`.
+    ///
+    /// # Complexity
+    /// O(1). The trait call itself introduces no allocation.
+    ///
+    /// # Panics
+    /// Never panics. Implementations must return an empty batch rather
+    /// than panic if a channel is unavailable.
+    ///
+    /// Refs: I-Shell-Drain-Atomic
     fn drain(&self) -> crate::SignalDrainBatch;
 }
 
@@ -394,6 +529,8 @@ pub trait SignalDrainOrder: Send + Sync {
 /// Without injection, all `RequestEffect`s are allowed on all hooks.
 ///
 /// Refs: I-Core-HookEffect-O1
+/// # Complexity
+/// O(1). Bitwise AND on pre-computed masks.
 /// # Panics
 /// Never panics.
 pub trait HookEffectConstraint: Send + Sync {
@@ -401,9 +538,28 @@ pub trait HookEffectConstraint: Send + Sync {
     ///
     /// `hook_index`: compact hook index (0-7).
     /// `effect_mask`: bitmask of the effect to validate (`EffectBit` constant).
+    ///
+    /// # Complexity
+    /// O(1). Bitwise AND on pre-computed masks.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Core-HookEffect-O1
     fn is_allowed_fast(&self, hook_index: u8, effect_mask: u64) -> bool;
 
     /// Validation by name (fallback for custom/future extensions).
+    ///
+    /// Called when a hook or effect does not have a compact index.
+    /// Implementations should match against known hook/effect names.
+    ///
+    /// # Complexity
+    /// O(n) where n = number of known hook/effect pairs.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Core-HookEffect-O1
     fn is_allowed_fallback(&self, hook_name: &str, effect_variant: &str) -> bool;
 }
 
@@ -502,7 +658,20 @@ pub trait CycleRollbackPolicy: Send + Sync {
 /// # Panics
 /// Never panics.
 pub trait SubRoutineLifecycleGuard: Send + Sync {
-    /// On exit.
+    /// Clean up `SessionRegistry` when a sub-routine exits.
+    ///
+    /// Called on the outgoing transition from `AgentState::SubRoutine`.
+    /// Implementations typically remove the child session from `registry`
+    /// and may return effects (e.g. `ForwardToUi`) to notify the shell.
+    ///
+    /// # Complexity
+    /// O(1) for the trait call. Implementations may incur lookup cost.
+    ///
+    /// # Panics
+    /// Never panics. Implementations must return `PluginError` rather
+    /// than panic.
+    ///
+    /// Refs: I-Gov-SubRoutineLifecycle-Guard
     fn on_exit(
         &self,
         handle: SubRoutineHandle,
@@ -521,7 +690,20 @@ pub trait SubRoutineLifecycleGuard: Send + Sync {
 /// # Panics
 /// Never panics.
 pub trait GovernanceFailoverHandler: Send + Sync {
-    /// Handle failure.
+    /// Transform a `PluginFault` into a safe terminal effect sequence.
+    ///
+    /// Called when a governance trait or plugin returns a fatal error.
+    /// Returning `Some(effects)` replaces the fault; returning `None`
+    /// leaves the fault unchanged.
+    ///
+    /// # Complexity
+    /// O(1). Pattern match on `Effect::PluginFault`.
+    ///
+    /// # Panics
+    /// Never panics. Implementations must return `PluginError` rather
+    /// than panic.
+    ///
+    /// Refs: I-Gov-Failover
     fn handle_failure(
         &self,
         session: &mut Session,
@@ -539,6 +721,18 @@ pub trait GovernanceFailoverHandler: Send + Sync {
 /// # Panics
 /// Never panics.
 pub trait CowBudgetPolicy: Send + Sync {
-    /// Max cow bytes.
+    /// Return the COW budget in bytes for the named hook.
+    ///
+    /// The `CycleRollbackPolicy` consults this value before each monitored
+    /// hook. If cumulative snapshot weight exceeds this budget, the hook
+    /// mutations are rolled back.
+    ///
+    /// # Complexity
+    /// O(1). Implementations may use a lookup table.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Gov-CowBudget-Adaptative
     fn max_cow_bytes(&self, hook_name: &str) -> usize;
 }

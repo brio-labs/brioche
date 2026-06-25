@@ -8,6 +8,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::Priority;
 use brioche_core::{
     AgentStateTag, BriochePlugin, Effect, EngineInput, ErrorCode, ErrorDetail, ExtensionStorage,
     PluginCapabilities, PluginResult, PolicyDecision, SessionSnapshot, StreamAction, StreamEvent,
@@ -88,7 +89,7 @@ impl BriochePlugin for DepthGuard {
     }
 
     fn priority(&self) -> i16 {
-        -40
+        Priority::DEPTH_GUARD
     }
 
     /// Verifies depth before each `UserMessage`.
@@ -197,7 +198,7 @@ impl BriochePlugin for JsonArgumentAccumulator {
     }
 
     fn priority(&self) -> i16 {
-        20 // After ToolCallDetector, before any Hold/Offload decisions
+        Priority::ARGUMENT_ACCUMULATOR // After ToolCallDetector, before any Hold/Offload decisions
     }
 
     /// Accumulates argument fragments for future validation.
