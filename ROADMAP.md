@@ -216,6 +216,9 @@ The following areas are already in good shape and should not be regressed:
 | P5-TEST-09 | #160: Added `HistoryEdit` edge-case tests for Replace, Truncate, and out-of-bounds. |
 | P6-MAINT-06 | #163: Extracted shared `brioche-lint-core` library crate. |
 | P3-SEC-08 | #173: `OpenAiConfig` validates non-empty `api_key` and `model` before requests. |
+| P0-DET-01 | #162: `ExtensionStorage` serialization errors surfaced instead of empty blobs. |
+| P0-SEC-04/06 | #174: Terminal SSE `StreamEvent::Error` and shared HTTP client hardening (timeout/URL/redirect/size). |
+| P3-SEC-02/12 | #175: `Permissive` sandbox requires confirmation; `Permissive` profile logs a warning. |
 
 ---
 
