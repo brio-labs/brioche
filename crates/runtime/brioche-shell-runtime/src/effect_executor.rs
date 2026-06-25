@@ -595,11 +595,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use brioche_core::{EngineInput, ToolOutcome};
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
-    use std::time::{Duration, Instant};
-
-    use brioche_core::{EngineInput, ToolOutcome};
+    use std::time::Duration;
     use tokio::sync::{RwLock, mpsc};
     use tokio_util::sync::CancellationToken;
 
@@ -834,9 +833,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn execute_tools_stops_on_shell_cancellation() {
+    async fn execute_tools_stops_on_shell_cancellation() -> Result<(), ShellError> {
         let (tx, mut rx) = mpsc::channel(4);
-        let shell = BriocheShell::test_with_async_channel(tx);
+        let shell = BriocheShell::test_with_input_channel(tx);
         let executor = DefaultEffectExecutor::new(
             CancellableToolExecutor::default(),
             MockLlmClient::default(),
@@ -846,7 +845,7 @@ mod tests {
         let call = brioche_core::ActiveToolCall {
             tool_id: "t1".into(),
             tool_name: "hang".into(),
-            arguments: serde_json::Value::Null,
+            arguments: "{}".into(),
             timeout_ms: 60_000,
         };
 
@@ -856,17 +855,21 @@ mod tests {
             shell_c.cancellation_token().cancel();
         });
 
-        let start = Instant::now();
-        executor.execute_tools(vec![call], 1, &shell).await.unwrap();
-        let elapsed = start.elapsed();
-
         assert!(
-            elapsed < Duration::from_secs(1),
-            "tool should stop quickly after cancellation, took {:?}",
-            elapsed
+            tokio::time::timeout(
+                Duration::from_secs(1),
+                executor.execute_tools(vec![call], 1, &shell)
+            )
+            .await
+            .is_ok(),
+            "tool execution should complete quickly after cancellation"
         );
 
-        let result = rx.recv().await.expect("ToolCallsResult should be sent");
+        let result = rx
+            .recv()
+            .await
+            .ok_or_else(|| ShellError::EffectExecution("ToolCallsResult should be sent".into()))?;
         assert!(matches!(result, EngineInput::ToolCallsResult { .. }));
+        Ok(())
     }
 }

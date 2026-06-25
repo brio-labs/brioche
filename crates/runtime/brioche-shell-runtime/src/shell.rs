@@ -513,6 +513,32 @@ impl BriocheShell {
             cancellation_token: CancellationToken::new(),
         }
     }
+    /// Build a shell whose `EngineInput` channel is wired to the provided
+    /// sender, for tests that need to observe loopback messages such as
+    /// `ToolCallsResult`.
+    #[cfg(test)]
+    pub(crate) fn test_with_input_channel(
+        tx: tokio::sync::mpsc::Sender<brioche_core::EngineInput>,
+    ) -> Self {
+        let (_async_tx, _async_rx) = tokio::sync::mpsc::channel(1);
+        let (_system_tx, _system_rx) = tokio::sync::mpsc::channel(1);
+        let (_gov_tx, _gov_rx) = tokio::sync::mpsc::channel(1);
+        let (_rebuild_tx, _rebuild_rx) = tokio::sync::mpsc::channel(1);
+
+        // Drop unused receivers so the senders do not block.
+        drop((_async_rx, _system_rx, _gov_rx, _rebuild_rx));
+
+        Self {
+            input_tx: SharedSender::new(tx),
+            system_signal_tx: SharedSender::new(_system_tx),
+            governance_tx: SharedSender::new(_gov_tx),
+            async_task_result_tx: SharedSender::new(_async_tx),
+            rebuild_tx: SharedSender::new(_rebuild_tx),
+            rebuild_in_progress: Arc::new(AtomicBool::new(false)),
+            task_tracker: TaskTracker::new(),
+            cancellation_token: CancellationToken::new(),
+        }
+    }
 
     /// Send an `EngineInput` to the kernel.
     ///
@@ -1238,22 +1264,28 @@ mod tests {
             std::future::pending::<()>().await;
         });
 
-        tokio::time::timeout(Duration::from_secs(1), async {
-            while !flag.load(Ordering::Acquire) {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("flag should be set");
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), async {
+                while !flag.load(Ordering::Acquire) {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .is_ok(),
+            "flag should be set"
+        );
 
         task.abort();
 
-        tokio::time::timeout(Duration::from_secs(1), async {
-            while flag.load(Ordering::Acquire) {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("flag should clear after abort");
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), async {
+                while flag.load(Ordering::Acquire) {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .is_ok(),
+            "flag should clear after abort"
+        );
     }
 }
