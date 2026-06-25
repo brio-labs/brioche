@@ -182,6 +182,8 @@ The following areas are already in good shape and should not be regressed:
 | P4-CI-04 | #59: Crate publish step no longer masks failures with `|| true`. |
 | P4-CI-08 | #59: All `cargo deny` invocations standardized to `cargo deny check all`. |
 | P6-DOC-05 | #59: `scripts/philosophy-check.py` no longer accepts malformed `Refs: SPECS`; fixed the one occurrence in `brioche-core/src/engine/builder.rs`. |
+| P6-DOC-01 | #149: Converted embedded `Complexity:` in Book I Core docs to `# Complexity` headings; added missing `# Panics` sections. |
+| P6-DOC-04 | #149: Fixed `CONTRIBUTING.md` lint-invariants guidance to use correct subcommands and removed unimplemented note. |
 | P6-MAINT-02 | #147: Removed empty `lib.rs` from `brioche-playground`; crate is binary-only. |
 | P6-MAINT-05 | #147: Renamed `crates/kernel/brioche-core/src/engine/helpers.rs` to `transition_support.rs`. |
 | P6-MAINT-07 | #147: Removed bare `TODO` placeholder from `.github/CODEOWNERS`. |
