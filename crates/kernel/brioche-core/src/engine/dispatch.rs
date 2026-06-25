@@ -219,7 +219,7 @@ impl BriocheEngine {
             StreamEvent::ToolCallDone { .. } => {
                 self.finalize_prediction_with_tools(session, effects)?;
             }
-            StreamEvent::Done => {
+            StreamEvent::Done | StreamEvent::Error { .. } => {
                 self.finalize_prediction_text_only(session, effects)?;
             }
             _ => {}
@@ -357,7 +357,10 @@ impl BriocheEngine {
                     chunk,
                 );
             }
-            StreamEvent::ToolCallDone { .. } | StreamEvent::Done | StreamEvent::Pass => {
+            StreamEvent::ToolCallDone { .. }
+            | StreamEvent::Done
+            | StreamEvent::Pass
+            | StreamEvent::Error { .. } => {
                 // Terminal events carry no mechanical accumulation.
             }
         }

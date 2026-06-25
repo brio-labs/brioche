@@ -69,6 +69,15 @@ pub enum StreamEvent {
         /// Nested execution path for tree-structured models.
         path: ExecutionPath,
     },
+    /// Terminal error from the LLM provider or transport layer.
+    ///
+    /// Emitted by the shell when a request or SSE stream fails before
+    /// normal completion. The kernel treats this as a terminal stream
+    /// event and finalizes the current prediction.
+    Error {
+        /// Human-readable error message.
+        message: String,
+    },
     /// End-of-stream marker. Sent by the shell when the LLM response
     /// completes without further chunks or tool calls.
     Done,
