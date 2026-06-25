@@ -8,11 +8,12 @@
 
 use std::collections::BTreeMap;
 
-use crate::Priority;
 use brioche_core::{
     AgentStateTag, BriochePlugin, Effect, EngineInput, ErrorCode, ErrorDetail, ExtensionStorage,
     PluginCapabilities, PluginResult, PolicyDecision, SessionSnapshot, StreamAction, StreamEvent,
 };
+
+use crate::Priority;
 
 // ---------------------------------------------------------------------------
 // DepthGuard

@@ -101,20 +101,20 @@ pub use profile::{BriocheEngineBuilderExt, GovernanceProfile};
 pub struct Priority;
 
 impl Priority {
+    /// Stream-event argument accumulation.
+    pub const ARGUMENT_ACCUMULATOR: i16 = 20;
+    /// Input guard — enforce sub-routine depth limits.
+    pub const DEPTH_GUARD: i16 = -40;
     /// Very early `on_error` handler — quarantine before recovery.
     pub const QUARANTINE: i16 = -100;
     /// Early input interceptor — recover from cascading failures.
     pub const RECOVERY: i16 = -50;
-    /// Input guard — enforce sub-routine depth limits.
-    pub const DEPTH_GUARD: i16 = -40;
     /// Sub-routine timeout enforcement.
     pub const SUBROUTINE_TIMEOUT: i16 = -30;
-    /// Tool timeout bounds before `ExecuteTools`.
-    pub const TOOL_TIMEOUT: i16 = -10;
-    /// Tool result formatting before other plugins inspect results.
-    pub const TOOL_FORMATTER: i16 = 10;
-    /// Stream-event argument accumulation.
-    pub const ARGUMENT_ACCUMULATOR: i16 = 20;
     /// Late telemetry observer.
     pub const TELEMETRY: i16 = 100;
+    /// Tool result formatting before other plugins inspect results.
+    pub const TOOL_FORMATTER: i16 = 10;
+    /// Tool timeout bounds before `ExecuteTools`.
+    pub const TOOL_TIMEOUT: i16 = -10;
 }

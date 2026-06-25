@@ -56,7 +56,7 @@ HOT_PATH_MODULES = [
     "crates/kernel/brioche-core/src/engine.rs",
     "crates/kernel/brioche-core/src/engine/dispatch.rs",
     "crates/kernel/brioche-core/src/engine/finalize.rs",
-    "crates/kernel/brioche-core/src/engine/helpers.rs",
+    "crates/kernel/brioche-core/src/engine/transition_support.rs",
     "crates/kernel/brioche-core/src/engine/hooks.rs",
     "crates/kernel/brioche-core/src/engine/router.rs",
     "crates/kernel/brioche-core/src/engine/trace.rs",

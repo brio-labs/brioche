@@ -7,11 +7,12 @@
 
 use std::collections::BTreeMap;
 
-use crate::Priority;
 use brioche_core::{
     AgentStateTag, BriochePlugin, EngineInput, ExtensionStorage, PluginCapabilities, PluginResult,
     PolicyDecision, SessionSnapshot, ToolCallDescriptor,
 };
+
+use crate::Priority;
 
 // ---------------------------------------------------------------------------
 // ToolTimeoutPolicy
