@@ -112,6 +112,7 @@ impl BriocheEngine {
                 Some(())
             }
             Ok(None) => None,
+            Err(err) => {
                 effects.push(Self::plugin_fault(
                     "subroutine_handler",
                     PluginError::Fatal {
