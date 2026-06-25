@@ -63,6 +63,8 @@ impl Priority {
     pub const CIRCUIT_BREAKER: i16 = -20;
     /// Context optimization just before prediction.
     pub const CONTEXT_OPTIMIZER: i16 = -5;
+    /// Late `after_prediction` GC trigger.
+    pub const GC_OBSERVER: i16 = 200;
     /// Tool-result pending-task detection.
     ///
     /// Ties with `brioche_governance_default::Priority::ARGUMENT_ACCUMULATOR`;
@@ -70,6 +72,4 @@ impl Priority {
     pub const PENDING_TASK: i16 = 20;
     /// Late `before_prediction` token estimator.
     pub const TOKEN_TRACKER: i16 = 60;
-    /// Late `after_prediction` GC trigger.
-    pub const GC_OBSERVER: i16 = 200;
 }
