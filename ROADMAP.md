@@ -209,6 +209,8 @@ The following areas are already in good shape and should not be regressed:
 | P2-PERF-05 | #167: `append_state_effects` clone cost removed/documented; argument strings use `Arc\u003cstr\u003e`. |
 | P5-TEST-03 | #168: Extended `replay_journal.rs` with tool-call, subroutine restore, epoch mismatch, plugin fault, and wraparound scenarios. |
 | P5-TEST-04 | #168: Rewrote `effect_executor_tests.rs` to exercise every `Effect` variant via `MockLlmClient`/`EchoToolExecutor`. |
+| P3-SEC-10 | #172: `ToolExecutor::Command` template interpolation now validates placeholder keys and balanced braces. |
+| P3-SEC-11 | #172: Default tool allow-list tightened; `cargo`, `rustc`, `git`, `find` are now opt-in. |
 
 ---
 
