@@ -190,6 +190,10 @@ The following areas are already in good shape and should not be regressed:
 | P6-MAINT-07 | #147: Removed bare `TODO` placeholder from `.github/CODEOWNERS`. |
 | P6-MAINT-08 | #151: Replaced magic `priority()` literals with named `Priority` constants in `brioche-governance-default` and `brioche-std`. |
 | P3-SEC-07 | #155: `SseParser` now aborts after a configurable threshold of consecutive malformed `data:` lines; `OpenAiLlmClient` propagates the abort as a terminal error. |
+| P6-DOC-03 | #156: Pruned architecture index, fixed stale filenames, translated French prose, aligned governance trait signatures. |
+| P6-DOC-06 | #156: Added ADR-004 (`SignalDrainOrder`/`SignalBuffer`) and ADR-005 (`GovernanceProfile`/`BriocheEngineBuilderExt`). |
+| P1-PERF-01 | #157: `eval_route` and dispatch helpers now accept `&[usize]` and iterate without cloning route tables. |
+| P1-PERF-02 | #157: `SessionSnapshot` injected once at top of `transition()`; redundant hook inserts removed. |
 
 ---
 
