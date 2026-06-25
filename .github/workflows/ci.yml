@@ -23,6 +23,14 @@ env:
   RUSTC_WRAPPER: sccache
   SCCACHE_GHA_ENABLED: "true"
 
+# Runner strategy:
+# - Heavy, parallelizable Rust jobs (test, proptest) use 16 vCPU ARM runners.
+# - Medium/light Rust jobs (clippy, test-doc) use 4 vCPU ARM runners.
+#   ARM minutes cost ~0.625x x64 minutes, so these are cheaper than the old
+#   x64 4 vCPU runners while still finishing faster.
+# - Profile/benchmark smoke checks and lightweight gates stay on GitHub-hosted
+#   ubuntu-latest to avoid adding Blacksmith cost where it isn't needed.
+
 jobs:
   # -------------------------------------------------------------------------
   # Path filters — skip expensive jobs on pull requests that don't touch them.
@@ -97,7 +105,7 @@ jobs:
       - run: cargo fmt --check
 
   clippy:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     needs: [changes]
     if: needs.changes.outputs.rust == 'true'
     steps:
@@ -216,7 +224,7 @@ jobs:
   # Gate 2 — Test matrix (unit, doc, property)
   # -------------------------------------------------------------------------
   test:
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: blacksmith-16vcpu-ubuntu-2404-arm
     needs: [changes, clippy, deny]
     if: needs.changes.outputs.rust == 'true'
     steps:
@@ -229,7 +237,7 @@ jobs:
       - run: cargo test --workspace --all-targets --all-features
 
   test-doc:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     needs: [changes, clippy]
     if: needs.changes.outputs.rust == 'true'
     steps:
@@ -244,7 +252,7 @@ jobs:
   # Property tests with a high case count to surface edge-case failures
   # that unit tests miss (PHILOSOPHY.md §5.4, docs/SPECS.md Book V Ch.10).
   proptest:
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: blacksmith-16vcpu-ubuntu-2404-arm
     needs: [changes, clippy, deny]
     if: needs.changes.outputs.rust == 'true'
     steps:
