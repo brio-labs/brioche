@@ -212,6 +212,7 @@ The following areas are already in good shape and should not be regressed:
 | P3-SEC-10 | #172: `ToolExecutor::Command` template interpolation now validates placeholder keys and balanced braces. |
 | P3-SEC-11 | #172: Default tool allow-list tightened; `cargo`, `rustc`, `git`, `find` are now opt-in. |
 | P0-SEC-01 | #161: `ShellTool::execute_command` hardened against shell injection with argument validation. |
+| P0-SEC-02/03/05 | #164: Shell shutdown, rebuild-in-progress barrier/guard, and tool cancellation token. |
 
 ---
 
