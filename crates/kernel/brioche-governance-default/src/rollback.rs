@@ -594,3 +594,314 @@ impl CowBudgetPolicy for HistoricalCowBudgetPolicy {
         self.adaptive_budget()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AdaptiveUndoFrameGuard, CowBudgetPolicy, HistoricalCowBudgetPolicy, RollbackFrameRecord,
+        TieredUndoFrameGuard, UndoFrameGuard,
+    };
+    use brioche_core::{
+        BriocheExtensionType, CycleRollbackPolicy, EpochState, ExtensionStorage, RollbackEventLog,
+    };
+
+    /// Standard (FullClone) extension used to exercise budget thresholds.
+    #[derive(
+        Clone,
+        Debug,
+        Default,
+        PartialEq,
+        Eq,
+        serde::Serialize,
+        serde::Deserialize,
+        BriocheExtensionType,
+    )]
+    struct TestCounter {
+        value: u64,
+    }
+
+    /// No-snapshot extension used to verify rollback skipping behavior.
+    #[derive(
+        Clone,
+        Debug,
+        Default,
+        PartialEq,
+        Eq,
+        serde::Serialize,
+        serde::Deserialize,
+        BriocheExtensionType,
+    )]
+    #[brioche(no_snapshot)]
+    struct TestTransient {
+        value: u64,
+    }
+
+    #[test]
+    fn undo_frame_guard_restores_critical_type_on_rollback() {
+        let mut guard = UndoFrameGuard::new();
+        let mut ext = ExtensionStorage::new();
+        ext.insert(EpochState {
+            current_generation: 42,
+        });
+
+        guard.begin_hook("on_input");
+
+        let type_id = std::any::TypeId::of::<EpochState>();
+        let vtable = EpochState::build_vtable();
+        let current = ext.get_or_insert_default::<EpochState>();
+        guard.on_mutation(type_id, &vtable, current);
+        current.current_generation = 999;
+
+        guard.rollback_hook(&mut ext);
+
+        let restored = ext.get_or_insert_default::<EpochState>();
+        assert_eq!(restored.current_generation, 42);
+    }
+
+    #[test]
+    fn undo_frame_guard_keeps_mutations_on_commit() {
+        let mut guard = UndoFrameGuard::new();
+        let mut ext = ExtensionStorage::new();
+        ext.insert(EpochState {
+            current_generation: 42,
+        });
+
+        guard.begin_hook("on_input");
+
+        let type_id = std::any::TypeId::of::<EpochState>();
+        let vtable = EpochState::build_vtable();
+        let current = ext.get_or_insert_default::<EpochState>();
+        guard.on_mutation(type_id, &vtable, current);
+        current.current_generation = 999;
+
+        guard.commit_hook(&mut ext);
+
+        let kept = ext.get_or_insert_default::<EpochState>();
+        assert_eq!(kept.current_generation, 999);
+    }
+
+    #[test]
+    fn undo_frame_guard_abandons_when_budget_exceeded() {
+        let mut guard = UndoFrameGuard::with_max_cow_bytes(0);
+        let mut ext = ExtensionStorage::new();
+        ext.insert(TestCounter { value: 7 });
+
+        guard.begin_hook("on_input");
+
+        let type_id = std::any::TypeId::of::<TestCounter>();
+        let vtable = TestCounter::build_vtable();
+        let current = ext.get_or_insert_default::<TestCounter>();
+        guard.on_mutation(type_id, &vtable, current);
+        current.value = 77;
+
+        guard.rollback_hook(&mut ext);
+
+        let not_restored = ext.get_or_insert_default::<TestCounter>();
+        assert_eq!(not_restored.value, 77);
+        assert!(guard.is_budget_exceeded());
+    }
+
+    #[test]
+    fn undo_frame_guard_logs_commit_and_rollback() {
+        let mut guard = UndoFrameGuard::new();
+        let mut ext = ExtensionStorage::new();
+        ext.insert(EpochState {
+            current_generation: 1,
+        });
+
+        guard.begin_hook("on_input");
+        let type_id = std::any::TypeId::of::<EpochState>();
+        let vtable = EpochState::build_vtable();
+        let current = ext.get_or_insert_default::<EpochState>();
+        guard.on_mutation(type_id, &vtable, current);
+        guard.commit_hook(&mut ext);
+
+        guard.begin_hook("on_input");
+        let current = ext.get_or_insert_default::<EpochState>();
+        guard.on_mutation(type_id, &vtable, current);
+        guard.rollback_hook(&mut ext);
+
+        let log = ext.get_or_insert_default::<RollbackEventLog>();
+        assert_eq!(log.events.len(), 2);
+        assert!(!log.events[0].was_rollback);
+        assert!(log.events[1].was_rollback);
+    }
+
+    #[test]
+    fn tiered_undo_frame_guard_restores_critical_type() {
+        let mut guard = TieredUndoFrameGuard::new();
+        let mut ext = ExtensionStorage::new();
+        ext.insert(EpochState {
+            current_generation: 42,
+        });
+
+        guard.begin_hook("on_input");
+
+        let type_id = std::any::TypeId::of::<EpochState>();
+        let vtable = EpochState::build_vtable();
+        let current = ext.get_or_insert_default::<EpochState>();
+        guard.on_mutation(type_id, &vtable, current);
+        current.current_generation = 999;
+
+        guard.rollback_hook(&mut ext);
+
+        let restored = ext.get_or_insert_default::<EpochState>();
+        assert_eq!(restored.current_generation, 42);
+    }
+
+    #[test]
+    fn tiered_undo_frame_guard_abandons_standard_over_budget() {
+        let mut guard = TieredUndoFrameGuard::with_thresholds(0, 0);
+        let mut ext = ExtensionStorage::new();
+        ext.insert(TestCounter { value: 5 });
+
+        guard.begin_hook("on_input");
+
+        let type_id = std::any::TypeId::of::<TestCounter>();
+        let vtable = TestCounter::build_vtable();
+        let current = ext.get_or_insert_default::<TestCounter>();
+        guard.on_mutation(type_id, &vtable, current);
+        current.value = 55;
+
+        guard.rollback_hook(&mut ext);
+
+        let not_restored = ext.get_or_insert_default::<TestCounter>();
+        assert_eq!(not_restored.value, 55);
+        assert!(guard.is_budget_exceeded());
+    }
+
+    #[test]
+    fn adaptive_undo_frame_guard_uses_fallback_threshold() {
+        let mut guard = AdaptiveUndoFrameGuard::with_fallback_max(0);
+        let mut ext = ExtensionStorage::new();
+        ext.insert(TestCounter { value: 3 });
+
+        guard.begin_hook("on_input");
+
+        let type_id = std::any::TypeId::of::<TestCounter>();
+        let vtable = TestCounter::build_vtable();
+        let current = ext.get_or_insert_default::<TestCounter>();
+        guard.on_mutation(type_id, &vtable, current);
+        current.value = 33;
+
+        guard.rollback_hook(&mut ext);
+
+        let not_restored = ext.get_or_insert_default::<TestCounter>();
+        assert_eq!(not_restored.value, 33);
+        assert!(guard.is_budget_exceeded());
+    }
+
+    #[test]
+    fn adaptive_undo_frame_guard_uses_budget_policy() {
+        struct FixedBudgetPolicy(usize);
+        impl CowBudgetPolicy for FixedBudgetPolicy {
+            fn max_cow_bytes(&self, _hook_name: &str) -> usize {
+                self.0
+            }
+        }
+
+        let mut guard = AdaptiveUndoFrameGuard::with_fallback_max(65536)
+            .with_budget_policy(Box::new(FixedBudgetPolicy(0)));
+        let mut ext = ExtensionStorage::new();
+        ext.insert(TestCounter { value: 3 });
+
+        guard.begin_hook("on_input");
+
+        let type_id = std::any::TypeId::of::<TestCounter>();
+        let vtable = TestCounter::build_vtable();
+        let current = ext.get_or_insert_default::<TestCounter>();
+        guard.on_mutation(type_id, &vtable, current);
+        current.value = 33;
+
+        guard.rollback_hook(&mut ext);
+
+        let not_restored = ext.get_or_insert_default::<TestCounter>();
+        assert_eq!(not_restored.value, 33);
+        assert!(guard.is_budget_exceeded());
+    }
+
+    #[test]
+    fn historical_budget_policy_adapts_to_success_rate() {
+        let mut policy = HistoricalCowBudgetPolicy::with_params(100000, 1000, 1000000, 4);
+
+        // All failures -> low success rate -> budget increases.
+        for _ in 0..4 {
+            policy.record_frame("on_input", false, 100000);
+        }
+        let low_rate_budget = policy.adaptive_budget();
+        assert!(low_rate_budget > 100000);
+
+        // All successes -> high success rate -> budget decreases.
+        for _ in 0..4 {
+            policy.record_frame("on_input", true, 1000);
+        }
+        let high_rate_budget = policy.adaptive_budget();
+        assert!(high_rate_budget < 100000);
+    }
+
+    #[test]
+    fn historical_budget_policy_clamps_to_bounds() {
+        let mut policy = HistoricalCowBudgetPolicy::with_params(100000, 80000, 1000000, 2);
+
+        for _ in 0..2 {
+            policy.record_frame("on_input", false, 10000);
+        }
+        assert_eq!(policy.adaptive_budget(), 125000);
+
+        for _ in 0..2 {
+            policy.record_frame("on_input", true, 1);
+        }
+        assert_eq!(policy.adaptive_budget(), 80000);
+    }
+
+    #[test]
+    fn historical_budget_policy_success_rate_with_empty_history() {
+        let policy = HistoricalCowBudgetPolicy::new();
+        assert_eq!(policy.success_rate(), 1.0);
+        assert_eq!(policy.adaptive_budget(), 49152);
+    }
+
+    #[test]
+    fn rollback_policy_skips_no_snapshot_types() {
+        let mut guard = UndoFrameGuard::new();
+        let mut ext = ExtensionStorage::new();
+        ext.insert(TestTransient { value: 10 });
+
+        guard.begin_hook("on_input");
+
+        let type_id = std::any::TypeId::of::<TestTransient>();
+        let vtable = TestTransient::build_vtable();
+        let current = ext.get_or_insert_default::<TestTransient>();
+        guard.on_mutation(type_id, &vtable, current);
+        current.value = 20;
+
+        guard.rollback_hook(&mut ext);
+
+        let not_restored = ext.get_or_insert_default::<TestTransient>();
+        assert_eq!(not_restored.value, 20);
+    }
+
+    #[test]
+    fn historical_budget_policy_sliding_window_respects_size() {
+        let mut policy = HistoricalCowBudgetPolicy::with_params(100000, 1000, 1000000, 2);
+
+        policy.record_frame("on_input", false, 1);
+        policy.record_frame("on_input", false, 1);
+        policy.record_frame("on_input", false, 1);
+
+        assert_eq!(policy.history.len(), 2);
+        assert_eq!(policy.success_rate(), 0.0);
+    }
+
+    #[test]
+    fn rollback_frame_record_round_trip() {
+        let record = RollbackFrameRecord {
+            hook_name: "on_input".into(),
+            succeeded: true,
+            weight: 1024,
+        };
+        assert_eq!(record.hook_name, "on_input");
+        assert!(record.succeeded);
+        assert_eq!(record.weight, 1024);
+    }
+}

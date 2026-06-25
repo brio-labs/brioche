@@ -138,3 +138,127 @@ impl DecisionAggregator for NegotiationBroker {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use brioche_core::{DecisionAggregator, Effect, ExtensionStorage, HistoryEdit, PolicyDecision};
+
+    use super::{NegotiationBroker, NegotiationState};
+
+    #[test]
+    fn negotiation_settles_on_allow() {
+        let broker = NegotiationBroker::new();
+        let mut ext = ExtensionStorage::new();
+
+        let decision = broker.aggregate_decisions(vec![PolicyDecision::Allow], &mut ext);
+        assert!(matches!(decision, Ok(PolicyDecision::Allow)));
+    }
+
+    #[test]
+    fn negotiation_settles_on_block() {
+        let broker = NegotiationBroker::new();
+        let mut ext = ExtensionStorage::new();
+
+        let decisions = vec![
+            PolicyDecision::Allow,
+            PolicyDecision::Block {
+                reason: "stop".into(),
+            },
+        ];
+
+        let decision = broker.aggregate_decisions(decisions, &mut ext);
+        assert!(
+            matches!(decision, Ok(PolicyDecision::Block { ref reason }) if reason == "stop"),
+            "expected Block decision"
+        );
+    }
+
+    #[test]
+    fn negotiation_settles_on_override() {
+        let broker = NegotiationBroker::new();
+        let mut ext = ExtensionStorage::new();
+
+        let override_effects = vec![Effect::SystemIdle];
+        let decisions = vec![
+            PolicyDecision::Allow,
+            PolicyDecision::OverrideTransition(override_effects.clone()),
+        ];
+
+        let decision = broker.aggregate_decisions(decisions, &mut ext);
+        assert!(
+            matches!(decision, Ok(PolicyDecision::OverrideTransition(ref effects)) if effects == &override_effects),
+            "expected OverrideTransition"
+        );
+    }
+
+    #[test]
+    fn negotiation_requests_another_round_when_unsettled() {
+        let broker = NegotiationBroker::with_max_phases(3);
+        let mut ext = ExtensionStorage::new();
+
+        let decisions = vec![
+            PolicyDecision::RequestEffect(Effect::CallLlmNetwork),
+            PolicyDecision::RequestEffect(Effect::CallLlmNetwork),
+        ];
+
+        let decision = broker.aggregate_decisions(decisions, &mut ext);
+        assert!(
+            matches!(
+                decision,
+                Ok(PolicyDecision::RequestEffect(Effect::CallLlmNetwork))
+            ),
+            "expected another prediction round"
+        );
+
+        let state = ext.get_or_insert_default::<NegotiationState>();
+        assert_eq!(state.current_phase, 1);
+        assert_eq!(state.phase_decisions.len(), 2);
+    }
+
+    #[test]
+    fn negotiation_resets_state_after_settlement() {
+        let broker = NegotiationBroker::with_max_phases(2);
+        let mut ext = ExtensionStorage::new();
+
+        let first = broker.aggregate_decisions(vec![PolicyDecision::Allow], &mut ext);
+        assert!(matches!(first, Ok(PolicyDecision::Allow)));
+
+        let state = ext.get_or_insert_default::<NegotiationState>();
+        assert_eq!(state.current_phase, 0);
+        assert!(state.phase_decisions.is_empty());
+        assert!(!state.settled);
+    }
+
+    #[test]
+    fn negotiation_settles_after_max_phases() {
+        let broker = NegotiationBroker::with_max_phases(1);
+        let mut ext = ExtensionStorage::new();
+
+        let decision = broker.aggregate_decisions(vec![PolicyDecision::Allow], &mut ext);
+        assert!(matches!(decision, Ok(PolicyDecision::Allow)));
+    }
+
+    #[test]
+    fn negotiation_collects_mutate_history_effects() {
+        let broker = NegotiationBroker::new();
+        let mut ext = ExtensionStorage::new();
+
+        let edits = vec![HistoryEdit::Truncate { keep_last: 1 }];
+
+        // MutateHistory does not trigger immediate settlement. Advance through
+        // an unresolved phase so the next phase reaches all_allow and settles.
+        let _ = broker.aggregate_decisions(
+            vec![
+                PolicyDecision::Allow,
+                PolicyDecision::MutateHistory(edits.clone()),
+            ],
+            &mut ext,
+        );
+        let decision = broker.aggregate_decisions(vec![PolicyDecision::Allow], &mut ext);
+
+        assert!(
+            matches!(decision, Ok(PolicyDecision::MutateHistory(ref collected)) if collected == &edits),
+            "expected collected history edits"
+        );
+    }
+}
