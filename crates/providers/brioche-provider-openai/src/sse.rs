@@ -7,8 +7,9 @@
 //!
 //! Refs: I-Core-ChunkBudget
 
-use bytes::Bytes;
 use std::fmt;
+
+use bytes::Bytes;
 
 /// Default maximum consecutive malformed `data:` lines before the parser
 /// aborts the stream.
