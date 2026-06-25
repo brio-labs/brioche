@@ -1,6 +1,6 @@
 //! Type-state builder for `BriocheEngine`.
 //!
-//! Refs: SPECS
+//! Refs: docs/SPECS.md §4; PHILOSOPHY.md §1, §2
 
 use super::{PluginRouter, UnifiedRoutingTable};
 use crate::{
