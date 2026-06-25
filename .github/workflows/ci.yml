@@ -263,12 +263,23 @@ jobs:
   # Gate 3 — Build profiles & benchmark smoke tests
   # -------------------------------------------------------------------------
   profiles:
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     needs: [changes, clippy, deny]
     if: needs.changes.outputs.rust == 'true'
     strategy:
       matrix:
         profile: [headless, desktop, wasm-test, full]
+    env:
+      # CI-only: use thin LTO instead of fat LTO for profile smoke builds.
+      # This keeps builds much faster while still exercising the LTO code path.
+      # The release workflow still builds with the full fat LTO profiles.
+      CARGO_PROFILE_HEADLESS_LTO: "thin"
+      CARGO_PROFILE_DESKTOP_LTO: "thin"
+      CARGO_PROFILE_WASM_TEST_LTO: "thin"
+      CARGO_PROFILE_FULL_LTO: "thin"
     steps:
       - uses: actions/checkout@v7.0.0
       - uses: dtolnay/rust-toolchain@stable
@@ -292,11 +303,11 @@ jobs:
           else
             cargo build --workspace --profile ${{ matrix.profile }}
           fi
-
-  # Benchmarks assert that hot-path budgets documented in PHILOSOPHY.md are
-  # still met. We at least compile them and run a single iteration as smoke.
   benchmark-smoke:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     needs: [changes, clippy, deny]
     if: needs.changes.outputs.rust == 'true'
     steps:
