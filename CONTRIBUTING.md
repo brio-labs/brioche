@@ -207,9 +207,7 @@ A regression > 150% blocks merge.
 ### `<book>` — Required
 
 The subsystem the change affects:
-
-`core`, `governance`, `governance-default`, `shell-runtime`, `shell-persistence`, `shell-projection`, `std`, `macro`, `plugin-kit`, `playground`, `docgen`, `repo`
-
+`core`, `desktop`, `docgen`, `governance`, `governance-default`, `macro`, `playground`, `plugin-kit`, `provider-openai`, `repo`, `shell-persistence`, `shell-projection`, `shell-runtime`, `std`, `tools-system`
 ### `<description>` — Required
 
 Imperative mood, max 72 characters, no trailing period.
