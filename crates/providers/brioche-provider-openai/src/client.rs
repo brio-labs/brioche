@@ -1087,8 +1087,9 @@ impl LlmClient for OpenAiLlmClient {
 }
 #[cfg(test)]
 mod tests {
-    use super::OpenAiError;
     use brioche_shell_runtime::ShellError;
+
+    use super::OpenAiError;
 
     #[test]
     fn openai_error_network_preserves_context() {
