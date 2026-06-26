@@ -17,6 +17,7 @@
 //! Refs: docs/SPECS.md §Book III-A, I-Core-ChunkBudget
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -34,6 +35,43 @@ use crate::config::OpenAiConfig;
 use crate::extractor::{ChunkExtractor, StreamErrorDetector};
 use crate::request::build_request_body;
 use crate::sse::SseParser;
+
+/// Provider-specific error returned by `OpenAiLlmClient` operations.
+///
+/// Preserves OpenAI-specific context (HTTP status, SSE diagnostics, parse
+/// failures) and is converted to a generic [`ShellError`] at the trait
+/// boundary.
+///
+/// Refs: docs/SPECS.md §Book III-B
+#[derive(Debug, thiserror::Error)]
+pub enum OpenAiError {
+    /// The HTTP request could not be sent or the connection failed.
+    #[error("network request failed: {0}")]
+    Network(String),
+    /// The provider returned a non-success HTTP status.
+    #[error("HTTP {status}: {message}")]
+    Http {
+        /// HTTP status code returned by the provider.
+        status: u16,
+        /// Compacted error message extracted from the response body.
+        message: String,
+    },
+    /// No SSE data was received within the configured idle timeout.
+    #[error("SSE stream idle timeout")]
+    IdleTimeout,
+    /// The SSE stream failed or contained malformed data.
+    #[error("SSE provider error: {0}")]
+    Sse(String),
+    /// The summary response could not be parsed as JSON.
+    #[error("failed to parse summary response: {0}")]
+    SummaryParse(String),
+}
+
+impl From<OpenAiError> for ShellError {
+    fn from(err: OpenAiError) -> Self {
+        ShellError::EffectExecution(err.to_string())
+    }
+}
 
 /// OpenAI-compatible LLM client.
 ///
@@ -58,12 +96,53 @@ pub type SharedHistory = Arc<RwLock<Vec<ChatMessage>>>;
 /// Refs: I-Shell-Runtime-OnlyIO
 pub type HistoryTransform = Arc<dyn Fn(&[ChatMessage]) -> Vec<ChatMessage> + Send + Sync>;
 
+/// Maximum number of bytes to read from an HTTP error response body.
+///
+/// Prevents a malicious or misbehaving provider from OOM-ing the shell by
+/// returning an unbounded error payload. The limit is applied while streaming
+/// chunks, so no more than this amount is buffered.
+///
+/// Refs: docs/SPECS.md §Book III-B
+pub const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
+
+/// Reads at most [`MAX_ERROR_BODY_BYTES`] from `response`, then converts the
+/// buffered bytes to a string, replacing invalid UTF-8 sequences.
+///
+/// Streaming stops as soon as the limit is reached; remaining bytes are
+/// discarded. This function consumes the response body.
+///
+/// Refs: docs/SPECS.md §Book III-B
+async fn limited_error_body(mut response: reqwest::Response, limit: usize) -> String {
+    let mut collected = Vec::with_capacity(limit.min(4096));
+    loop {
+        match response.chunk().await {
+            Ok(Some(chunk)) => {
+                let remaining = limit.saturating_sub(collected.len());
+                if remaining == 0 {
+                    break;
+                }
+                let take = chunk.len().min(remaining);
+                collected.extend_from_slice(&chunk[..take]);
+                if collected.len() >= limit {
+                    break;
+                }
+            }
+            Ok(None) => break,
+            Err(err) => {
+                tracing::debug!(error = %err, "failed to read error response chunk");
+                break;
+            }
+        }
+    }
+    String::from_utf8_lossy(&collected).into_owned()
+}
+
 /// OpenAI-compatible LLM client implementation.
 ///
 /// Handles SSE streaming, tool-call parsing, and payload segmentation.
 /// Broadcasts chunks to the projection layer via `broadcast::Sender<LlmChunk>`.
 /// A `history_transform` may be registered to compress or augment the
-/// conversation before each request without changing the mirror history.
+/// conversation without changing the mirror history.
 ///
 /// Refs: docs/SPECS.md §Book III-A, I-Core-ChunkBudget
 pub struct OpenAiLlmClient {
@@ -492,13 +571,13 @@ impl OpenAiLlmClient {
                 shell
                     .send_system_signal(SystemSignal::NetworkUnavailable { reason: msg })
                     .await?;
-                return Err(ShellError::EffectExecution("network".into()));
+                return Err(OpenAiError::Network(err.to_string()).into());
             }
         };
 
         if !response.status().is_success() {
             let status = response.status();
-            let body_text = response.text().await.ok().map_or(String::new(), |t| t);
+            let body_text = limited_error_body(response, MAX_ERROR_BODY_BYTES).await;
             let compact = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body_text) {
                 json.get("error")
                     .and_then(|e| e.get("message"))
@@ -516,7 +595,11 @@ impl OpenAiLlmClient {
             shell
                 .send_system_signal(SystemSignal::NetworkUnavailable { reason: msg })
                 .await?;
-            return Err(ShellError::EffectExecution("http".into()));
+            return Err(OpenAiError::Http {
+                status: status.as_u16(),
+                message: compact,
+            }
+            .into());
         }
 
         Ok(response)
@@ -686,12 +769,11 @@ impl OpenAiLlmClient {
                         acc.tool_acc.len(),
                         acc.finish_reason
                     );
-                    tracing::warn!(%diag, "SSE read timeout");
                     let _ = self.ui_tx.send(LlmChunk::Warning(diag.clone()));
                     shell
                         .send_system_signal(SystemSignal::NetworkUnavailable { reason: diag })
                         .await?;
-                    return Err(ShellError::EffectExecution("idle_timeout".into()));
+                    return Err(OpenAiError::IdleTimeout.into());
                 }
             };
 
@@ -723,9 +805,11 @@ impl OpenAiLlmClient {
                     tracing::error!(error = %err, "SSE stream error");
                     let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
                     shell
-                        .send_system_signal(SystemSignal::NetworkUnavailable { reason: msg })
+                        .send_system_signal(SystemSignal::NetworkUnavailable {
+                            reason: msg.clone(),
+                        })
                         .await?;
-                    return Err(ShellError::EffectExecution("sse".into()));
+                    return Err(OpenAiError::Sse(msg).into());
                 }
             };
 
@@ -753,9 +837,11 @@ impl OpenAiLlmClient {
                     tracing::error!(%msg, "SSE parser aborted after repeated malformed lines");
                     let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
                     shell
-                        .send_system_signal(SystemSignal::NetworkUnavailable { reason: msg })
+                        .send_system_signal(SystemSignal::NetworkUnavailable {
+                            reason: msg.clone(),
+                        })
                         .await?;
-                    return Err(ShellError::EffectExecution("sse".into()));
+                    return Err(OpenAiError::Sse(msg).into());
                 }
             };
             for event in events {
@@ -910,6 +996,111 @@ impl OpenAiLlmClient {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Diagnostic helpers — private, redacted request dumps.
+// ---------------------------------------------------------------------------
+
+/// Maximum size of a redacted diagnostic request body, in bytes.
+const MAX_DIAG_BYTES: usize = 1_048_576;
+
+/// Diagnostic marker for redacted text fields.
+const REDACTED: &str = "[REDACTED]";
+
+/// Returns the private diagnostic directory, creating it with 0700 if needed.
+///
+/// Uses `$XDG_CACHE_HOME/brioche/diag` when available, otherwise
+/// falls back to `$HOME/.cache/brioche/diag`.
+fn private_diag_dir() -> Option<PathBuf> {
+    let base = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| {
+                let mut path = PathBuf::from(home);
+                path.push(".cache");
+                path
+            })
+        })?;
+
+    let mut dir = base;
+    dir.push("brioche");
+    dir.push("diag");
+
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        tracing::warn!(error = %e, "failed to create diagnostic directory");
+        return None;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let metadata = std::fs::metadata(&dir).ok()?;
+        let mut perms = metadata.permissions();
+        // Ensure the directory is not world-readable/searchable.
+        let mode = perms.mode() & 0o777;
+        if mode & 0o077 != 0 {
+            perms.set_mode(0o700);
+            if let Err(e) = std::fs::set_permissions(&dir, perms) {
+                tracing::warn!(error = %e, "failed to set diagnostic directory permissions");
+                return None;
+            }
+        }
+    }
+
+    Some(dir)
+}
+
+/// Recursively redact sensitive string fields from a request body.
+///
+/// Redacts `content` in messages and `description` in tool function
+/// definitions. Leaves structural metadata intact for debugging.
+fn redact_request_body(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut out = serde_json::Map::new();
+            for (k, v) in map {
+                let redacted = if k == "content" || k == "description" {
+                    match v {
+                        serde_json::Value::String(_) => serde_json::Value::String(REDACTED.into()),
+                        _ => redact_request_body(v),
+                    }
+                } else {
+                    redact_request_body(v)
+                };
+                out.insert(k.clone(), redacted);
+            }
+            serde_json::Value::Object(out)
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.iter().map(redact_request_body).collect())
+        }
+        other => other.clone(),
+    }
+}
+
+/// Writes a redacted, size-capped request body to the private diagnostic dir.
+fn write_diag_request(turn: usize, body: &serde_json::Value) {
+    let Some(dir) = private_diag_dir() else {
+        return;
+    };
+
+    let mut path = dir;
+    path.push(format!("brioche_request_turn_{turn}.json"));
+
+    let redacted = redact_request_body(body);
+    let mut text = redacted.to_string();
+    const TRUNCATION_SUFFIX: &str = "\n...[truncated]";
+    if text.len() > MAX_DIAG_BYTES {
+        let limit = MAX_DIAG_BYTES.saturating_sub(TRUNCATION_SUFFIX.len());
+        let trunc_idx = text.floor_char_boundary(limit);
+        text.truncate(trunc_idx);
+        text.push_str(TRUNCATION_SUFFIX);
+    }
+
+    if let Err(e) = std::fs::write(&path, &text) {
+        tracing::warn!(error = %e, path = %path.display(), "failed to write diagnostic request");
+    }
+}
+
 #[async_trait::async_trait]
 impl LlmClient for OpenAiLlmClient {
     async fn call_llm(&self, shell: &BriocheShell) -> Result<(), ShellError> {
@@ -929,13 +1120,10 @@ impl LlmClient for OpenAiLlmClient {
 
         let (body, _msg_count) = self.build_request().await;
 
-        // Diagnostic: write request body to temp file before sending.
-        // Activated by BRIOCHE_DIAG=1 env var.
+        // Diagnostic: write redacted request body to a private cache directory.
+        // Activated by the BRIOCHE_DIAG env var (any value).
         if std::env::var("BRIOCHE_DIAG").is_ok() {
-            let _ = std::fs::write(
-                format!("/tmp/brioche_request_turn_{turn}.json"),
-                body.to_string(),
-            );
+            write_diag_request(turn, &body);
         }
 
         let response = match self.send_request(shell, &body, &url).await {
@@ -983,9 +1171,10 @@ impl LlmClient for OpenAiLlmClient {
         let body = self.build_summary_request(messages);
 
         let response = self.send_request(shell, &body, &url).await?;
-        let json: serde_json::Value = response.json().await.map_err(|err| {
-            ShellError::EffectExecution(format!("failed to parse summary response: {err}"))
-        })?;
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|err| OpenAiError::SummaryParse(err.to_string()))?;
 
         match Self::extract_summary_text(&json) {
             Some(content) => Ok(ChatMessage::System { content }),
@@ -997,5 +1186,114 @@ impl LlmClient for OpenAiLlmClient {
 
     async fn push_tool_results(&self, results: &[ToolResultDTO]) {
         OpenAiLlmClient::push_tool_results(self, results).await;
+    }
+}
+#[cfg(test)]
+mod tests {
+    use brioche_shell_runtime::ShellError;
+
+    use super::OpenAiError;
+
+    #[test]
+    fn openai_error_network_preserves_context() {
+        let err = OpenAiError::Network("connection refused".into());
+        let shell_err: ShellError = err.into();
+        let msg = format!("{shell_err}");
+        assert!(msg.contains("connection refused"), "{msg}");
+    }
+
+    #[test]
+    fn openai_error_http_preserves_status_and_message() {
+        let err = OpenAiError::Http {
+            status: 503,
+            message: "overloaded".into(),
+        };
+        let shell_err: ShellError = err.into();
+        let msg = format!("{shell_err}");
+        assert!(msg.contains("503") && msg.contains("overloaded"), "{msg}");
+    }
+
+    #[test]
+    fn openai_error_sse_preserves_message() {
+        let err = OpenAiError::Sse("stream closed".into());
+        let shell_err: ShellError = err.into();
+        let msg = format!("{shell_err}");
+        assert!(msg.contains("stream closed"), "{msg}");
+    }
+}
+
+#[cfg(test)]
+mod diag_tests {
+    use super::*;
+
+    fn obj(entries: &[(&str, serde_json::Value)]) -> serde_json::Value {
+        serde_json::Value::Object(
+            entries
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
+        )
+    }
+
+    fn arr(values: &[serde_json::Value]) -> serde_json::Value {
+        serde_json::Value::Array(values.to_vec())
+    }
+
+    fn s(value: &str) -> serde_json::Value {
+        serde_json::Value::String(value.into())
+    }
+
+    #[test]
+    fn redact_request_body_obscures_message_content() {
+        let body = obj(&[
+            ("model", s("gpt-4o")),
+            (
+                "messages",
+                arr(&[
+                    obj(&[
+                        ("role", s("system")),
+                        ("content", s("secret system prompt")),
+                    ]),
+                    obj(&[("role", s("user")), ("content", s("secret user message"))]),
+                ]),
+            ),
+            (
+                "tools",
+                arr(&[obj(&[
+                    ("type", s("function")),
+                    (
+                        "function",
+                        obj(&[
+                            ("name", s("read_file")),
+                            ("description", s("secret tool description")),
+                        ]),
+                    ),
+                ])]),
+            ),
+        ]);
+
+        let redacted = redact_request_body(&body);
+        assert_eq!(redacted["model"], s("gpt-4o"));
+        assert_eq!(redacted["messages"][0]["content"], s(REDACTED));
+        assert_eq!(redacted["messages"][1]["content"], s(REDACTED));
+        assert_eq!(redacted["tools"][0]["function"]["description"], s(REDACTED));
+        assert_eq!(redacted["tools"][0]["function"]["name"], s("read_file"));
+    }
+
+    #[test]
+    fn redact_request_body_leaves_non_sensitive_values_intact() {
+        let body = obj(&[
+            ("model", s("gpt-4o")),
+            ("stream", serde_json::Value::Bool(true)),
+            ("max_tokens", serde_json::Value::Number(4096.into())),
+        ]);
+
+        let redacted = redact_request_body(&body);
+        assert_eq!(redacted["model"], s("gpt-4o"));
+        assert_eq!(redacted["stream"], serde_json::Value::Bool(true));
+        assert_eq!(
+            redacted["max_tokens"],
+            serde_json::Value::Number(4096.into())
+        );
     }
 }

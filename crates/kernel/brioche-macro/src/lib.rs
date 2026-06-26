@@ -18,11 +18,47 @@ use syn::{Attribute, Data, DataStruct, DeriveInput, Fields, Type, parse_macro_in
 /// Errors raised by the derive macro.
 #[derive(Debug)]
 enum DeriveError {
-    HashMap { span: Span, field_name: String },
-    HashSet { span: Span, field_name: String },
-    UiType { span: Span, field_name: String },
-    UndeterminedVec { span: Span, field_name: String },
+    HashMap {
+        span: Span,
+        field_name: String,
+    },
+    HashSet {
+        span: Span,
+        field_name: String,
+    },
+    NonOrderedMap {
+        span: Span,
+        field_name: String,
+        type_name: String,
+    },
+    NonOrderedSet {
+        span: Span,
+        field_name: String,
+        type_name: String,
+    },
+    UiType {
+        span: Span,
+        field_name: String,
+    },
+    UndeterminedVec {
+        span: Span,
+        field_name: String,
+    },
+    UndeterminedIndexMap {
+        span: Span,
+        field_name: String,
+    },
 }
+
+/// Ordered map types permitted in persisted extension state.
+///
+/// Refs: I-Eco-OrderedCollections
+const ALLOWED_MAPS: &[&str] = &["BTreeMap", "IndexMap"];
+
+/// Ordered set types permitted in persisted extension state.
+///
+/// Refs: I-Eco-OrderedCollections
+const ALLOWED_SETS: &[&str] = &["BTreeSet", "IndexSet"];
 
 /// Parsed `#[brioche(...)]` attributes on a struct/enum.
 #[derive(Debug, Default)]
@@ -82,8 +118,8 @@ fn parse_brioche_attrs(attrs: &[Attribute]) -> Result<BriocheAttrs, syn::Error> 
     Ok(result)
 }
 
-/// Recursively scan a type for banned collections (`HashMap`, `HashSet`)
-/// and UI types.
+/// Recursively scan a type for banned collections (`HashMap`, `HashSet`),
+/// non-ordered map/set aliases, and UI types.
 fn scan_type(ty: &Type, errors: &mut Vec<DeriveError>, field_name: &str) {
     match ty {
         Type::Path(type_path) => {
@@ -94,34 +130,42 @@ fn scan_type(ty: &Type, errors: &mut Vec<DeriveError>, field_name: &str) {
                 .map(|s| s.ident.to_string())
                 .collect();
 
-            // Check for banned collections.
-            for seg in &segments {
-                if seg == "HashMap" {
-                    errors.push(DeriveError::HashMap {
-                        span: type_path.span(),
-                        field_name: field_name.to_string(),
-                    });
-                }
-                if seg == "HashSet" {
-                    errors.push(DeriveError::HashSet {
-                        span: type_path.span(),
-                        field_name: field_name.to_string(),
-                    });
-                }
+            let has_hashmap = segments.iter().any(|s| s == "HashMap");
+            let has_hashset = segments.iter().any(|s| s == "HashSet");
+
+            // Check for banned collections by exact segment name.
+            if has_hashmap {
+                errors.push(DeriveError::HashMap {
+                    span: type_path.span(),
+                    field_name: field_name.to_string(),
+                });
+            }
+            if has_hashset {
+                errors.push(DeriveError::HashSet {
+                    span: type_path.span(),
+                    field_name: field_name.to_string(),
+                });
             }
 
-            // Check last segment for banned collections (catches imported aliases).
+            // Check the final path segment for aliases of non-ordered maps/sets.
+            // The `ends_with("Map")` / `ends_with("Set")` heuristic intentionally
+            // accepts false positives (e.g. `type OrderedMap = BTreeMap<...>`)
+            // because proc-macros cannot resolve type aliases. Users should either
+            // use the allowed concrete types directly or choose a suffix that does
+            // not look like a map/set.
             if let Some(last) = segments.last() {
-                if last == "HashMap" {
-                    errors.push(DeriveError::HashMap {
+                if !has_hashmap && last.ends_with("Map") && !ALLOWED_MAPS.contains(&last.as_str()) {
+                    errors.push(DeriveError::NonOrderedMap {
                         span: type_path.span(),
                         field_name: field_name.to_string(),
+                        type_name: last.clone(),
                     });
                 }
-                if last == "HashSet" {
-                    errors.push(DeriveError::HashSet {
+                if !has_hashset && last.ends_with("Set") && !ALLOWED_SETS.contains(&last.as_str()) {
+                    errors.push(DeriveError::NonOrderedSet {
                         span: type_path.span(),
                         field_name: field_name.to_string(),
+                        type_name: last.clone(),
                     });
                 }
 
@@ -249,8 +293,67 @@ fn type_contains_vec(ty: &Type) -> bool {
     }
 }
 
-/// Check whether a field carries `#[brioche(deterministic_order)]`.
-fn field_has_deterministic_order(attrs: &[Attribute]) -> bool {
+/// Recursively check whether a type contains `IndexMap`.
+///
+/// `IndexMap` preserves insertion order but its default hasher is not
+/// guaranteed to be deterministic across processes. We treat it like
+/// `Vec`: the field must carry `#[brioche(deterministic_order)]` to
+/// certify deterministic ordering.
+fn type_contains_indexmap(ty: &Type) -> bool {
+    match ty {
+        Type::Path(type_path) => {
+            let segments: Vec<String> = type_path
+                .path
+                .segments
+                .iter()
+                .map(|s| s.ident.to_string())
+                .collect();
+            if segments.iter().any(|s| s == "IndexMap") {
+                return true;
+            }
+            if let Some(seg) = type_path.path.segments.last()
+                && let syn::PathArguments::AngleBracketed(args) = &seg.arguments
+            {
+                for arg in &args.args {
+                    if let syn::GenericArgument::Type(inner) = arg
+                        && type_contains_indexmap(inner)
+                    {
+                        return true;
+                    }
+                }
+            }
+            false
+        }
+        Type::Array(arr) => type_contains_indexmap(&arr.elem),
+        Type::Tuple(tuple) => tuple.elems.iter().any(type_contains_indexmap),
+        Type::Reference(rf) => type_contains_indexmap(&rf.elem),
+        Type::Paren(paren) => type_contains_indexmap(&paren.elem),
+        Type::Slice(slice) => type_contains_indexmap(&slice.elem),
+        Type::BareFn(bare) => {
+            bare.inputs.iter().any(|inp| type_contains_indexmap(&inp.ty))
+                || matches!(&bare.output, syn::ReturnType::Type(_, output) if type_contains_indexmap(output))
+        }
+        Type::ImplTrait(impl_trait) => impl_trait.bounds.iter().any(|bound| {
+            if let syn::TypeParamBound::Trait(trait_bound) = bound {
+                trait_bound.path.segments.iter().any(|seg| {
+                    if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                        args.args.iter().any(|arg| {
+                            matches!(arg, syn::GenericArgument::Type(inner) if type_contains_indexmap(inner))
+                        })
+                    } else {
+                        false
+                    }
+                })
+            } else {
+                false
+            }
+        }),
+        _ => false,
+    }
+}
+
+/// Check whether a field carries a given `#[brioche(...)]` flag.
+fn field_has_brioche_flag(attrs: &[Attribute], flag: &str) -> bool {
     for attr in attrs {
         if !attr.path().is_ident("brioche") {
             continue;
@@ -258,7 +361,7 @@ fn field_has_deterministic_order(attrs: &[Attribute]) -> bool {
         let mut found = false;
         // Ignore parse errors — malformed attributes are handled elsewhere.
         let _ = attr.parse_nested_meta(|meta| {
-            if meta.path.is_ident("deterministic_order") {
+            if meta.path.is_ident(flag) {
                 found = true;
             }
             Ok(())
@@ -269,9 +372,8 @@ fn field_has_deterministic_order(attrs: &[Attribute]) -> bool {
     }
     false
 }
-
 /// Scan all fields of a struct/enum for banned types and undetermined
-/// `Vec` fields.
+/// `Vec` / `IndexMap` fields.
 fn scan_fields(fields: &Fields, errors: &mut Vec<DeriveError>) {
     match fields {
         Fields::Named(named) => {
@@ -281,8 +383,18 @@ fn scan_fields(fields: &Fields, errors: &mut Vec<DeriveError>) {
                     None => "_".to_string(),
                 };
                 scan_type(&f.ty, errors, &name);
-                if type_contains_vec(&f.ty) && !field_has_deterministic_order(&f.attrs) {
+                if type_contains_vec(&f.ty)
+                    && !field_has_brioche_flag(&f.attrs, "deterministic_order")
+                {
                     errors.push(DeriveError::UndeterminedVec {
+                        span: f.ty.span(),
+                        field_name: name.clone(),
+                    });
+                }
+                if type_contains_indexmap(&f.ty)
+                    && !field_has_brioche_flag(&f.attrs, "deterministic_order")
+                {
+                    errors.push(DeriveError::UndeterminedIndexMap {
                         span: f.ty.span(),
                         field_name: name,
                     });
@@ -293,8 +405,18 @@ fn scan_fields(fields: &Fields, errors: &mut Vec<DeriveError>) {
             for (i, f) in unnamed.unnamed.iter().enumerate() {
                 let name = format!("_{}", i);
                 scan_type(&f.ty, errors, &name);
-                if type_contains_vec(&f.ty) && !field_has_deterministic_order(&f.attrs) {
+                if type_contains_vec(&f.ty)
+                    && !field_has_brioche_flag(&f.attrs, "deterministic_order")
+                {
                     errors.push(DeriveError::UndeterminedVec {
+                        span: f.ty.span(),
+                        field_name: name.clone(),
+                    });
+                }
+                if type_contains_indexmap(&f.ty)
+                    && !field_has_brioche_flag(&f.attrs, "deterministic_order")
+                {
+                    errors.push(DeriveError::UndeterminedIndexMap {
                         span: f.ty.span(),
                         field_name: name,
                     });
@@ -305,17 +427,103 @@ fn scan_fields(fields: &Fields, errors: &mut Vec<DeriveError>) {
     }
 }
 
+/// Extract the nested carrier type from a collection wrapper.
+///
+/// For collection types that commonly hold persisted carriers, this
+/// returns the element/value type that must implement
+/// `BriocheExtensionType`. Non-collection types are returned as-is.
+fn extract_nested_carrier_type(ty: &Type) -> Type {
+    match ty {
+        Type::Path(type_path) => {
+            let segments: Vec<String> = type_path
+                .path
+                .segments
+                .iter()
+                .map(|s| s.ident.to_string())
+                .collect();
+            let last = segments.last().map(String::as_str);
+
+            if let Some(seg) = type_path.path.segments.last()
+                && let syn::PathArguments::AngleBracketed(args) = &seg.arguments
+            {
+                let type_args: Vec<&Type> = args
+                    .args
+                    .iter()
+                    .filter_map(|arg| match arg {
+                        syn::GenericArgument::Type(inner) => Some(inner),
+                        _ => None,
+                    })
+                    .collect();
+
+                match last {
+                    Some("Vec") if !type_args.is_empty() => {
+                        return type_args[0].clone();
+                    }
+                    Some("IndexMap") | Some("BTreeMap") | Some("HashMap")
+                        if type_args.len() >= 2 =>
+                    {
+                        return type_args[1].clone();
+                    }
+                    Some("Option") | Some("Box") if !type_args.is_empty() => {
+                        return type_args[0].clone();
+                    }
+                    _ => {}
+                }
+            }
+            ty.clone()
+        }
+        _ => ty.clone(),
+    }
+}
+
+/// Collect nested carrier types from fields marked with
+/// `#[brioche(nested_carrier)]`.
+///
+/// These types are asserted at compile time to implement
+/// `BriocheExtensionType`, ensuring nested persisted carriers are
+/// explicitly typed and deterministic.
+fn collect_nested_carriers(fields: &Fields, out: &mut Vec<Type>) {
+    match fields {
+        Fields::Named(named) => {
+            for f in &named.named {
+                if field_has_brioche_flag(&f.attrs, "nested_carrier") {
+                    out.push(extract_nested_carrier_type(&f.ty));
+                }
+            }
+        }
+        Fields::Unnamed(unnamed) => {
+            for f in &unnamed.unnamed {
+                if field_has_brioche_flag(&f.attrs, "nested_carrier") {
+                    out.push(extract_nested_carrier_type(&f.ty));
+                }
+            }
+        }
+        Fields::Unit => {}
+    }
+}
+
 /// Derive macro for `BriocheExtensionType`.
 ///
 /// Generates the sealed trait impl, VTable, and compile-time checks
-/// for `HashMap`/`HashSet` bans and deterministic `Vec` ordering.
+/// for `HashMap`/`HashSet` bans and deterministic `Vec`/`IndexMap` ordering.
 ///
 /// Supported attributes:
 /// - `#[brioche(critical_state)]` — always snapshot, exempt from budget.
 /// - `#[brioche(no_snapshot)]` — rollback forbidden for this type.
 /// - `#[brioche(incremental_snapshot)]` — use incremental COW.
 /// - `#[brioche(ext_id = "...")]` — override the auto-generated EXT_ID.
-/// - `#[brioche(deterministic_order)]` — certify `Vec` field ordering.
+/// - `#[brioche(deterministic_order)]` — certify `Vec`/`IndexMap` field ordering.
+/// - `#[brioche(nested_carrier)]` — field contains a nested `BriocheExtensionType`
+///   carrier; a const assertion requires the type to implement the trait.
+///
+///
+/// # Complexity
+/// Compile-time only. Field scanning is O(total type nodes) in the derive input;
+/// generated code is otherwise constant-time to expand.
+///
+/// # Panics
+/// This proc-macro never panics at runtime. Invalid input is surfaced to the
+/// compiler via `compile_error!` tokens or `syn::Error`.
 ///
 /// Refs: I-Core-ExtensionType
 #[proc_macro_derive(BriocheExtensionType, attributes(brioche))]
@@ -347,23 +555,27 @@ pub fn derive_brioche_extension_type(input: TokenStream) -> TokenStream {
 
     let snapshot_strategy = attrs.snapshot_strategy();
 
-    // Collect validation errors.
+    // Collect validation errors and nested carrier fields.
     let mut errors: Vec<DeriveError> = Vec::new();
+    let mut nested_carriers: Vec<Type> = Vec::new();
 
     match &input.data {
         Data::Struct(DataStruct { fields, .. }) => {
             scan_fields(fields, &mut errors);
+            collect_nested_carriers(fields, &mut nested_carriers);
         }
         Data::Enum(data_enum) => {
             for variant in &data_enum.variants {
                 scan_fields(&variant.fields, &mut errors);
+                collect_nested_carriers(&variant.fields, &mut nested_carriers);
             }
         }
         Data::Union(data_union) => {
-            scan_fields(&Fields::Named(data_union.fields.clone()), &mut errors);
+            let fields = Fields::Named(data_union.fields.clone());
+            scan_fields(&fields, &mut errors);
+            collect_nested_carriers(&fields, &mut nested_carriers);
         }
     }
-
     // Emit error tokens.
     let error_tokens: Vec<proc_macro2::TokenStream> = errors
         .iter()
@@ -375,7 +587,17 @@ pub fn derive_brioche_extension_type(input: TokenStream) -> TokenStream {
             }
             DeriveError::HashSet { span, field_name } => {
                 quote_spanned! { *span =>
-                    compile_error!(concat!("Field `", #field_name, "` uses HashSet. HashSet is prohibited in BriocheExtensionType persisted state. Use BTreeSet instead."));
+                    compile_error!(concat!("Field `", #field_name, "` uses HashSet. HashSet is prohibited in BriocheExtensionType persisted state. Use BTreeSet or IndexSet instead."));
+                }
+            }
+            DeriveError::NonOrderedMap { span, field_name, type_name } => {
+                quote_spanned! { *span =>
+                    compile_error!(concat!("Field `", #field_name, "` uses non-ordered map type `", #type_name, "`. Only ordered maps (BTreeMap, IndexMap) are allowed in BriocheExtensionType persisted state."));
+                }
+            }
+            DeriveError::NonOrderedSet { span, field_name, type_name } => {
+                quote_spanned! { *span =>
+                    compile_error!(concat!("Field `", #field_name, "` uses non-ordered set type `", #type_name, "`. Only ordered sets (BTreeSet, IndexSet) are allowed in BriocheExtensionType persisted state."));
                 }
             }
             DeriveError::UiType { span, field_name } => {
@@ -388,80 +610,104 @@ pub fn derive_brioche_extension_type(input: TokenStream) -> TokenStream {
                     compile_error!(concat!("Field `", #field_name, "` uses Vec without #[brioche(deterministic_order)]. Persisted Vec fields must have deterministic insertion order. Use #[brioche(deterministic_order)] to certify determinism, or replace with BTreeMap/IndexMap."));
                 }
             }
+            DeriveError::UndeterminedIndexMap { span, field_name } => {
+                quote_spanned! { *span =>
+                    compile_error!(concat!("Field `", #field_name, "` uses IndexMap without #[brioche(deterministic_order)]. Persisted IndexMap fields must certify deterministic ordering, or replace with BTreeMap."));
+                }
+            }
+        })
+        .collect();
+    // Const assertions for fields marked as nested carriers. These fail
+    // at compile time unless the field type implements `BriocheExtensionType`.
+    let nested_carrier_assertions: Vec<proc_macro2::TokenStream> = nested_carriers
+        .iter()
+        .map(|ty| {
+            quote_spanned! { ty.span() =>
+                const _: () = {
+                    let _ = <#ty as ::brioche_core::BriocheExtensionType>::EXT_ID;
+                };
+            }
         })
         .collect();
 
-    let expanded = quote! {
-        #(#error_tokens)*
+    let expanded = if errors.is_empty() {
+        quote! {
+            #(#error_tokens)*
+            #(#nested_carrier_assertions)*
 
-        // Sealed trait implementation — required by BriocheExtensionType.
-        // This impl is only valid here because brioche-macro is part of
-        // the SDK. Manual impls by users are prevented by the sealed pattern.
-        impl #impl_generics ::brioche_core::extension::__private::Sealed for #name #ty_generics #where_clause {}
+            // Sealed trait implementation — required by BriocheExtensionType.
+            // This impl is only valid here because brioche-macro is part of
+            // the SDK. Manual impls by users are prevented by the sealed pattern.
+            impl #impl_generics ::brioche_core::extension::__private::Sealed for #name #ty_generics #where_clause {}
 
-        impl #impl_generics ::brioche_core::BriocheExtensionType for #name #ty_generics #where_clause {
-            const EXT_ID: &'static str = #ext_id_tokens;
+            impl #impl_generics ::brioche_core::BriocheExtensionType for #name #ty_generics #where_clause {
+                const EXT_ID: &'static str = #ext_id_tokens;
 
-            fn estimated_weight_bytes(&self) -> usize {
-                // Pragmatic estimate: size_of_val. The VTable function
-                // refines this via binary serialization when available.
-                ::core::mem::size_of_val(self)
-            }
+                fn estimated_weight_bytes(&self) -> usize {
+                    // Pragmatic estimate: size_of_val. The VTable function
+                    // refines this via binary serialization when available.
+                    ::core::mem::size_of_val(self)
+                }
 
-            fn snapshot_strategy() -> ::brioche_core::SnapshotStrategy {
-                #snapshot_strategy
-            }
+                fn snapshot_strategy() -> ::brioche_core::SnapshotStrategy {
+                    #snapshot_strategy
+                }
 
-            fn build_vtable() -> ::brioche_core::ExtVTable
-            where
-                Self: Sized,
-            {
-                fn serialize(any: &dyn ::core::any::Any) -> ::std::vec::Vec<u8> {
-                    if let Some(this) = any.downcast_ref::<#name>() {
-                        match ::brioche_core::postcard::to_stdvec(this) {
-                            Ok(v) => v,
-                            Err(_) => ::std::vec::Vec::new(),
+                fn build_vtable() -> ::brioche_core::ExtVTable
+                where
+                    Self: Sized,
+                {
+                    fn serialize(any: &dyn ::core::any::Any) -> ::std::vec::Vec<u8> {
+                        if let Some(this) = any.downcast_ref::<#name>() {
+                            match ::brioche_core::postcard::to_stdvec(this) {
+                                Ok(v) => v,
+                                Err(_) => ::std::vec::Vec::new(),
+                            }
+                        } else {
+                            ::std::vec::Vec::new()
                         }
-                    } else {
-                        ::std::vec::Vec::new()
                     }
-                }
-                fn deserialize(bytes: &[u8]) -> ::core::result::Result<::std::boxed::Box<dyn ::core::any::Any + Send + Sync>, ::std::string::String> {
-                    ::brioche_core::postcard::from_bytes::<#name>(bytes)
-                        .map(|v| ::std::boxed::Box::new(v) as ::std::boxed::Box<dyn ::core::any::Any + Send + Sync>)
-                        .map_err(|_| ::std::string::String::from("deserialize failed"))
-                }
-                fn clone_box(any: &dyn ::core::any::Any) -> ::std::boxed::Box<dyn ::core::any::Any + Send + Sync> {
-                    if let Some(this) = any.downcast_ref::<#name>() {
-                        ::std::boxed::Box::new(this.clone())
-                    } else {
+                    fn deserialize(bytes: &[u8]) -> ::core::result::Result<::std::boxed::Box<dyn ::core::any::Any + Send + Sync>, ::std::string::String> {
+                        ::brioche_core::postcard::from_bytes::<#name>(bytes)
+                            .map(|v| ::std::boxed::Box::new(v) as ::std::boxed::Box<dyn ::core::any::Any + Send + Sync>)
+                            .map_err(|_| ::std::string::String::from("deserialize failed"))
+                    }
+                    fn clone_box(any: &dyn ::core::any::Any) -> ::std::boxed::Box<dyn ::core::any::Any + Send + Sync> {
+                        if let Some(this) = any.downcast_ref::<#name>() {
+                            ::std::boxed::Box::new(this.clone())
+                        } else {
+                            ::std::boxed::Box::new(<#name as ::core::default::Default>::default())
+                        }
+                    }
+                    fn estimated_weight_bytes(any: &dyn ::core::any::Any) -> usize {
+                        if let Some(this) = any.downcast_ref::<#name>() {
+                            match ::brioche_core::postcard::to_stdvec(this) {
+                                Ok(v) => v.len(),
+                                Err(_) => ::core::mem::size_of_val(this),
+                            }
+                        } else {
+                            0
+                        }
+                    }
+                    fn default_construct() -> ::std::boxed::Box<dyn ::core::any::Any + Send + Sync> {
                         ::std::boxed::Box::new(<#name as ::core::default::Default>::default())
                     }
-                }
-                fn estimated_weight_bytes(any: &dyn ::core::any::Any) -> usize {
-                    if let Some(this) = any.downcast_ref::<#name>() {
-                        match ::brioche_core::postcard::to_stdvec(this) {
-                            Ok(v) => v.len(),
-                            Err(_) => ::core::mem::size_of_val(this),
-                        }
-                    } else {
-                        0
+
+                    ::brioche_core::ExtVTable {
+                        ext_id: <#name as ::brioche_core::BriocheExtensionType>::EXT_ID,
+                        serialize,
+                        deserialize,
+                        clone_box,
+                        estimated_weight_bytes,
+                        snapshot_strategy: <#name as ::brioche_core::BriocheExtensionType>::snapshot_strategy(),
+                        default_construct,
                     }
                 }
-                fn default_construct() -> ::std::boxed::Box<dyn ::core::any::Any + Send + Sync> {
-                    ::std::boxed::Box::new(<#name as ::core::default::Default>::default())
-                }
-
-                ::brioche_core::ExtVTable {
-                    ext_id: <#name as ::brioche_core::BriocheExtensionType>::EXT_ID,
-                    serialize,
-                    deserialize,
-                    clone_box,
-                    estimated_weight_bytes,
-                    snapshot_strategy: <#name as ::brioche_core::BriocheExtensionType>::snapshot_strategy(),
-                    default_construct,
-                }
             }
+        }
+    } else {
+        quote! {
+            #(#error_tokens)*
         }
     };
 
