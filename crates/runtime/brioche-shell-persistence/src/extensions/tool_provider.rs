@@ -7,10 +7,11 @@
 //! external process.
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
-use brioche_tools_system::{AllowList, ExecuteCommandTool, SystemTool, ToolError};
-use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::RwLock;
+
+use brioche_tools_system::{AllowList, ExecuteCommandTool, SystemTool, ToolError};
+use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 use super::{ExtensionMetadata, PanelSlot};
@@ -503,11 +504,7 @@ async fn execute_command(
 
     let mut tool_args = serde_json::Map::new();
     tool_args.insert("command".into(), serde_json::Value::String(command));
-    #[allow(clippy::manual_unwrap_or)]
-    let timeout_ms = match timeout_ms {
-        Some(ms) => ms,
-        None => 30_000,
-    };
+    let timeout_ms = timeout_ms.map_or(30_000, |ms| ms);
     let timeout = std::time::Duration::from_millis(timeout_ms);
     let result = tokio::time::timeout(
         timeout,
@@ -587,77 +584,92 @@ async fn execute_read_file(path: &str) -> Result<String, ToolError> {
 }
 
 #[cfg(test)]
-#[allow(clippy::disallowed_methods)]
-#[allow(clippy::unwrap_used)]
-#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[tokio::test]
-    async fn execute_command_benign_succeeds() {
-        let result = execute_command(
+    async fn execute_command_benign_succeeds()
+    -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let args: serde_json::Value = serde_json::from_str(r#"{"message":"hello"}"#)?;
+        let output = execute_command(
             "echo {message}",
             None,
             Some(5_000),
-            json!({ "message": "hello" }),
+            args,
             CancellationToken::new(),
         )
-        .await;
-        assert!(result.is_ok(), "expected success, got {result:?}");
+        .await?;
         assert!(
-            result.unwrap().contains("hello"),
+            output.contains("hello"),
             "expected 'hello' in command output"
         );
+        Ok(())
     }
+
     #[tokio::test]
-    async fn execute_command_rejects_shell_metacharacter_injection() {
+    async fn execute_command_rejects_shell_metacharacter_injection()
+    -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // The semicolon would let an attacker chain a second command; the
         // defense-in-depth validator must reject it before it reaches the shell.
+        let args: serde_json::Value = serde_json::from_str(r#"{"message":"hello; rm -rf /"}"#)?;
         let result = execute_command(
             "echo {message}",
             None,
             Some(5_000),
-            json!({ "message": "hello; rm -rf /" }),
+            args,
             CancellationToken::new(),
         )
         .await;
-        assert!(result.is_err(), "expected injection to be rejected");
-        let err = result.unwrap_err().to_string();
+        let err = match result {
+            Err(e) => e.to_string(),
+            Ok(_) => return Err("expected injection to be rejected".into()),
+        };
         assert!(
             err.contains("shell metacharacter"),
             "expected metacharacter error, got {err}"
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn execute_command_enforces_timeout() {
+    async fn execute_command_enforces_timeout()
+    -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let args: serde_json::Value = serde_json::from_str(r#"{"duration":"2"}"#)?;
         let result = execute_command(
             "sleep {duration}",
             None,
             Some(50),
-            json!({ "duration": "2" }),
+            args,
             CancellationToken::new(),
         )
         .await;
-        assert!(result.is_err(), "expected timeout error");
-        let err = result.unwrap_err().to_string();
+        let err = match result {
+            Err(e) => e.to_string(),
+            Ok(_) => return Err("expected timeout error".into()),
+        };
         assert!(err.contains("timeout"), "expected timeout error, got {err}");
+        Ok(())
     }
 
     #[test]
-    fn validate_no_shell_metacharacters_blocks_common_injection_chars() {
+    fn validate_no_shell_metacharacters_blocks_common_injection_chars()
+    -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         for bad in [";", "|", "&", "$", "`", "<", ">", "(", ")", "{", "}"] {
             let cmd = format!("echo {bad}");
-            let err =
-                validate_no_shell_metacharacters(&cmd).expect_err("expected rejection for {bad:?}");
+            let err = match validate_no_shell_metacharacters(&cmd) {
+                Err(e) => e,
+                Ok(()) => return Err(format!("expected rejection for {bad:?}").into()),
+            };
             assert!(err.to_string().contains("shell metacharacter"));
         }
+        Ok(())
     }
 
     #[test]
-    fn validate_no_shell_metacharacters_allows_safe_command() {
-        validate_no_shell_metacharacters("echo hello world").unwrap();
-        validate_no_shell_metacharacters("ls -la /tmp").unwrap();
+    fn validate_no_shell_metacharacters_allows_safe_command()
+    -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        validate_no_shell_metacharacters("echo hello world")?;
+        validate_no_shell_metacharacters("ls -la /tmp")?;
+        Ok(())
     }
 }
