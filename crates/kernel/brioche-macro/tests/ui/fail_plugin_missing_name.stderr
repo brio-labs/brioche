@@ -1,0 +1,15 @@
+error: `name` is required in #[brioche_plugin(...)]
+ --> tests/ui/fail_plugin_missing_name.rs:6:1
+  |
+6 | #[brioche_plugin(capabilities = "ON_INPUT")]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `brioche_plugin` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused import: `brioche_core::BriochePlugin`
+ --> tests/ui/fail_plugin_missing_name.rs:1:5
+  |
+1 | use brioche_core::BriochePlugin;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

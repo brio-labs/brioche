@@ -18,10 +18,32 @@ use syn::{Attribute, Data, DataStruct, DeriveInput, Fields, Type, parse_macro_in
 /// Errors raised by the derive macro.
 #[derive(Debug)]
 enum DeriveError {
-    HashMap { span: Span, field_name: String },
-    HashSet { span: Span, field_name: String },
-    UiType { span: Span, field_name: String },
-    UndeterminedVec { span: Span, field_name: String },
+    HashMap {
+        span: Span,
+        field_name: String,
+    },
+    HashSet {
+        span: Span,
+        field_name: String,
+    },
+    NonOrderedMap {
+        span: Span,
+        field_name: String,
+        type_name: String,
+    },
+    NonOrderedSet {
+        span: Span,
+        field_name: String,
+        type_name: String,
+    },
+    UiType {
+        span: Span,
+        field_name: String,
+    },
+    UndeterminedVec {
+        span: Span,
+        field_name: String,
+    },
 }
 
 /// Parsed `#[brioche(...)]` attributes on a struct/enum.
@@ -94,34 +116,39 @@ fn scan_type(ty: &Type, errors: &mut Vec<DeriveError>, field_name: &str) {
                 .map(|s| s.ident.to_string())
                 .collect();
 
-            // Check for banned collections.
-            for seg in &segments {
-                if seg == "HashMap" {
-                    errors.push(DeriveError::HashMap {
-                        span: type_path.span(),
-                        field_name: field_name.to_string(),
-                    });
-                }
-                if seg == "HashSet" {
-                    errors.push(DeriveError::HashSet {
-                        span: type_path.span(),
-                        field_name: field_name.to_string(),
-                    });
-                }
+            let has_hashmap = segments.iter().any(|s| s == "HashMap");
+            let has_hashset = segments.iter().any(|s| s == "HashSet");
+
+            // Check for banned collections by exact segment name.
+            if has_hashmap {
+                errors.push(DeriveError::HashMap {
+                    span: type_path.span(),
+                    field_name: field_name.to_string(),
+                });
+            }
+            if has_hashset {
+                errors.push(DeriveError::HashSet {
+                    span: type_path.span(),
+                    field_name: field_name.to_string(),
+                });
             }
 
-            // Check last segment for banned collections (catches imported aliases).
+            // Check last segment for aliases of non-ordered maps/sets.
             if let Some(last) = segments.last() {
-                if last == "HashMap" {
-                    errors.push(DeriveError::HashMap {
+                let allowed_maps: [&str; 2] = ["BTreeMap", "IndexMap"];
+                let allowed_sets: [&str; 2] = ["BTreeSet", "IndexSet"];
+                if !has_hashmap && last.ends_with("Map") && !allowed_maps.contains(&last.as_str()) {
+                    errors.push(DeriveError::NonOrderedMap {
                         span: type_path.span(),
                         field_name: field_name.to_string(),
+                        type_name: last.clone(),
                     });
                 }
-                if last == "HashSet" {
-                    errors.push(DeriveError::HashSet {
+                if !has_hashset && last.ends_with("Set") && !allowed_sets.contains(&last.as_str()) {
+                    errors.push(DeriveError::NonOrderedSet {
                         span: type_path.span(),
                         field_name: field_name.to_string(),
+                        type_name: last.clone(),
                     });
                 }
 
@@ -378,6 +405,16 @@ pub fn derive_brioche_extension_type(input: TokenStream) -> TokenStream {
                     compile_error!(concat!("Field `", #field_name, "` uses HashSet. HashSet is prohibited in BriocheExtensionType persisted state. Use BTreeSet instead."));
                 }
             }
+            DeriveError::NonOrderedMap { span, field_name, type_name } => {
+                quote_spanned! { *span =>
+                    compile_error!(concat!("Field `", #field_name, "` uses non-ordered map type `", #type_name, "`. Only ordered maps (BTreeMap, IndexMap) are allowed in BriocheExtensionType persisted state."));
+                }
+            }
+            DeriveError::NonOrderedSet { span, field_name, type_name } => {
+                quote_spanned! { *span =>
+                    compile_error!(concat!("Field `", #field_name, "` uses non-ordered set type `", #type_name, "`. Only ordered sets (BTreeSet, IndexSet) are allowed in BriocheExtensionType persisted state."));
+                }
+            }
             DeriveError::UiType { span, field_name } => {
                 quote_spanned! { *span =>
                     compile_error!(concat!("Field `", #field_name, "` appears to contain a UI type. UI types are prohibited in BriocheExtensionType."));
@@ -391,77 +428,83 @@ pub fn derive_brioche_extension_type(input: TokenStream) -> TokenStream {
         })
         .collect();
 
-    let expanded = quote! {
-        #(#error_tokens)*
+    let expanded = if errors.is_empty() {
+        quote! {
+            #(#error_tokens)*
 
-        // Sealed trait implementation — required by BriocheExtensionType.
-        // This impl is only valid here because brioche-macro is part of
-        // the SDK. Manual impls by users are prevented by the sealed pattern.
-        impl #impl_generics ::brioche_core::extension::__private::Sealed for #name #ty_generics #where_clause {}
+            // Sealed trait implementation — required by BriocheExtensionType.
+            // This impl is only valid here because brioche-macro is part of
+            // the SDK. Manual impls by users are prevented by the sealed pattern.
+            impl #impl_generics ::brioche_core::extension::__private::Sealed for #name #ty_generics #where_clause {}
 
-        impl #impl_generics ::brioche_core::BriocheExtensionType for #name #ty_generics #where_clause {
-            const EXT_ID: &'static str = #ext_id_tokens;
+            impl #impl_generics ::brioche_core::BriocheExtensionType for #name #ty_generics #where_clause {
+                const EXT_ID: &'static str = #ext_id_tokens;
 
-            fn estimated_weight_bytes(&self) -> usize {
-                // Pragmatic estimate: size_of_val. The VTable function
-                // refines this via binary serialization when available.
-                ::core::mem::size_of_val(self)
-            }
+                fn estimated_weight_bytes(&self) -> usize {
+                    // Pragmatic estimate: size_of_val. The VTable function
+                    // refines this via binary serialization when available.
+                    ::core::mem::size_of_val(self)
+                }
 
-            fn snapshot_strategy() -> ::brioche_core::SnapshotStrategy {
-                #snapshot_strategy
-            }
+                fn snapshot_strategy() -> ::brioche_core::SnapshotStrategy {
+                    #snapshot_strategy
+                }
 
-            fn build_vtable() -> ::brioche_core::ExtVTable
-            where
-                Self: Sized,
-            {
-                fn serialize(any: &dyn ::core::any::Any) -> ::std::vec::Vec<u8> {
-                    if let Some(this) = any.downcast_ref::<#name>() {
-                        match ::brioche_core::postcard::to_stdvec(this) {
-                            Ok(v) => v,
-                            Err(_) => ::std::vec::Vec::new(),
+                fn build_vtable() -> ::brioche_core::ExtVTable
+                where
+                    Self: Sized,
+                {
+                    fn serialize(any: &dyn ::core::any::Any) -> ::std::vec::Vec<u8> {
+                        if let Some(this) = any.downcast_ref::<#name>() {
+                            match ::brioche_core::postcard::to_stdvec(this) {
+                                Ok(v) => v,
+                                Err(_) => ::std::vec::Vec::new(),
+                            }
+                        } else {
+                            ::std::vec::Vec::new()
                         }
-                    } else {
-                        ::std::vec::Vec::new()
                     }
-                }
-                fn deserialize(bytes: &[u8]) -> ::core::result::Result<::std::boxed::Box<dyn ::core::any::Any + Send + Sync>, ::std::string::String> {
-                    ::brioche_core::postcard::from_bytes::<#name>(bytes)
-                        .map(|v| ::std::boxed::Box::new(v) as ::std::boxed::Box<dyn ::core::any::Any + Send + Sync>)
-                        .map_err(|_| ::std::string::String::from("deserialize failed"))
-                }
-                fn clone_box(any: &dyn ::core::any::Any) -> ::std::boxed::Box<dyn ::core::any::Any + Send + Sync> {
-                    if let Some(this) = any.downcast_ref::<#name>() {
-                        ::std::boxed::Box::new(this.clone())
-                    } else {
+                    fn deserialize(bytes: &[u8]) -> ::core::result::Result<::std::boxed::Box<dyn ::core::any::Any + Send + Sync>, ::std::string::String> {
+                        ::brioche_core::postcard::from_bytes::<#name>(bytes)
+                            .map(|v| ::std::boxed::Box::new(v) as ::std::boxed::Box<dyn ::core::any::Any + Send + Sync>)
+                            .map_err(|_| ::std::string::String::from("deserialize failed"))
+                    }
+                    fn clone_box(any: &dyn ::core::any::Any) -> ::std::boxed::Box<dyn ::core::any::Any + Send + Sync> {
+                        if let Some(this) = any.downcast_ref::<#name>() {
+                            ::std::boxed::Box::new(this.clone())
+                        } else {
+                            ::std::boxed::Box::new(<#name as ::core::default::Default>::default())
+                        }
+                    }
+                    fn estimated_weight_bytes(any: &dyn ::core::any::Any) -> usize {
+                        if let Some(this) = any.downcast_ref::<#name>() {
+                            match ::brioche_core::postcard::to_stdvec(this) {
+                                Ok(v) => v.len(),
+                                Err(_) => ::core::mem::size_of_val(this),
+                            }
+                        } else {
+                            0
+                        }
+                    }
+                    fn default_construct() -> ::std::boxed::Box<dyn ::core::any::Any + Send + Sync> {
                         ::std::boxed::Box::new(<#name as ::core::default::Default>::default())
                     }
-                }
-                fn estimated_weight_bytes(any: &dyn ::core::any::Any) -> usize {
-                    if let Some(this) = any.downcast_ref::<#name>() {
-                        match ::brioche_core::postcard::to_stdvec(this) {
-                            Ok(v) => v.len(),
-                            Err(_) => ::core::mem::size_of_val(this),
-                        }
-                    } else {
-                        0
+
+                    ::brioche_core::ExtVTable {
+                        ext_id: <#name as ::brioche_core::BriocheExtensionType>::EXT_ID,
+                        serialize,
+                        deserialize,
+                        clone_box,
+                        estimated_weight_bytes,
+                        snapshot_strategy: <#name as ::brioche_core::BriocheExtensionType>::snapshot_strategy(),
+                        default_construct,
                     }
                 }
-                fn default_construct() -> ::std::boxed::Box<dyn ::core::any::Any + Send + Sync> {
-                    ::std::boxed::Box::new(<#name as ::core::default::Default>::default())
-                }
-
-                ::brioche_core::ExtVTable {
-                    ext_id: <#name as ::brioche_core::BriocheExtensionType>::EXT_ID,
-                    serialize,
-                    deserialize,
-                    clone_box,
-                    estimated_weight_bytes,
-                    snapshot_strategy: <#name as ::brioche_core::BriocheExtensionType>::snapshot_strategy(),
-                    default_construct,
-                }
             }
+        }
+    } else {
+        quote! {
+            #(#error_tokens)*
         }
     };
 
