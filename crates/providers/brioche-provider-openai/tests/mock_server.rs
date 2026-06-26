@@ -141,3 +141,69 @@ async fn network_failure_emits_system_signal() {
         "call_llm should surface error and return Ok: {result:?}"
     );
 }
+#[tokio::test]
+async fn http_error_truncates_large_response_body() {
+    let mock_server = MockServer::start().await;
+    let huge_body = "x".repeat(brioche_provider_openai::MAX_ERROR_BODY_BYTES + 1024);
+
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(503).set_body_string(huge_body))
+        .mount(&mock_server)
+        .await;
+
+    let config = OpenAiConfig {
+        base_url: mock_server.uri(),
+        api_key: "test-key".into(),
+        ..OpenAiConfig::default()
+    };
+    let (client, _rx, _history) = OpenAiLlmClient::new(config);
+    client
+        .push_message(ChatMessage::User {
+            content: "hello".into(),
+        })
+        .await;
+
+    let shell = test_shell();
+    let result = client.call_llm(&shell).await;
+
+    assert!(
+        result.is_ok(),
+        "call_llm should surface error and return Ok: {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn http_error_body_limit_is_enforced() {
+    let mock_server = MockServer::start().await;
+    let prefix = "ERR:";
+    let suffix = "TAIL_MARKER";
+    let padding_len = brioche_provider_openai::MAX_ERROR_BODY_BYTES - prefix.len() + 100;
+    let huge_body = format!("{}{}{}", prefix, "y".repeat(padding_len), suffix);
+
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(503).set_body_string(huge_body))
+        .mount(&mock_server)
+        .await;
+
+    let config = OpenAiConfig {
+        base_url: mock_server.uri(),
+        api_key: "test-key".into(),
+        ..OpenAiConfig::default()
+    };
+    let (client, _rx, _history) = OpenAiLlmClient::new(config);
+    client
+        .push_message(ChatMessage::User {
+            content: "hello".into(),
+        })
+        .await;
+
+    let shell = test_shell();
+    let result = client.call_llm(&shell).await;
+
+    assert!(
+        result.is_ok(),
+        "call_llm should surface error and return Ok: {result:?}"
+    );
+}
