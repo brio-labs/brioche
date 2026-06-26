@@ -17,7 +17,7 @@ use brioche_shell_runtime::{Persistence, ShellError};
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use tokio::sync::RwLock;
 
-use crate::dto::SessionHeadDTO;
+use crate::dto::{SessionHeadDTO, SessionSchemaVersion};
 
 // ---------------------------------------------------------------------------
 // Schema (merged from schema.rs)
@@ -127,18 +127,62 @@ pub fn extract_delta(session: &Session) -> &[ChatMessage] {
     &session.history[session.persisted_msg_count..]
 }
 
-/// Serialize a `SessionHeadDTO` to MessagePack.
+/// Maximum size of a session head blob (uncompressed).
 ///
-/// Complexity: O(serialization cost). Allocates one `Vec`.
+/// Heads are small metadata; anything larger indicates corruption or abuse.
+const MAX_HEAD_BYTES: usize = 64 * 1024 * 1024;
+
+/// Serialize a `SessionHeadDTO` to MessagePack and compute its checksum.
+///
+/// Complexity: O(serialization cost). Allocates a few `Vec`s.
 /// Refs: docs/SPECS.md §Book III-A
 pub fn serialize_head(dto: &SessionHeadDTO) -> Result<Vec<u8>, PersistenceError> {
-    rmp_serde::to_vec(dto).map_err(|e| PersistenceError::Serialization(e.to_string()))
+    let mut dto = dto.clone();
+    dto.checksum = None;
+    let checksum_bytes =
+        rmp_serde::to_vec(&dto).map_err(|e| PersistenceError::Serialization(e.to_string()))?;
+    let checksum = crc32fast::hash(&checksum_bytes);
+    dto.checksum = Some(checksum);
+    rmp_serde::to_vec(&dto).map_err(|e| PersistenceError::Serialization(e.to_string()))
 }
 
 /// Deserialize a `SessionHeadDTO` from a MessagePack blob.
+///
+/// Validates length, schema version, and checksum (if present).
 /// Refs: docs/SPECS.md §Book III-A
 pub fn deserialize_head(blob: &[u8]) -> Result<SessionHeadDTO, PersistenceError> {
-    rmp_serde::from_slice(blob).map_err(|e| PersistenceError::Serialization(e.to_string()))
+    if blob.len() > MAX_HEAD_BYTES {
+        return Err(PersistenceError::Serialization(format!(
+            "session head blob too large: {} bytes (max {})",
+            blob.len(),
+            MAX_HEAD_BYTES
+        )));
+    }
+
+    let dto: SessionHeadDTO =
+        rmp_serde::from_slice(blob).map_err(|e| PersistenceError::Serialization(e.to_string()))?;
+
+    if !matches!(dto.version, SessionSchemaVersion::V1) {
+        return Err(PersistenceError::Serialization(format!(
+            "unsupported session schema version: {:?}",
+            dto.version
+        )));
+    }
+
+    if let Some(expected) = dto.checksum {
+        let mut dto_for_checksum = dto.clone();
+        dto_for_checksum.checksum = None;
+        let checksum_bytes = rmp_serde::to_vec(&dto_for_checksum)
+            .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
+        let actual = crc32fast::hash(&checksum_bytes);
+        if actual != expected {
+            return Err(PersistenceError::Serialization(format!(
+                "session head checksum mismatch: expected {expected:#010x}, got {actual:#010x}"
+            )));
+        }
+    }
+
+    Ok(dto)
 }
 
 /// Serialize a single `ChatMessage` to MessagePack.
