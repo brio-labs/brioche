@@ -190,6 +190,10 @@ The following areas are already in good shape and should not be regressed:
 | P6-MAINT-07 | #147: Removed bare `TODO` placeholder from `.github/CODEOWNERS`. |
 | P6-MAINT-08 | #151: Replaced magic `priority()` literals with named `Priority` constants in `brioche-governance-default` and `brioche-std`. |
 | P3-SEC-07 | #155: `SseParser` now aborts after a configurable threshold of consecutive malformed `data:` lines; `OpenAiLlmClient` propagates the abort as a terminal error. |
+| P3-SEC-06 | #186: `SystemToolExecutor` validates tool arguments against `parameters_schema()` before invoking `run`; missing fields and wrong types yield `ToolOutcome::BusinessError`. |
+| P3-SEC-09 | #187: OpenAI client caps HTTP error response bodies at `MAX_ERROR_BODY_BYTES` (64 KiB). |
+| P3-SEC-13 | #188: Added `Secret` wrapper and redacting `TelemetryPayload`; secrets are no longer emitted in telemetry. |
+| P3-ERR-01 | #189: Introduced `OpenAiError` enum with a single `From<OpenAiError> for ShellError` impl; provider-specific context preserved. |
 | P6-DOC-03 | #156: Pruned architecture index, fixed stale filenames, translated French prose, aligned governance trait signatures. |
 | P6-DOC-06 | #156: Added ADR-004 (`SignalDrainOrder`/`SignalBuffer`) and ADR-005 (`GovernanceProfile`/`BriocheEngineBuilderExt`). |
 | P1-PERF-01 | #157: `eval_route` and dispatch helpers now accept `&[usize]` and iterate without cloning route tables. |
