@@ -1,0 +1,5 @@
+error: #[brioche_offload_task] function must take exactly one argument
+ --> tests/ui/fail_offload_task_zero_args.rs:4:1
+  |
+4 | fn no_args() -> u64 {
+  | ^^^^^^^^^^^^^^^^^^^

@@ -104,6 +104,47 @@ jobs:
           toolchain: nightly-2026-06-15
           components: rustfmt
       - run: cargo +nightly-2026-06-15 fmt --check
+  commit-branch-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0
+      - name: Check branch name
+        if: github.event_name == 'pull_request'
+        run: |
+          BRANCH="${{ github.head_ref }}"
+          ALLOWED_TYPES="feature|fix|doc|chore"
+          ALLOWED_BOOKS="core|desktop|docgen|governance|governance-default|macro|playground|plugin-kit|provider-openai|repo|shell-persistence|shell-projection|shell-runtime|std|tools-system"
+          if ! [[ "$BRANCH" =~ ^($ALLOWED_TYPES)/($ALLOWED_BOOKS)-[a-z0-9-]+$ ]]; then
+            echo "❌ Branch '$BRANCH' does not match CONTRIBUTING.md naming convention: <type>/<book>-<description>"
+            exit 1
+          fi
+          echo "✓ Branch name '$BRANCH' OK"
+      - name: Check commit messages
+        run: |
+          ALLOWED_TYPES="feat|fix|docs|test|refactor|perf|chore|invariant"
+          ALLOWED_BOOKS="core|desktop|docgen|governance|governance-default|macro|playground|plugin-kit|provider-openai|repo|shell-persistence|shell-projection|shell-runtime|std|tools-system"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            COMMITS=$(git rev-list --no-merges "$BASE"..HEAD)
+          else
+            COMMITS=$(git rev-list --no-merges -n 20 HEAD)
+          fi
+          FAILED=0
+          for sha in $COMMITS; do
+            msg=$(git log -1 --format=%s "$sha")
+            if ! [[ "$msg" =~ ^($ALLOWED_TYPES)\(($ALLOWED_BOOKS)\):\ .+ ]]; then
+              echo "❌ Commit $sha: '$msg' does not match <type>(<book>): <description>"
+              FAILED=1
+            fi
+          done
+          if [ "$FAILED" -ne 0 ]; then
+            exit 1
+          fi
+          echo "✓ Commit messages OK"
 
   clippy:
     runs-on: blacksmith-8vcpu-ubuntu-2404-arm

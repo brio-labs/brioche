@@ -141,6 +141,7 @@ fn make_dto(id: &str) -> SessionHeadDTO {
         extensions: std::collections::BTreeMap::new(),
         persisted_msg_count: 0,
         compaction_index: 0,
+        checksum: None,
     }
 }
 

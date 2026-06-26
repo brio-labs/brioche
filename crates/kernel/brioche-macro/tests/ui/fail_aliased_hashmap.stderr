@@ -1,0 +1,5 @@
+error: Field `data` uses non-ordered map type `BadMap`. Only ordered maps (BTreeMap, IndexMap) are allowed in BriocheExtensionType persisted state.
+ --> tests/ui/fail_aliased_hashmap.rs:7:15
+  |
+7 |     pub data: BadMap<String, u64>,
+  |               ^^^^^^

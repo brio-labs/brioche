@@ -231,15 +231,16 @@ pub struct ExtVTable {
 
 `#[derive(BriocheExtensionType)]` mechanically guarantees extension compliance.
 
-**Static verifications:**
 1. **Presence of `EXT_ID`** — auto-generated from `module_path!()` + type name; respects `crate::type_name` format
 2. **Prohibition of `HashMap`/`HashSet`** — recursive field analysis; compilation fails if persisted fields contain these types
 3. **Absence of UI types** — detects `tauri`, `vue`, `dom` crate imports in struct fields
 4. **Determinism of `Vec`s** — on stable Rust the macro emits `compile_error!` for any `Vec<T>` field not annotated with `#[brioche(deterministic_order)]`. (When `compile_warning!` stabilizes, this will become a warning that is deny-by-default under the `strict-determinism` feature.)
-5. **`clone_box` generation** — requires `Clone`; compilation fails if type cannot derive/impl `Clone`
-6. **`estimated_weight_bytes` generation** — estimates weight via binary serialization
-7. **`snapshot_strategy` generation** — `FullClone` by default; `#[brioche(no_snapshot)]`, `#[brioche(incremental_snapshot)]`, `#[brioche(critical_state)]` annotations modify this
-8. **Sealed trait** — `BriocheExtensionType` is sealed; only the proc-macro can emit implementations
+5. **Determinism of `IndexMap`s** — same treatment as `Vec`: an `IndexMap<K, V>` field must carry `#[brioche(deterministic_order)]` to certify deterministic insertion order, or the macro emits `compile_error!`.
+6. **Nested carrier assertion** — fields annotated with `#[brioche(nested_carrier)]` cause the macro to emit a const assertion requiring the extracted carrier type to implement `BriocheExtensionType`. This guarantees nested persisted carriers are explicitly typed and deterministic.
+7. **`clone_box` generation** — requires `Clone`; compilation fails if type cannot derive/impl `Clone`
+8. **`estimated_weight_bytes` generation** — estimates weight via binary serialization
+9. **`snapshot_strategy` generation** — `FullClone` by default; `#[brioche(no_snapshot)]`, `#[brioche(incremental_snapshot)]`, `#[brioche(critical_state)]` annotations modify this
+10. **Sealed trait** — `BriocheExtensionType` is sealed; only the proc-macro can emit implementations
 
 ### 3.3 Standard extension types
 

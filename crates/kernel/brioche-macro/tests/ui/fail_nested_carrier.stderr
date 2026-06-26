@@ -1,0 +1,15 @@
+error[E0277]: the trait bound `String: BriocheExtensionType` is not satisfied
+  --> tests/ui/fail_nested_carrier.rs:10:20
+   |
+10 |     pub items: Vec<String>,
+   |                    ^^^^^^ the trait `BriocheExtensionType` is not implemented for `String`
+   |
+   = help: the following other types implement trait `BriocheExtensionType`:
+             BadState
+             EpochState
+             RollbackEventLog
+             SessionSnapshot
+             SignalBuffer
+             StreamToolAccumulator
+             SupersededTransitionTraceLog
+             TransitionTraceLog
