@@ -46,6 +46,9 @@ pub use shell::{
 pub use signal_adapter::{
     AsyncTaskResultAdapter, GovernanceNotificationAdapter, SignalMultiplexer, SystemSignalAdapter,
 };
-pub use telemetry::{TelemetryChannel, TelemetryEvent, TelemetryLevel, install_default_subscriber};
+pub use telemetry::{
+    Secret, TelemetryChannel, TelemetryEvent, TelemetryLevel, TelemetryPayload,
+    install_default_subscriber,
+};
 pub use transition_journal::{JournalEntry, TransitionJournal};
 pub use unified_event_bus::{EngineEnvelope, UnifiedEventBus};

@@ -1,0 +1,5 @@
+error: Field `items` uses HashMap. HashMap is prohibited in BriocheExtensionType persisted state. Use BTreeMap or IndexMap instead.
+ --> tests/ui/fail_nested_hashmap.rs:9:33
+  |
+9 |     pub items: BTreeMap<String, HashMap<String, u64>>,
+  |                                 ^^^^^^^

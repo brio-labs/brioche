@@ -190,6 +190,39 @@ The following areas are already in good shape and should not be regressed:
 | P6-MAINT-07 | #147: Removed bare `TODO` placeholder from `.github/CODEOWNERS`. |
 | P6-MAINT-08 | #151: Replaced magic `priority()` literals with named `Priority` constants in `brioche-governance-default` and `brioche-std`. |
 | P3-SEC-07 | #155: `SseParser` now aborts after a configurable threshold of consecutive malformed `data:` lines; `OpenAiLlmClient` propagates the abort as a terminal error. |
+| P3-SEC-06 | #186: `SystemToolExecutor` validates tool arguments against `parameters_schema()` before invoking `run`; missing fields and wrong types yield `ToolOutcome::BusinessError`. |
+| P3-SEC-09 | #187: OpenAI client caps HTTP error response bodies at `MAX_ERROR_BODY_BYTES` (64 KiB). |
+| P3-SEC-13 | #188: Added `Secret` wrapper and redacting `TelemetryPayload`; secrets are no longer emitted in telemetry. |
+| P3-ERR-01 | #189: Introduced `OpenAiError` enum with a single `From<OpenAiError> for ShellError` impl; provider-specific context preserved. |
+| P6-DOC-03 | #156: Pruned architecture index, fixed stale filenames, translated French prose, aligned governance trait signatures. |
+| P6-DOC-06 | #156: Added ADR-004 (`SignalDrainOrder`/`SignalBuffer`) and ADR-005 (`GovernanceProfile`/`BriocheEngineBuilderExt`). |
+| P1-PERF-01 | #157: `eval_route` and dispatch helpers now accept `&[usize]` and iterate without cloning route tables. |
+| P1-PERF-02 | #157: `SessionSnapshot` injected once at top of `transition()`; redundant hook inserts removed. |
+| P5-TEST-01 | #166: Populated `tests/{integration,property,replay,bench}/` with exercising `.rs` suites. |
+| P5-TEST-02 | #169: Added `proptest` for `AgentState` sequences (push/pop, stack depth, generation_id monotonicity, Failure rejection). |
+| P5-TEST-05 | #171: Added unit tests for `brioche-governance-default` plugins (error_safety, input_guards, negotiation_broker, rollback, subroutines, timeouts). |
+| P4-CI-07 | #154: `deny.toml` added to CI `lock` path filter so policy changes trigger the deny job. |
+| P4-CI-12 | #154: Fixed broken unwrap/expect regex in `scripts/pre-commit.sh`. |
+| P4-CI-13 | #154: Quoted PR metadata in `.github/workflows/conventional-commits.yml` to prevent shell injection. |
+| P4-CI-14 | #154: Removed unused `scripts/check-invariants.sh`. |
+| P4-CI-15 | #154: `crates/kernel/brioche-macro/Cargo.toml` now uses `[lints] workspace = true`. |
+| P4-CI-09 | #170: `clippy::cognitive_complexity` promoted to `warn` in workspace lints. |
+| P4-CI-10 | #170: `cargo tree --duplicates` added to dependency-audit CI job. |
+| P2-PERF-03 | #167: `ExtensionStorage::insert` skips `cold_snapshot` for `NoSnapshot` types. |
+| P2-PERF-04 | #167: `apply_governance_failover` avoids cloning non-fault effects via in-place partitioning. |
+| P2-PERF-05 | #167: `append_state_effects` clone cost removed/documented; argument strings use `Arc\u003cstr\u003e`. |
+| P5-TEST-03 | #168: Extended `replay_journal.rs` with tool-call, subroutine restore, epoch mismatch, plugin fault, and wraparound scenarios. |
+| P5-TEST-04 | #168: Rewrote `effect_executor_tests.rs` to exercise every `Effect` variant via `MockLlmClient`/`EchoToolExecutor`. |
+| P3-SEC-10 | #172: `ToolExecutor::Command` template interpolation now validates placeholder keys and balanced braces. |
+| P3-SEC-11 | #172: Default tool allow-list tightened; `cargo`, `rustc`, `git`, `find` are now opt-in. |
+| P0-SEC-01 | #161: `ShellTool::execute_command` hardened against shell injection with argument validation. |
+| P0-SEC-02/03/05 | #164: Shell shutdown, rebuild-in-progress barrier/guard, and tool cancellation token. |
+| P5-TEST-09 | #160: Added `HistoryEdit` edge-case tests for Replace, Truncate, and out-of-bounds. |
+| P6-MAINT-06 | #163: Extracted shared `brioche-lint-core` library crate. |
+| P3-SEC-08 | #173: `OpenAiConfig` validates non-empty `api_key` and `model` before requests. |
+| P0-DET-01 | #162: `ExtensionStorage` serialization errors surfaced instead of empty blobs. |
+| P0-SEC-04/06 | #174: Terminal SSE `StreamEvent::Error` and shared HTTP client hardening (timeout/URL/redirect/size). |
+| P3-SEC-02/12 | #175: `Permissive` sandbox requires confirmation; `Permissive` profile logs a warning. |
 
 ---
 
