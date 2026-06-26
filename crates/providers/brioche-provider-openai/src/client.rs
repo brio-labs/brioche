@@ -1026,7 +1026,7 @@ fn private_diag_dir() -> Option<PathBuf> {
     dir.push("diag");
 
     if let Err(e) = std::fs::create_dir_all(&dir) {
-        eprintln!("[brioche-diag] failed to create diagnostic directory: {e}");
+        tracing::warn!(error = %e, "failed to create diagnostic directory");
         return None;
     }
 
@@ -1040,7 +1040,7 @@ fn private_diag_dir() -> Option<PathBuf> {
         if mode & 0o077 != 0 {
             perms.set_mode(0o700);
             if let Err(e) = std::fs::set_permissions(&dir, perms) {
-                eprintln!("[brioche-diag] failed to set diagnostic directory permissions: {e}");
+                tracing::warn!(error = %e, "failed to set diagnostic directory permissions");
                 return None;
             }
         }
@@ -1088,16 +1088,16 @@ fn write_diag_request(turn: usize, body: &serde_json::Value) {
 
     let redacted = redact_request_body(body);
     let mut text = redacted.to_string();
+    const TRUNCATION_SUFFIX: &str = "\n...[truncated]";
     if text.len() > MAX_DIAG_BYTES {
-        text.truncate(MAX_DIAG_BYTES);
-        text.push_str(
-            "
-...[truncated]",
-        );
+        let limit = MAX_DIAG_BYTES.saturating_sub(TRUNCATION_SUFFIX.len());
+        let trunc_idx = text.floor_char_boundary(limit);
+        text.truncate(trunc_idx);
+        text.push_str(TRUNCATION_SUFFIX);
     }
 
-    if let Err(e) = std::fs::write(&path, text) {
-        eprintln!("[brioche-diag] failed to write diagnostic request: {e}");
+    if let Err(e) = std::fs::write(&path, &text) {
+        tracing::warn!(error = %e, path = %path.display(), "failed to write diagnostic request");
     }
 }
 
@@ -1121,7 +1121,7 @@ impl LlmClient for OpenAiLlmClient {
         let (body, _msg_count) = self.build_request().await;
 
         // Diagnostic: write redacted request body to a private cache directory.
-        // Activated by BRIOCHE_DIAG=1 env var.
+        // Activated by the BRIOCHE_DIAG env var (any value).
         if std::env::var("BRIOCHE_DIAG").is_ok() {
             write_diag_request(turn, &body);
         }
