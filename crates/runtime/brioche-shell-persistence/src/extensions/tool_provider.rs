@@ -7,12 +7,10 @@
 //! external process.
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
-
+use brioche_tools_system::{AllowList, ExecuteCommandTool, SystemTool, ToolError};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::RwLock;
-
-use brioche_tools_system::{SystemTool, ToolError};
-use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 use super::{ExtensionMetadata, PanelSlot};
@@ -106,6 +104,9 @@ pub enum ToolExecutor {
         command: String,
         /// Optional working directory.
         working_dir: Option<String>,
+        /// Optional timeout in milliseconds.
+        #[serde(default)]
+        timeout_ms: Option<u64>,
     },
     /// POST the arguments as JSON to a URL and return the response body.
     HttpPost {
@@ -446,7 +447,8 @@ impl SystemTool for UserDefinedTool {
             ToolExecutor::Command {
                 command,
                 working_dir,
-            } => execute_command(command, working_dir.as_deref(), args, cancel).await,
+                timeout_ms,
+            } => execute_command(command, working_dir.as_deref(), *timeout_ms, args, cancel).await,
             ToolExecutor::HttpPost { url, headers } => {
                 execute_http_post(url, headers, args, cancel).await
             }
@@ -478,50 +480,66 @@ fn interpolate(template: &str, args: &serde_json::Value) -> String {
 async fn execute_command(
     template: &str,
     working_dir: Option<&str>,
+    timeout_ms: Option<u64>,
     args: serde_json::Value,
     cancel: CancellationToken,
 ) -> Result<String, ToolError> {
     let command = interpolate(template, &args);
 
-    let mut cmd = tokio::process::Command::new("sh");
-    cmd.arg("-c").arg(&command);
+    // Defensive: reject shell metacharacters even before delegating to the
+    // system tool, so injected commands like `ls; rm -rf /` are blocked.
+    validate_no_shell_metacharacters(&command)?;
+
+    let program = command
+        .split_whitespace()
+        .next()
+        .ok_or_else(|| ToolError::InvalidArgs("command is empty".into()))?
+        .to_string();
+
+    let mut tool = ExecuteCommandTool::with_allow_list(AllowList::new().with_command(&program));
     if let Some(dir) = working_dir {
-        cmd.current_dir(dir);
+        tool = tool.with_default_cwd(dir);
     }
 
-    let output = tokio::select! {
-        biased;
-        _ = cancel.cancelled() => {
-            return Err(ToolError::Io(std::io::Error::new(
-                std::io::ErrorKind::Interrupted,
-                "cancelled",
+    let mut tool_args = serde_json::Map::new();
+    tool_args.insert("command".into(), serde_json::Value::String(command));
+    #[allow(clippy::manual_unwrap_or)]
+    let timeout_ms = match timeout_ms {
+        Some(ms) => ms,
+        None => 30_000,
+    };
+    let timeout = std::time::Duration::from_millis(timeout_ms);
+    let result = tokio::time::timeout(
+        timeout,
+        tool.run(serde_json::Value::Object(tool_args), cancel),
+    )
+    .await;
+
+    match result {
+        Ok(inner) => inner,
+        Err(_) => Err(ToolError::Io(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "command exceeded timeout",
+        ))),
+    }
+}
+
+/// Rejects commands that contain shell metacharacters.
+///
+/// Mirrors the validation used by `ExecuteCommandTool` so user-defined tools
+/// cannot inject shell syntax through interpolated arguments.
+fn validate_no_shell_metacharacters(command: &str) -> Result<(), ToolError> {
+    for c in command.chars() {
+        if matches!(
+            c,
+            ';' | '|' | '&' | '$' | '`' | '\n' | '\r' | '<' | '>' | '(' | ')' | '{' | '}'
+        ) {
+            return Err(ToolError::SandboxDenied(format!(
+                "command contains shell metacharacter: {c}"
             )));
         }
-        result = cmd.spawn()?.wait_with_output() => result.map_err(ToolError::Io)?,
-    };
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let mut result = String::new();
-    if !stdout.is_empty() {
-        result.push_str(&stdout);
     }
-    if !stderr.is_empty() {
-        if !result.is_empty() {
-            result.push('\n');
-        }
-        result.push_str("stderr: ");
-        result.push_str(&stderr);
-    }
-
-    if !output.status.success() {
-        return Err(ToolError::Io(std::io::Error::other(format!(
-            "exit code: {:?}",
-            output.status.code()
-        ))));
-    }
-
-    Ok(result)
+    Ok(())
 }
 
 async fn execute_http_post(
@@ -566,4 +584,80 @@ async fn execute_http_post(
 
 async fn execute_read_file(path: &str) -> Result<String, ToolError> {
     tokio::fs::read_to_string(path).await.map_err(ToolError::Io)
+}
+
+#[cfg(test)]
+#[allow(clippy::disallowed_methods)]
+#[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn execute_command_benign_succeeds() {
+        let result = execute_command(
+            "echo {message}",
+            None,
+            Some(5_000),
+            json!({ "message": "hello" }),
+            CancellationToken::new(),
+        )
+        .await;
+        assert!(result.is_ok(), "expected success, got {result:?}");
+        assert!(
+            result.unwrap().contains("hello"),
+            "expected 'hello' in command output"
+        );
+    }
+    #[tokio::test]
+    async fn execute_command_rejects_shell_metacharacter_injection() {
+        // The semicolon would let an attacker chain a second command; the
+        // defense-in-depth validator must reject it before it reaches the shell.
+        let result = execute_command(
+            "echo {message}",
+            None,
+            Some(5_000),
+            json!({ "message": "hello; rm -rf /" }),
+            CancellationToken::new(),
+        )
+        .await;
+        assert!(result.is_err(), "expected injection to be rejected");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("shell metacharacter"),
+            "expected metacharacter error, got {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn execute_command_enforces_timeout() {
+        let result = execute_command(
+            "sleep {duration}",
+            None,
+            Some(50),
+            json!({ "duration": "2" }),
+            CancellationToken::new(),
+        )
+        .await;
+        assert!(result.is_err(), "expected timeout error");
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("timeout"), "expected timeout error, got {err}");
+    }
+
+    #[test]
+    fn validate_no_shell_metacharacters_blocks_common_injection_chars() {
+        for bad in [";", "|", "&", "$", "`", "<", ">", "(", ")", "{", "}"] {
+            let cmd = format!("echo {bad}");
+            let err =
+                validate_no_shell_metacharacters(&cmd).expect_err("expected rejection for {bad:?}");
+            assert!(err.to_string().contains("shell metacharacter"));
+        }
+    }
+
+    #[test]
+    fn validate_no_shell_metacharacters_allows_safe_command() {
+        validate_no_shell_metacharacters("echo hello world").unwrap();
+        validate_no_shell_metacharacters("ls -la /tmp").unwrap();
+    }
 }
