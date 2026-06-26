@@ -107,7 +107,6 @@ async fn limited_error_body(mut response: reqwest::Response, limit: usize) -> St
 /// conversation without changing the mirror history.
 ///
 /// Refs: docs/SPECS.md §Book III-A, I-Core-ChunkBudget
-
 pub struct OpenAiLlmClient {
     config: OpenAiConfig,
     http: reqwest::Client,
