@@ -436,6 +436,61 @@ def check_determinism() -> CheckResult:
 
     return result
 
+# ---------------------------------------------------------------------------
+# 4c. Output conventions — println!/eprintln! are only allowed in app crates.
+#     PHILOSOPHY.md §10.4: println!/eprintln! are allowed only in app crates.
+#     Library crates (kernel, runtime, providers, tools, plugin-kit, std,
+#     reedline) must use `tracing` instead.
+# ---------------------------------------------------------------------------
+
+PRINT_MACRO_CRATES = [
+    "crates/kernel/brioche-core/src",
+    "crates/kernel/brioche-governance/src",
+    "crates/kernel/brioche-governance-default/src",
+    "crates/kernel/brioche-macro/src",
+    "crates/runtime/brioche-shell-runtime/src",
+    "crates/runtime/brioche-shell-persistence/src",
+    "crates/runtime/brioche-shell-projection/src",
+    "crates/providers/brioche-provider-openai/src",
+    "crates/tools/brioche-tools-system/src",
+    "crates/ecosystem/brioche-plugin-kit/src",
+    "crates/ecosystem/brioche-std/src",
+    "crates/infra/brioche-reedline/src",
+]
+
+PRINT_MACRO_RE = re.compile(r"(?:^|[^\"'])\b(println!|eprintln!)\(")
+
+
+def check_print_macros() -> CheckResult:
+    result = CheckResult("Library print macros")
+
+    for rel in PRINT_MACRO_CRATES:
+        crate_src = PROJECT_ROOT / rel
+        if not crate_src.exists():
+            continue
+
+        for path in crate_src.rglob("*.rs"):
+            if "tests" in path.parts or "benches" in path.parts:
+                continue
+            if path.name.startswith("fail_") or path.name.startswith("pass_"):
+                continue
+
+            content = path.read_text()
+            lines = content.split("\n")
+
+            for i, line in enumerate(lines):
+                stripped = line.strip()
+                if stripped.startswith(("//", "///", "//!", "*")):
+                    continue
+                if PRINT_MACRO_RE.search(line):
+                    result.add(
+                        path,
+                        i + 1,
+                        "println!/eprintln! are only allowed in app crates — "
+                        "use `tracing` (PHILOSOPHY.md §10.4)",
+                    )
+
+    return result
 
 # ---------------------------------------------------------------------------
 # 4b. Vtable / dyn trait usage in Core transition hot path
@@ -1606,6 +1661,7 @@ CHECKS = [
     check_invariant_refs,
     check_extension_type_docs,
     check_determinism,
+    check_print_macros,
     check_panic_guards,
     check_vtable_in_core,
     check_trait_hierarchies,
