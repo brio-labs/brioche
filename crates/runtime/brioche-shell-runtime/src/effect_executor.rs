@@ -143,6 +143,12 @@ impl Persistence for NoopPersistence {
 #[async_trait::async_trait]
 pub trait EffectExecutor: Clone + Send + Sync + 'static {
     /// Invoke the LLM network and stream fragments back as `EngineInput::LlmStream`.
+    ///
+    /// # Cancel safety
+    /// This future delegates to the LLM client and may await network I/O.
+    /// Dropping it before completion leaves the underlying request running
+    /// until the provider times out; any chunks already emitted remain in the
+    /// shell's input queue.
     async fn call_llm(&self, shell: &BriocheShell) -> Result<(), ShellError>;
 
     /// Execute tools in parallel and send `EngineInput::ToolCallsResult`
@@ -150,6 +156,12 @@ pub trait EffectExecutor: Clone + Send + Sync + 'static {
     ///
     /// `generation_id` is captured from the engine state snapshot so the
     /// shell never reads `Session` directly.
+    ///
+    /// # Cancel safety
+    /// This future spawns one task per tool call and awaits the join handles.
+    /// Dropping it before all tasks complete detaches the remaining tasks;
+    /// their results may still be delivered to the shell and the tool
+    /// processes continue until completion or timeout.
     async fn execute_tools(
         &self,
         calls: Vec<ActiveToolCall>,
@@ -158,21 +170,50 @@ pub trait EffectExecutor: Clone + Send + Sync + 'static {
     ) -> Result<(), ShellError>;
 
     /// Forward a structured UI widget to the presentation layer.
+    ///
+    /// # Cancel safety
+    /// This future reads `self.ui_forwarder` and performs no await after that.
+    /// Dropping it is always safe and leaves no partial state.
     async fn forward_to_ui(&self, widget: UiWidget) -> Result<(), ShellError>;
 
     /// Log an error effect (telemetry / tracing).
+    ///
+    /// # Cancel safety
+    /// This future performs no await. Dropping it is safe.
     async fn log_error(&self, code: ErrorCode, detail: ErrorDetail) -> Result<(), ShellError>;
 
     /// Persist session state.
+    ///
+    /// # Cancel safety
+    /// In async persistence mode this future spawns a background task and
+    /// returns immediately; the save continues to completion or error after
+    /// drop. In sync mode it awaits `Persistence::save_session`; dropping
+    /// leaves no partial state in the executor.
     async fn save_session(&self, session_id: &str) -> Result<(), ShellError>;
 
     /// Persist a plugin blob.
+    ///
+    /// # Cancel safety
+    /// This future awaits `Persistence::save_plugin_blob`; dropping leaves no
+    /// partial state in the executor.
     async fn save_plugin_blob(&self, plugin_id: &str, data: Vec<u8>) -> Result<(), ShellError>;
 
     /// Trigger a background summarization task.
+    ///
+    /// # Cancel safety
+    /// This future awaits a read lock on the history mirror and then the LLM
+    /// summarize call. Dropping before the summarize call returns releases the
+    /// lock and does not modify history; dropping during
+    /// `send_async_task_result` may leave the summary unreported.
     async fn trigger_summarization(&self, shell: &BriocheShell) -> Result<(), ShellError>;
 
     /// Execute a CPU-intensive task on the blocking thread pool.
+    ///
+    /// # Cancel safety
+    /// This future awaits a `spawn_blocking` task. Dropping before the task
+    /// completes detaches it; the computation continues but its result is
+    /// discarded. Dropping after completion but before the result is sent
+    /// discards the result.
     async fn execute_cpu_task(
         &self,
         task_id: String,
@@ -181,9 +222,16 @@ pub trait EffectExecutor: Clone + Send + Sync + 'static {
     ) -> Result<(), ShellError>;
 
     /// Trigger opportunistic garbage collection.
+    ///
+    /// # Cancel safety
+    /// This future awaits persistence garbage collection; dropping leaves no
+    /// partial state.
     async fn trigger_gc(&self, session_id: &str) -> Result<(), ShellError>;
 
     /// Handle `SystemIdle` — may decide to trigger GC.
+    ///
+    /// # Cancel safety
+    /// This future performs no await. Dropping it is safe.
     async fn on_system_idle(
         &self,
         shell: &BriocheShell,
@@ -191,9 +239,16 @@ pub trait EffectExecutor: Clone + Send + Sync + 'static {
     ) -> Result<(), ShellError>;
 
     /// Rebuild routing tables (transactional barrier).
+    ///
+    /// # Cancel safety
+    /// This future performs no await. Dropping it is safe.
     async fn rebuild_routes(&self) -> Result<(), ShellError>;
 
     /// Notify that a sub-routine has been restored.
+    ///
+    /// # Cancel safety
+    /// This future invokes a synchronous callback with no await. Dropping
+    /// before the callback runs leaves the subroutine unnotified.
     async fn sub_routine_restored(&self, handle: SubRoutineHandle) -> Result<(), ShellError>;
 }
 
