@@ -113,6 +113,10 @@ pub struct SessionHeadDTO {
     pub persisted_msg_count: usize,
     /// Opportunistic GC watermark (Sprint 13).
     pub compaction_index: u32,
+    /// CRC32 checksum of the serialized DTO (excluding this field).
+    ///
+    /// `None` for legacy blobs; validation is skipped when absent.
+    pub checksum: Option<u32>,
 }
 
 impl SessionHeadDTO {
@@ -139,6 +143,7 @@ impl SessionHeadDTO {
             extensions: session.extensions.cold_snapshot().clone(),
             persisted_msg_count: session.persisted_msg_count,
             compaction_index: 0,
+            checksum: None,
         }
     }
 
