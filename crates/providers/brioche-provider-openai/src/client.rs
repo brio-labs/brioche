@@ -58,14 +58,56 @@ pub type SharedHistory = Arc<RwLock<Vec<ChatMessage>>>;
 /// Refs: I-Shell-Runtime-OnlyIO
 pub type HistoryTransform = Arc<dyn Fn(&[ChatMessage]) -> Vec<ChatMessage> + Send + Sync>;
 
+/// Maximum number of bytes to read from an HTTP error response body.
+///
+/// Prevents a malicious or misbehaving provider from OOM-ing the shell by
+/// returning an unbounded error payload. The limit is applied while streaming
+/// chunks, so no more than this amount is buffered.
+///
+/// Refs: docs/SPECS.md §Book III-B
+pub const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
+
+/// Reads at most [`MAX_ERROR_BODY_BYTES`] from `response`, then converts the
+/// buffered bytes to a string, replacing invalid UTF-8 sequences.
+///
+/// Streaming stops as soon as the limit is reached; remaining bytes are
+/// discarded. This function consumes the response body.
+///
+/// Refs: docs/SPECS.md §Book III-B
+async fn limited_error_body(mut response: reqwest::Response, limit: usize) -> String {
+    let mut collected = Vec::with_capacity(limit.min(4096));
+    loop {
+        match response.chunk().await {
+            Ok(Some(chunk)) => {
+                let remaining = limit.saturating_sub(collected.len());
+                if remaining == 0 {
+                    break;
+                }
+                let take = chunk.len().min(remaining);
+                collected.extend_from_slice(&chunk[..take]);
+                if collected.len() >= limit {
+                    break;
+                }
+            }
+            Ok(None) => break,
+            Err(err) => {
+                tracing::debug!(error = %err, "failed to read error response chunk");
+                break;
+            }
+        }
+    }
+    String::from_utf8_lossy(&collected).into_owned()
+}
+
 /// OpenAI-compatible LLM client implementation.
 ///
 /// Handles SSE streaming, tool-call parsing, and payload segmentation.
 /// Broadcasts chunks to the projection layer via `broadcast::Sender<LlmChunk>`.
 /// A `history_transform` may be registered to compress or augment the
-/// conversation before each request without changing the mirror history.
+/// conversation without changing the mirror history.
 ///
 /// Refs: docs/SPECS.md §Book III-A, I-Core-ChunkBudget
+
 pub struct OpenAiLlmClient {
     config: OpenAiConfig,
     http: reqwest::Client,
@@ -498,7 +540,7 @@ impl OpenAiLlmClient {
 
         if !response.status().is_success() {
             let status = response.status();
-            let body_text = response.text().await.ok().map_or(String::new(), |t| t);
+            let body_text = limited_error_body(response, MAX_ERROR_BODY_BYTES).await;
             let compact = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body_text) {
                 json.get("error")
                     .and_then(|e| e.get("message"))
