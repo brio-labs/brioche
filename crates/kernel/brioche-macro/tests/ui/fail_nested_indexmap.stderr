@@ -1,0 +1,5 @@
+error: Field `items` uses IndexMap without #[brioche(deterministic_order)]. Persisted IndexMap fields must certify deterministic ordering, or replace with BTreeMap.
+  --> tests/ui/fail_nested_indexmap.rs:12:16
+   |
+12 |     pub items: IndexMap<String, u64>,
+   |                ^^^^^^^^
