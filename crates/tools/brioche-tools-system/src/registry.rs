@@ -218,6 +218,32 @@ impl SystemToolExecutor {
                 };
             }
         };
+        let schema = tool.parameters_schema();
+        match jsonschema::validator_for(&schema) {
+            Ok(validator) => {
+                let errors: Vec<String> = validator
+                    .iter_errors(&args)
+                    .map(|err| err.to_string())
+                    .collect();
+                if !errors.is_empty() {
+                    return ToolResultDTO {
+                        tool_id: call.tool_id.clone(),
+                        tool_name: call.tool_name.clone(),
+                        outcome: ToolOutcome::BusinessError(format!(
+                            "arguments do not match schema: {}",
+                            errors.join("; ")
+                        )),
+                    };
+                }
+            }
+            Err(err) => {
+                return ToolResultDTO {
+                    tool_id: call.tool_id.clone(),
+                    tool_name: call.tool_name.clone(),
+                    outcome: ToolOutcome::SystemError(format!("invalid tool schema: {}", err)),
+                };
+            }
+        }
 
         match tool.run(args, cancel).await {
             Ok(output) => ToolResultDTO {

@@ -168,3 +168,95 @@ async fn permissive_allows_when_handler_confirms() {
 
     assert!(result.is_ok(), "expected success, got {result:?}");
 }
+#[tokio::test]
+async fn schema_validation_accepts_valid_arguments() -> std::io::Result<()> {
+    let temp = tempfile::NamedTempFile::new()?;
+    let path = temp
+        .path()
+        .to_str()
+        .ok_or_else(|| std::io::Error::other("temp path is not valid UTF-8"))?;
+
+    let executor = SystemToolExecutor::new().with_tool(WriteFileTool::default());
+    let call = brioche_core::ActiveToolCall {
+        tool_id: "t1".into(),
+        tool_name: "write_file".into(),
+        arguments: format!(
+            "{{\"path\":{},\"content\":\"hello\"}}",
+            serde_json::Value::String(path.to_string())
+        ),
+        timeout_ms: 1000,
+    };
+
+    let result = executor.execute(&call, CancellationToken::new()).await;
+    assert!(
+        matches!(result.outcome, brioche_core::ToolOutcome::Success(_)),
+        "expected success, got {result:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn schema_validation_rejects_missing_required_field() {
+    let executor = SystemToolExecutor::new().with_tool(WriteFileTool::default());
+    let call = brioche_core::ActiveToolCall {
+        tool_id: "t1".into(),
+        tool_name: "write_file".into(),
+        arguments: r#"{"path":"/tmp/test.txt"}"#.into(),
+        timeout_ms: 1000,
+    };
+
+    let result = executor.execute(&call, CancellationToken::new()).await;
+    match result.outcome {
+        brioche_core::ToolOutcome::BusinessError(msg) => {
+            assert!(
+                msg.contains("schema") && msg.contains("content"),
+                "expected schema validation error for missing content, got {msg}"
+            );
+        }
+        other => unreachable!("expected BusinessError, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn schema_validation_rejects_wrong_type() {
+    let executor = SystemToolExecutor::new().with_tool(WriteFileTool::default());
+    let call = brioche_core::ActiveToolCall {
+        tool_id: "t1".into(),
+        tool_name: "write_file".into(),
+        arguments: r#"{"path":"/tmp/test.txt","content":123,"append":"yes"}"#.into(),
+        timeout_ms: 1000,
+    };
+
+    let result = executor.execute(&call, CancellationToken::new()).await;
+    match result.outcome {
+        brioche_core::ToolOutcome::BusinessError(msg) => {
+            assert!(
+                msg.contains("schema"),
+                "expected schema validation error for wrong type, got {msg}"
+            );
+        }
+        other => unreachable!("expected BusinessError, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn schema_validation_rejects_invalid_json() {
+    let executor = SystemToolExecutor::new().with_tool(WriteFileTool::default());
+    let call = brioche_core::ActiveToolCall {
+        tool_id: "t1".into(),
+        tool_name: "write_file".into(),
+        arguments: "not json".into(),
+        timeout_ms: 1000,
+    };
+
+    let result = executor.execute(&call, CancellationToken::new()).await;
+    match result.outcome {
+        brioche_core::ToolOutcome::BusinessError(msg) => {
+            assert!(
+                msg.contains("invalid JSON"),
+                "expected JSON parse error, got {msg}"
+            );
+        }
+        other => unreachable!("expected BusinessError, got {other:?}"),
+    }
+}

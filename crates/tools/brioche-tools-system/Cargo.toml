@@ -20,6 +20,7 @@ reqwest = { version = "0.13", default-features = false, features = [
 thiserror = "2"
 tracing = "0.1"
 async-trait = { workspace = true }
+jsonschema = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
