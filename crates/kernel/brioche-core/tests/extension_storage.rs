@@ -206,6 +206,22 @@ impl CycleRollbackPolicy for RecordingPolicy {
     fn rollback_hook(&mut self, _ext: &mut ExtensionStorage) {}
 }
 
+/// Sort `String` keyed pairs and remove duplicate keys.
+///
+/// Refs: I-Eco-OrderedCollections
+fn dedup_sorted_pairs(pairs: Vec<(String, u64)>) -> Vec<(String, u64)> {
+    let mut sorted = pairs;
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut unique = Vec::new();
+    for (k, v) in sorted {
+        if unique.last().is_some_and(|(last_k, _)| last_k == &k) {
+            continue;
+        }
+        unique.push((k, v));
+    }
+    unique
+}
+
 #[test]
 fn attach_rollback_policy_stores_policy_and_resets_snapshot_tracking() {
     let mut storage = ExtensionStorage::new();
@@ -246,9 +262,10 @@ fn detach_rollback_policy_returns_policy_and_clears_tracking() {
     assert_eq!(counter.load(AtomicOrdering::SeqCst), 1);
 
     let detached = storage.detach_rollback_policy();
-    match detached {
-        Some(policy_box) => storage.attach_rollback_policy(policy_box),
-        None => assert_eq!(1, 0, "expected detached policy"),
+    if let Some(policy_box) = detached {
+        storage.attach_rollback_policy(policy_box);
+    } else {
+        assert_eq!(1, 0, "expected detached policy");
     }
 
     {
@@ -337,15 +354,7 @@ proptest! {
     fn prop_btreemap_serialization_is_order_independent(
         pairs in prop::collection::vec((any::<String>(), any::<u64>()), 0..20)
     ) {
-        let mut sorted = pairs.clone();
-        sorted.sort_by(|a, b| a.0.cmp(&b.0));
-        let mut unique = Vec::new();
-        for (k, v) in sorted {
-            if unique.last().is_some_and(|(last_k, _)| last_k == &k) {
-                continue;
-            }
-            unique.push((k, v));
-        }
+        let unique = dedup_sorted_pairs(pairs);
 
         let mut map1 = BTreeMap::new();
         let mut map2 = BTreeMap::new();
@@ -409,15 +418,7 @@ proptest! {
     fn prop_teststate_cold_snapshot_is_deterministic(
         pairs in prop::collection::vec((any::<String>(), any::<u64>()), 0..20)
     ) {
-        let mut sorted = pairs.clone();
-        sorted.sort_by(|a, b| a.0.cmp(&b.0));
-        let mut unique = Vec::new();
-        for (k, v) in sorted {
-            if unique.last().is_some_and(|(last_k, _)| last_k == &k) {
-                continue;
-            }
-            unique.push((k, v));
-        }
+        let unique = dedup_sorted_pairs(pairs);
 
         let mut tags1 = BTreeMap::new();
         let mut tags2 = BTreeMap::new();

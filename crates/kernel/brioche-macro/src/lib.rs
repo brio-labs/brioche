@@ -50,6 +50,16 @@ enum DeriveError {
     },
 }
 
+/// Ordered map types permitted in persisted extension state.
+///
+/// Refs: I-Eco-OrderedCollections
+const ALLOWED_MAPS: &[&str] = &["BTreeMap", "IndexMap"];
+
+/// Ordered set types permitted in persisted extension state.
+///
+/// Refs: I-Eco-OrderedCollections
+const ALLOWED_SETS: &[&str] = &["BTreeSet", "IndexSet"];
+
 /// Parsed `#[brioche(...)]` attributes on a struct/enum.
 #[derive(Debug, Default)]
 struct BriocheAttrs {
@@ -108,8 +118,8 @@ fn parse_brioche_attrs(attrs: &[Attribute]) -> Result<BriocheAttrs, syn::Error> 
     Ok(result)
 }
 
-/// Recursively scan a type for banned collections (`HashMap`, `HashSet`)
-/// and UI types.
+/// Recursively scan a type for banned collections (`HashMap`, `HashSet`),
+/// non-ordered map/set aliases, and UI types.
 fn scan_type(ty: &Type, errors: &mut Vec<DeriveError>, field_name: &str) {
     match ty {
         Type::Path(type_path) => {
@@ -137,18 +147,21 @@ fn scan_type(ty: &Type, errors: &mut Vec<DeriveError>, field_name: &str) {
                 });
             }
 
-            // Check last segment for aliases of non-ordered maps/sets.
+            // Check the final path segment for aliases of non-ordered maps/sets.
+            // The `ends_with("Map")` / `ends_with("Set")` heuristic intentionally
+            // accepts false positives (e.g. `type OrderedMap = BTreeMap<...>`)
+            // because proc-macros cannot resolve type aliases. Users should either
+            // use the allowed concrete types directly or choose a suffix that does
+            // not look like a map/set.
             if let Some(last) = segments.last() {
-                let allowed_maps: [&str; 2] = ["BTreeMap", "IndexMap"];
-                let allowed_sets: [&str; 2] = ["BTreeSet", "IndexSet"];
-                if !has_hashmap && last.ends_with("Map") && !allowed_maps.contains(&last.as_str()) {
+                if !has_hashmap && last.ends_with("Map") && !ALLOWED_MAPS.contains(&last.as_str()) {
                     errors.push(DeriveError::NonOrderedMap {
                         span: type_path.span(),
                         field_name: field_name.to_string(),
                         type_name: last.clone(),
                     });
                 }
-                if !has_hashset && last.ends_with("Set") && !allowed_sets.contains(&last.as_str()) {
+                if !has_hashset && last.ends_with("Set") && !ALLOWED_SETS.contains(&last.as_str()) {
                     errors.push(DeriveError::NonOrderedSet {
                         span: type_path.span(),
                         field_name: field_name.to_string(),
@@ -574,7 +587,7 @@ pub fn derive_brioche_extension_type(input: TokenStream) -> TokenStream {
             }
             DeriveError::HashSet { span, field_name } => {
                 quote_spanned! { *span =>
-                    compile_error!(concat!("Field `", #field_name, "` uses HashSet. HashSet is prohibited in BriocheExtensionType persisted state. Use BTreeSet instead."));
+                    compile_error!(concat!("Field `", #field_name, "` uses HashSet. HashSet is prohibited in BriocheExtensionType persisted state. Use BTreeSet or IndexSet instead."));
                 }
             }
             DeriveError::NonOrderedMap { span, field_name, type_name } => {
