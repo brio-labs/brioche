@@ -15,16 +15,14 @@ use tokio_util::sync::CancellationToken;
 
 #[tokio::test]
 async fn write_file_is_idempotent() -> std::io::Result<()> {
-    let temp = tempfile::NamedTempFile::new()?;
-    let path = temp
-        .path()
-        .to_str()
-        .ok_or_else(|| std::io::Error::other("temp path is not valid UTF-8"))?;
+    let base = tempfile::tempdir()?;
+    let file_path = base.path().join("file.txt");
+    let relative_path = "file.txt";
 
-    let tool = WriteFileTool::default();
+    let tool = WriteFileTool::new(Some(base.path().to_path_buf()));
     let args = serde_json::Value::Object({
         let mut m = serde_json::Map::new();
-        m.insert("path".into(), path.into());
+        m.insert("path".into(), relative_path.into());
         m.insert("content".into(), "hello".into());
         m
     });
@@ -40,23 +38,21 @@ async fn write_file_is_idempotent() -> std::io::Result<()> {
         .map_err(|e| std::io::Error::other(format!("tool run failed: {e}")))?;
     assert!(second.contains("written"), "second result: {second}");
 
-    let content = tokio::fs::read_to_string(path).await?;
+    let content = tokio::fs::read_to_string(&file_path).await?;
     assert_eq!(content, "hello");
     Ok(())
 }
 
 #[tokio::test]
 async fn write_file_append_is_idempotent() -> std::io::Result<()> {
-    let temp = tempfile::NamedTempFile::new()?;
-    let path = temp
-        .path()
-        .to_str()
-        .ok_or_else(|| std::io::Error::other("temp path is not valid UTF-8"))?;
+    let base = tempfile::tempdir()?;
+    let file_path = base.path().join("file.txt");
+    let relative_path = "file.txt";
 
-    let tool = WriteFileTool::default();
+    let tool = WriteFileTool::new(Some(base.path().to_path_buf()));
     let args = serde_json::Value::Object({
         let mut m = serde_json::Map::new();
-        m.insert("path".into(), path.into());
+        m.insert("path".into(), relative_path.into());
         m.insert("content".into(), "a".into());
         m.insert("append".into(), true.into());
         m
@@ -73,7 +69,7 @@ async fn write_file_append_is_idempotent() -> std::io::Result<()> {
         .map_err(|e| std::io::Error::other(format!("tool run failed: {e}")))?;
     assert!(second.contains("appended"));
 
-    let content = tokio::fs::read_to_string(path).await?;
+    let content = tokio::fs::read_to_string(&file_path).await?;
     assert_eq!(content, "aa");
     Ok(())
 }
