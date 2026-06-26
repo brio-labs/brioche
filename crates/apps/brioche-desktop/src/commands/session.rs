@@ -855,6 +855,7 @@ mod tests {
                 extensions: BTreeMap::new(),
                 persisted_msg_count: 0,
                 compaction_index: 0,
+                checksum: None,
             },
             messages: vec![ChatMessage::User {
                 content: "hello persistence".into(),

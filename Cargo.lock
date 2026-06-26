@@ -590,6 +590,7 @@ dependencies = [
  "brioche-core",
  "brioche-shell-runtime",
  "brioche-tools-system",
+ "crc32fast",
  "dirs",
  "divan",
  "lru",

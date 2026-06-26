@@ -137,7 +137,18 @@ fn session_head_serialization_roundtrip() {
         Err(e) => unreachable!("{:?}", e),
     };
 
-    assert_eq!(dto, restored);
+    assert_eq!(restored.version, dto.version);
+    assert_eq!(restored.id, dto.id);
+    assert_eq!(restored.parent_id, dto.parent_id);
+    assert_eq!(restored.state, dto.state);
+    assert_eq!(restored.state_stack, dto.state_stack);
+    assert_eq!(restored.extensions, dto.extensions);
+    assert_eq!(restored.persisted_msg_count, dto.persisted_msg_count);
+    assert_eq!(restored.compaction_index, dto.compaction_index);
+    assert!(
+        restored.checksum.is_some(),
+        "checksum should be set after serialization"
+    );
 }
 
 #[tokio::test]
@@ -299,7 +310,22 @@ async fn redb_save_and_load_session_head() {
         Ok(v) => v,
         Err(e) => unreachable!("{:?}", e),
     };
-    assert_eq!(loaded, Some(dto));
+    let loaded = match loaded {
+        Some(v) => v,
+        None => unreachable!("session should exist"),
+    };
+    assert_eq!(loaded.version, dto.version);
+    assert_eq!(loaded.id, dto.id);
+    assert_eq!(loaded.parent_id, dto.parent_id);
+    assert_eq!(loaded.state, dto.state);
+    assert_eq!(loaded.state_stack, dto.state_stack);
+    assert_eq!(loaded.extensions, dto.extensions);
+    assert_eq!(loaded.persisted_msg_count, dto.persisted_msg_count);
+    assert_eq!(loaded.compaction_index, dto.compaction_index);
+    assert!(
+        loaded.checksum.is_some(),
+        "checksum should be set after save/load"
+    );
 }
 
 #[tokio::test]
@@ -1010,4 +1036,61 @@ fn hydrate_plugin_corrupted_blob_fallback() {
         storage.cold_snapshot().get(RecoverableState::EXT_ID),
         Some(&corrupted_blob)
     );
+}
+
+#[tokio::test]
+async fn deserialize_head_rejects_oversized_blob() {
+    let huge = vec![0u8; 64 * 1024 * 1024 + 1];
+    let err = match deserialize_head(&huge) {
+        Err(e) => e,
+        Ok(_) => unreachable!("oversized blob should fail"),
+    };
+    assert!(err.to_string().contains("too large"));
+}
+
+#[test]
+fn deserialize_head_rejects_checksum_mismatch() {
+    let session = Session::new("checksum-test");
+    let dto = SessionHeadDTO::from_session(&session);
+    let mut blob = match serialize_head(&dto) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+
+    // Corrupt a byte in the middle of the blob.
+    let mid = blob.len() / 2;
+    blob[mid] = blob[mid].wrapping_add(1);
+
+    let err = match deserialize_head(&blob) {
+        Err(e) => e,
+        Ok(_) => unreachable!("corrupted blob should fail checksum"),
+    };
+    assert!(err.to_string().contains("checksum mismatch"));
+}
+
+#[test]
+fn deserialize_head_accepts_legacy_blob_without_checksum() {
+    // Simulate a legacy V1 blob with no checksum field by manually constructing
+    // a MessagePack payload for the struct fields prior to checksum.
+    let dto = SessionHeadDTO {
+        version: SessionSchemaVersion::V1,
+        id: "legacy".into(),
+        parent_id: None,
+        state: FlattenedAgentState::Idle,
+        state_stack: vec![],
+        extensions: std::collections::BTreeMap::new(),
+        persisted_msg_count: 0,
+        compaction_index: 0,
+        checksum: None,
+    };
+    let blob = match rmp_serde::to_vec(&dto) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+    let loaded = match deserialize_head(&blob) {
+        Ok(v) => v,
+        Err(e) => unreachable!("{:?}", e),
+    };
+    assert_eq!(loaded.id, "legacy");
+    assert_eq!(loaded.checksum, None);
 }
