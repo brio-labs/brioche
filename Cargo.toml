@@ -52,6 +52,7 @@ dirs = "6"
 reqwest = { version = "0.13", features = ["json"] }
 lazy_static = "1"
 base64-simd = "0.8"
+jsonschema = "0.46"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
