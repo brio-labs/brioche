@@ -6,6 +6,7 @@
 //!
 //! Refs: docs/SPECS.md §Book III-A Ch 1, I-Shell-Telemetry-NoKernel
 
+use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::broadcast;
 
@@ -22,6 +23,79 @@ pub enum TelemetryLevel {
     /// Error condition that prevented normal operation.
     Error,
 }
+/// A value that must never appear in telemetry output.
+///
+/// `Secret` wraps any serializable value and renders it as `"[REDACTED]"` in
+/// both `Debug` and JSON. Use it for API keys, tokens, and other credentials
+/// that transit through telemetry payloads.
+///
+/// The wrapped value can still be accessed explicitly via [`Secret::expose`]
+/// for legitimate runtime use.
+///
+/// Refs: docs/SPECS.md §Book III-A
+#[derive(Clone, PartialEq, Eq)]
+pub struct Secret<T>(T);
+
+impl<T> Secret<T> {
+    /// Wrap a secret value.
+    pub fn new(value: T) -> Self {
+        Self(value)
+    }
+
+    /// Access the underlying secret.
+    pub fn expose(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T> std::fmt::Debug for Secret<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("[REDACTED]")
+    }
+}
+
+impl<T: Serialize> Serialize for Secret<T> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let _ = &self.0;
+        serializer.serialize_str("[REDACTED]")
+    }
+}
+
+/// Payload attached to a telemetry event.
+///
+/// Either a plain, loggable value or a redacted secret. Keeping the wrapper
+/// at the payload boundary ensures secrets are never serialized accidentally.
+///
+/// Refs: docs/SPECS.md §Book III-A
+#[derive(Clone, Debug, Serialize)]
+#[serde(untagged)]
+pub enum TelemetryPayload {
+    /// A plain, loggable value.
+    Plain(Value),
+    /// A redacted secret value.
+    Secret(Secret<Value>),
+}
+
+impl TelemetryPayload {
+    /// Create a plain payload.
+    pub fn plain(value: Value) -> Self {
+        Self::Plain(value)
+    }
+
+    /// Create a redacted payload from a secret value.
+    pub fn secret(value: Value) -> Self {
+        Self::Secret(Secret::new(value))
+    }
+
+    /// Return the underlying value if this payload is a secret.
+    pub fn expose_secret(&self) -> Option<&Value> {
+        match self {
+            Self::Secret(secret) => Some(secret.expose()),
+            Self::Plain(_) => None,
+        }
+    }
+}
+
 
 /// A single telemetry event emitted by the shell.
 ///
@@ -30,7 +104,9 @@ pub enum TelemetryLevel {
 /// Refs: docs/SPECS.md §Book III-A
 #[derive(Clone, Debug)]
 pub struct TelemetryEvent {
-    /// Severity level of the event.
+    /// Optional structured payload. Use [`TelemetryPayload::secret`] for any
+    /// value that contains credentials or other sensitive material.
+    pub payload: Option<TelemetryPayload>,
     pub level: TelemetryLevel,
     /// Logical source component (e.g., "watchdog", "effect_executor").
     pub source: String,
@@ -73,7 +149,7 @@ impl TelemetryChannel {
         level: TelemetryLevel,
         source: impl Into<String>,
         message: impl Into<String>,
-        payload: Option<Value>,
+        payload: Option<TelemetryPayload>,
     ) {
         let event = TelemetryEvent {
             level,

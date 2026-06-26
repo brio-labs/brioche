@@ -412,6 +412,40 @@ async fn telemetry_channel_emits_and_subscribes() {
         brioche_shell_runtime::TelemetryLevel::Info
     ));
 }
+#[tokio::test]
+async fn telemetry_payload_secret_is_redacted() {
+    use brioche_shell_runtime::TelemetryPayload;
+
+    let channel = brioche_shell_runtime::TelemetryChannel::new(16);
+    let mut rx = channel.subscribe();
+
+    let secret_value = serde_json::json!({ "api_key": "super-secret-token" });
+    channel.emit(
+        brioche_shell_runtime::TelemetryLevel::Info,
+        "test_source",
+        "hello telemetry",
+        Some(TelemetryPayload::secret(secret_value.clone())),
+    );
+
+    let event = match tokio::time::timeout(Duration::from_millis(100), rx.recv()).await {
+        Ok(Ok(ev)) => ev,
+        Ok(Err(_)) => unreachable!("broadcast channel closed"),
+        Err(_) => unreachable!("should receive event within timeout"),
+    };
+
+    let payload = event.payload.expect("payload should be present");
+    assert_eq!(
+        payload.expose_secret(),
+        Some(&secret_value),
+        "secret payload should preserve the original value internally"
+    );
+    let serialized = serde_json::to_string(&payload).expect("payload should serialize");
+    assert!(
+        serialized.contains("[REDACTED]"),
+        "secret payload should serialize as redacted, got {serialized}"
+    );
+}
+
 
 #[tokio::test]
 async fn tick_emitter_produces_ticks() {
