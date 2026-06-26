@@ -9,6 +9,7 @@
 fn ui_tests() {
     let t = trybuild::TestCases::new();
     t.pass("tests/ui/pass_basic.rs");
+    t.pass("tests/ui/pass_nested_deterministic.rs");
     t.compile_fail("tests/ui/fail_hashmap.rs");
     t.compile_fail("tests/ui/fail_hashset.rs");
     t.compile_fail("tests/ui/fail_missing_clone.rs");
@@ -16,4 +17,7 @@ fn ui_tests() {
     t.compile_fail("tests/ui/fail_manual_impl.rs");
     t.compile_fail("tests/ui/fail_unknown_attr.rs");
     t.compile_fail("tests/ui/fail_vec_undetermined.rs");
+    t.compile_fail("tests/ui/fail_nested_hashmap.rs");
+    t.compile_fail("tests/ui/fail_nested_indexmap.rs");
+    t.compile_fail("tests/ui/fail_nested_carrier.rs");
 }
