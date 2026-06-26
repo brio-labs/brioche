@@ -201,7 +201,7 @@ async fn schema_validation_rejects_missing_required_field() {
     let call = brioche_core::ActiveToolCall {
         tool_id: "t1".into(),
         tool_name: "write_file".into(),
-        arguments: r#"{\"path\":\"/tmp/test.txt\"}"#.into(),
+        arguments: r#"{"path":"/tmp/test.txt"}"#.into(),
         timeout_ms: 1000,
     };
 
@@ -213,7 +213,7 @@ async fn schema_validation_rejects_missing_required_field() {
                 "expected schema validation error for missing content, got {msg}"
             );
         }
-        other => assert!(false, "expected BusinessError, got {other:?}"),
+        other => unreachable!("expected BusinessError, got {other:?}"),
     }
 }
 
@@ -223,7 +223,7 @@ async fn schema_validation_rejects_wrong_type() {
     let call = brioche_core::ActiveToolCall {
         tool_id: "t1".into(),
         tool_name: "write_file".into(),
-        arguments: r#"{\"path\":\"/tmp/test.txt\",\"content\":123,\"append\":\"yes\"}"#.into(),
+        arguments: r#"{"path":"/tmp/test.txt","content":123,"append":"yes"}"#.into(),
         timeout_ms: 1000,
     };
 
@@ -235,7 +235,7 @@ async fn schema_validation_rejects_wrong_type() {
                 "expected schema validation error for wrong type, got {msg}"
             );
         }
-        other => assert!(false, "expected BusinessError, got {other:?}"),
+        other => unreachable!("expected BusinessError, got {other:?}"),
     }
 }
 
@@ -257,6 +257,6 @@ async fn schema_validation_rejects_invalid_json() {
                 "expected JSON parse error, got {msg}"
             );
         }
-        other => assert!(false, "expected BusinessError, got {other:?}")
+        other => unreachable!("expected BusinessError, got {other:?}"),
     }
 }

@@ -26,6 +26,7 @@ allow = [
   "CC0-1.0",
   "Zlib",
   "CDLA-Permissive-2.0",
+  "MIT-0",
 ]
 
 [advisories]
