@@ -35,6 +35,43 @@ use crate::extractor::{ChunkExtractor, StreamErrorDetector};
 use crate::request::build_request_body;
 use crate::sse::SseParser;
 
+/// Provider-specific error returned by `OpenAiLlmClient` operations.
+///
+/// Preserves OpenAI-specific context (HTTP status, SSE diagnostics, parse
+/// failures) and is converted to a generic [`ShellError`] at the trait
+/// boundary.
+///
+/// Refs: docs/SPECS.md §Book III-B
+#[derive(Debug, thiserror::Error)]
+pub enum OpenAiError {
+    /// The HTTP request could not be sent or the connection failed.
+    #[error("network request failed: {0}")]
+    Network(String),
+    /// The provider returned a non-success HTTP status.
+    #[error("HTTP {status}: {message}")]
+    Http {
+        /// HTTP status code returned by the provider.
+        status: u16,
+        /// Compacted error message extracted from the response body.
+        message: String,
+    },
+    /// No SSE data was received within the configured idle timeout.
+    #[error("SSE stream idle timeout")]
+    IdleTimeout,
+    /// The SSE stream failed or contained malformed data.
+    #[error("SSE provider error: {0}")]
+    Sse(String),
+    /// The summary response could not be parsed as JSON.
+    #[error("failed to parse summary response: {0}")]
+    SummaryParse(String),
+}
+
+impl From<OpenAiError> for ShellError {
+    fn from(err: OpenAiError) -> Self {
+        ShellError::EffectExecution(err.to_string())
+    }
+}
+
 /// OpenAI-compatible LLM client.
 ///
 /// `tools_schema` is updated dynamically by the assembler (CLI)
@@ -533,7 +570,7 @@ impl OpenAiLlmClient {
                 shell
                     .send_system_signal(SystemSignal::NetworkUnavailable { reason: msg })
                     .await?;
-                return Err(ShellError::EffectExecution("network".into()));
+                return Err(OpenAiError::Network(err.to_string()).into());
             }
         };
 
@@ -557,7 +594,11 @@ impl OpenAiLlmClient {
             shell
                 .send_system_signal(SystemSignal::NetworkUnavailable { reason: msg })
                 .await?;
-            return Err(ShellError::EffectExecution("http".into()));
+            return Err(OpenAiError::Http {
+                status: status.as_u16(),
+                message: compact,
+            }
+            .into());
         }
 
         Ok(response)
@@ -727,12 +768,11 @@ impl OpenAiLlmClient {
                         acc.tool_acc.len(),
                         acc.finish_reason
                     );
-                    tracing::warn!(%diag, "SSE read timeout");
                     let _ = self.ui_tx.send(LlmChunk::Warning(diag.clone()));
                     shell
                         .send_system_signal(SystemSignal::NetworkUnavailable { reason: diag })
                         .await?;
-                    return Err(ShellError::EffectExecution("idle_timeout".into()));
+                    return Err(OpenAiError::IdleTimeout.into());
                 }
             };
 
@@ -764,9 +804,11 @@ impl OpenAiLlmClient {
                     tracing::error!(error = %err, "SSE stream error");
                     let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
                     shell
-                        .send_system_signal(SystemSignal::NetworkUnavailable { reason: msg })
+                        .send_system_signal(SystemSignal::NetworkUnavailable {
+                            reason: msg.clone(),
+                        })
                         .await?;
-                    return Err(ShellError::EffectExecution("sse".into()));
+                    return Err(OpenAiError::Sse(msg).into());
                 }
             };
 
@@ -794,9 +836,11 @@ impl OpenAiLlmClient {
                     tracing::error!(%msg, "SSE parser aborted after repeated malformed lines");
                     let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
                     shell
-                        .send_system_signal(SystemSignal::NetworkUnavailable { reason: msg })
+                        .send_system_signal(SystemSignal::NetworkUnavailable {
+                            reason: msg.clone(),
+                        })
                         .await?;
-                    return Err(ShellError::EffectExecution("sse".into()));
+                    return Err(OpenAiError::Sse(msg).into());
                 }
             };
             for event in events {
@@ -1024,9 +1068,10 @@ impl LlmClient for OpenAiLlmClient {
         let body = self.build_summary_request(messages);
 
         let response = self.send_request(shell, &body, &url).await?;
-        let json: serde_json::Value = response.json().await.map_err(|err| {
-            ShellError::EffectExecution(format!("failed to parse summary response: {err}"))
-        })?;
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|err| OpenAiError::SummaryParse(err.to_string()))?;
 
         match Self::extract_summary_text(&json) {
             Some(content) => Ok(ChatMessage::System { content }),
@@ -1038,5 +1083,38 @@ impl LlmClient for OpenAiLlmClient {
 
     async fn push_tool_results(&self, results: &[ToolResultDTO]) {
         OpenAiLlmClient::push_tool_results(self, results).await;
+    }
+}
+#[cfg(test)]
+mod tests {
+    use brioche_shell_runtime::ShellError;
+
+    use super::OpenAiError;
+
+    #[test]
+    fn openai_error_network_preserves_context() {
+        let err = OpenAiError::Network("connection refused".into());
+        let shell_err: ShellError = err.into();
+        let msg = format!("{shell_err}");
+        assert!(msg.contains("connection refused"), "{msg}");
+    }
+
+    #[test]
+    fn openai_error_http_preserves_status_and_message() {
+        let err = OpenAiError::Http {
+            status: 503,
+            message: "overloaded".into(),
+        };
+        let shell_err: ShellError = err.into();
+        let msg = format!("{shell_err}");
+        assert!(msg.contains("503") && msg.contains("overloaded"), "{msg}");
+    }
+
+    #[test]
+    fn openai_error_sse_preserves_message() {
+        let err = OpenAiError::Sse("stream closed".into());
+        let shell_err: ShellError = err.into();
+        let msg = format!("{shell_err}");
+        assert!(msg.contains("stream closed"), "{msg}");
     }
 }

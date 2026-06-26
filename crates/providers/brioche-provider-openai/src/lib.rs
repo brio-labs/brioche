@@ -30,7 +30,9 @@ pub mod request;
 pub mod sse;
 
 pub use brioche_shell_runtime::LlmChunk;
-pub use client::{HistoryTransform, MAX_ERROR_BODY_BYTES, OpenAiLlmClient, SharedHistory};
+pub use client::{
+    HistoryTransform, MAX_ERROR_BODY_BYTES, OpenAiError, OpenAiLlmClient, SharedHistory,
+};
 pub use config::OpenAiConfig;
 pub use extractor::{
     ChunkExtractor, ExtractedText, ReasoningModelExtractor, StandardExtractor,
