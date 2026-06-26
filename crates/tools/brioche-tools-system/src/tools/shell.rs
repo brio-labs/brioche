@@ -171,6 +171,8 @@ impl SystemTool for ExecuteCommandTool {
 
         let mut cmd = tokio::process::Command::new("sh");
         cmd.arg("-c").arg(command);
+        cmd.stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
 
         if let Some(cwd) = args["cwd"].as_str() {
             cmd.current_dir(cwd);
