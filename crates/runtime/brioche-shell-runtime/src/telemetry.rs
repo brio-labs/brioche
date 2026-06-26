@@ -38,11 +38,15 @@ pub struct Secret<T>(T);
 
 impl<T> Secret<T> {
     /// Wrap a secret value.
+    ///
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn new(value: T) -> Self {
         Self(value)
     }
 
     /// Access the underlying secret.
+    ///
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn expose(&self) -> &T {
         &self.0
     }
@@ -78,16 +82,22 @@ pub enum TelemetryPayload {
 
 impl TelemetryPayload {
     /// Create a plain payload.
+    ///
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn plain(value: Value) -> Self {
         Self::Plain(value)
     }
 
     /// Create a redacted payload from a secret value.
+    ///
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn secret(value: Value) -> Self {
         Self::Secret(Secret::new(value))
     }
 
     /// Return the underlying value if this payload is a secret.
+    ///
+    /// Refs: docs/SPECS.md §Book III-A
     pub fn expose_secret(&self) -> Option<&Value> {
         match self {
             Self::Secret(secret) => Some(secret.expose()),
@@ -95,7 +105,6 @@ impl TelemetryPayload {
         }
     }
 }
-
 
 /// A single telemetry event emitted by the shell.
 ///
@@ -107,13 +116,12 @@ pub struct TelemetryEvent {
     /// Optional structured payload. Use [`TelemetryPayload::secret`] for any
     /// value that contains credentials or other sensitive material.
     pub payload: Option<TelemetryPayload>,
+    /// Severity level.
     pub level: TelemetryLevel,
     /// Logical source component (e.g., "watchdog", "effect_executor").
     pub source: String,
     /// Human-readable message.
     pub message: String,
-    /// Optional structured payload.
-    pub payload: Option<Value>,
 }
 
 /// Telemetry channel — fire-and-forget broadcast.
