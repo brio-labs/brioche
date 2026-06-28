@@ -35,6 +35,19 @@ fn standard_profile_runs_user_message() {
     assert!(effects.iter().any(|e| matches!(e, Effect::CallLlmNetwork)));
 }
 
+#[test]
+fn permissive_profile_builds() {
+    let mut engine = BriocheEngineBuilder::new()
+        .with_profile(GovernanceProfile::Permissive)
+        .build();
+
+    let mut session = Session::new("test");
+    let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
+
+    assert!(matches!(session.state, AgentState::Predicting { .. }));
+    assert!(effects.iter().any(|e| matches!(e, Effect::CallLlmNetwork)));
+}
+
 // ---------------------------------------------------------------------------
 // DepthGuard
 // ---------------------------------------------------------------------------
