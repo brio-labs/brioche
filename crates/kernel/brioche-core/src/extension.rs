@@ -39,6 +39,15 @@ pub enum SnapshotStrategy {
 /// a concrete, owned type so that VTable function pointers remain object-safe
 /// and callers can propagate the failure without depending on `postcard`.
 ///
+/// # Complexity
+/// O(1). The error only stores a small `String`.
+///
+/// # Errors
+/// This type represents an error; it does not return one.
+///
+/// # Panics
+/// Never panics.
+///
 /// Refs: I-Core-VTableClone
 #[derive(Clone, Debug, PartialEq)]
 pub struct SerializeError {
@@ -48,6 +57,15 @@ pub struct SerializeError {
 impl SerializeError {
     /// Create a new serialization error from any string-like value.
     ///
+    /// # Complexity
+    /// O(1). Allocates a `String` from the input.
+    ///
+    /// # Errors
+    /// Never returns an error.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
     /// Refs: I-Core-VTableClone
     pub fn new(message: impl Into<String>) -> Self {
         Self {
@@ -56,6 +74,15 @@ impl SerializeError {
     }
 
     /// Return the error message.
+    ///
+    /// # Complexity
+    /// O(1). Returns a string slice; no allocation.
+    ///
+    /// # Errors
+    /// Never returns an error.
+    ///
+    /// # Panics
+    /// Never panics.
     ///
     /// Refs: I-Core-VTableClone
     pub fn message(&self) -> &str {
