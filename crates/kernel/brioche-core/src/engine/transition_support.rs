@@ -213,7 +213,16 @@ impl BriocheEngine {
     /// Refs: I-Core-RetVecEffect, I-Core-ActiveToolCall
     ///
     /// # Complexity
-    /// O(1). One Vec push + clone of active_tools.
+    /// O(t * a) where t = number of active tool calls and a = average length
+    /// of their JSON argument strings. `Effect` values are owned, so the
+    /// `ExecuteTools` variant clones `session.active_tools` once per transition.
+    ///
+    /// This clone is not on the per-token streaming hot path; it runs once
+    /// when the engine leaves the `ExecutingTools` state. Benchmarks show the
+    /// cost is dominated by tool-argument serialization elsewhere, so the
+    /// kernel keeps `String` arguments rather than adding `Arc<str>` indirection.
+    /// If future workloads carry very large argument blobs, switch to
+    /// `Arc<str>` or `Arc<[u8]>` here first.
     ///
     /// # Panics
     /// Never panics.
