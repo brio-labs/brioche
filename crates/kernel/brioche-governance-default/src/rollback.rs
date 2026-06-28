@@ -597,12 +597,13 @@ impl CowBudgetPolicy for HistoricalCowBudgetPolicy {
 
 #[cfg(test)]
 mod tests {
+    use brioche_core::{
+        BriocheExtensionType, CycleRollbackPolicy, EpochState, ExtensionStorage, RollbackEventLog,
+    };
+
     use super::{
         AdaptiveUndoFrameGuard, CowBudgetPolicy, HistoricalCowBudgetPolicy, RollbackFrameRecord,
         TieredUndoFrameGuard, UndoFrameGuard,
-    };
-    use brioche_core::{
-        BriocheExtensionType, CycleRollbackPolicy, EpochState, ExtensionStorage, RollbackEventLog,
     };
 
     /// Standard (FullClone) extension used to exercise budget thresholds.

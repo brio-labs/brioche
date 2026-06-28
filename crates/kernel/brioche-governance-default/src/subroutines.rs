@@ -249,11 +249,12 @@ impl SubRoutineLifecycleGuard for SubRoutineCleanupGuard {
 
 #[cfg(test)]
 mod tests {
-    use super::{SubRoutineCleanupGuard, SubRoutineOrchestrator, detect_subroutine_termination};
     use brioche_core::{
         AgentState, ChatMessage, Effect, EngineInput, Session, SessionRegistry, StreamEvent,
         SubRoutineHandle, SubRoutineHandler, SubRoutineLifecycleGuard, ToolOutcome, ToolResultDTO,
     };
+
+    use super::{SubRoutineCleanupGuard, SubRoutineOrchestrator, detect_subroutine_termination};
 
     fn subroutine_parent() -> Session {
         let mut parent = Session::new("parent");
@@ -282,8 +283,8 @@ mod tests {
         assert_eq!(child.history.len(), 1);
         assert!(
             matches!(
-                &child.history[0],
-                ChatMessage::User { content } if content == "hello"
+                child.history.first(),
+                Some(ChatMessage::User { content }) if content == "hello"
             ),
             "expected user message in child history"
         );
@@ -361,8 +362,8 @@ mod tests {
         assert_eq!(child.history.len(), 1);
         assert!(
             matches!(
-                &child.history[0],
-                ChatMessage::ToolResult { id, content } if id == "tc1" && content == "42"
+                child.history.first(),
+                Some(ChatMessage::ToolResult { id, content }) if id == "tc1" && content == "42"
             ),
             "expected tool result in child history"
         );
