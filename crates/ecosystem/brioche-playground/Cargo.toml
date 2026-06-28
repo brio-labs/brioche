@@ -13,7 +13,7 @@ name = "brioche-playground"
 path = "src/main.rs"
 
 [dependencies]
-tokio = { version = "1", features = [
+tokio = { workspace = true, features = [
   "rt-multi-thread",
   "macros",
   "sync",
