@@ -333,7 +333,7 @@ fn get_mut_path<'a>(
     if path.is_empty() {
         return None;
     }
-    let mut current: &mut serde_json::Value = map.get_mut(path[0])?;
+    let mut current: &mut serde_json::Value = map.get_mut(*path.first()?)?;
     for part in &path[1..] {
         current = current.get_mut(part)?;
     }
