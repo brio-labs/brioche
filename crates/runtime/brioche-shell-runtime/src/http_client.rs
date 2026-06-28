@@ -132,6 +132,12 @@ pub fn validate_url(
 /// O(b) where b = body bytes read. Peak memory is bounded by `max_bytes`
 /// plus one chunk of buffered data.
 ///
+/// # Cancel safety
+/// This future holds no locks across await points. Dropping it after the
+/// `Content-Length` check but before the body is fully consumed leaks the
+/// underlying TCP connection, which is recovered by the connection pool
+/// timeout.
+///
 /// # Errors
 /// Returns `HttpClientError::ResponseTooLarge` if the body is too large,
 /// or `HttpClientError::Request` if reading fails.

@@ -26,8 +26,8 @@ use brioche_core::{
 };
 use brioche_shell_runtime::{
     ALLOWED_SCHEMES, BLOCKED_HOSTS, BriocheShell, DEFAULT_CONNECT_TIMEOUT, DEFAULT_MAX_REDIRECTS,
-    DEFAULT_MAX_RESPONSE_BYTES, EngineInput, HttpClientError, LlmChunk, LlmClient, ShellError,
-    SystemSignal, read_body_with_size_limit, validate_url,
+    EngineInput, HttpClientError, LlmChunk, LlmClient, ShellError, SystemSignal,
+    read_body_with_size_limit, validate_url,
 };
 use bytes::Bytes;
 use futures_util::StreamExt;
@@ -578,11 +578,9 @@ impl OpenAiLlmClient {
             let status = response.status();
             let body_bytes = read_body_with_size_limit(response, MAX_ERROR_BODY_BYTES)
                 .await
-                .map_err(|err| {
-                    OpenAiError::Http {
-                        status: status.as_u16(),
-                        message: format!("failed to read error response: {err}"),
-                    }
+                .map_err(|err| OpenAiError::Http {
+                    status: status.as_u16(),
+                    message: format!("failed to read error response: {err}"),
                 })?;
             let body_text = String::from_utf8_lossy(&body_bytes).into_owned();
             let compact = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body_text) {
