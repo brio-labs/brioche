@@ -26,11 +26,10 @@ pub mod settings;
 pub mod skills;
 pub mod storage;
 
-pub use secret::{Secret, SecretError};
-
 pub use dto::{FlattenedAgentState, SessionHeadDTO, SessionSchemaVersion};
 pub use extensions::*;
 pub use profiles::*;
+pub use secret::{Secret, SecretError};
 pub use settings::*;
 pub use skills::*;
 pub use storage::{

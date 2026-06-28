@@ -23,12 +23,11 @@ use std::fmt;
 use argon2::password_hash::SaltString;
 #[cfg(not(test))]
 use argon2::{Argon2, PasswordHasher};
-use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use chacha20poly1305::aead::generic_array::typenum::Unsigned;
-use chacha20poly1305::{
-    AeadCore, ChaCha20Poly1305, Key, KeyInit, Nonce,
-    aead::{Aead, OsRng},
-};
+use chacha20poly1305::aead::{Aead, OsRng};
+use chacha20poly1305::{AeadCore, ChaCha20Poly1305, Key, KeyInit, Nonce};
 #[cfg(not(test))]
 use rand::RngCore;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
