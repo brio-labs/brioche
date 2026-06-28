@@ -15,11 +15,13 @@
 //! If neither source is available, serialization fails loudly rather than
 //! falling back to plaintext.
 //!
-//! Refs: I-Shell-Runtime-OnlyIO
+//! Refs: I-Persist-Secret-EncryptedAtRest
 
 use std::fmt;
 
+#[cfg(not(test))]
 use argon2::password_hash::SaltString;
+#[cfg(not(test))]
 use argon2::{Argon2, PasswordHasher};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use chacha20poly1305::aead::generic_array::typenum::Unsigned;
@@ -27,12 +29,13 @@ use chacha20poly1305::{
     AeadCore, ChaCha20Poly1305, Key, KeyInit, Nonce,
     aead::{Aead, OsRng},
 };
+#[cfg(not(test))]
 use rand::RngCore;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Errors that can occur when encrypting or decrypting a secret.
 ///
-/// Refs: I-Shell-Runtime-OnlyIO
+/// Refs: I-Persist-Secret-EncryptedAtRest
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum SecretError {
     /// No master key source is available.
@@ -49,10 +52,15 @@ pub enum SecretError {
     DecryptFailed(String),
 }
 
-const KEYRING_SERVICE: &str = "brioche-desktop";
-const KEYRING_USERNAME: &str = "master-key";
-const ENV_MASTER_KEY: &str = "BRIOCHE_MASTER_KEY";
 const ENCRYPTED_PREFIX: &str = "enc:v1:";
+
+#[cfg(not(test))]
+const KEYRING_SERVICE: &str = "brioche-desktop";
+#[cfg(not(test))]
+const KEYRING_USERNAME: &str = "master-key";
+#[cfg(not(test))]
+const ENV_MASTER_KEY: &str = "BRIOCHE_MASTER_KEY";
+#[cfg(not(test))]
 const ARGON2_SALT: &str = "brioche-shell-persistence-v1";
 
 /// A plaintext secret that serializes to an encrypted string.
@@ -60,7 +68,7 @@ const ARGON2_SALT: &str = "brioche-shell-persistence-v1";
 /// `Debug` and `Serialize` never emit the plaintext. Use [`Secret::expose`]
 /// to access the value when it is actually needed.
 ///
-/// Refs: I-Shell-Runtime-OnlyIO
+/// Refs: I-Persist-Secret-EncryptedAtRest
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct Secret {
     plaintext: String,
@@ -69,7 +77,7 @@ pub struct Secret {
 impl Secret {
     /// Creates a secret from the given plaintext.
     ///
-    /// Refs: I-Shell-Runtime-OnlyIO
+    /// Refs: I-Persist-Secret-EncryptedAtRest
     pub fn new(plaintext: impl Into<String>) -> Self {
         Self {
             plaintext: plaintext.into(),
@@ -78,21 +86,21 @@ impl Secret {
 
     /// Returns the plaintext value.
     ///
-    /// Refs: I-Shell-Runtime-OnlyIO
+    /// Refs: I-Persist-Secret-EncryptedAtRest
     pub fn expose(&self) -> &str {
         &self.plaintext
     }
 
     /// Returns whether the contained secret is empty.
     ///
-    /// Refs: I-Shell-Runtime-OnlyIO
+    /// Refs: I-Persist-Secret-EncryptedAtRest
     pub fn is_empty(&self) -> bool {
         self.plaintext.is_empty()
     }
 
     /// Consumes the secret and returns the plaintext value.
     ///
-    /// Refs: I-Shell-Runtime-OnlyIO
+    /// Refs: I-Persist-Secret-EncryptedAtRest
     pub fn into_inner(self) -> String {
         self.plaintext
     }
@@ -182,7 +190,10 @@ impl From<&str> for Secret {
 #[allow(clippy::manual_unwrap_or_default)]
 impl From<Option<String>> for Secret {
     fn from(value: Option<String>) -> Self {
-        Self::new(if let Some(s) = value { s } else { String::new() })
+        Self::new(match value {
+            Some(s) => s,
+            None => String::new(),
+        })
     }
 }
 
@@ -195,9 +206,13 @@ fn master_key() -> Result<Key, SecretError> {
 
 #[cfg(test)]
 fn master_key() -> Result<Key, SecretError> {
-    resolve_master_key()
+    // Deterministic 256-bit test key so parallel tests do not race on the
+    // process environment.
+    const TEST_KEY: &[u8; 32] = b"test-key-for-ci-only-0123456789!";
+    Ok(*Key::from_slice(TEST_KEY))
 }
 
+#[cfg(not(test))]
 fn resolve_master_key() -> Result<Key, SecretError> {
     if let Ok(password) = std::env::var(ENV_MASTER_KEY) {
         return derive_key_from_password(&password);
@@ -205,6 +220,7 @@ fn resolve_master_key() -> Result<Key, SecretError> {
     keyring_master_key()
 }
 
+#[cfg(not(test))]
 fn derive_key_from_password(password: &str) -> Result<Key, SecretError> {
     let salt = SaltString::encode_b64(ARGON2_SALT.as_bytes())
         .map_err(|err| SecretError::InvalidMasterKey(err.to_string()))?;
@@ -225,6 +241,7 @@ fn derive_key_from_password(password: &str) -> Result<Key, SecretError> {
     Ok(*Key::from_slice(bytes))
 }
 
+#[cfg(not(test))]
 fn keyring_master_key() -> Result<Key, SecretError> {
     let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USERNAME).map_err(|err| {
         SecretError::InvalidMasterKey(format!("failed to open keyring entry: {err}"))
@@ -246,6 +263,7 @@ fn keyring_master_key() -> Result<Key, SecretError> {
     }
 }
 
+#[cfg(not(test))]
 fn decode_key(encoded: &str) -> Result<Key, SecretError> {
     let bytes = BASE64
         .decode(encoded)
@@ -261,38 +279,52 @@ fn decode_key(encoded: &str) -> Result<Key, SecretError> {
 
 /// Replaces plaintext strings at known secret paths with encrypted values.
 ///
-/// Refs: I-Shell-Runtime-OnlyIO
-pub(crate) fn encrypt_secret_values(modules: &mut serde_json::Map<String, serde_json::Value>) {
-    encrypt_object_path(modules, &["chat", "api_key"]);
-    encrypt_array_item_path(modules, &["memory", "endpoints"], &["api_key"]);
-    encrypt_array_item_path(modules, &["chat", "fallback_models"], &["api_key"]);
+/// Refs: I-Persist-Secret-EncryptedAtRest
+///
+/// # Errors
+/// Returns [`SecretError`] if a value cannot be encrypted. The map is left
+/// partially modified on error; callers should abort the save operation rather
+/// than persist plaintext.
+pub(crate) fn encrypt_secret_values(
+    modules: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), SecretError> {
+    encrypt_object_path(modules, &["chat", "api_key"])?;
+    encrypt_array_item_path(modules, &["memory", "endpoints"], &["api_key"])?;
+    encrypt_array_item_path(modules, &["chat", "fallback_models"], &["api_key"])?;
+    Ok(())
 }
 
-fn encrypt_object_path(map: &mut serde_json::Map<String, serde_json::Value>, path: &[&str]) {
+fn encrypt_object_path(
+    map: &mut serde_json::Map<String, serde_json::Value>,
+    path: &[&str],
+) -> Result<(), SecretError> {
     let Some(serde_json::Value::String(plaintext)) = get_mut_path(map, path) else {
-        return;
+        return Ok(());
     };
     if plaintext.starts_with(ENCRYPTED_PREFIX) || plaintext.is_empty() {
-        return;
+        return Ok(());
     }
     let secret = Secret::new(std::mem::take(plaintext));
-    if let Ok(encrypted) = secret.encrypt()
-        && let Some(value) = get_mut_path(map, path)
-    {
-        *value = serde_json::Value::String(encrypted);
-    }
+    let encrypted = secret.encrypt()?;
+    let Some(value) = get_mut_path(map, path) else {
+        return Ok(());
+    };
+    *value = serde_json::Value::String(encrypted);
+    Ok(())
 }
+
 fn encrypt_array_item_path(
     map: &mut serde_json::Map<String, serde_json::Value>,
     array_path: &[&str],
     field_path: &[&str],
-) {
+) -> Result<(), SecretError> {
     let Some(serde_json::Value::Array(items)) = get_mut_path(map, array_path) else {
-        return;
+        return Ok(());
     };
     for item in items.iter_mut().filter_map(|v| v.as_object_mut()) {
-        encrypt_object_path(item, field_path);
+        encrypt_object_path(item, field_path)?;
     }
+    Ok(())
 }
 
 fn get_mut_path<'a>(
@@ -311,66 +343,60 @@ fn get_mut_path<'a>(
 
 /// Decrypts values produced by [`encrypt_secret_values`] back to plaintext.
 ///
-/// Refs: I-Shell-Runtime-OnlyIO
-pub(crate) fn decrypt_secret_values(modules: &mut serde_json::Map<String, serde_json::Value>) {
-    decrypt_object_path(modules, &["chat", "api_key"]);
-    decrypt_array_item_path(modules, &["memory", "endpoints"], &["api_key"]);
-    decrypt_array_item_path(modules, &["chat", "fallback_models"], &["api_key"]);
+/// Refs: I-Persist-Secret-EncryptedAtRest
+///
+/// # Errors
+/// Returns [`SecretError`] if an encrypted value cannot be decrypted. Callers
+/// should treat this as a corrupted settings file and fall back to defaults.
+pub(crate) fn decrypt_secret_values(
+    modules: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), SecretError> {
+    decrypt_object_path(modules, &["chat", "api_key"])?;
+    decrypt_array_item_path(modules, &["memory", "endpoints"], &["api_key"])?;
+    decrypt_array_item_path(modules, &["chat", "fallback_models"], &["api_key"])?;
+    Ok(())
 }
 
-fn decrypt_object_path(map: &mut serde_json::Map<String, serde_json::Value>, path: &[&str]) {
+fn decrypt_object_path(
+    map: &mut serde_json::Map<String, serde_json::Value>,
+    path: &[&str],
+) -> Result<(), SecretError> {
     let Some(serde_json::Value::String(encrypted)) = get_mut_path(map, path) else {
-        return;
+        return Ok(());
     };
-    if let Ok(secret) = Secret::decrypt(encrypted)
-        && let Some(value) = get_mut_path(map, path)
-    {
-        *value = serde_json::Value::String(secret.into_inner());
-    }
+    let secret = Secret::decrypt(encrypted)?;
+    let Some(value) = get_mut_path(map, path) else {
+        return Ok(());
+    };
+    *value = serde_json::Value::String(secret.into_inner());
+    Ok(())
 }
 
 fn decrypt_array_item_path(
     map: &mut serde_json::Map<String, serde_json::Value>,
     array_path: &[&str],
     field_path: &[&str],
-) {
+) -> Result<(), SecretError> {
     let Some(serde_json::Value::Array(items)) = get_mut_path(map, array_path) else {
-        return;
+        return Ok(());
     };
     for item in items.iter_mut().filter_map(|v| v.as_object_mut()) {
-        decrypt_object_path(item, field_path);
+        decrypt_object_path(item, field_path)?;
     }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn with_test_key<F, R>(f: F) -> R
-    where
-        F: FnOnce() -> R,
-    {
-        let original = std::env::var(ENV_MASTER_KEY).ok();
-        unsafe {
-            std::env::set_var(ENV_MASTER_KEY, "test-master-key-for-ci-only");
-        }
-        let result = f();
-        match original {
-            Some(v) => unsafe { std::env::set_var(ENV_MASTER_KEY, v) },
-            None => unsafe { std::env::remove_var(ENV_MASTER_KEY) },
-        }
-        result
-    }
-
     #[test]
     fn secret_round_trip() -> Result<(), Box<dyn std::error::Error>> {
-        with_test_key(|| {
-            let secret = Secret::new("my-super-secret-key");
-            let json = serde_json::to_string(&secret)?;
-            let recovered: Secret = serde_json::from_str(&json)?;
-            assert_eq!(secret, recovered);
-            Ok(())
-        })
+        let secret = Secret::new("my-super-secret-key");
+        let json = serde_json::to_string(&secret)?;
+        let recovered: Secret = serde_json::from_str(&json)?;
+        assert_eq!(secret, recovered);
+        Ok(())
     }
 
     #[test]
@@ -383,31 +409,25 @@ mod tests {
 
     #[test]
     fn secret_serialization_hides_plaintext() -> Result<(), Box<dyn std::error::Error>> {
-        with_test_key(|| {
-            let secret = Secret::new("sk-openrouter-private-token");
-            let json = serde_json::to_string(&secret)?;
-            assert!(!json.contains("sk-openrouter-private-token"));
-            assert!(json.contains(ENCRYPTED_PREFIX));
-            Ok(())
-        })
+        let secret = Secret::new("sk-openrouter-private-token");
+        let json = serde_json::to_string(&secret)?;
+        assert!(!json.contains("sk-openrouter-private-token"));
+        assert!(json.contains(ENCRYPTED_PREFIX));
+        Ok(())
     }
 
     #[test]
     fn secret_decrypts_legacy_plaintext() -> Result<(), Box<dyn std::error::Error>> {
-        with_test_key(|| {
-            let recovered: Secret = serde_json::from_str("\"plain-legacy-key\"")?;
-            assert_eq!(recovered.expose(), "plain-legacy-key");
-            Ok(())
-        })
+        let recovered: Secret = serde_json::from_str("\"plain-legacy-key\"")?;
+        assert_eq!(recovered.expose(), "plain-legacy-key");
+        Ok(())
     }
 
     #[test]
     fn empty_secret_serializes_to_empty_string() -> Result<(), Box<dyn std::error::Error>> {
-        with_test_key(|| {
-            let secret = Secret::default();
-            let json = serde_json::to_string(&secret)?;
-            assert_eq!(json, "\"\"");
-            Ok(())
-        })
+        let secret = Secret::default();
+        let json = serde_json::to_string(&secret)?;
+        assert_eq!(json, "\"\"");
+        Ok(())
     }
 }

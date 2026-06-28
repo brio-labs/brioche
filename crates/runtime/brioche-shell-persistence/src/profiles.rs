@@ -31,7 +31,9 @@ pub struct Profile {
     pub provider: String,
     /// The model ID for this profile.
     pub model: String,
-    /// The API key.
+    /// The API key, encrypted at rest.
+    ///
+    /// Refs: I-Persist-Secret-EncryptedAtRest
     pub api_key: Secret,
     /// Custom system prompt.
     pub system_prompt: Option<String>,

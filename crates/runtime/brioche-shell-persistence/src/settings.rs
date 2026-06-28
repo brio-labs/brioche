@@ -198,7 +198,7 @@ impl Default for Settings {
 impl Settings {
     /// Loads settings from disk, or returns defaults if the file doesn't exist.
     ///
-    /// Refs: I-Shell-Runtime-OnlyIO
+    /// Refs: I-Shell-Runtime-OnlyIO, I-Persist-Secret-EncryptedAtRest
     ///
     /// # Complexity
     /// O(N) where N is the configuration file size. Performs blocking disk read.
@@ -209,12 +209,15 @@ impl Settings {
         let path = settings_path();
         if let Ok(data) = std::fs::read_to_string(&path)
             && let Ok(mut settings) = serde_json::from_str::<Settings>(&data)
+            && {
+                // Decrypt any encrypted-at-rest secret values before use.
+                let mut modules: serde_json::Map<String, Value> =
+                    std::mem::take(&mut settings.modules).into_iter().collect();
+                let ok = crate::secret::decrypt_secret_values(&mut modules).is_ok();
+                settings.modules = modules.into_iter().collect();
+                ok
+            }
         {
-            // Decrypt any encrypted-at-rest secret values before use.
-            let mut modules: serde_json::Map<String, Value> =
-                std::mem::take(&mut settings.modules).into_iter().collect();
-            crate::secret::decrypt_secret_values(&mut modules);
-            settings.modules = modules.into_iter().collect();
             let defaults = Self::default();
             for (key, value) in defaults.modules {
                 settings.modules.entry(key).or_insert(value);
@@ -226,7 +229,7 @@ impl Settings {
 
     /// Saves settings to disk.
     ///
-    /// Refs: I-Shell-Runtime-OnlyIO
+    /// Refs: I-Shell-Runtime-OnlyIO, I-Persist-Secret-EncryptedAtRest
     ///
     /// # Complexity
     /// O(N) where N is the serialized configuration size. Performs blocking disk write.
@@ -242,7 +245,8 @@ impl Settings {
         let mut settings = self.clone();
         let mut modules: serde_json::Map<String, Value> =
             std::mem::take(&mut settings.modules).into_iter().collect();
-        crate::secret::encrypt_secret_values(&mut modules);
+        crate::secret::encrypt_secret_values(&mut modules)
+            .map_err(|e| format!("Failed to encrypt secret settings: {e}"))?;
         settings.modules = modules.into_iter().collect();
         let data = serde_json::to_string_pretty(&settings)
             .map_err(|e| format!("Failed to serialize settings: {e}"))?;
