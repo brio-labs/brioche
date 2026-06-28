@@ -23,8 +23,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use brioche_core::{
-    AgentState, AgentStateTag, BriocheEngine, Effect, EngineInput, EpochState,
-    GovernanceNotification, Session, SignalBuffer, SignalDrainOrder, SystemSignal,
+    AgentState, AgentStateTag, BriocheEngine, Effect, EngineInput, EpochState, ErrorCode,
+    ErrorDetail, GovernanceNotification, Session, SignalBuffer, SignalDrainOrder, SystemSignal,
 };
 use tokio::sync::{mpsc, oneshot};
 
@@ -617,11 +617,24 @@ fn engine_thread_loop(
         // Drain separate channels in canonical order and inject into
         // ExtensionStorage as SignalBuffer.
         let batch = signal_drain.drain();
-        session.extensions.insert(SignalBuffer {
+        if let Err(err) = session.extensions.insert(SignalBuffer {
             system_signals: batch.system_signals,
             governance_notifications: batch.governance_notifications,
             async_task_results: batch.async_task_results,
-        });
+        }) {
+            let effects = vec![Effect::Error {
+                code: ErrorCode::StateInconsistency,
+                detail: ErrorDetail::TransitionFailed {
+                    reason: format!("failed to persist signal buffer: {}", err),
+                },
+            }];
+            let snapshot = StateSnapshot::from_session(&session);
+            if output_tx.blocking_send((effects, snapshot)).is_err() {
+                // Async runtime dropped; shut down.
+                break;
+            }
+            continue;
+        }
 
         // Respond to watchdog ping if one is pending.
         let last_epoch = session
