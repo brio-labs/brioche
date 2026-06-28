@@ -15,7 +15,14 @@ use crate::registry::{SystemTool, ToolError};
 /// path that resolves outside `base_dir`. Setting `allow_absolute` disables
 /// all sandbox checks and permits any path.
 ///
+/// `base_dir` is resolved to an absolute path at call time; if it is relative
+/// or empty and the current working directory cannot be determined, the
+/// sandbox denies the request rather than falling back to a weaker check.
+///
 /// Refs: I-Shell-Runtime-OnlyIO
+///
+/// Complexity: O(n) in the number of path components. One heap allocation
+/// for the resolved `PathBuf`.
 fn resolve_sandboxed_path(
     raw: &str,
     base_dir: &Path,
@@ -39,8 +46,20 @@ fn resolve_sandboxed_path(
         ));
     }
 
-    let resolved = normalize_path(&base_dir.join(path));
-    let canonical_base = normalize_path(base_dir);
+    let absolute_base = if base_dir.is_absolute() && !base_dir.as_os_str().is_empty() {
+        base_dir.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|e| {
+                ToolError::Io(std::io::Error::other(format!(
+                    "cannot determine current directory: {e}"
+                )))
+            })?
+            .join(base_dir)
+    };
+
+    let resolved = normalize_path(&absolute_base.join(path));
+    let canonical_base = normalize_path(&absolute_base);
 
     if !resolved.starts_with(&canonical_base) {
         return Err(ToolError::SandboxDenied(format!(
