@@ -30,6 +30,8 @@ pub struct EpochState {
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, BriocheExtensionType)]
 #[brioche(no_snapshot)]
 /// Transient extension state that must not be written to cold storage.
+///
+/// Refs: I-Core-Pure
 pub struct TransientState {
     /// In-memory counter only.
     pub counter: u64,
