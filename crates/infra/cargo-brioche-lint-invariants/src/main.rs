@@ -11,11 +11,11 @@
 //!
 //! Refs: docs/SPECS.md §Book IV Ch 3 §3.4
 
-use brioche_lint_core::report;
-use brioche_lint_core::walk;
+use std::path::Path;
+
+use brioche_lint_core::{report, walk};
 use clap::{Parser, Subcommand};
 use regex::Regex;
-use std::path::Path;
 
 /// Known invariant categories and their prefixes.
 ///
@@ -140,14 +140,17 @@ fn main() {
         Commands::CheckMatrix => {
             let violations = check_matrix();
             if violations.is_empty() {
-                report::print_success("Governance compatibility matrix check: OK");
+                println!(
+                    "{}",
+                    report::format_success("Governance compatibility matrix check: OK")
+                );
                 std::process::exit(brioche_lint_core::ExitCode::Success as i32);
             }
             println!(
                 "Governance compatibility matrix check: {} issue(s)",
                 violations.len()
             );
-            report::print_bullet_list(&violations);
+            println!("{}", report::format_bullet_list(&violations));
             std::process::exit(brioche_lint_core::ExitCode::Violations as i32);
         }
     }
@@ -280,7 +283,10 @@ fn print_text(results: &[FileResult]) {
     }
 
     if total_unknown == 0 {
-        report::print_success("All invariant references are valid");
+        println!(
+            "{}",
+            report::format_success("All invariant references are valid")
+        );
     }
 }
 

@@ -14,8 +14,7 @@
 
 use std::path::Path;
 
-use brioche_lint_core::report;
-use brioche_lint_core::walk;
+use brioche_lint_core::{report, walk};
 use clap::Parser;
 
 /// CLI arguments.
@@ -47,13 +46,16 @@ fn main() {
     let violations = lint_directory(&cli.path.path);
 
     if violations.is_empty() {
-        report::print_success("No violations found");
+        println!("{}", report::format_success("No violations found"));
         std::process::exit(brioche_lint_core::ExitCode::Success as i32);
     }
 
-    report::print_violation_header(violations.len());
+    println!("{}\n", report::format_violation_header(violations.len()));
     for v in &violations {
-        report::print_file_violation(std::path::Path::new(&v.file), v.line, &v.message);
+        println!(
+            "{}",
+            report::format_file_violation(std::path::Path::new(&v.file), v.line, &v.message)
+        );
     }
     std::process::exit(brioche_lint_core::ExitCode::Violations as i32);
 }
@@ -63,6 +65,7 @@ fn main() {
 /// # Complexity
 /// O(n · m) where n = files scanned, m = lines per file.
 ///
+/// Refs: docs/SPECS.md §Book IV Ch 3 §3.5
 fn lint_directory(root: &Path) -> Vec<Violation> {
     let mut violations = Vec::new();
 

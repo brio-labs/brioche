@@ -3,6 +3,7 @@
 //! Refs: docs/SPECS.md §Book IV Ch 3 §3.4, §3.5
 
 use std::path::{Path, PathBuf};
+
 use walkdir::WalkDir;
 
 /// Read a source file, returning `None` if it cannot be decoded.
@@ -60,8 +61,9 @@ pub fn walk_rust_and_markdown_files(root: &Path) -> impl Iterator<Item = PathBuf
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::Write;
+
+    use super::*;
 
     fn temp_dir_with_files(files: &[(&str, &str)]) -> std::io::Result<tempfile::TempDir> {
         let dir = tempfile::tempdir()?;
