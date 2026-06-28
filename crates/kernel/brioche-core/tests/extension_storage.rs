@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
 use brioche_core::{BriocheExtensionType, CycleRollbackPolicy, ExtVTable, ExtensionStorage};
 use proptest::prelude::*;
+use serde::ser::Error as SerdeError;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, BriocheExtensionType)]
@@ -34,7 +35,8 @@ fn insert_and_get_mut_roundtrip() {
     let mut tags = BTreeMap::new();
     tags.insert("a".to_string(), 1);
     let state = TestState { counter: 42, tags };
-    storage.insert(state.clone());
+    let result = storage.insert(state.clone());
+    assert!(result.is_ok(), "TestState serializes: {result:?}");
     if let Some(retrieved) = storage.get_mut::<TestState>() {
         assert_eq!(retrieved.counter, 42);
         assert_eq!(retrieved.tags.get("a"), Some(&1));
@@ -63,7 +65,8 @@ fn get_or_insert_default_restores_from_cold_snapshot() {
     let mut tags = BTreeMap::new();
     tags.insert("key".to_string(), 123);
     let original = TestState { counter: 99, tags };
-    storage.insert(original.clone());
+    let result = storage.insert(original.clone());
+    assert!(result.is_ok(), "TestState serializes: {result:?}");
 
     // Evict from hot_map to force restore from cold_snapshot.
     assert!(storage.evict_from_hot::<TestState>());
@@ -110,7 +113,8 @@ fn cold_snapshot_persists_binary_blobs() {
         counter: 55,
         tags: BTreeMap::new(),
     };
-    storage.insert(state);
+    let result = storage.insert(state);
+    assert!(result.is_ok(), "TestState serializes: {result:?}");
     let snapshot = storage.cold_snapshot();
     assert!(snapshot.contains_key(TestState::EXT_ID));
     assert!(
@@ -123,13 +127,15 @@ fn cold_snapshot_persists_binary_blobs() {
 #[test]
 fn multiple_extension_types_coexist() {
     let mut storage = ExtensionStorage::new();
-    storage.insert(TestState {
+    let result = storage.insert(TestState {
         counter: 1,
         tags: BTreeMap::new(),
     });
-    storage.insert(EpochState {
+    assert!(result.is_ok(), "TestState serializes: {result:?}");
+    let result = storage.insert(EpochState {
         current_generation: 7,
     });
+    assert!(result.is_ok(), "EpochState serializes: {result:?}");
 
     if let Some(test_state) = storage.get_mut::<TestState>() {
         assert_eq!(test_state.counter, 1);
@@ -226,10 +232,11 @@ fn dedup_sorted_pairs(pairs: Vec<(String, u64)>) -> Vec<(String, u64)> {
 fn attach_rollback_policy_stores_policy_and_resets_snapshot_tracking() {
     let mut storage = ExtensionStorage::new();
     let (policy, counter) = RecordingPolicy::new();
-    storage.insert(TestState {
+    let result = storage.insert(TestState {
         counter: 0,
         tags: BTreeMap::new(),
     });
+    assert!(result.is_ok(), "TestState serializes: {result:?}");
     storage.attach_rollback_policy(Box::new(policy));
 
     {
@@ -249,10 +256,11 @@ fn attach_rollback_policy_stores_policy_and_resets_snapshot_tracking() {
 fn detach_rollback_policy_returns_policy_and_clears_tracking() {
     let mut storage = ExtensionStorage::new();
     let (policy, counter) = RecordingPolicy::new();
-    storage.insert(TestState {
+    let result = storage.insert(TestState {
         counter: 0,
         tags: BTreeMap::new(),
     });
+    assert!(result.is_ok(), "TestState serializes: {result:?}");
     storage.attach_rollback_policy(Box::new(policy));
 
     {
@@ -301,10 +309,11 @@ fn attach_rollback_policy_notifies_on_first_get_or_insert_default_mutation() {
 #[test]
 fn attach_rollback_policy_notifies_on_first_get_mut_mutation() {
     let mut storage = ExtensionStorage::new();
-    storage.insert(TestState {
+    let result = storage.insert(TestState {
         counter: 0,
         tags: BTreeMap::new(),
     });
+    assert!(result.is_ok(), "TestState serializes: {result:?}");
     let (policy, counter) = RecordingPolicy::new();
     storage.attach_rollback_policy(Box::new(policy));
 
@@ -330,7 +339,8 @@ proptest! {
             tags.insert(key, val);
         }
         let state = TestState { counter, tags };
-        storage.insert(state.clone());
+        let result = storage.insert(state.clone());
+        prop_assert!(result.is_ok(), "TestState serializes: {result:?}");
         if let Some(retrieved) = storage.get_mut::<TestState>() {
             prop_assert_eq!(retrieved.counter, counter);
             prop_assert_eq!(&retrieved.tags, &state.tags);
@@ -434,9 +444,50 @@ proptest! {
 
         let mut storage1 = ExtensionStorage::new();
         let mut storage2 = ExtensionStorage::new();
-        storage1.insert(state1);
-        storage2.insert(state2);
+        let result1 = storage1.insert(state1);
+        prop_assert!(result1.is_ok(), "TestState serializes: {result1:?}");
+        let result2 = storage2.insert(state2);
+        prop_assert!(result2.is_ok(), "TestState serializes: {result2:?}");
 
         prop_assert_eq!(storage1.cold_snapshot(), storage2.cold_snapshot());
     }
+
+/// Serialize helper that always fails.
+///
+/// Used by `FailingState` to force `postcard::to_stdvec` to return an error
+/// without removing the `Serialize` trait bound required by the derive macro.
+fn fail_serialize<S>(_value: &u64, _serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    Err(SerdeError::custom("intentional serialization failure"))
+}
+
+/// Extension type whose `Serialize` impl always fails.
+///
+/// Used to verify that `ExtensionStorage::insert` surfaces serialization
+/// errors instead of silently persisting an empty blob.
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, BriocheExtensionType)]
+pub struct FailingState {
+    /// Dummy counter field whose serialization is forced to fail.
+    #[serde(serialize_with = "fail_serialize")]
+    pub counter: u64,
+}
+
+#[test]
+fn insert_fails_on_serialization_error() {
+    let mut storage = ExtensionStorage::new();
+    let result = storage.insert(FailingState { counter: 1 });
+    assert!(
+        result.is_err(),
+        "insert should fail when serialization fails"
+    );
+    assert!(
+        storage.get_mut::<FailingState>().is_none(),
+        "value should not be inserted into hot_map on serialization failure"
+    );
+    assert!(
+        !storage.cold_snapshot().contains_key(FailingState::EXT_ID),
+        "no empty blob should be persisted on serialization failure"
+    );
 }
