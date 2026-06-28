@@ -4468,6 +4468,7 @@ Composition invariants define the interaction rules between governance traits an
 | **I-Persist-Cache** | The `SubRoutineCache` L1/L2 is maintained by the shell; the kernel manipulates only opaque handles. |
 | **I-Persist-GC-Interrupt** | Opportunistic GC is interruptible via `CancellationToken` to preserve latency on new user input. |
 | **I-Persist-Idempotence** | The `Session -> SessionHeadDTO` serialization is idempotent: two consecutive serializations without intermediate mutation produce the same MessagePack blob bit-for-bit. |
+| **I-Persist-Secret-EncryptedAtRest** | API keys and other secret values persisted by the shell are encrypted at rest using a master key sourced from the environment or OS keyring. Plaintext legacy values are migrated transparently on the next save. Serialization fails loudly if no master key is available. |
 
 <br>
 
