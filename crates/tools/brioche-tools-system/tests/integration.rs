@@ -1,8 +1,8 @@
 //! Integration tests for `brioche-tools-system`.
 //!
-//! Covers idempotency of filesystem writes and sandboxing of shell commands.
+//! Covers idempotency of filesystem writes and sandboxing of commands.
 //!
-//! Refs: docs/SPECS.md §Book III-C, I-Shell-Runtime-OnlyIO
+//! Refs: I-Shell-Runtime-OnlyIO
 
 use std::sync::Arc;
 
@@ -168,6 +168,7 @@ async fn permissive_allows_when_handler_confirms() {
 
     assert!(result.is_ok(), "expected success, got {result:?}");
 }
+
 #[tokio::test]
 async fn schema_validation_accepts_valid_arguments() -> std::io::Result<()> {
     let temp = tempfile::NamedTempFile::new()?;
@@ -259,6 +260,7 @@ async fn schema_validation_rejects_invalid_json() {
         }
         other => unreachable!("expected BusinessError, got {other:?}"),
     }
+}
 
 #[tokio::test]
 async fn sandbox_blocks_command_injection_when_first_token_is_allowed() {
@@ -279,15 +281,40 @@ async fn sandbox_blocks_command_injection_when_first_token_is_allowed() {
         "expected business error, got {:?}",
         result.outcome
     );
-    let err = match result.outcome {
-        brioche_core::ToolOutcome::BusinessError(e) => e,
-        other => {
-            let _ = other;
-            return;
-        }
+    let brioche_core::ToolOutcome::BusinessError(err) = result.outcome else {
+        unreachable!("outcome already asserted to be a business error")
     };
     assert!(
         err.contains("shell metacharacter"),
         "error should mention shell metacharacter: {err}"
     );
+}
+
+#[tokio::test]
+async fn execute_command_respects_cwd_argument() -> std::io::Result<()> {
+    let temp = tempfile::tempdir()?;
+    let marker = temp.path().join("marker");
+    tokio::fs::write(&marker, "hello from cwd").await?;
+
+    let tool = ExecuteCommandTool::new().with_policy(SandboxPolicy::AllowList(
+        AllowList::new().with_command("cat"),
+    ));
+
+    let cwd = temp
+        .path()
+        .to_str()
+        .ok_or_else(|| std::io::Error::other("temp path is not valid UTF-8"))?;
+    let args = serde_json::Value::Object({
+        let mut m = serde_json::Map::new();
+        m.insert("command".into(), "cat marker".into());
+        m.insert("cwd".into(), cwd.into());
+        m
+    });
+    let result = tool
+        .run(args, CancellationToken::new())
+        .await
+        .map_err(|e| std::io::Error::other(format!("tool run failed: {e}")))?;
+
+    assert!(result.contains("hello from cwd"), "result was: {result:?}");
+    Ok(())
 }

@@ -1,4 +1,4 @@
-//! Sandboxed shell command execution tool.
+//! Sandboxed command execution tool.
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
@@ -8,8 +8,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::registry::{AllowList, ConfirmHandler, SandboxPolicy, SystemTool, ToolError};
 
-/// Executes a shell command with a sandbox policy.
-/// Refs: docs/SPECS.md §Book III-C
+/// Executes a command with a sandbox policy.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 pub struct ExecuteCommandTool {
     policy: SandboxPolicy,
     confirm_handler: Option<ConfirmHandler>,
@@ -17,8 +18,9 @@ pub struct ExecuteCommandTool {
 }
 
 impl ExecuteCommandTool {
-    /// Creates a new shell command tool with default sandbox policy.
-    /// Refs: docs/SPECS.md §Book III-C
+    /// Creates a new command tool with default sandbox policy.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn new() -> Self {
         Self {
             policy: SandboxPolicy::default(),
@@ -28,21 +30,24 @@ impl ExecuteCommandTool {
     }
 
     /// Sets the sandbox policy explicitly.
-    /// Refs: docs/SPECS.md §Book III-C
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn with_policy(mut self, policy: SandboxPolicy) -> Self {
         self.policy = policy;
         self
     }
 
     /// Sets a default working directory.
-    /// Refs: docs/SPECS.md §Book III-C
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn with_default_cwd(mut self, cwd: impl Into<String>) -> Self {
         self.default_cwd = Some(cwd.into());
         self
     }
 
     /// Creates the tool with an explicit allow-list.
-    /// Refs: docs/SPECS.md §Book III-C
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn with_allow_list(list: AllowList) -> Self {
         Self {
             policy: SandboxPolicy::AllowList(list),
@@ -56,7 +61,8 @@ impl ExecuteCommandTool {
     /// When a command is outside the allow-list (or in
     /// `Interactive` mode), the handler is called inside
     /// `spawn_blocking` to ask the user for confirmation.
-    /// Refs: docs/SPECS.md §Book III-C
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn with_confirm_handler(mut self, handler: ConfirmHandler) -> Self {
         self.confirm_handler = Some(handler);
         self
@@ -129,7 +135,7 @@ impl SystemTool for ExecuteCommandTool {
             }
             SandboxPolicy::AllowList(list) => {
                 if !list.is_allowed(program) {
-                    if let Some(ref handler) = self.confirm_handler {
+                    if let Some(handler) = &self.confirm_handler {
                         let cmd = command.to_string();
                         let handler = Arc::clone(handler);
                         let confirmed = tokio::task::spawn_blocking(move || handler(&cmd))
@@ -152,7 +158,7 @@ impl SystemTool for ExecuteCommandTool {
                 }
             }
             SandboxPolicy::Interactive => {
-                if let Some(ref handler) = self.confirm_handler {
+                if let Some(handler) = &self.confirm_handler {
                     let cmd = command.to_string();
                     let handler = Arc::clone(handler);
                     let confirmed = tokio::task::spawn_blocking(move || handler(&cmd))
@@ -176,8 +182,16 @@ impl SystemTool for ExecuteCommandTool {
         }
 
         let mut cmd = tokio::process::Command::new(program);
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
         for arg in argv.iter().skip(1) {
             cmd.arg(arg);
+        }
+
+        if let Some(cwd) = args["cwd"].as_str() {
+            cmd.current_dir(cwd);
+        } else if let Some(default_cwd) = &self.default_cwd {
+            cmd.current_dir(default_cwd);
         }
 
         let child = cmd.spawn()?;
