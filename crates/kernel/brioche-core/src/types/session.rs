@@ -217,7 +217,8 @@ impl Session {
     ///
     /// # Errors
     /// Returns `BriocheError::InvalidStateTransition` if the transition
-    /// is semantically invalid (e.g., pushing `Failure`).
+    /// is semantically invalid (e.g., pushing `Failure`) or if the stack
+    /// would exceed `MAX_STATE_STACK_DEPTH`.
     ///
     /// Refs: I-Core-NoPanic
     pub fn push_state(&mut self, new_state: AgentState) -> Result<(), BriocheError> {
@@ -225,6 +226,12 @@ impl Session {
             return Err(BriocheError::InvalidStateTransition(
                 "cannot push Failure onto state stack".into(),
             ));
+        }
+        if self.state_stack.len() >= crate::types::MAX_STATE_STACK_DEPTH {
+            return Err(BriocheError::InvalidStateTransition(format!(
+                "state stack depth exceeds maximum {}",
+                crate::types::MAX_STATE_STACK_DEPTH
+            )));
         }
         let old = std::mem::replace(&mut self.state, new_state);
         self.state_stack.push(old);

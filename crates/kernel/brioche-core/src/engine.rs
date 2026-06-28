@@ -20,7 +20,7 @@
 //! Refs: docs/SPECS.md §4, §5; PHILOSOPHY.md §1, §2, §7
 
 use crate::{
-    ConsistencyVerifier, CycleRollbackPolicy, DecisionAggregator, Effect, EngineInput,
+    AgentState, ConsistencyVerifier, CycleRollbackPolicy, DecisionAggregator, Effect, EngineInput,
     EpochInterceptor, ErrorCode, ErrorDetail, GovernanceFailoverHandler, HookEffectConstraint,
     PluginSource, Session, SessionRegistry, SubRoutineHandle, SubRoutineHandler,
     SubRoutineHydrator, SubRoutineLifecycleGuard,
@@ -199,6 +199,19 @@ impl BriocheEngine {
     ///
     /// Refs: I-Core-NoPanic, I-Core-RetVecEffect, I-Core-StreamNoBranch
     pub fn transition(&mut self, session: &mut Session, input: &EngineInput) -> Vec<Effect> {
+        // Failure is a terminal state: reject further inputs without panic.
+        if matches!(session.state, AgentState::Failure) {
+            return vec![
+                Effect::Error {
+                    code: ErrorCode::StateInconsistency,
+                    detail: ErrorDetail::TransitionFailed {
+                        reason: "session is in Failure state".into(),
+                    },
+                },
+                Effect::SystemIdle,
+            ];
+        }
+
         // Capture sub-routine state before any mutation.
         let pre = self.capture_pre_transition_state(session);
 
