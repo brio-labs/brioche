@@ -168,6 +168,49 @@ async fn permissive_allows_when_handler_confirms() {
 
     assert!(result.is_ok(), "expected success, got {result:?}");
 }
+
+#[tokio::test]
+async fn permissive_denies_without_confirm_handler() {
+    let tool = ExecuteCommandTool::new().with_policy(SandboxPolicy::Permissive);
+
+    let args = serde_json::Value::Object({
+        let mut m = serde_json::Map::new();
+        m.insert("command".into(), "echo ok".into());
+        m
+    });
+    let result = tool.run(args, CancellationToken::new()).await;
+
+    assert!(
+        matches!(
+            result,
+            Err(brioche_tools_system::ToolError::SandboxDenied(_))
+        ),
+        "expected sandbox denied without confirm handler, got {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn permissive_denies_when_handler_denies() {
+    let tool = ExecuteCommandTool::new()
+        .with_policy(SandboxPolicy::Permissive)
+        .with_confirm_handler(Arc::new(|_| false));
+
+    let args = serde_json::Value::Object({
+        let mut m = serde_json::Map::new();
+        m.insert("command".into(), "echo ok".into());
+        m
+    });
+    let result = tool.run(args, CancellationToken::new()).await;
+
+    assert!(
+        matches!(
+            result,
+            Err(brioche_tools_system::ToolError::SandboxDenied(_))
+        ),
+        "expected sandbox denied when handler denies, got {result:?}"
+    );
+}
+
 #[tokio::test]
 async fn schema_validation_accepts_valid_arguments() -> std::io::Result<()> {
     let temp = tempfile::NamedTempFile::new()?;

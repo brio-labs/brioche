@@ -120,10 +120,30 @@ impl SystemTool for ExecuteCommandTool {
         match &self.policy {
             SandboxPolicy::Permissive => {
                 tracing::warn!(command, "executing command in permissive sandbox");
+                if let Some(handler) = &self.confirm_handler {
+                    let cmd = command.to_string();
+                    let handler = Arc::clone(handler);
+                    let confirmed = tokio::task::spawn_blocking(move || handler(&cmd))
+                        .await
+                        .map_err(|e| {
+                            ToolError::Io(std::io::Error::other(format!(
+                                "confirm task failed: {e}"
+                            )))
+                        })?;
+                    if !confirmed {
+                        return Err(ToolError::SandboxDenied(format!(
+                            "command '{command}' was denied by user"
+                        )));
+                    }
+                } else {
+                    return Err(ToolError::SandboxDenied(format!(
+                        "command '{command}' requires confirmation in permissive sandbox"
+                    )));
+                }
             }
             SandboxPolicy::AllowList(list) => {
                 if !list.is_allowed(command) {
-                    if let Some(ref handler) = self.confirm_handler {
+                    if let Some(handler) = &self.confirm_handler {
                         let cmd = command.to_string();
                         let handler = Arc::clone(handler);
                         let confirmed = tokio::task::spawn_blocking(move || handler(&cmd))
@@ -146,7 +166,7 @@ impl SystemTool for ExecuteCommandTool {
                 }
             }
             SandboxPolicy::Interactive => {
-                if let Some(ref handler) = self.confirm_handler {
+                if let Some(handler) = &self.confirm_handler {
                     let cmd = command.to_string();
                     let handler = Arc::clone(handler);
                     let confirmed = tokio::task::spawn_blocking(move || handler(&cmd))
@@ -176,7 +196,7 @@ impl SystemTool for ExecuteCommandTool {
 
         if let Some(cwd) = args["cwd"].as_str() {
             cmd.current_dir(cwd);
-        } else if let Some(ref default_cwd) = self.default_cwd {
+        } else if let Some(default_cwd) = &self.default_cwd {
             cmd.current_dir(default_cwd);
         }
 
