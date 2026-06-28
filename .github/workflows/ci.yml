@@ -136,7 +136,7 @@ jobs:
           FAILED=0
           for sha in $COMMITS; do
             msg=$(git log -1 --format=%s "$sha")
-            if ! [[ "$msg" =~ ^($ALLOWED_TYPES)\(($ALLOWED_BOOKS)\):\ .+ ]]; then
+            if ! [[ "$msg" =~ ^($ALLOWED_TYPES)\(($ALLOWED_BOOKS)(,[[:space:]]*($ALLOWED_BOOKS))*\):\ .+ ]]; then
               echo "❌ Commit $sha: '$msg' does not match <type>(<book>): <description>"
               FAILED=1
             fi
