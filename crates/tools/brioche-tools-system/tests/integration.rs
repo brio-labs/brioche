@@ -166,19 +166,17 @@ async fn permissive_allows_when_handler_confirms() {
 }
 #[tokio::test]
 async fn schema_validation_accepts_valid_arguments() -> std::io::Result<()> {
-    let temp = tempfile::NamedTempFile::new()?;
-    let path = temp
-        .path()
-        .to_str()
-        .ok_or_else(|| std::io::Error::other("temp path is not valid UTF-8"))?;
+    let base = tempfile::tempdir()?;
+    let relative_path = "schema_test.txt";
 
-    let executor = SystemToolExecutor::new().with_tool(WriteFileTool::default());
+    let executor =
+        SystemToolExecutor::new().with_tool(WriteFileTool::new(Some(base.path().to_path_buf())));
     let call = brioche_core::ActiveToolCall {
         tool_id: "t1".into(),
         tool_name: "write_file".into(),
         arguments: format!(
             "{{\"path\":{},\"content\":\"hello\"}}",
-            serde_json::Value::String(path.to_string())
+            serde_json::Value::String(relative_path.into())
         ),
         timeout_ms: 1000,
     };
