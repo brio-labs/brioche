@@ -373,10 +373,11 @@ fn gc_policy_counts_cycles() {
 
     for _ in 0..5 {
         // Inject a non-idle snapshot so GC doesn't trigger early.
-        ext.insert(brioche_core::SessionSnapshot {
+        let result = ext.insert(brioche_core::SessionSnapshot {
             current_state: brioche_core::AgentStateTag::Predicting,
             state_stack_depth: 0,
         });
+        assert!(result.is_ok(), "SessionSnapshot serializes: {result:?}");
         assert!(
             policy.after_prediction(&mut ext).is_ok(),
             "after_prediction should succeed"
@@ -404,10 +405,11 @@ fn gc_policy_respects_idle_flag() {
     assert_eq!(state.gcs_triggered, 0);
 
     // Second cycle: simulate idle by injecting SessionSnapshot.
-    ext.insert(brioche_core::SessionSnapshot {
+    let result = ext.insert(brioche_core::SessionSnapshot {
         current_state: brioche_core::AgentStateTag::Idle,
         state_stack_depth: 0,
     });
+    assert!(result.is_ok(), "SessionSnapshot serializes: {result:?}");
     assert!(
         policy.after_prediction(&mut ext).is_ok(),
         "after_prediction should succeed"
