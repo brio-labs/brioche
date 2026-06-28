@@ -451,6 +451,7 @@ proptest! {
 
         prop_assert_eq!(storage1.cold_snapshot(), storage2.cold_snapshot());
     }
+}
 
 /// Serialize helper that always fails.
 ///
