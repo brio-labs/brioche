@@ -33,6 +33,12 @@ pub enum ExitCode {
 #[derive(clap::Args, Debug)]
 pub struct PathArg {
     /// Path to scan (default: current directory).
-    #[arg(long, short, default_value = ".", visible_alias = "root")]
+    #[arg(
+        long,
+        short,
+        default_value = ".",
+        visible_alias = "root",
+        global = true
+    )]
     pub path: PathBuf,
 }
