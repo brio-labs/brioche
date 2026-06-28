@@ -7,6 +7,10 @@ members = [
   "crates/ecosystem/*",
   "crates/apps/*",
   "crates/infra/*",
+  "tests/integration",
+  "tests/property",
+  "tests/replay",
+  "tests/bench",
 ]
 exclude = ["crates/brioche-plugin-template"]
 resolver = "2"
@@ -53,6 +57,8 @@ reqwest = { version = "0.13", features = ["json"] }
 lazy_static = "1"
 base64-simd = "0.8"
 jsonschema = "0.46"
+proptest = "1"
+criterion = { version = "0.5", features = ["async_tokio"] }
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
