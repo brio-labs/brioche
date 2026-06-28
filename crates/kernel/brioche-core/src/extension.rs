@@ -319,11 +319,12 @@ impl ExtensionStorage {
 
     /// Insert a typed value into storage.
     ///
-    /// The value is serialized to a binary blob (via `ExtVTable::serialize`)
-    /// and stored in `cold_snapshot`, then placed in `hot_map` for fast
-    /// access.
+    /// The value is placed in `hot_map` for fast access. Types marked
+    /// `#[brioche(no_snapshot)]` skip the `cold_snapshot` write because
+    /// they are reconstructed every cycle and never rolled back.
     ///
-    /// Complexity: O(serialization cost). Two `BTreeMap` insertions.
+    /// Complexity: O(serialization cost) for snapshot types; O(log n) for
+    /// `NoSnapshot` types. Two `BTreeMap` insertions in the worst case.
     /// # Panics
     /// Never panics.
     ///
@@ -337,8 +338,10 @@ impl ExtensionStorage {
             self.register::<T>();
         }
         if let Some(vtable) = self.registry.get(&type_id) {
-            let blob = (vtable.serialize)(&value);
-            self.cold_snapshot.insert(vtable.ext_id.to_string(), blob);
+            if vtable.snapshot_strategy != SnapshotStrategy::NoSnapshot {
+                let blob = (vtable.serialize)(&value);
+                self.cold_snapshot.insert(vtable.ext_id.to_string(), blob);
+            }
             self.hot_map.insert(type_id, Box::new(value));
         }
         // Defensive: if vtable is missing, value is silently dropped.

@@ -21,10 +21,11 @@
 use std::collections::BTreeMap;
 
 use brioche_core::{
-    AgentState, BriocheEngine, BriocheEngineBuilder, BriocheExtensionType, ConsistencyVerifier,
-    CycleRollbackPolicy, DecisionAggregator, Effect, EffectBit, EngineInput, EpochAction,
-    EpochInterceptor, ExecutionPath, ExtVTable, ExtensionStorage, HookEffectConstraint,
-    PluginResult, PolicyDecision, Session, SessionRegistry, StreamEvent, SubRoutineHandle,
+    ActiveToolCall, AgentState, BriocheEngine, BriocheEngineBuilder, BriocheExtensionType,
+    BriochePlugin, ConsistencyVerifier, CycleRollbackPolicy, DecisionAggregator, Effect, EffectBit,
+    EngineInput, EpochAction, EpochInterceptor, ExecutionPath, ExtVTable, ExtensionStorage,
+    GovernanceFailoverHandler, HookEffectConstraint, PluginCapabilities, PluginError, PluginResult,
+    PolicyDecision, Session, SessionRegistry, StreamEvent, SubRoutineHandle,
     SubRoutineLifecycleGuard,
 };
 use brioche_governance_default::{
@@ -109,6 +110,14 @@ fn build_engine() -> BriocheEngine {
 #[derive(Clone, Debug, Serialize, Deserialize, Default, brioche_macro::BriocheExtensionType)]
 #[brioche(ext_id = "benchmarks.BenchState")]
 struct BenchState {
+    value: i32,
+    map: BTreeMap<String, i32>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default, brioche_macro::BriocheExtensionType)]
+#[brioche(ext_id = "benchmarks.TransientState", no_snapshot)]
+/// Transient fixture type that skips cold serialization.
+struct TransientState {
     value: i32,
     map: BTreeMap<String, i32>,
 }
@@ -242,6 +251,29 @@ mod engine {
             }
         });
     }
+    /// Benchmark: `active_tools_clone` — cost of cloning tool-call arguments.
+    ///
+    /// Parameterized by the number of active tool calls. Documents the
+    /// per-transition clone cost that `append_state_effects` pays when the
+    /// session leaves `ExecutingTools`.
+    ///
+    /// Refs: I-Core-ActiveToolCall
+    #[divan::bench(args = [0, 1, 5, 25])]
+    fn active_tools_clone_cost(bencher: divan::Bencher, tool_count: usize) {
+        let tools: Vec<ActiveToolCall> = (0..tool_count)
+            .map(|i| ActiveToolCall {
+                tool_id: format!("tc{i}"),
+                tool_name: "calc".into(),
+                arguments: "{\"x\":1}".into(),
+                timeout_ms: 5000,
+            })
+            .collect();
+
+        bencher.bench_local(|| {
+            let cloned = tools.clone();
+            divan::black_box(cloned);
+        });
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -329,6 +361,26 @@ mod extension {
     #[divan::bench]
     fn insert_with_serialization(bencher: divan::Bencher) {
         let state = BenchState {
+            value: 42,
+            map: BTreeMap::new(),
+        };
+
+        bencher
+            .with_inputs(ExtensionStorage::new)
+            .bench_local_refs(|storage| {
+                storage.insert(state.clone());
+            });
+    }
+    /// Benchmark: `extension_insert_no_snapshot` — skip cold serialization.
+    ///
+    /// Measures the cost of inserting a `#[brioche(no_snapshot)]` type.
+    /// No MessagePack serialization is performed, so this should be faster
+    /// than `insert_with_serialization` for the same payload shape.
+    ///
+    /// Refs: I-Core-Pure
+    #[divan::bench]
+    fn insert_no_snapshot(bencher: divan::Bencher) {
+        let state = TransientState {
             value: 42,
             map: BTreeMap::new(),
         };
@@ -464,6 +516,66 @@ mod governance {
             })
             .bench_local_refs(|(ext, decisions)| {
                 let _ = aggregator.aggregate_decisions(decisions.clone(), ext);
+            });
+    }
+    /// Plugin that always returns a fatal error, producing `Effect::PluginFault`.
+    struct FaultyPlugin;
+
+    impl BriochePlugin for FaultyPlugin {
+        fn name(&self) -> &'static str {
+            "faulty"
+        }
+
+        fn capabilities(&self) -> PluginCapabilities {
+            PluginCapabilities::ON_INPUT
+        }
+
+        fn on_input(
+            &self,
+            _input: &EngineInput,
+            _ext: &mut ExtensionStorage,
+        ) -> PluginResult<PolicyDecision> {
+            Err(PluginError::Fatal {
+                plugin_name: "faulty".into(),
+                message: "boom".into(),
+            })
+        }
+    }
+
+    /// Failover handler that replaces a fault with a single `SaveSession`.
+    struct NoopFailoverHandler;
+
+    impl GovernanceFailoverHandler for NoopFailoverHandler {
+        fn handle_failure(
+            &self,
+            _session: &mut Session,
+            _fault: &Effect,
+        ) -> PluginResult<Option<Vec<Effect>>> {
+            Ok(Some(vec![Effect::SaveSession]))
+        }
+    }
+
+    /// Benchmark: `governance_failover` — fault replacement path.
+    ///
+    /// Measures `transition()` when a `PluginFault` is present and a failover
+    /// handler is installed. The optimized implementation moves non-fault
+    /// effects rather than cloning them, so this cost should scale with the
+    /// number of faults, not the total effect count.
+    ///
+    /// Refs: I-Gov-Failover
+    #[divan::bench]
+    fn failover_replacement(bencher: divan::Bencher) {
+        let mut engine = BriocheEngineBuilder::new()
+            .with_plugin(Box::new(FaultyPlugin))
+            .with_governance_failover_handler(Box::new(NoopFailoverHandler))
+            .with_decision_aggregator(Box::new(MockDecisionAggregator))
+            .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+            .build();
+
+        bencher
+            .with_inputs(|| Session::new("bench"))
+            .bench_local_refs(|session| {
+                let _ = engine.transition(session, &EngineInput::UserMessage("hello".into()));
             });
     }
 }
