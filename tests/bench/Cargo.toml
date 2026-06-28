@@ -1,0 +1,27 @@
+[package]
+name = "brioche-bench-tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Cross-crate Criterion benchmarks"
+publish = false
+
+[dependencies]
+brioche-core = { workspace = true }
+brioche-governance-default = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "engine_transition"
+harness = false
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+[lints.rust]
+missing_docs = "allow"
