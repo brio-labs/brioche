@@ -70,6 +70,13 @@ pub const DEFAULT_TOOL_TIMEOUT_MS: u64 = 30_000;
 ///
 /// Refs: I-Core-AgentState
 pub const INITIAL_GENERATION_ID: u64 = 1;
+/// Maximum depth of the hierarchical `AgentState` stack.
+///
+/// This bound prevents unbounded memory growth from pathological
+/// push sequences while leaving normal conversational depth untouched.
+///
+/// Refs: I-Core-AgentState
+pub const MAX_STATE_STACK_DEPTH: usize = 128;
 
 /// Maximum number of entries retained in transition trace ring buffers.
 ///
