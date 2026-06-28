@@ -1116,6 +1116,80 @@ fn transition_with_system_failover_guard_replaces_fault() {
         e, Effect::ForwardToUi(widget) if widget.widget_type() == "critical_error"
     )));
 }
+#[test]
+fn governance_failover_preserves_non_fault_effects() {
+    use brioche_core::{GovernanceFailoverHandler, PluginSource};
+
+    /// Failover handler that wraps the original fault in SaveSession markers.
+    struct WrapFaultHandler;
+
+    impl GovernanceFailoverHandler for WrapFaultHandler {
+        fn handle_failure(
+            &self,
+            _session: &mut Session,
+            fault: &Effect,
+        ) -> PluginResult<Option<Vec<Effect>>> {
+            Ok(Some(vec![
+                Effect::SaveSession,
+                fault.clone(),
+                Effect::SaveSession,
+            ]))
+        }
+    }
+
+    struct FaultyPlugin;
+    impl BriochePlugin for FaultyPlugin {
+        fn name(&self) -> &'static str {
+            "faulty"
+        }
+
+        fn capabilities(&self) -> PluginCapabilities {
+            PluginCapabilities::ON_INPUT
+        }
+
+        fn on_input(
+            &self,
+            _input: &EngineInput,
+            _ext: &mut ExtensionStorage,
+        ) -> PluginResult<PolicyDecision> {
+            Err(brioche_core::PluginError::Fatal {
+                plugin_name: "faulty".into(),
+                message: "boom".into(),
+            })
+        }
+    }
+
+    let mut engine = BriocheEngineBuilder::new()
+        .with_plugin(Box::new(FaultyPlugin))
+        .with_governance_failover_handler(Box::new(WrapFaultHandler))
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .build();
+
+    let mut session = Session::new("test");
+    let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
+
+    // The session is in Predicting after the plugin error, so the engine
+    // emitted SaveSession + CallLlmNetwork as state effects. The fault was
+    // replaced by SaveSession + PluginFault + SaveSession. All non-fault
+    // effects (SaveSession, CallLlmNetwork) must be preserved.
+    let save_count = effects
+        .iter()
+        .filter(|e| matches!(e, Effect::SaveSession))
+        .count();
+    assert_eq!(
+        save_count, 3,
+        "expected three SaveSession effects after failover"
+    );
+    assert!(effects.iter().any(|e| matches!(
+        e,
+        Effect::PluginFault {
+            plugin_name: PluginSource(name),
+            ..
+        } if name == "faulty"
+    )));
+    assert!(effects.iter().any(|e| matches!(e, Effect::CallLlmNetwork)));
+}
 
 // ---------------------------------------------------------------------------
 // Sprint 7: Optional traits + COW integration

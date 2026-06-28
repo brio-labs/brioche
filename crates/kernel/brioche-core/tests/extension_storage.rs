@@ -27,6 +27,15 @@ pub struct EpochState {
     /// Current generation ID for epoch tracking.
     pub current_generation: u64,
 }
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, BriocheExtensionType)]
+#[brioche(no_snapshot)]
+/// Transient extension state that must not be written to cold storage.
+///
+/// Refs: I-Core-Pure
+pub struct TransientState {
+    /// In-memory counter only.
+    pub counter: u64,
+}
 
 #[test]
 fn insert_and_get_mut_roundtrip() {
@@ -117,6 +126,25 @@ fn cold_snapshot_persists_binary_blobs() {
         snapshot
             .get(TestState::EXT_ID)
             .is_some_and(|v| !v.is_empty())
+    );
+}
+#[test]
+fn no_snapshot_types_skip_cold_storage() {
+    let mut storage = ExtensionStorage::new();
+    storage.insert(TransientState { counter: 99 });
+
+    // The transient type must still be reachable in hot_map.
+    if let Some(state) = storage.get_mut::<TransientState>() {
+        assert_eq!(state.counter, 99);
+    } else {
+        assert_eq!(1, 0, "TransientState not found in hot_map");
+    }
+
+    // But it must not be serialized into cold_snapshot.
+    let snapshot = storage.cold_snapshot();
+    assert!(
+        !snapshot.contains_key(TransientState::EXT_ID),
+        "NoSnapshot type was written to cold_snapshot"
     );
 }
 
