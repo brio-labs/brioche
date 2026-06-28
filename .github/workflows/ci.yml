@@ -71,7 +71,7 @@ jobs:
   deny:
     runs-on: ubuntu-latest
     needs: [changes]
-    if: needs.changes.outputs.lock == 'true'
+    if: needs.changes.outputs.lock == 'true' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
       - uses: dtolnay/rust-toolchain@stable
@@ -116,13 +116,19 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           BRANCH="${{ github.head_ref }}"
-          ALLOWED_TYPES="feature|fix|doc|chore"
-          ALLOWED_BOOKS="core|desktop|docgen|governance|governance-default|macro|playground|plugin-kit|provider-openai|repo|shell-persistence|shell-projection|shell-runtime|std|tools-system"
-          if ! [[ "$BRANCH" =~ ^($ALLOWED_TYPES)/($ALLOWED_BOOKS)-[a-z0-9-]+$ ]]; then
-            echo "❌ Branch '$BRANCH' does not match CONTRIBUTING.md naming convention: <type>/<book>-<description>"
-            exit 1
+          # Replacement/review branches use a review/ prefix and do not follow
+          # the standard <type>/<book>-<description> convention.
+          if [[ "$BRANCH" =~ ^review/[a-z0-9-]+$ ]]; then
+            echo "✓ Review branch '$BRANCH' OK"
+          else
+            ALLOWED_TYPES="feature|fix|doc|chore"
+            ALLOWED_BOOKS="core|desktop|docgen|governance|governance-default|macro|playground|plugin-kit|provider-openai|repo|shell-persistence|shell-projection|shell-runtime|std|tools-system"
+            if ! [[ "$BRANCH" =~ ^($ALLOWED_TYPES)/($ALLOWED_BOOKS)-[a-z0-9-]+$ ]]; then
+              echo "❌ Branch '$BRANCH' does not match CONTRIBUTING.md naming convention: <type>/<book>-<description>"
+              exit 1
+            fi
+            echo "✓ Branch name '$BRANCH' OK"
           fi
-          echo "✓ Branch name '$BRANCH' OK"
       - name: Check commit messages
         run: |
           ALLOWED_TYPES="feat|fix|docs|test|refactor|perf|chore|invariant"
@@ -200,7 +206,7 @@ jobs:
   dependency-audit:
     runs-on: ubuntu-latest
     needs: [changes, deny]
-    if: needs.changes.outputs.lock == 'true'
+    if: needs.changes.outputs.lock == 'true' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
       - uses: dtolnay/rust-toolchain@stable
@@ -383,7 +389,7 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     needs: [changes, deny]
-    if: needs.changes.outputs.lock == 'true'
+    if: needs.changes.outputs.lock == 'true' || needs.changes.outputs.rust == 'true'
     permissions:
       contents: read
       checks: write
