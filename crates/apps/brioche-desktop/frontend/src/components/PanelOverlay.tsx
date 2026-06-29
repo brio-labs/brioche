@@ -28,13 +28,13 @@ export default function PanelOverlay({
 		<div className="panel-backdrop" onClick={onClose}>
 			<div className={panelClassName} onClick={(e) => e.stopPropagation()}>
 				<div className="panel-header">
-					<h2 className="flex items-center text-sm font-semibold text-text-primary">
+					<h2 className="flex items-center text-sm font-semibold text-fg-primary">
 						{icon && <span className="mr-2.5 flex items-center text-accent">{icon}</span>}
 						<span>{title}</span>
 					</h2>
 					<div className="flex items-center gap-2">
 						{headerActions}
-						<button type="button" className="p-1.5 bg-transparent text-text-muted hover:text-text-secondary hover:bg-bg-3 rounded-md transition-all duration-150 cursor-pointer flex items-center justify-center" onClick={onClose} aria-label="Close panel">
+						<button type="button" className="p-1.5 bg-transparent text-fg-muted hover:text-fg-secondary hover:bg-bg-highlight rounded-md transition-all duration-150 cursor-pointer flex items-center justify-center" onClick={onClose} aria-label="Close panel">
 							<XIcon className="w-4 h-4" />
 						</button>
 					</div>
@@ -66,15 +66,15 @@ export function SearchBar({
 	containerClassName = "",
 }: SearchBarProps) {
 	return (
-		<div className={`flex items-center gap-2 px-3 py-2 border border-border bg-bg-2/30 rounded-md focus-within:border-accent-dim/60 focus-within:ring-1 focus-within:ring-accent-dim/30 transition-all ${containerClassName}`}>
-			<SearchIcon className="w-4 h-4 text-text-muted shrink-0" />
+		<div className={`flex items-center gap-2 px-3 py-2 border border-border bg-bg-elevated/30 rounded-md focus-within:border-accent-dim/60 focus-within:ring-1 focus-within:ring-accent-dim/30 transition-all ${containerClassName}`}>
+			<SearchIcon className="w-4 h-4 text-fg-muted shrink-0" />
 			<input
 				type="text"
 				placeholder={placeholder}
 				value={value}
 				onChange={(e) => onChange(e.target.value)}
 				onKeyDown={(e) => e.key === "Enter" && onSearch?.()}
-				className="flex-1 bg-transparent border-none text-text-primary text-[13px] outline-none placeholder:text-text-dim font-sans"
+				className="flex-1 bg-transparent border-none text-fg-primary text-[13px] outline-none placeholder:text-fg-dim font-sans"
 			/>
 			{onSearch && (
 				<button
@@ -114,8 +114,8 @@ export function CategoryFilter({
 				type="button"
 				className={`px-3 py-1 rounded text-xs font-medium cursor-pointer transition-all ${
 					!activeCategory
-						? "bg-accent/20 text-text-primary border border-accent/30"
-						: "bg-bg-2/50 text-text-muted hover:text-text-secondary border border-border/50"
+						? "bg-accent/20 text-fg-primary border border-accent/30"
+						: "bg-bg-elevated/50 text-fg-muted hover:text-fg-secondary border border-border/50"
 				} ${buttonClassName}`}
 				onClick={() => onSelect(null)}
 			>
@@ -129,8 +129,8 @@ export function CategoryFilter({
 						type="button"
 						className={`px-3 py-1 rounded text-xs font-medium cursor-pointer transition-all ${
 							isActive
-								? "bg-accent/20 text-text-primary border border-accent/30"
-								: "bg-bg-2/50 text-text-muted hover:text-text-secondary border border-border/50"
+								? "bg-accent/20 text-fg-primary border border-accent/30"
+								: "bg-bg-elevated/50 text-fg-muted hover:text-fg-secondary border border-border/50"
 						} ${buttonClassName}`}
 						onClick={() => onSelect(cat)}
 					>

@@ -170,7 +170,7 @@ function RecordList({
 			{items.map((item, index) => (
 				<div
 					key={index}
-					className="p-3 bg-bg-2/30 border border-border rounded-lg flex flex-col gap-2"
+					className="p-3 bg-bg-elevated/30 border border-border rounded-lg flex flex-col gap-2"
 				>
 					{rows.map((rowFields, rowIndex) => (
 						<div
@@ -186,7 +186,7 @@ function RecordList({
 									variant="ghost"
 									size="icon"
 									onClick={() => removeItem(index)}
-									className="text-text-muted hover:text-red-400 shrink-0"
+									className="text-fg-muted hover:text-error-text shrink-0"
 								>
 									×
 								</Button>
@@ -398,15 +398,15 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 		<PanelOverlay
 			title="Settings"
 			onClose={onClose}
-			panelClassName="bg-bg-1 border border-border rounded-lg w-[800px] max-w-[95vw] max-h-[85vh] flex flex-col overflow-hidden animate-slideUp shadow-2xl z-[1001]"
+			panelClassName="bg-bg-surface border border-border rounded-lg w-[800px] max-w-[95vw] max-h-[85vh] flex flex-col overflow-hidden animate-slideUp shadow-2xl z-[1001]"
 		>
 			<div className="flex flex-row flex-1 overflow-hidden min-h-0">
-				<div className="w-[240px] min-w-[240px] border-r border-border flex flex-col bg-bg-0/20">
+				<div className="w-[240px] min-w-[240px] border-r border-border flex flex-col bg-bg-base/20">
 					<SearchBar
 						placeholder="Search settings..."
 						value={search}
 						onChange={setSearch}
-						containerClassName="border-b border-border rounded-none px-5 py-4 bg-bg-0/30"
+						containerClassName="border-b border-border rounded-none px-5 py-4 bg-bg-base/30"
 					/>
 					<div className="flex-1 overflow-y-auto p-3 flex flex-col gap-0.5">
 						{filteredSections.map((section) => (
@@ -417,8 +417,8 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 								onClick={() => setSelectedSectionId(section.id)}
 								className={`w-full justify-start px-4 py-2.5 text-[13px] font-semibold transition-all duration-150 ${
 									selectedSectionId === section.id
-										? "bg-accent/15 border-l-2 border-accent text-text-primary"
-										: "text-text-secondary hover:bg-bg-2/50 hover:text-text-primary"
+										? "bg-accent/15 border-l-2 border-accent text-fg-primary"
+										: "text-fg-secondary hover:bg-bg-elevated/50 hover:text-fg-primary"
 								}`}
 							>
 								{section.title}
@@ -431,7 +431,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 					{selectedSection ? (
 						<>
 							<div className="border-b border-border pb-3 mb-2">
-								<h3 className="text-base font-semibold text-text-primary">
+								<h3 className="text-base font-semibold text-fg-primary">
 									{selectedSection.title}
 								</h3>
 							</div>
@@ -450,13 +450,13 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 							</div>
 						</>
 					) : (
-						<div className="flex-1 flex flex-col items-center justify-center text-text-muted py-16 text-sm">
+						<div className="flex-1 flex flex-col items-center justify-center text-fg-muted py-16 text-sm">
 							Select a section from the left to view its settings.
 						</div>
 					)}
 				{saveError && (
 					<div className="mt-auto pt-5">
-						<div className="rounded-lg border border-error-border bg-error-bg px-4 py-3 text-[13px] text-[#e8a0a0] whitespace-pre-wrap">
+						<div className="rounded-lg border border-error-border bg-error-bg px-4 py-3 text-[13px] text-error-text whitespace-pre-wrap">
 							{saveError}
 						</div>
 					</div>
@@ -464,7 +464,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 				</div>
 			</div>
 
-			<div className="flex justify-end gap-3 px-6 py-5 border-t border-border bg-bg-0/30 shrink-0">
+			<div className="flex justify-end gap-3 px-6 py-5 border-t border-border bg-bg-base/30 shrink-0">
 				<Button type="button" variant="secondary" onClick={onClose}>
 					Cancel
 				</Button>
@@ -606,7 +606,7 @@ function FieldEditor({
 	return (
 		<div
 			className={`flex flex-col gap-2 ${
-				field.protected ? "p-3.5 bg-bg-2/20 border border-border/50 rounded-lg" : ""
+				field.protected ? "p-3.5 bg-bg-elevated/20 border border-border/50 rounded-lg" : ""
 			}`}
 		>
 			{field.field_type !== "boolean" && (
@@ -640,7 +640,7 @@ function FieldEditor({
 								variant="ghost"
 								size="sm"
 								onClick={onReset}
-								className="h-auto px-1 py-0.5 text-text-muted hover:text-text-secondary underline"
+								className="h-auto px-1 py-0.5 text-fg-muted hover:text-fg-secondary underline"
 							>
 								Reset to default
 							</Button>
@@ -650,7 +650,7 @@ function FieldEditor({
 			)}
 			{input}
 			{field.description && (
-				<span className="text-[11px] text-text-muted leading-relaxed">
+				<span className="text-[11px] text-fg-muted leading-relaxed">
 					{field.description}
 				</span>
 			)}
