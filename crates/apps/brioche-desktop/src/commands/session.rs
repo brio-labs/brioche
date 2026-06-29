@@ -463,13 +463,17 @@ pub enum SessionSort {
 
 /// Returns the list of all sessions.
 ///
+/// The session manager is initialized lazily if it has not been created yet,
+/// so calling this command on a fresh app start returns a valid singleton
+/// session instead of an error.
+///
 /// Refs: I-Shell-Runtime-OnlyIO
 ///
 /// # Complexity
 /// O(S log S) where S is the number of active sessions. Performs list sorting.
 ///
 /// # Panic / Safety
-/// Never panics. Returns Err if manager is uninitialized.
+/// Never panics. Returns Err if the session manager cannot be initialized.
 #[tauri::command]
 pub async fn list_sessions(
     state: State<'_, DesktopState>,
@@ -517,6 +521,8 @@ pub async fn list_sessions(
 
 /// Switches to an existing session.
 ///
+/// The session manager is initialized lazily if it has not been created yet.
+///
 /// Refs: I-Shell-Runtime-OnlyIO
 ///
 /// # Complexity
@@ -550,6 +556,10 @@ pub async fn switch_session(
 
 /// Deletes a session.
 ///
+/// The session manager is initialized lazily if it has not been created yet.
+/// Deleting the currently active session or an unknown session returns a
+/// clear error instead of silently succeeding.
+///
 /// Refs: I-Shell-Runtime-OnlyIO
 ///
 /// # Complexity
@@ -568,6 +578,9 @@ pub async fn delete_session(
     let manager = mgr.as_mut().ok_or("No active session")?;
     if manager.current_id() == id {
         return Err("Cannot delete the active session".into());
+    }
+    if !manager.sessions.contains_key(&id) {
+        return Err(format!("Session '{}' not found", id));
     }
     manager.sessions.remove(&id);
     manager.remove_metadata(&id)?;
@@ -601,6 +614,10 @@ async fn new_session_impl(state: &DesktopState) -> Result<String, String> {
 }
 
 /// Creates a new session and switches to it.
+///
+/// The session manager is initialized lazily if it has not been created yet,
+/// so calling this command on a fresh app start always yields a usable
+/// session.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
 ///
@@ -767,6 +784,7 @@ fn system_time_secs() -> u64 {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::path::PathBuf;
 
     use brioche_shell_persistence::{
         FlattenedAgentState, SessionHeadDTO, SessionSchemaVersion, SessionStoreEntry,
@@ -775,7 +793,13 @@ mod tests {
     use super::*;
     use crate::state::DesktopState;
 
-    async fn test_state(path: &str) -> Result<DesktopState, String> {
+    fn temp_redb_path() -> Result<(PathBuf, tempfile::TempDir), String> {
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = dir.path().join("sessions.redb");
+        Ok((path, dir))
+    }
+
+    fn test_state(path: &std::path::Path) -> Result<DesktopState, String> {
         DesktopState::new_with_path(path)
     }
 
@@ -797,7 +821,8 @@ mod tests {
 
     #[tokio::test]
     async fn ensure_manager_lazily_initializes() -> Result<(), String> {
-        let state = test_state("/tmp/brioche-desktop-test-ensure.redb").await?;
+        let (path, _dir) = temp_redb_path()?;
+        let state = test_state(&path)?;
         assert!(state.manager.read().await.is_none());
         state.ensure_manager().await?;
         assert!(state.manager.read().await.is_some());
@@ -806,7 +831,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_messages_has_system_prompt_on_fresh_session() -> Result<(), String> {
-        let state = test_state("/tmp/brioche-desktop-test-messages.redb").await?;
+        let (path, _dir) = temp_redb_path()?;
+        let state = test_state(&path)?;
         let messages = wait_for_system_message(&state).await?;
         assert!(
             messages.iter().any(|m| matches!(m.role, ChatRole::System)),
@@ -817,7 +843,8 @@ mod tests {
 
     #[tokio::test]
     async fn clear_messages_resets_session() -> Result<(), String> {
-        let state = test_state("/tmp/brioche-desktop-test-clear.redb").await?;
+        let (path, _dir) = temp_redb_path()?;
+        let state = test_state(&path)?;
         rebuild_current_session(&state).await?;
         let messages = wait_for_system_message(&state).await?;
         assert!(
@@ -829,12 +856,8 @@ mod tests {
 
     #[tokio::test]
     async fn persist_session_writes_to_store() -> Result<(), String> {
-        let path = format!(
-            "/tmp/brioche-desktop-test-persist-{}-{}.redb",
-            system_time_secs(),
-            std::process::id()
-        );
-        let state = test_state(&path).await?;
+        let (path, _dir) = temp_redb_path()?;
+        let state = test_state(&path)?;
         state.ensure_manager().await?;
 
         let session_id = {
@@ -889,6 +912,67 @@ mod tests {
             ChatMessage::User { content } if content == "hello persistence"
         )));
 
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Pure helper tests (no Tauri runtime required)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn chat_message_payload_maps_system_message() -> Result<(), String> {
+        let msg = ChatMessage::System {
+            content: "you are a test".into(),
+        };
+        let payload = ChatMessagePayload::from(&msg);
+        assert!(matches!(payload.role, ChatRole::System));
+        assert_eq!(payload.content, "you are a test");
+        assert!(payload.tool_id.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn chat_message_payload_maps_tool_request() -> Result<(), String> {
+        let msg = ChatMessage::ToolRequest {
+            id: "call-1".into(),
+            name: "read_file".into(),
+            arguments: "{\"path\":\"/tmp\"}".into(),
+        };
+        let payload = ChatMessagePayload::from(&msg);
+        assert!(matches!(payload.role, ChatRole::ToolRequest));
+        assert_eq!(payload.tool_id.as_deref(), Some("call-1"));
+        assert_eq!(payload.tool_name.as_deref(), Some("read_file"));
+        assert_eq!(payload.tool_arguments.as_deref(), Some("{\"path\":\"/tmp\"}"));
+        Ok(())
+    }
+
+    #[test]
+    fn chat_message_payload_maps_tool_result() -> Result<(), String> {
+        let msg = ChatMessage::ToolResult {
+            id: "call-1".into(),
+            content: "done".into(),
+        };
+        let payload = ChatMessagePayload::from(&msg);
+        assert!(matches!(payload.role, ChatRole::ToolResult));
+        assert_eq!(payload.tool_id.as_deref(), Some("call-1"));
+        assert_eq!(payload.tool_output.as_deref(), Some("done"));
+        Ok(())
+    }
+
+    #[test]
+    fn session_sort_default_is_date() -> Result<(), String> {
+        let sort = SessionSort::default();
+        assert!(matches!(sort, SessionSort::Date));
+        Ok(())
+    }
+
+    #[test]
+    fn print_help_contains_core_commands() -> Result<(), String> {
+        let help = print_help();
+        assert!(help.contains("/help"));
+        assert!(help.contains("/session new"));
+        assert!(help.contains("/session load"));
+        assert!(help.contains("/clear"));
         Ok(())
     }
 }
