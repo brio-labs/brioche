@@ -67,7 +67,7 @@ export function SearchBar({
 }: SearchBarProps) {
 	return (
 		<div className={`flex items-center gap-2 px-3 py-2 border border-border bg-bg-2/30 rounded-md focus-within:border-accent-dim/60 focus-within:ring-1 focus-within:ring-accent-dim/30 transition-all ${containerClassName}`}>
-			{!containerClassName.includes("memory") && <SearchIcon className="w-4 h-4 text-text-muted shrink-0" />}
+			<SearchIcon className="w-4 h-4 text-text-muted shrink-0" />
 			<input
 				type="text"
 				placeholder={placeholder}
@@ -77,7 +77,7 @@ export function SearchBar({
 				className="flex-1 bg-transparent border-none text-text-primary text-[13px] outline-none placeholder:text-text-dim font-sans"
 			/>
 			{onSearch && (
-				<button 
+				<button
 					onClick={onSearch}
 					className="px-3 py-1 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded cursor-pointer transition-colors"
 				>
