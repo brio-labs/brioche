@@ -74,10 +74,13 @@ impl BriochePlugin for EffectPumpPlugin {
 
 /// Create a Tokio runtime for Criterion's async executor.
 fn tokio_runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Runtime::new().unwrap_or_else(|err| {
-        eprintln!("failed to create Tokio runtime: {err}");
-        std::process::exit(1);
-    })
+    match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(err) => {
+            eprintln!("failed to create Tokio runtime: {err}");
+            std::process::exit(1);
+        }
+    }
 }
 
 /// Build a shell wired to emit `effects_per_input` UI effects for every input.
