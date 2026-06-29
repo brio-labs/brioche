@@ -1,0 +1,25 @@
+[package]
+name = "brioche-shell-builder"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shared shell construction helpers for Brioche apps"
+
+[dependencies]
+brioche-core = { workspace = true }
+brioche-plugin-kit = { workspace = true }
+brioche-provider-openai = { workspace = true }
+brioche-shell-persistence = { workspace = true }
+brioche-shell-runtime = { workspace = true }
+brioche-tools-system = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

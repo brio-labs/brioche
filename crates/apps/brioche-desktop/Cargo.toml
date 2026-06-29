@@ -34,6 +34,7 @@ tracing = { workspace = true }
 brioche-core = { workspace = true }
 brioche-shell-runtime = { workspace = true }
 brioche-shell-persistence = { workspace = true }
+brioche-shell-builder = { workspace = true }
 brioche-provider-openai = { workspace = true }
 brioche-tools-system = { workspace = true }
 brioche-plugin-kit = { workspace = true }

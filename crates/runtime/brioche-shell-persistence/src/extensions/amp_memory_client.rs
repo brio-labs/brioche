@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use std::future::Future;
 use std::sync::{Arc, RwLock};
 
+use brioche_shell_runtime::util::system_time_secs;
 use serde::{Deserialize, Serialize};
 
 use super::memory_provider::{MemoryEntry, MemoryProvider, MemoryQuery, MemorySessionContext};
@@ -430,13 +431,6 @@ fn amp_tool_schema(
     obj.insert("type".into(), serde_json::Value::String("function".into()));
     obj.insert("function".into(), serde_json::Value::Object(function));
     serde_json::Value::Object(obj)
-}
-
-fn system_time_secs() -> u64 {
-    match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-        Ok(d) => d.as_secs(),
-        Err(_) => 0,
-    }
 }
 
 fn random_key(prefix: &str) -> String {

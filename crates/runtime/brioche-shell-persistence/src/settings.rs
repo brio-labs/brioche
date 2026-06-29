@@ -10,6 +10,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use brioche_shell_runtime::util::{load_json, save_json};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -207,17 +208,17 @@ impl Settings {
     /// Never panics. Returns defaults if file reading or parsing fails.
     pub fn load() -> Self {
         let path = settings_path();
-        if let Ok(data) = std::fs::read_to_string(&path)
-            && let Ok(mut settings) = serde_json::from_str::<Settings>(&data)
-        {
-            // Merge missing default module values so upgrades keep working.
-            let defaults = Self::default();
-            for (key, value) in defaults.modules {
-                settings.modules.entry(key).or_insert(value);
+        match load_json::<_, Settings>(&path, "settings") {
+            Ok(mut settings) => {
+                // Merge missing default module values so upgrades keep working.
+                let defaults = Self::default();
+                for (key, value) in defaults.modules {
+                    settings.modules.entry(key).or_insert(value);
+                }
+                settings
             }
-            return settings;
+            Err(_) => Self::default(),
         }
-        Self::default()
     }
 
     /// Saves settings to disk.
@@ -230,14 +231,7 @@ impl Settings {
     /// # Panic / Safety
     /// Never panics. Returns error string if serialization or write fails.
     pub fn save(&self) -> Result<(), String> {
-        let path = settings_path();
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create config dir: {e}"))?;
-        }
-        let data = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("Failed to serialize settings: {e}"))?;
-        std::fs::write(&path, data).map_err(|e| format!("Failed to write settings: {e}"))
+        save_json(settings_path(), self, "settings")
     }
 
     /// Returns a module object, creating it with an empty object if missing.

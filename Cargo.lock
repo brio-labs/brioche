@@ -17,6 +17,7 @@ dependencies = [
  "brioche-plugin-kit",
  "brioche-provider-openai",
  "brioche-reedline",
+ "brioche-shell-builder",
  "brioche-shell-persistence",
  "brioche-shell-runtime",
  "brioche-tools-system",
@@ -492,6 +493,7 @@ dependencies = [
  "brioche-core",
  "brioche-plugin-kit",
  "brioche-provider-openai",
+ "brioche-shell-builder",
  "brioche-shell-persistence",
  "brioche-shell-runtime",
  "brioche-tools-system",
@@ -629,6 +631,23 @@ dependencies = [
  "brioche-core",
  "brioche-governance-default",
  "brioche-shell-runtime",
+]
+
+[[package]]
+name = "brioche-shell-builder"
+version = "0.1.0"
+dependencies = [
+ "brioche-core",
+ "brioche-plugin-kit",
+ "brioche-provider-openai",
+ "brioche-shell-persistence",
+ "brioche-shell-runtime",
+ "brioche-tools-system",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]

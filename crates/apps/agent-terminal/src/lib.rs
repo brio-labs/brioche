@@ -26,6 +26,7 @@ pub mod shell_builder;
 // ---------------------------------------------------------------------------
 
 use brioche_provider_openai::OpenAiConfig;
+use brioche_shell_builder::assemble_openai_config_from_env;
 
 /// Global CLI configuration.
 /// Refs: docs/SPECS.md §Book IV
@@ -59,34 +60,7 @@ impl CliConfig {
     ///
     /// Refs: docs/SPECS.md §Book IV
     pub fn from_env_and_args(user: UserConfig) -> Self {
-        let api_key = user
-            .api_key
-            .or_else(|| std::env::var("BRIOCHE_API_KEY").ok())
-            .map_or(String::new(), |v| v);
-        let model = user
-            .model
-            .or_else(|| std::env::var("BRIOCHE_MODEL").ok())
-            .map_or("gpt-4o-mini".into(), |v| v);
-        let base_url = user
-            .base_url
-            .or_else(|| std::env::var("BRIOCHE_BASE_URL").ok())
-            .map_or("https://api.openai.com/v1".into(), |v| v);
-
-        let max_tokens = std::env::var("BRIOCHE_MAX_TOKENS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .map_or(4096u32, |v| v);
-
-        let reasoning_effort = std::env::var("BRIOCHE_REASONING_EFFORT").ok();
-
-        let openai = OpenAiConfig {
-            api_key,
-            model,
-            base_url,
-            max_tokens,
-            timeout_ms: 120_000,
-            reasoning_effort,
-        };
+        let openai = assemble_openai_config_from_env(user.api_key, user.model, user.base_url);
 
         Self {
             openai,

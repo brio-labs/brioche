@@ -3,6 +3,7 @@
 //! Refs: I-Shell-Runtime-OnlyIO
 
 use brioche_core::{ChatMessage, EngineInput};
+use brioche_shell_runtime::util::system_time_secs;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
@@ -795,13 +796,6 @@ async fn send_image_impl(state: &DesktopState, path: String) -> Result<(String, 
             .await;
     }
     Ok((content, data_url))
-}
-
-fn system_time_secs() -> u64 {
-    match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-        Ok(d) => d.as_secs(),
-        Err(_) => 0,
-    }
 }
 
 #[cfg(test)]
