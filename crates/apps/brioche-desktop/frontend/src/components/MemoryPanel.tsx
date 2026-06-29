@@ -45,6 +45,13 @@ export default function MemoryPanel({ onClose }: MemoryPanelProps) {
 		}
 	};
 
+	const handleCancel = () => {
+		setNewKey("");
+		setNewValue("");
+		setNewCategory("preference");
+		setIsAdding(false);
+	};
+
 	const handleDelete = async (key: string) => {
 		if (!isTauriAvailable) return;
 		await deleteExistingMemory(key);
@@ -53,6 +60,8 @@ export default function MemoryPanel({ onClose }: MemoryPanelProps) {
 	const formatDate = (timestamp: number) => {
 		return new Date(timestamp * 1000).toLocaleDateString();
 	};
+
+	const canSave = Boolean(newKey.trim() && newValue.trim());
 
 	return (
 		<PanelOverlay title="Memory" onClose={onClose} panelClassName="bg-bg-1 border border-border rounded-lg w-[600px] max-w-[95vw] max-h-[85vh] flex flex-col overflow-hidden animate-slideUp shadow-2xl z-[1001]">
@@ -73,15 +82,15 @@ export default function MemoryPanel({ onClose }: MemoryPanelProps) {
 				/>
 
 				{!isTauriAvailable && (
-					<div className="bg-error-bg text-[#e8a0a0] border border-error-border px-3.5 py-2.5 rounded-lg text-xs shrink-0">
+					<div className="bg-error-bg text-[#e8a0a0] border border-error-border px-3.5 py-2.5 rounded-lg text-xs mx-4 my-3 shrink-0">
 						Memory panel preview mode: changes require the Tauri desktop app.
 					</div>
 				)}
-				{error && <div className="bg-error-bg text-[#e8a0a0] border border-error-border px-3.5 py-2.5 rounded-lg text-xs shrink-0">{error}</div>}
+				{error && <div className="bg-error-bg text-[#e8a0a0] border border-error-border px-3.5 py-2.5 rounded-lg text-xs mx-4 my-3 shrink-0">{error}</div>}
 
 				<div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-3 py-1">
 					{memories.length === 0 ? (
-						<div className="text-center text-text-muted py-12 text-sm select-none">No memories yet</div>
+						<div className="text-center text-text-muted py-12 px-4 text-sm select-none">No memories yet</div>
 					) : (
 						memories.map((memory) => (
 							<div key={memory.key} className="p-3 bg-bg-2/30 border border-border rounded-lg flex flex-col gap-1.5 transition-all hover:border-border-hover">
@@ -90,7 +99,7 @@ export default function MemoryPanel({ onClose }: MemoryPanelProps) {
 									<div className="flex items-center gap-2">
 										<span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-accent/10 border border-accent/20 text-accent font-sans uppercase tracking-wider select-none">{memory.category}</span>
 										<button
-											className="p-1 text-text-muted hover:text-red-400 hover:bg-bg-3 rounded transition-colors cursor-pointer flex items-center justify-center shrink-0"
+											className="p-1.5 text-text-muted hover:text-red-400 hover:bg-bg-3 rounded transition-colors cursor-pointer flex items-center justify-center shrink-0"
 											onClick={() => handleDelete(memory.key)}
 											aria-label={`Delete memory ${memory.key}`}
 										>
@@ -144,13 +153,13 @@ export default function MemoryPanel({ onClose }: MemoryPanelProps) {
 									</option>
 								))}
 							</select>
-							<div className="flex justify-end gap-2 [&_button]:px-3 [&_button]:py-1.5 [&_button]:text-xs [&_button]:font-medium [&_button]:rounded [&_button]:cursor-pointer [&_button:first-child]:bg-accent [&_button:first-child]:hover:bg-accent-hover [&_button:first-child]:text-white [&_button:last-child]:bg-transparent [&_button:last-child]:border [&_button:last-child]:border-border [&_button:last-child]:text-text-secondary [&_button:last-child]:hover:bg-bg-2">
-								<button onClick={handleAdd}>Save</button>
-								<button onClick={() => setIsAdding(false)}>Cancel</button>
+							<div className="flex justify-end gap-2 [&_button]:px-3 [&_button]:py-1.5 [&_button]:text-xs [&_button]:font-medium [&_button]:rounded [&_button]:cursor-pointer [&_button:first-child]:bg-accent [&_button:first-child]:hover:bg-accent-hover [&_button:first-child]:text-white [&_button:first-child]:disabled:opacity-50 [&_button:first-child]:disabled:cursor-not-allowed [&_button:last-child]:bg-transparent [&_button:last-child]:border [&_button:last-child]:border-border [&_button:last-child]:text-text-secondary [&_button:last-child]:hover:bg-bg-2">
+								<button type="button" onClick={handleAdd} disabled={!canSave}>Save</button>
+								<button type="button" onClick={handleCancel}>Cancel</button>
 							</div>
 						</div>
 					) : (
-						<button className="w-full py-2 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded cursor-pointer transition-colors flex items-center justify-center gap-1 shadow-sm shadow-accent-glow/10" onClick={() => setIsAdding(true)}>
+						<button className="w-full py-2.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded cursor-pointer transition-colors flex items-center justify-center gap-1 shadow-sm shadow-accent-glow/10" type="button" onClick={() => setIsAdding(true)}>
 							+ Add Memory
 						</button>
 					)}

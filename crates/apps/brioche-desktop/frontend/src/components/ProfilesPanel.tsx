@@ -51,7 +51,7 @@ function ProfileListItem({
 	return (
 		<div
 			onClick={() => onSelect(profile.name)}
-			className={`p-3 mx-1 rounded-lg cursor-pointer transition-all duration-200 border flex flex-col gap-1.5 ${
+			className={`p-3 rounded-lg cursor-pointer transition-all duration-200 border flex flex-col gap-1.5 ${
 				isSelected
 					? "bg-accent/10 border-accent-dim/40 shadow-sm"
 					: "bg-transparent border-transparent hover:bg-bg-2/30 hover:border-border/60"
@@ -89,6 +89,8 @@ function CreateProfileForm({
 	const [model, setModel] = useState("");
 	const [apiKey, setApiKey] = useState("");
 	const [isSaving, setIsSaving] = useState(false);
+
+	const canSubmit = Boolean(name.trim() && model.trim() && !isSaving);
 
 	const handleSubmit = async () => {
 		const trimmedName = name.trim();
@@ -178,7 +180,7 @@ function CreateProfileForm({
 				<Button variant="secondary" onClick={onCancel} disabled={isSaving}>
 					Cancel
 				</Button>
-				<Button onClick={handleSubmit} disabled={isSaving}>
+				<Button onClick={handleSubmit} disabled={!canSubmit}>
 					Create
 				</Button>
 			</div>
@@ -417,6 +419,11 @@ export default function ProfilesPanel({ onClose }: ProfilesPanelProps) {
 		[activeName, loadProfiles],
 	);
 
+	const handleProfileCreated = useCallback(() => {
+		void loadProfiles();
+		setShowCreate(false);
+	}, [loadProfiles]);
+
 	const isTauriAvailable = isTauri();
 
 	return (
@@ -431,6 +438,7 @@ export default function ProfilesPanel({ onClose }: ProfilesPanelProps) {
 					className="p-1.5 bg-transparent text-text-muted hover:text-text-secondary hover:bg-bg-3 rounded-md transition-all duration-150 cursor-pointer flex items-center justify-center mr-1.5"
 					onClick={() => setShowCreate(true)}
 					title="New profile"
+					aria-label="New profile"
 				>
 					<PlusIcon className="w-4 h-4" />
 				</button>
@@ -442,20 +450,20 @@ export default function ProfilesPanel({ onClose }: ProfilesPanelProps) {
 						placeholder="Search profiles..."
 						value={searchQuery}
 						onChange={setSearchQuery}
-						containerClassName="shrink-0 border-b border-border rounded-none px-3 py-2 bg-bg-0/30"
+						containerClassName="shrink-0 border-b border-border rounded-none px-4 py-3 bg-bg-0/30"
 					/>
 					{error && (
-						<div className="bg-error-bg text-[#e8a0a0] border border-error-border px-3.5 py-2.5 rounded-lg text-xs m-2">
+						<div className="bg-error-bg text-[#e8a0a0] border border-error-border px-3.5 py-2.5 rounded-lg text-xs mx-4 my-3">
 							{error}
 						</div>
 					)}
 					{!isTauriAvailable && !error && (
-						<div className="bg-error-bg text-[#e8a0a0] border border-error-border px-3.5 py-2.5 rounded-lg text-xs m-2">
+						<div className="bg-error-bg text-[#e8a0a0] border border-error-border px-3.5 py-2.5 rounded-lg text-xs mx-4 my-3">
 							Profiles preview mode: profile management requires the Tauri
 							desktop app.
 						</div>
 					)}
-					<div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1.5">
+					<div className="flex-1 overflow-y-auto min-h-0 p-3 flex flex-col gap-2">
 						{isLoading ? (
 							<div className="text-center text-text-muted py-12 text-sm">
 								Loading profiles...
@@ -482,7 +490,7 @@ export default function ProfilesPanel({ onClose }: ProfilesPanelProps) {
 					{showCreate ? (
 						<CreateProfileForm
 							onCancel={() => setShowCreate(false)}
-							onCreated={loadProfiles}
+							onCreated={handleProfileCreated}
 							setError={setError}
 						/>
 					) : selectedProfile ? (
@@ -495,7 +503,7 @@ export default function ProfilesPanel({ onClose }: ProfilesPanelProps) {
 							setError={setError}
 						/>
 					) : (
-						<div className="flex-1 flex items-center justify-center text-text-muted text-sm">
+						<div className="flex-1 flex flex-col items-center justify-center p-5 text-text-muted text-sm text-center">
 							Select a profile to view details
 						</div>
 					)}
