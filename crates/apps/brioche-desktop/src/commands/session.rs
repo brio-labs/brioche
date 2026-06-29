@@ -618,28 +618,42 @@ pub async fn new_session(app: AppHandle, state: State<'_, DesktopState>) -> Resu
 }
 
 async fn load_session(app: &AppHandle, state: &DesktopState, id: &str) -> Result<(), String> {
+    match load_session_impl(state, id).await {
+        Ok(messages) => {
+            emit_system(
+                app,
+                format!("Session '{}' loaded ({} messages).", id, messages.len()),
+            );
+            Ok(())
+        }
+        Err(message) => {
+            emit_system(app, message.clone());
+            Err(message)
+        }
+    }
+}
+
+/// Implementation of [`load_session`] that does not need a Tauri
+/// [`AppHandle`], so it can be exercised from library tests.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(S + M) where S is the number of sessions and M is memory provider initialization.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if the session is not found or shell rebuild fails.
+async fn load_session_impl(state: &DesktopState, id: &str) -> Result<Vec<ChatMessage>, String> {
     state.ensure_manager().await?;
     let factory = state.factory.read().await.clone();
     match factory.redb.load_session(id).await {
-        Ok(None) => {
-            let message = format!("Session '{}' not found.", id);
-            emit_system(app, message.clone());
-            return Err(message);
-        }
-        Err(err) => {
-            let message = format!("Load error: {err}");
-            emit_system(app, message.clone());
-            return Err(message);
-        }
+        Ok(None) => return Err(format!("Session '{}' not found.", id)),
+        Err(err) => return Err(format!("Load error: {err}")),
         Ok(Some(_)) => {}
     }
     let messages: Vec<ChatMessage> = match factory.redb.load_messages_for_session(id).await {
         Ok(msgs) => msgs.into_iter().map(|(_, m)| m).collect(),
-        Err(err) => {
-            let message = format!("Load messages error: {err}");
-            emit_system(app, message.clone());
-            return Err(message);
-        }
+        Err(err) => return Err(format!("Load messages error: {err}")),
     };
     let workspace = factory.settings.working_dir();
     let handle = crate::commands::shell::build_shell(id, &factory);
@@ -663,11 +677,7 @@ async fn load_session(app: &AppHandle, state: &DesktopState, id: &str) -> Result
         manager.switch(id);
     }
     persist_session(state).await?;
-    emit_system(
-        app,
-        format!("Session '{}' loaded ({} messages).", id, messages.len()),
-    );
-    Ok(())
+    Ok(messages)
 }
 
 /// Attaches a file or folder reference to the current conversation.
@@ -685,6 +695,22 @@ pub async fn attach_reference(
     state: State<'_, DesktopState>,
     path: String,
 ) -> Result<(), String> {
+    let content = attach_reference_impl(state.inner(), path).await?;
+    emit_system(&app, content);
+    Ok(())
+}
+
+/// Implementation of [`attach_reference`] that does not need a Tauri
+/// [`AppHandle`], so it can be exercised from library tests.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) plus the cost of reading filesystem metadata. Sends one user message.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if the path cannot be read or no session is active.
+async fn attach_reference_impl(state: &DesktopState, path: String) -> Result<String, String> {
     state.ensure_manager().await?;
     let metadata = tokio::fs::metadata(&path)
         .await
@@ -704,8 +730,7 @@ pub async fn attach_reference(
             })
             .await;
     }
-    emit_system(&app, content);
-    Ok(())
+    Ok(content)
 }
 
 /// Sends an image attachment for multimodal models.
@@ -723,6 +748,22 @@ pub async fn send_image(
     state: State<'_, DesktopState>,
     path: String,
 ) -> Result<String, String> {
+    let (content, data_url) = send_image_impl(state.inner(), path).await?;
+    emit_system(&app, content);
+    Ok(data_url)
+}
+
+/// Implementation of [`send_image`] that does not need a Tauri
+/// [`AppHandle`], so it can be exercised from library tests.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(B) where B is the image file size. Encodes the image as base64.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if the image cannot be read or no session is active.
+async fn send_image_impl(state: &DesktopState, path: String) -> Result<(String, String), String> {
     state.ensure_manager().await?;
     let bytes = tokio::fs::read(&path)
         .await
@@ -753,8 +794,7 @@ pub async fn send_image(
             })
             .await;
     }
-    emit_system(&app, content.clone());
-    Ok(data_url)
+    Ok((content, data_url))
 }
 
 fn system_time_secs() -> u64 {
@@ -775,8 +815,12 @@ mod tests {
     use super::*;
     use crate::state::DesktopState;
 
-    async fn test_state(path: &str) -> Result<DesktopState, String> {
-        DesktopState::new_with_path(path)
+    fn test_state() -> Result<(DesktopState, tempfile::TempDir), String> {
+        let temp_dir =
+            tempfile::tempdir().map_err(|e| format!("Failed to create temp dir: {e}"))?;
+        let path = temp_dir.path().join("test.redb");
+        let state = DesktopState::new_with_path(&path)?;
+        Ok((state, temp_dir))
     }
 
     async fn wait_for_system_message(
@@ -797,7 +841,7 @@ mod tests {
 
     #[tokio::test]
     async fn ensure_manager_lazily_initializes() -> Result<(), String> {
-        let state = test_state("/tmp/brioche-desktop-test-ensure.redb").await?;
+        let (state, _temp) = test_state()?;
         assert!(state.manager.read().await.is_none());
         state.ensure_manager().await?;
         assert!(state.manager.read().await.is_some());
@@ -806,7 +850,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_messages_has_system_prompt_on_fresh_session() -> Result<(), String> {
-        let state = test_state("/tmp/brioche-desktop-test-messages.redb").await?;
+        let (state, _temp) = test_state()?;
         let messages = wait_for_system_message(&state).await?;
         assert!(
             messages.iter().any(|m| matches!(m.role, ChatRole::System)),
@@ -817,7 +861,7 @@ mod tests {
 
     #[tokio::test]
     async fn clear_messages_resets_session() -> Result<(), String> {
-        let state = test_state("/tmp/brioche-desktop-test-clear.redb").await?;
+        let (state, _temp) = test_state()?;
         rebuild_current_session(&state).await?;
         let messages = wait_for_system_message(&state).await?;
         assert!(
@@ -828,13 +872,125 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn persist_session_writes_to_store() -> Result<(), String> {
-        let path = format!(
-            "/tmp/brioche-desktop-test-persist-{}-{}.redb",
-            system_time_secs(),
-            std::process::id()
+    async fn load_session_impl_errors_for_missing_session() -> Result<(), String> {
+        let (state, _temp) = test_state()?;
+        state.ensure_manager().await?;
+        let result = load_session_impl(&state, "nonexistent-session").await;
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => return Err("expected error for missing session".into()),
+        };
+        assert!(
+            err.contains("not found") || err.contains("does not exist"),
+            "expected missing-session error, got: {err}"
         );
-        let state = test_state(&path).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn attach_reference_impl_attaches_existing_file() -> Result<(), String> {
+        let (state, temp) = test_state()?;
+        state.ensure_manager().await?;
+        let file_path = temp.path().join("reference.txt");
+        tokio::fs::write(&file_path, "hello")
+            .await
+            .map_err(|e| format!("Failed to write test file: {e}"))?;
+        let content =
+            attach_reference_impl(&state, file_path.to_string_lossy().to_string()).await?;
+        assert!(
+            content.contains("User attached file"),
+            "expected file attachment"
+        );
+        assert!(
+            content.contains(file_path.to_string_lossy().as_ref()),
+            "expected path in attachment"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn attach_reference_impl_errors_for_missing_file() -> Result<(), String> {
+        let (state, temp) = test_state()?;
+        state.ensure_manager().await?;
+        let file_path = temp.path().join("missing.txt");
+        let result = attach_reference_impl(&state, file_path.to_string_lossy().to_string()).await;
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => return Err("expected error for missing file".into()),
+        };
+        assert!(
+            err.contains("Failed to read reference"),
+            "expected read reference error"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn send_image_impl_encodes_existing_image() -> Result<(), String> {
+        let (state, temp) = test_state()?;
+        state.ensure_manager().await?;
+        let image_path = temp.path().join("image.png");
+        tokio::fs::write(&image_path, b"\x89PNG\r\n\x1a\n")
+            .await
+            .map_err(|e| format!("Failed to write test image: {e}"))?;
+        let (content, data_url) =
+            send_image_impl(&state, image_path.to_string_lossy().to_string()).await?;
+        assert!(
+            content.contains("User sent an image"),
+            "expected image attachment"
+        );
+        assert!(
+            data_url.starts_with("data:image/png;base64,"),
+            "expected png data url"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn send_image_impl_errors_for_missing_image() -> Result<(), String> {
+        let (state, temp) = test_state()?;
+        state.ensure_manager().await?;
+        let image_path = temp.path().join("missing.png");
+        let result = send_image_impl(&state, image_path.to_string_lossy().to_string()).await;
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => return Err("expected error for missing image".into()),
+        };
+        assert!(
+            err.contains("Failed to read image"),
+            "expected read image error"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn print_help_contains_commands() {
+        let help = print_help();
+        assert!(help.contains("/help"), "expected /help in help text");
+        assert!(help.contains("/session"), "expected /session in help text");
+    }
+
+    #[tokio::test]
+    async fn session_lines_reflects_current_session() -> Result<(), String> {
+        let (state, _temp) = test_state()?;
+        state.ensure_manager().await?;
+        let mgr = state.manager.read().await;
+        let manager = mgr.as_ref().ok_or("No active session")?;
+        let lines = session_lines(manager);
+        assert!(
+            lines.iter().any(|line| line.contains("Current session:")),
+            "expected current session line"
+        );
+        assert!(
+            lines.iter().any(|line| line.contains("Sessions:")),
+            "expected sessions line"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn persist_session_writes_to_store() -> Result<(), String> {
+        let (state, _temp) = test_state()?;
         state.ensure_manager().await?;
 
         let session_id = {

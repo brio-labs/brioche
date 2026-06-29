@@ -542,8 +542,10 @@ mod tests {
     /// Verifies that `build_shell` constructs a shell without panicking.
     ///
     /// Note: This test runs inside a tokio runtime so `tokio::spawn` works.
+    /// It uses `tempfile::TempDir` so it never writes to a hard-coded `/tmp`
+    /// path.
     #[tokio::test]
-    async fn build_shell_smoke() {
+    async fn build_shell_smoke() -> Result<(), String> {
         let config = DesktopConfig {
             openai: OpenAiConfig {
                 api_key: String::new(),
@@ -555,15 +557,11 @@ mod tests {
             },
             tick_interval_ms: 1000,
         };
-        let redb_result = RedbStorage::new(
-            "/tmp/brioche-desktop-test.redb",
-            brioche_shell_persistence::new_session_store(),
-        );
-        assert!(redb_result.is_ok(), "Failed to create RedbStorage for test");
-        let redb = match redb_result {
-            Ok(r) => r,
-            Err(_) => return,
-        };
+        let temp_dir =
+            tempfile::tempdir().map_err(|e| format!("Failed to create temp dir: {e}"))?;
+        let redb_path = temp_dir.path().join("test.redb");
+        let redb = RedbStorage::new(&redb_path, brioche_shell_persistence::new_session_store())
+            .map_err(|e| format!("Failed to create RedbStorage for test: {e}"))?;
         let store = brioche_shell_persistence::new_session_store();
         let factory = ShellFactory {
             redb,
@@ -575,6 +573,16 @@ mod tests {
         };
         let handle = build_shell("test-session", &factory);
         assert_eq!(handle.llm_rx.len(), 0);
+        Ok(())
+    }
+
+    /// Verifies that `session_started_at` returns a cached timestamp.
+    #[test]
+    fn session_started_at_caches_timestamp() {
+        let first = session_started_at();
+        assert!(first > 0, "expected positive timestamp");
+        let second = session_started_at();
+        assert_eq!(first, second, "expected cached timestamp to be stable");
     }
 
     #[tokio::test(flavor = "multi_thread")]
