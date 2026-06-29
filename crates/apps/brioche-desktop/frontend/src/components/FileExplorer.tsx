@@ -178,13 +178,13 @@ export default function FileExplorer() {
     }, [deleteExistingFile]);
 
     return (
-        <div className="flex flex-col h-full w-full bg-transparent text-text-primary relative overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border h-[52px] shrink-0 bg-bg-0/30 backdrop-blur-sm">
-                <h2 className="text-[11px] font-bold tracking-[0.14em] uppercase text-text-muted select-none">Explorer</h2>
+        <div className="flex flex-col h-full w-full bg-transparent text-fg-primary relative overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border h-[52px] shrink-0 bg-bg-base/30 backdrop-blur-sm">
+                <h2 className="text-[11px] font-bold tracking-[0.14em] uppercase text-fg-muted select-none">Explorer</h2>
                 <div className="flex items-center gap-2">
                     <button
                         type="button"
-                        className="w-7 h-7 flex items-center justify-center rounded bg-transparent text-text-muted hover:text-text-secondary hover:bg-bg-3 active:bg-bg-4 transition-all duration-200 cursor-pointer"
+                        className="btn-icon w-7 h-7"
                         onClick={handleOpenFolder}
                         title="Open Folder..."
                     >
@@ -192,7 +192,7 @@ export default function FileExplorer() {
                     </button>
                     <button
                         type="button"
-                        className="w-7 h-7 flex items-center justify-center rounded bg-transparent text-text-muted hover:text-text-secondary hover:bg-bg-3 active:bg-bg-4 transition-all duration-200 cursor-pointer"
+                        className="btn-icon w-7 h-7"
                         onClick={() => loadDirectory(currentPath)}
                         title="Refresh"
                     >
@@ -200,27 +200,27 @@ export default function FileExplorer() {
                     </button>
                 </div>
             </div>
-            <div className="flex items-center gap-[var(--space-2)] px-[var(--space-3)] py-[var(--space-2)] border-b border-border bg-bg-0/50">
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-bg-base/50">
                 <button
                     type="button"
-                    className="p-1 hover:bg-bg-3 rounded-md text-text-muted hover:text-text-secondary disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-200 cursor-pointer"
+                    className="btn-icon w-6 h-6 disabled:opacity-30 disabled:cursor-not-allowed"
                     onClick={navigateUp}
                     disabled={currentPath === '/' || currentPath === workspaceRoot}
                     title="Parent directory"
                 >
                     <ChevronUpIcon className="w-3.5 h-3.5" />
                 </button>
-                <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11px] text-text-muted" title={currentPath}>
+                <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11px] text-fg-muted" title={currentPath}>
                     {currentPath || 'No directory'}
                 </span>
             </div>
 
             <div className="flex-1 overflow-y-auto py-2 flex flex-col" onContextMenu={handleContainerContextMenu}>
-                {isLoading && <div className="text-center text-xs text-text-muted py-4">Loading...</div>}
+                {isLoading && <div className="text-center text-xs text-fg-muted py-4">Loading...</div>}
                 
                 {isCreating && createParentPath === currentPath && (
-                    <div className="flex items-center gap-[var(--space-2)] py-[var(--space-2)] px-[var(--space-3)] bg-white/5">
-                        {createType === 'folder' ? <FolderIcon className="w-3.5 h-3.5 text-accent-dim" /> : <FileIcon className="w-3.5 h-3.5 text-text-muted" />}
+                    <div className="flex items-center gap-2 py-2 px-3 bg-bg-elevated/50">
+                        {createType === 'folder' ? <FolderIcon className="w-3.5 h-3.5 text-accent-dim" /> : <FileIcon className="w-3.5 h-3.5 text-fg-muted" />}
                         <input
                             type="text"
                             value={newName}
@@ -228,7 +228,7 @@ export default function FileExplorer() {
                             placeholder={createType === 'folder' ? 'Folder Name' : 'File Name'}
                             autoFocus
                             onBlur={handleCommitCreation}
-                            className="flex-1 bg-[var(--bg-2)] border border-[var(--border)] text-[var(--text-primary)] py-0.5 px-1.5 rounded-[var(--radius-sm)] text-[12px] font-[var(--font-mono)] outline-none focus:border-[var(--accent-dim)]"
+                            className="input-field flex-1 py-0.5 px-1.5 text-xs rounded-sm"
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter') void handleCommitCreation();
                                 else if (e.key === 'Escape') cancelCreation();
@@ -240,7 +240,7 @@ export default function FileExplorer() {
                 {entries.map((entry) => (
                     <div key={entry.path}>
                         <div
-                            className="group flex items-center gap-2.5 px-3 py-2 mx-2 rounded-lg cursor-pointer transition-all duration-200 text-text-secondary hover:text-text-primary hover:bg-accent/5 border border-transparent hover:border-accent/10"
+                            className="group flex items-center gap-2.5 px-3 py-2 mx-2 rounded-lg cursor-pointer transition-all duration-200 text-fg-secondary hover:text-fg-primary hover:bg-accent/5 border border-transparent hover:border-border-accent"
                             onClick={() => handleEntryClick(entry)}
                             onDoubleClick={() => handleEntryDoubleClick(entry)}
                             onContextMenu={(e) => handleItemContextMenu(e, entry)}
@@ -249,13 +249,13 @@ export default function FileExplorer() {
                             {entry.is_dir ? (
                                 <FolderIcon className="w-3.5 h-3.5 shrink-0 text-accent-dim group-hover:text-accent" />
                             ) : (
-                                <FileIcon className="w-3.5 h-3.5 shrink-0 text-text-muted group-hover:text-text-secondary" />
+                                <FileIcon className="w-3.5 h-3.5 shrink-0 text-fg-muted group-hover:text-fg-secondary" />
                             )}
                             <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11px]">{entry.name}</span>
                             {!entry.is_dir && (
                                 <button
                                     type="button"
-                                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-bg-4 border border-transparent hover:border-border rounded-md text-text-muted hover:text-red-400 transition-all duration-200 cursor-pointer ml-2"
+                                    className="opacity-0 group-hover:opacity-100 btn-icon w-6 h-6 text-fg-muted hover:text-error-text hover:bg-error-bg border border-transparent hover:border-error-border transition-opacity duration-200 ml-2"
                                     onClick={(e) => handleDelete(e, entry.path)}
                                     title="Delete"
                                 >
@@ -264,8 +264,8 @@ export default function FileExplorer() {
                             )}
                         </div>
                         {isCreating && createParentPath === entry.path && (
-                            <div className="flex items-center gap-[var(--space-2)] py-[var(--space-2)] px-[var(--space-3)] bg-white/5 pl-6">
-                                {createType === 'folder' ? <FolderIcon className="w-3.5 h-3.5 text-accent-dim" /> : <FileIcon className="w-3.5 h-3.5 text-text-muted" />}
+                            <div className="flex items-center gap-2 py-2 px-3 pl-6 bg-bg-elevated/50">
+                                {createType === 'folder' ? <FolderIcon className="w-3.5 h-3.5 text-accent-dim" /> : <FileIcon className="w-3.5 h-3.5 text-fg-muted" />}
                                 <input
                                     type="text"
                                     value={newName}
@@ -273,7 +273,7 @@ export default function FileExplorer() {
                                     placeholder={createType === 'folder' ? 'Folder Name' : 'File Name'}
                                     autoFocus
                                     onBlur={handleCommitCreation}
-                                    className="flex-1 bg-[var(--bg-2)] border border-[var(--border)] text-[var(--text-primary)] py-0.5 px-1.5 rounded-[var(--radius-sm)] text-[12px] font-[var(--font-mono)] outline-none focus:border-[var(--accent-dim)]"
+                                    className="input-field flex-1 py-0.5 px-1.5 text-xs rounded-sm"
                                     onKeyDown={(e) => {
                                         if (e.key === 'Enter') void handleCommitCreation();
                                         else if (e.key === 'Escape') cancelCreation();
@@ -284,14 +284,14 @@ export default function FileExplorer() {
                     </div>
                 ))}
                 {entries.length === 0 && !isLoading && currentPath && (
-                    <div className="text-center text-xs text-text-muted py-8 select-none">Empty</div>
+                    <div className="text-center text-xs text-fg-muted py-8 select-none">Empty</div>
                 )}
                 {!currentPath && !isLoading && (
-                    <div className="flex-1 flex flex-col items-center justify-center text-center text-xs text-text-muted px-[var(--space-4)] select-none">
+                    <div className="flex-1 flex flex-col items-center justify-center text-center text-xs text-fg-muted px-4 select-none">
                         <span>No directory open</span>
                         <button 
                             type="button" 
-                            className="mt-[var(--space-3)] w-full max-w-[200px] py-[var(--space-2)] px-[var(--space-3)] text-[13px] bg-accent hover:bg-accent-hover active:bg-accent-dim text-white rounded font-medium cursor-pointer transition-colors shadow-sm" 
+                            className="mt-3 w-full max-w-[200px] py-2 px-3 text-[13px] bg-accent hover:bg-accent-hover active:bg-accent-dim text-white rounded font-medium cursor-pointer transition-colors shadow-sm" 
                             onClick={handleOpenFolder}
                         >
                             Open Folder
@@ -301,13 +301,13 @@ export default function FileExplorer() {
             </div>
 
             {preview && (
-                <div className="absolute bottom-0 left-0 right-0 h-[45%] bg-bg-1 border-t border-border flex flex-col z-10">
-                    <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-bg-1/80 shrink-0">
-                        <span className="text-[11px] font-mono text-text-secondary truncate">{preview.path}</span>
+                <div className="absolute bottom-0 left-0 right-0 h-[45%] bg-bg-surface border-t border-border flex flex-col z-10">
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-bg-surface/80 shrink-0">
+                        <span className="text-[11px] font-mono text-fg-secondary truncate">{preview.path}</span>
                         <div className="flex gap-1">
                             <button 
                                 type="button" 
-                                className="w-7 h-7 flex items-center justify-center rounded bg-transparent text-text-muted hover:text-text-secondary hover:bg-bg-3 active:bg-bg-4 transition-all duration-200 cursor-pointer"
+                                className="btn-icon w-7 h-7"
                                 onClick={handleSavePreview} 
                                 title="Save"
                             >
@@ -315,7 +315,7 @@ export default function FileExplorer() {
                             </button>
                             <button
                                 type="button"
-                                className="w-7 h-7 flex items-center justify-center rounded bg-transparent text-text-muted hover:text-text-secondary hover:bg-bg-3 active:bg-bg-4 transition-all duration-200 cursor-pointer text-sm font-semibold"
+                                className="btn-icon w-7 h-7 text-sm font-semibold"
                                 onClick={() => setPreview(null)}
                                 title="Close"
                             >
@@ -327,14 +327,14 @@ export default function FileExplorer() {
                         value={preview.content}
                         onChange={(e) => setPreview({ ...preview, content: e.target.value })}
                         spellCheck={false}
-                        className="flex-1 bg-bg-0 text-text-primary p-3 text-xs font-mono resize-none outline-none leading-relaxed border-none"
+                        className="textarea-field flex-1 resize-none border-none rounded-none leading-relaxed"
                     />
                 </div>
             )}
 
             {contextMenu && (
                 <div 
-                    className="fixed bg-[var(--bg-1)] border border-[var(--border)] shadow-[0_4px_16px_rgba(0,0,0,0.5)] rounded-[var(--radius-md)] z-[9999] py-1 min-w-[150px] backdrop-blur-sm" 
+                    className="fixed bg-bg-surface border border-border shadow-lg rounded-md z-[9999] py-1 min-w-[150px] backdrop-blur-sm" 
                     style={{ 
                         left: contextMenu.x, 
                         top: contextMenu.y 
@@ -342,20 +342,20 @@ export default function FileExplorer() {
                     onClick={(e) => e.stopPropagation()}
                 >
                     <div 
-                        className="px-4 py-2 text-[13px] text-[var(--text-primary)] cursor-pointer flex items-center gap-[var(--space-2)] transition-colors duration-150 hover:bg-[var(--accent-dim)] hover:text-white" 
+                        className="px-4 py-2 text-[13px] text-fg-primary cursor-pointer flex items-center gap-2 transition-colors duration-150 hover:bg-accent-dim hover:text-white" 
                         onClick={() => startCreation('file', contextMenu.targetPath, contextMenu.isDir)}
                     >
                         New File
                     </div>
                     <div 
-                        className="px-4 py-2 text-[13px] text-[var(--text-primary)] cursor-pointer flex items-center gap-[var(--space-2)] transition-colors duration-150 hover:bg-[var(--accent-dim)] hover:text-white" 
+                        className="px-4 py-2 text-[13px] text-fg-primary cursor-pointer flex items-center gap-2 transition-colors duration-150 hover:bg-accent-dim hover:text-white" 
                         onClick={() => startCreation('folder', contextMenu.targetPath, contextMenu.isDir)}
                     >
                         New Folder
                     </div>
                     {contextMenu.targetPath && (
                         <div 
-                            className="px-4 py-2 text-[13px] cursor-pointer flex items-center gap-[var(--space-2)] transition-colors duration-150 text-[#ff5555] hover:bg-[var(--error-bg)] hover:text-[#ff8888]" 
+                            className="px-4 py-2 text-[13px] cursor-pointer flex items-center gap-2 transition-colors duration-150 text-error-text hover:bg-error-bg hover:text-error-text" 
                             onClick={() => handleDeleteFromMenu(contextMenu.targetPath!)}
                         >
                             Delete
