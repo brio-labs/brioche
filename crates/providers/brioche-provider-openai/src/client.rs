@@ -172,6 +172,14 @@ impl OpenAiLlmClient {
         *guard = schemas;
     }
 
+    /// Returns a copy of the currently registered tool schemas.
+    ///
+    /// # Complexity
+    /// O(n) where n is the number of tool schemas.
+    pub async fn tools_schema(&self) -> Vec<serde_json::Value> {
+        self.tools_schema.read().await.clone()
+    }
+
     /// Set a transform applied to the history before each LLM request.
     ///
     /// The mirror history is left untouched so the UI and persistence still
