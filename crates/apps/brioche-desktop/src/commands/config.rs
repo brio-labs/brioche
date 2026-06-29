@@ -102,7 +102,7 @@ pub async fn set_settings(
 
     if let Some(current_id) = current_id_opt {
         let factory = state.factory.read().await.clone();
-        let handle = crate::commands::shell::build_shell(&current_id, &factory);
+        let handle = crate::commands::shell::build_shell(&current_id, &factory).await;
         DesktopState::initialize_memory_providers(
             &factory,
             &current_id,

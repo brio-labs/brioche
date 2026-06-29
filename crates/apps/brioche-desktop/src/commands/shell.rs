@@ -353,18 +353,18 @@ impl brioche_tools_system::SystemTool for MemoryProviderTool {
 ///
 /// This is the desktop equivalent of `agent_terminal::shell_builder::build_shell`.
 ///
-/// **Critical:** This function must be called from within an async runtime
-/// context (e.g., inside a Tauri command) because it spawns background tasks
-/// via `tokio::spawn`. Calling it from a synchronous context will panic.
+/// The system prompt and tool schemas are applied deterministically before
+/// the returned `ShellHandle` is used, so the first user message cannot race
+/// ahead of initialization.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
 ///
 /// # Complexity
-/// O(T) where T is the number of tools registered. Spawns asynchronous tasks in the background.
+/// O(T) where T is the number of tools registered.
 ///
 /// # Panic / Safety
-/// Panics if called outside of a Tokio runtime context since it spawns tokio tasks.
-pub fn build_shell(session_id: impl Into<String>, factory: &ShellFactory) -> ShellHandle {
+/// Never panics.
+pub async fn build_shell(session_id: impl Into<String>, factory: &ShellFactory) -> ShellHandle {
     let workspace_path = factory.settings.working_dir();
     let workspace = if workspace_path.is_empty() {
         None
@@ -442,12 +442,12 @@ pub fn build_shell(session_id: impl Into<String>, factory: &ShellFactory) -> She
         Arc::clone(&factory.last_context_note),
     )));
 
-    // Inject default system prompt.
-    let llm_for_prompt = llm_client.clone();
-    tokio::spawn(async move {
-        llm_for_prompt
-            .push_message(ChatMessage::System {
-                content: "You are a helpful AI coding assistant with access to filesystem tools. \
+    // Inject the default system prompt and tool schemas deterministically
+    // before returning the handle. This prevents the first user message from
+    // racing ahead of initialization.
+    llm_client
+        .push_message(ChatMessage::System {
+            content: "You are a helpful AI coding assistant with access to filesystem tools. \
 CRITICAL RULES: \
 1. When the user asks you to create, write, or modify ANY file, you MUST use the write_file tool. \
 2. NEVER output file contents directly in your response text — ALWAYS use the write_file tool with the full content. \
@@ -457,16 +457,12 @@ CRITICAL RULES: \
 6. Use list_dir to explore directories. \
 7. If you need to fetch content from the web, use fetch_url. \
 8. After using write_file, the tool result will confirm success. Do not read the file back unless the user asks."
-                    .into(),
-            })
-            .await;
-    });
+                .into(),
+        })
+        .await;
 
     let schemas = tool_executor.schema_json();
-    let llm_for_schema = llm_client.clone();
-    tokio::spawn(async move {
-        llm_for_schema.set_tools_schema(schemas).await;
-    });
+    llm_client.set_tools_schema(schemas).await;
 
     let effect_executor =
         DefaultEffectExecutor::new(tool_executor, llm_client.clone(), factory.redb.clone())
@@ -539,12 +535,8 @@ mod tests {
         assert_eq!(config.openai.timeout_ms, 120_000);
     }
 
-    /// Verifies that `build_shell` constructs a shell without panicking.
-    ///
-    /// Note: This test runs inside a tokio runtime so `tokio::spawn` works.
-    #[tokio::test]
-    async fn build_shell_smoke() {
-        let config = DesktopConfig {
+    fn test_config() -> DesktopConfig {
+        DesktopConfig {
             openai: OpenAiConfig {
                 api_key: String::new(),
                 model: "gpt-4o-mini".into(),
@@ -554,27 +546,106 @@ mod tests {
                 reasoning_effort: None,
             },
             tick_interval_ms: 1000,
-        };
-        let redb_result = RedbStorage::new(
-            "/tmp/brioche-desktop-test.redb",
-            brioche_shell_persistence::new_session_store(),
+        }
+    }
+
+    async fn test_factory() -> Result<ShellFactory, String> {
+        let nanos =
+            match std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH) {
+                Ok(d) => d.as_nanos(),
+                Err(_) => 0,
+            };
+        let path = format!(
+            "/tmp/brioche-desktop-test-{}-{}.redb",
+            std::process::id(),
+            nanos
         );
-        assert!(redb_result.is_ok(), "Failed to create RedbStorage for test");
+        let redb_result = RedbStorage::new(&path, brioche_shell_persistence::new_session_store());
         let redb = match redb_result {
             Ok(r) => r,
-            Err(_) => return,
+            Err(err) => return Err(format!("Failed to create RedbStorage for test: {err}")),
         };
-        let store = brioche_shell_persistence::new_session_store();
-        let factory = ShellFactory {
+        Ok(ShellFactory {
             redb,
-            store,
-            config,
+            store: brioche_shell_persistence::new_session_store(),
+            config: test_config(),
             extensions: ExtensionRegistry::default_set(),
             settings: Settings::default(),
             last_context_note: Arc::new(Mutex::new(None)),
+        })
+    }
+
+    /// Verifies that `build_shell` constructs a shell without panicking.
+    #[tokio::test]
+    async fn build_shell_smoke() {
+        let factory = match test_factory().await {
+            Ok(f) => f,
+            Err(_) => return,
         };
-        let handle = build_shell("test-session", &factory);
+        let handle = build_shell("test-session", &factory).await;
         assert_eq!(handle.llm_rx.len(), 0);
+    }
+
+    /// Verifies that the system prompt and tool schemas are applied before
+    /// `build_shell` returns, eliminating the race with the first user message.
+    #[tokio::test]
+    async fn build_shell_initializes_system_prompt_and_tools() {
+        let factory = match test_factory().await {
+            Ok(f) => f,
+            Err(_) => return,
+        };
+        let handle = build_shell("test-session", &factory).await;
+
+        let history = handle.history.read().await;
+        assert!(
+            !history.is_empty(),
+            "history should contain the system prompt"
+        );
+        if let Some(first) = history.first() {
+            assert!(
+                matches!(first, ChatMessage::System { .. }),
+                "first history message should be the system prompt"
+            );
+            if let ChatMessage::System { content } = first {
+                assert!(content.contains("helpful AI coding assistant"));
+            }
+        }
+        drop(history);
+
+        let schemas = handle.llm.tools_schema().await;
+        assert!(
+            !schemas.is_empty(),
+            "tool schemas should be registered before the shell is used"
+        );
+    }
+
+    /// Verifies that a user message pushed after shell construction is ordered
+    /// after the system prompt, confirming initialization completed first.
+    #[tokio::test]
+    async fn build_shell_orders_user_message_after_system_prompt() {
+        let factory = match test_factory().await {
+            Ok(f) => f,
+            Err(_) => return,
+        };
+        let handle = build_shell("test-session", &factory).await;
+
+        handle
+            .llm
+            .push_message(ChatMessage::User {
+                content: "hello".into(),
+            })
+            .await;
+
+        let history = handle.history.read().await;
+        assert_eq!(history.len(), 2);
+        assert!(
+            matches!(history[0], ChatMessage::System { .. }),
+            "system prompt should precede user messages"
+        );
+        assert!(
+            matches!(history[1], ChatMessage::User { .. }),
+            "user message should follow the system prompt"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
