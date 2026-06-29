@@ -3,6 +3,7 @@ import { useSettingsStore, FALLBACK_SECTIONS } from "../stores/settingsStore";
 import { setSettings } from "../ipc";
 import type { SettingsSection, SettingsField } from "../ipc";
 import PanelOverlay, { SearchBar } from "./PanelOverlay";
+import { AlertTriangleIcon, EditIcon } from "./Icons";
 import {
 	Button,
 	Input,
@@ -313,6 +314,9 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 	);
 	const [search, setSearch] = useState("");
 	const [saveError, setSaveError] = useState<string | null>(null);
+	const [editingProtected, setEditingProtected] = useState<Set<string>>(
+		new Set(),
+	);
 
 
 	useEffect(() => {
@@ -402,9 +406,9 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 						placeholder="Search settings..."
 						value={search}
 						onChange={setSearch}
-						containerClassName="border-b border-border rounded-none px-4 py-3 bg-bg-0/30"
+						containerClassName="border-b border-border rounded-none px-5 py-4 bg-bg-0/30"
 					/>
-					<div className="flex-1 overflow-y-auto p-2 flex flex-col gap-0.5">
+					<div className="flex-1 overflow-y-auto p-3 flex flex-col gap-0.5">
 						{filteredSections.map((section) => (
 							<Button
 								key={section.id}
@@ -446,12 +450,12 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 							</div>
 						</>
 					) : (
-						<div className="text-center text-text-muted py-16 text-sm">
+						<div className="flex-1 flex flex-col items-center justify-center text-text-muted py-16 text-sm">
 							Select a section from the left to view its settings.
 						</div>
 					)}
 				{saveError && (
-					<div className="px-5 pt-4">
+					<div className="mt-auto pt-5">
 						<div className="rounded-lg border border-error-border bg-error-bg px-4 py-3 text-[13px] text-[#e8a0a0] whitespace-pre-wrap">
 							{saveError}
 						</div>
@@ -460,7 +464,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 				</div>
 			</div>
 
-			<div className="flex justify-end gap-3 px-5 py-4 border-t border-border bg-bg-0/30 shrink-0">
+			<div className="flex justify-end gap-3 px-6 py-5 border-t border-border bg-bg-0/30 shrink-0">
 				<Button type="button" variant="secondary" onClick={onClose}>
 					Cancel
 				</Button>
@@ -551,6 +555,7 @@ function FieldEditor({
 						value={String(currentValue || "")}
 						placeholder={field.placeholder ?? undefined}
 						onChange={(e) => onChange(e.target.value)}
+						disabled={isProtected}
 					/>
 				);
 			case "text":
@@ -608,10 +613,15 @@ function FieldEditor({
 				<Label htmlFor={field.key}>{field.label}</Label>
 			)}
 			{field.protected && (
-				<div className="text-amber-500 text-[11px] flex items-center gap-2 mt-0.5">
-					{isProtected ? (
-						<>
-							<span>Editing this field can change model behavior.</span>
+				<div className="text-amber-500 text-[11px] flex items-start gap-2 mt-0.5">
+					<AlertTriangleIcon className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+					<div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+						<span>
+							{isProtected
+								? "This field is protected. Editing it may change model behavior."
+								: "This field is unlocked. Changes may change model behavior."}
+						</span>
+						{isProtected ? (
 							<Button
 								type="button"
 								variant="ghost"
@@ -619,22 +629,23 @@ function FieldEditor({
 								onClick={() =>
 									setEditingProtected((prev) => new Set(prev).add(field.key))
 								}
-								className="h-auto px-0 py-0 text-accent hover:text-accent-hover underline"
+								className="h-auto px-1 py-0.5 text-accent hover:text-accent-hover underline"
 							>
-								Edit
+								<EditIcon className="w-3 h-3 mr-1" />
+								Unlock to edit
 							</Button>
-						</>
-					) : (
-						<Button
-							type="button"
-							variant="ghost"
-							size="sm"
-							onClick={onReset}
-							className="h-auto px-0 py-0 text-text-muted hover:text-text-secondary underline"
-						>
-							Reset to default
-						</Button>
-					)}
+						) : (
+							<Button
+								type="button"
+								variant="ghost"
+								size="sm"
+								onClick={onReset}
+								className="h-auto px-1 py-0.5 text-text-muted hover:text-text-secondary underline"
+							>
+								Reset to default
+							</Button>
+						)}
+					</div>
 				</div>
 			)}
 			{input}
