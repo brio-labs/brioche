@@ -5,18 +5,21 @@
 //!
 //! ## Usage
 //! ```text
-//! cargo brioche-lint-invariants --check-refs
-//! cargo brioche-lint-invariants --check-matrix --json
+//! cargo brioche-lint-invariants check-refs
+//! cargo brioche-lint-invariants check-matrix --json
 //! ```
 //!
 //! Refs: docs/SPECS.md §Book IV Ch 3 §3.4
 
 use std::fs;
-use std::path::PathBuf;
 
+use brioche_lint_core::{
+    cli::{FormatArgs, RootArgs},
+    report::print_json,
+    walk::source_files,
+};
 use clap::{Parser, Subcommand};
 use regex::Regex;
-use walkdir::WalkDir;
 
 /// Known invariant categories and their prefixes.
 ///
@@ -70,13 +73,13 @@ struct Cli {
     #[command(subcommand)]
     command: Commands,
 
-    /// Root directory to scan (default: current directory).
-    #[arg(long, global = true)]
-    root: Option<PathBuf>,
+    /// Root directory to scan.
+    #[command(flatten)]
+    root: RootArgs,
 
     /// Output format.
-    #[arg(long, global = true, default_value = "text")]
-    format: String,
+    #[command(flatten)]
+    format: FormatArgs,
 }
 
 /// Subcommands.
@@ -116,21 +119,17 @@ struct FileResult {
 /// Refs: docs/SPECS.md §Book IV Ch 3 §3.4
 fn main() {
     let cli = Cli::parse();
-    let root = match cli.root {
-        Some(p) => p,
-        None => PathBuf::from("."),
-    };
 
     match cli.command {
         Commands::CheckRefs => {
-            let results = match check_refs(&root) {
+            let results = match check_refs(&cli.root.root) {
                 Ok(r) => r,
                 Err(err) => {
                     eprintln!("internal error: {err}");
                     std::process::exit(2);
                 }
             };
-            if cli.format == "json" {
+            if cli.format.format == "json" {
                 print_json(&results);
             } else {
                 print_text(&results);
@@ -162,7 +161,7 @@ fn main() {
 /// O(n · m) where n = files scanned, m = lines per file.
 ///
 /// Refs: docs/SPECS.md §Book IV Ch 3 §3.4
-fn check_refs(root: &PathBuf) -> Result<Vec<FileResult>, String> {
+fn check_refs(root: &std::path::Path) -> Result<Vec<FileResult>, String> {
     let ref_re = Regex::new(r"Refs:\s*([A-Za-z0-9_/.-]+(?:\s*,\s*[A-Za-z0-9_/.-]+)*)")
         .map_err(|e| format!("failed to compile ref regex: {e}"))?;
     let invariant_re = Regex::new(r"^I-[A-Za-z]+-[A-Za-z0-9_-]+$")
@@ -170,20 +169,8 @@ fn check_refs(root: &PathBuf) -> Result<Vec<FileResult>, String> {
 
     let mut results = Vec::new();
 
-    for entry in WalkDir::new(root)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            let p = e.path();
-            p.extension().is_some_and(|ext| ext == "rs" || ext == "md")
-                && !p.components().any(|c| {
-                    let s = c.as_os_str().to_string_lossy();
-                    s == "target" || s == ".git"
-                })
-        })
-    {
-        let path = entry.path();
-        let contents = match fs::read_to_string(path) {
+    for path in source_files(root, &["rs", "md"]) {
+        let contents = match fs::read_to_string(&path) {
             Ok(c) => c,
             Err(_) => continue,
         };
@@ -300,17 +287,6 @@ fn print_text(results: &[FileResult]) {
     }
 }
 
-/// Print results as JSON.
-///
-/// Refs: docs/SPECS.md §Book IV Ch 3 §3.4
-fn print_json(results: &[FileResult]) {
-    let json = match serde_json::to_string_pretty(results) {
-        Ok(j) => j,
-        Err(_) => "[]".into(),
-    };
-    println!("{json}");
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -318,7 +294,7 @@ mod tests {
     #[test]
     fn accepts_valid_invariant_refs() {
         let _contents = "/// Refs: I-Core-Pure, I-Gov-Decision-Required";
-        let _root = PathBuf::from(".");
+        let _root = std::path::Path::new(".");
         // Unit-test the regex directly by calling check_refs on a temp dir would
         // be noisy; instead exercise validation helpers.
         assert!(has_known_category("I-Core-Pure"));
