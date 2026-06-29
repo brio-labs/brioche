@@ -160,8 +160,8 @@ export default function App() {
 			</div>
 
 			<div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-transparent relative z-[1]">
-				<header className="header flex items-center justify-between px-4 h-[52px] bg-bg-1/70 backdrop-blur-md border-b border-border shrink-0 relative">
-					<div className="flex items-center gap-2">
+				<header className="header flex items-center justify-between px-[var(--space-4)] h-[52px] bg-bg-1/70 backdrop-blur-md border-b border-border shrink-0 relative">
+					<div className="flex items-center gap-[var(--space-2)]">
 						<button
 							type="button"
 							className="w-8 h-8 flex items-center justify-center rounded bg-transparent text-text-muted hover:text-text-secondary hover:bg-bg-3 active:bg-bg-4 transition-all duration-200 cursor-pointer"
@@ -172,7 +172,7 @@ export default function App() {
 						</button>
 						<span className="text-sm font-semibold text-text-secondary tracking-wider">Brioche</span>
 					</div>
-					<div className="flex items-center gap-2">
+					<div className="flex items-center gap-[var(--space-1)]">
 						<button
 							type="button"
 							className="flex items-center gap-2 px-3 py-2 bg-transparent hover:bg-bg-3 text-text-muted hover:text-text-secondary rounded text-[11px] font-medium tracking-wider transition-all duration-200 cursor-pointer"
@@ -241,7 +241,7 @@ export default function App() {
 					</div>
 				</header>
 
-				<div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-4 relative">
+				<div className="flex-1 overflow-y-auto px-[var(--space-5)] py-[var(--space-4)] flex flex-col gap-[var(--space-4)] relative">
 					{messages.length === 0 && (
 						<div className="text-center text-text-muted mt-8 flex flex-col gap-3 items-center">
 							<div className="text-base font-semibold text-text-tertiary tracking-wide">Brioche Desktop</div>
@@ -295,7 +295,7 @@ export default function App() {
 					<div ref={messagesEndRef} />
 				</div>
 
-				<form className="input-bar flex gap-3 px-4 py-3 bg-bg-1/80 backdrop-blur-md border-t border-border shrink-0 relative" onSubmit={handleSubmit}>
+				<form className="input-bar flex gap-[var(--space-3)] px-[var(--space-4)] py-[var(--space-3)] bg-bg-1/80 backdrop-blur-md border-t border-border shrink-0 relative" onSubmit={handleSubmit}>
 					<div className="flex items-center gap-2">
 						<button
 							type="button"

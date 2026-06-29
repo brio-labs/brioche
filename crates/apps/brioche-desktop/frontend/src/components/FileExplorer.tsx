@@ -200,7 +200,7 @@ export default function FileExplorer() {
                     </button>
                 </div>
             </div>
-            <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-bg-0/50">
+            <div className="flex items-center gap-[var(--space-2)] px-[var(--space-3)] py-[var(--space-2)] border-b border-border bg-bg-0/50">
                 <button
                     type="button"
                     className="p-1 hover:bg-bg-3 rounded-md text-text-muted hover:text-text-secondary disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-200 cursor-pointer"
@@ -215,7 +215,7 @@ export default function FileExplorer() {
                 </span>
             </div>
 
-            <div className="flex-1 overflow-y-auto py-2" onContextMenu={handleContainerContextMenu}>
+            <div className="flex-1 overflow-y-auto py-2 flex flex-col" onContextMenu={handleContainerContextMenu}>
                 {isLoading && <div className="text-center text-xs text-text-muted py-4">Loading...</div>}
                 
                 {isCreating && createParentPath === currentPath && (
@@ -287,11 +287,11 @@ export default function FileExplorer() {
                     <div className="text-center text-xs text-text-muted py-8 select-none">Empty</div>
                 )}
                 {!currentPath && !isLoading && (
-                    <div className="text-center text-xs text-text-muted py-8 flex flex-col gap-2 px-4 select-none">
+                    <div className="flex-1 flex flex-col items-center justify-center text-center text-xs text-text-muted px-[var(--space-4)] select-none">
                         <span>No directory open</span>
                         <button 
                             type="button" 
-                            className="w-full py-2 px-3 text-[13px] bg-accent hover:bg-accent-hover text-white rounded font-medium cursor-pointer transition-colors shadow-sm mt-2" 
+                            className="mt-[var(--space-3)] w-full max-w-[200px] py-[var(--space-2)] px-[var(--space-3)] text-[13px] bg-accent hover:bg-accent-hover active:bg-accent-dim text-white rounded font-medium cursor-pointer transition-colors shadow-sm" 
                             onClick={handleOpenFolder}
                         >
                             Open Folder
