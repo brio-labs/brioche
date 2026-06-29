@@ -164,18 +164,18 @@ export default function App() {
 					<div className="flex items-center gap-[var(--space-2)]">
 						<button
 							type="button"
-							className="w-8 h-8 flex items-center justify-center rounded bg-transparent text-text-muted hover:text-text-secondary hover:bg-bg-3 active:bg-bg-4 transition-all duration-200 cursor-pointer"
+							className="btn-icon w-8 h-8"
 							onClick={() => setPanels((p) => ({ ...p, left: !p.left }))}
 							title="Toggle left panel"
 						>
 							<MenuIcon className="w-4 h-4" />
 						</button>
-						<span className="text-sm font-semibold text-text-secondary tracking-wider">Brioche</span>
+						<span className="text-sm font-semibold text-fg-secondary tracking-wider">Brioche</span>
 					</div>
 					<div className="flex items-center gap-[var(--space-1)]">
 						<button
 							type="button"
-							className="flex items-center gap-2 px-3 py-2 bg-transparent hover:bg-bg-3 text-text-muted hover:text-text-secondary rounded text-[11px] font-medium tracking-wider transition-all duration-200 cursor-pointer"
+							className="btn-toolbar"
 							onClick={() => setShowMemory(true)}
 							title="Memory"
 						>
@@ -184,7 +184,7 @@ export default function App() {
 						</button>
 						<button
 							type="button"
-							className="flex items-center gap-2 px-3 py-2 bg-transparent hover:bg-bg-3 text-text-muted hover:text-text-secondary rounded text-[11px] font-medium tracking-wider transition-all duration-200 cursor-pointer"
+							className="btn-toolbar"
 							onClick={() => setShowSkills(true)}
 							title="Skills"
 						>
@@ -193,7 +193,7 @@ export default function App() {
 						</button>
 						<button
 							type="button"
-							className="flex items-center gap-2 px-3 py-2 bg-transparent hover:bg-bg-3 text-text-muted hover:text-text-secondary rounded text-[11px] font-medium tracking-wider transition-all duration-200 cursor-pointer"
+							className="btn-toolbar"
 							onClick={() => setShowProfiles(true)}
 							title="Profiles"
 						>
@@ -202,7 +202,7 @@ export default function App() {
 						</button>
 						<button
 							type="button"
-							className="flex items-center gap-2 px-3 py-2 bg-transparent hover:bg-bg-3 text-text-muted hover:text-text-secondary rounded text-[11px] font-medium tracking-wider transition-all duration-200 cursor-pointer"
+							className="btn-toolbar"
 							onClick={() => setShowTools(true)}
 							title="Toggle tools"
 						>
@@ -211,7 +211,7 @@ export default function App() {
 						</button>
 						<button
 							type="button"
-							className="flex items-center gap-2 px-3 py-2 bg-transparent hover:bg-bg-3 text-text-muted hover:text-text-secondary rounded text-[11px] font-medium tracking-wider transition-all duration-200 cursor-pointer"
+							className="btn-toolbar"
 							onClick={() => {
 								clearMessages();
 								void sendMessage("/clear");
@@ -223,7 +223,7 @@ export default function App() {
 						</button>
 						<button
 							type="button"
-							className="flex items-center gap-2 px-3 py-2 bg-transparent hover:bg-bg-3 text-text-muted hover:text-text-secondary rounded text-[11px] font-medium tracking-wider transition-all duration-200 cursor-pointer"
+							className="btn-toolbar"
 							onClick={() => setShowSettings(true)}
 							title="Settings"
 						>
@@ -232,7 +232,7 @@ export default function App() {
 						</button>
 						<button
 							type="button"
-							className="w-8 h-8 flex items-center justify-center rounded bg-transparent text-text-muted hover:text-text-secondary hover:bg-bg-3 active:bg-bg-4 transition-all duration-200 cursor-pointer"
+							className="btn-icon w-8 h-8"
 							onClick={() => setPanels((p) => ({ ...p, right: !p.right }))}
 							title="Toggle right panel"
 						>
@@ -299,7 +299,7 @@ export default function App() {
 					<div className="flex items-center gap-2">
 						<button
 							type="button"
-							className="w-8 h-8 flex items-center justify-center rounded bg-transparent text-text-muted hover:text-text-secondary hover:bg-bg-3 active:bg-bg-4 transition-all duration-200 cursor-pointer"
+							className="btn-icon w-8 h-8"
 							onClick={handleAttach}
 							title="Attach file/folder"
 						>
@@ -307,7 +307,7 @@ export default function App() {
 						</button>
 						<button
 							type="button"
-							className="w-8 h-8 flex items-center justify-center rounded bg-transparent text-text-muted hover:text-text-secondary hover:bg-bg-3 active:bg-bg-4 transition-all duration-200 cursor-pointer"
+							className="btn-icon w-8 h-8"
 							onClick={handleImage}
 							title="Send image"
 						>
