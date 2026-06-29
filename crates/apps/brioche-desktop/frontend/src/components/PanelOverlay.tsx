@@ -22,12 +22,12 @@ export default function PanelOverlay({
 	onClose,
 	children,
 	headerActions,
-	panelClassName = "bg-bg-1 border border-border rounded-lg w-[800px] max-w-[95vw] max-h-[85vh] flex flex-col overflow-hidden animate-slideUp shadow-2xl z-[1001]",
+	panelClassName = "panel w-[800px] max-w-[95vw] max-h-[85vh] z-[1001]",
 }: PanelOverlayProps) {
 	return (
-		<div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[1000] animate-fadeIn" onClick={onClose}>
+		<div className="panel-backdrop" onClick={onClose}>
 			<div className={panelClassName} onClick={(e) => e.stopPropagation()}>
-				<div className="flex items-center justify-between px-5 py-4 border-b border-border bg-bg-0/50">
+				<div className="panel-header">
 					<h2 className="flex items-center text-sm font-semibold text-text-primary">
 						{icon && <span className="mr-2.5 flex items-center text-accent">{icon}</span>}
 						<span>{title}</span>
