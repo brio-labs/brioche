@@ -46,6 +46,8 @@ cargo test --workspace
    - `fix/<book>-<description>` for bug fixes
    - `doc/<description>` for documentation-only changes
    - `chore/<description>` for tooling or CI changes
+   - `refactor/<book>-<description>` for code restructuring with no behavior change
+   - `test/<book>-<description>` for test-only additions or improvements
 
 2. **Update the specification** in `/docs/architecture/` before writing code if your change affects behavior, trait interfaces, or invariants.
 
