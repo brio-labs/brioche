@@ -13,7 +13,7 @@ Brioche is organized into **5 Books** (architectural layers):
 | Book | Crate(s) | What goes here |
 |------|----------|----------------|
 | I — Core | `brioche-core` | Kernel, state transitions, `ExtensionStorage`. **You do not modify this.** |
-| II — Governance | `brioche-governance`, `brioche-governance-default` | Traits and plugin implementations. **Your plugin lives here.** |
+| II — Governance | `brioche-governance-default` | Reference plugin implementations. **Your plugin lives here.** |
 | III — Shell | `brioche-shell-*` | I/O, persistence, networking, UI. **You do not modify this.** |
 | IV — Ecosystem | `brioche-std`, `plugin-kit` | Standard utilities and SDK. |
 | V — Tooling | `brioche-docgen`, `playground` | Build tools, docs, demos. |
@@ -55,8 +55,10 @@ Create `crates/brioche-governance-default/src/ping_plugin.rs`:
 //! - I-Eco-OrderedCollections: Uses `Vec` as a FIFO stack.
 //! - I-Eco-ExtensionOverMod: Ping logic is policy, not mechanism.
 
-use brioche_core::{BriocheExtensionType, ExtensionStorage};
-use brioche_governance::{BriochePlugin, PluginCapabilities, PluginResult, PolicyDecision};
+use brioche_core::{
+    BriocheExtensionType, BriochePlugin, ExtensionStorage, PluginCapabilities, PluginResult,
+    PolicyDecision,
+};
 use brioche_macro::BriocheExtensionType;
 
 /// Persisted state for the ping plugin.
@@ -238,7 +240,7 @@ Fill out every section of `.github/PULL_REQUEST_TEMPLATE.md`. Even for trivial c
 ## 9. Where to Go Next
 
 - **Complex plugins:** See existing plugins in `crates/brioche-governance-default/src/` for patterns on trait composition, COW rollback, and epoch handling.
-- **New traits:** If your plugin needs a capability that no trait provides, you must define the trait in `brioche-governance` and write an ADR in `docs/adr/`.
+- **New traits:** If your plugin needs a capability that no trait provides, you must define the trait in `brioche-core` and write an ADR in `docs/adr/`.
 - **Property tests:** State-machine plugins require `proptest`. See `tests/prop_*.rs` for examples.
 
 Welcome to Brioche. The compiler is your strictest collaborator.

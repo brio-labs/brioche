@@ -202,7 +202,7 @@ flowchart TB
     end
 
     subgraph GOV["🛡️ Governance Layer"]
-        GOV_APP["brioche-governance<br/>[QuarantineMgr]<br/>[RecoveryPolicy]<br/>[DepthGuard]<br/>[EpochGuard]<br/>[StateConsistency]<br/>[PolicyAggregator]<br/>[SubRoutineOrche]<br/>[ToolCallDetector]<br/>[ToolResultFormat]<br/>[HookEffectConstraint]<br/>[SubRoutineTimeoutPolicy]<br/>[UndoFrameGuard]<br/>[SubRoutineCleanupGuard]<br/>[NegotiationBroker]<br/>[TieredUndoFrameGuard]<br/>[RollbackTelemetryEmitter]<br/>[HistoricalCowBudgetPolicy]"]
+        GOV_APP["brioche-governance-default<br/>[QuarantineMgr]<br/>[RecoveryPolicy]<br/>[DepthGuard]<br/>[EpochGuard]<br/>[StateConsistency]<br/>[PolicyAggregator]<br/>[SubRoutineOrche]<br/>[ToolCallDetector]<br/>[ToolResultFormat]<br/>[HookEffectConstraint]<br/>[SubRoutineTimeoutPolicy]<br/>[UndoFrameGuard]<br/>[SubRoutineCleanupGuard]<br/>[NegotiationBroker]<br/>[TieredUndoFrameGuard]<br/>[RollbackTelemetryEmitter]<br/>[HistoricalCowBudgetPolicy]"]
     end
 
     AGENT_DESK <-->|"Tauri IPC<br/>(Invoke/Events)<br/>Binary MessagePack"| SHELL_PROJ_APP
@@ -223,7 +223,7 @@ Crates are grouped into categorized subfolders that map to the Books:
 
 | Folder | Book | Contents |
 |---|---|---|
-| `crates/kernel/` | I + II | `brioche-core`, `brioche-macro`, `brioche-governance`, `brioche-governance-default` |
+| `crates/kernel/` | I + II | `brioche-core`, `brioche-macro`, `brioche-governance-default` |
 | `crates/runtime/` | III-A/B/C | `brioche-shell-runtime`, `brioche-shell-persistence`, `brioche-shell-projection` |
 | `crates/providers/` | III-A | `brioche-provider-openai` |
 | `crates/tools/` | III-A / IV | `brioche-tools-system` |
@@ -1822,7 +1822,7 @@ pub struct EpochState {
 
 <br>
 
-**Positioning:** `brioche-governance`-provided implementation of the fundamental `DecisionAggregator` trait. It is explicitly injected into `BriocheEngine`; the kernel has no default implementation.
+**Positioning:** `brioche-governance-default`-provided implementation of the fundamental `DecisionAggregator` trait. It is explicitly injected into `BriocheEngine`; the kernel has no default implementation.
 
 <br>
 
@@ -3063,7 +3063,7 @@ The `BriocheEngineBuilder` follows a gradual model: calling `.with_profile()` au
 
 | Crate | Dependency |
 |---|---|
-| `brioche-governance-default` | `brioche-core`, `brioche-governance` |
+| `brioche-governance-default` | `brioche-core` |
 
 Feature flag: `governance-default` (enabled by default in profiles `headless`, `desktop`, `full`).
 
@@ -4253,7 +4253,7 @@ To create a third-party plugin:
 
 <br>
 
-**Positioning:** The `brioche-docgen` crate is a development toolchain tool. It does not modify any mechanical component of the SDK. It analyzes source code of `brioche-core`, `brioche-governance`, and `brioche-governance-default` crates to produce:
+**Positioning:** The `brioche-docgen` crate is a development toolchain tool. It does not modify any mechanical component of the SDK. It analyzes source code of `brioche-core` and `brioche-governance-default` crates to produce:
 
 * A **trait dependency graph**: which traits depend on which others, which plugins implement them.
 * A **sequence diagram per input type**: for each `EngineInput` variant (UserMessage, LlmStream, ToolCallsResult, RestoreSubRoutine), the complete path through fundamental traits and pre-routed hooks.
@@ -4291,7 +4291,7 @@ cargo brioche docgen --output ./docs --format json   # for CI integration
 **Usage procedure:**
 
 ```bash
-$ # In CI, after each modification of brioche-core or brioche-governance
+$ # In CI, after each modification of brioche-core or brioche-governance-default
 $ cargo brioche lint-invariants --check-refs --check-matrix
 
 $ # Output: compliance report, non-zero exit code if divergence
@@ -4674,13 +4674,12 @@ The following configurations are the only officially supported and CI-tested pro
 | `brioche-core` | Almost no external dependencies. |
 | `brioche-macro` | `syn`, `quote`, `proc-macro2`. |
 | `brioche-std` | Depends on `core`. |
-| `brioche-governance` | Depends on `core`. |
-| `brioche-governance-default` | Depends on `core`, `governance`. |
+| `brioche-governance-default` | Depends on `core`. |
 | `brioche-shell-runtime` | Depends on `core`, `tokio`. |
 | `brioche-shell-persistence` | Depends on `core`, `redb`. |
 | `brioche-shell-projection` | Depends on `core`, `tauri` (opt). |
 | `brioche-plugin-kit` | Depends on `core`, `macro`. |
-| `brioche-docgen` | Depends on `core`, `governance`, `syn`. |
+| `brioche-docgen` | Depends on `core`, `syn`. |
 | `brioche-playground` | Docker development image. |
 
 <br>

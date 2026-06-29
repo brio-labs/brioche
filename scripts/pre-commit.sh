@@ -19,7 +19,7 @@ cargo test --workspace --lib -- --test-threads=4
 echo "=== cargo-brioche-lint ==="
 # cargo-brioche-lint is designed for plugin crates (policy layer).
 # brioche-core is mechanism — direct Session access there is legitimate.
-cargo run --package cargo-brioche-lint -- --path crates/brioche-governance
+cargo run --package cargo-brioche-lint -- --path crates/kernel/brioche-governance-default
 cargo run --package cargo-brioche-lint -- --path crates/brioche-plugin-template
 
 echo "=== cargo-brioche-lint-invariants ==="
@@ -27,8 +27,8 @@ cargo run --package cargo-brioche-lint-invariants -- check-refs --root crates/
 
 # 6. Philosophy: unwrap/expect in core mechanism crates
 echo "=== Philosophy: unwrap/expect in core ==="
-if grep -rEq "unwrap\(\)|expect\(" crates/kernel/brioche-core/src/ crates/kernel/brioche-governance/src/; then
-	echo "ERROR: unwrap/expect found in brioche-core or brioche-governance"
+if grep -rEq "unwrap\(\)|expect\(" crates/kernel/brioche-core/src/; then
+	echo "ERROR: unwrap/expect found in brioche-core"
 	exit 1
 fi
 

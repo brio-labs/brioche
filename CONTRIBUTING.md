@@ -77,7 +77,7 @@ cargo brioche-lint-invariants check-matrix
 
 ### Error Handling
 
-- `unwrap()`, `expect()`, and `panic!()` are **denied by clippy** in `brioche-core` and `brioche-governance`.
+- `unwrap()`, `expect()`, and `panic!()` are **denied by clippy** in `brioche-core` and `brioche-governance-default`.
 - Use `Result<T, BriocheError>` for system errors and `PluginResult<T>` for plugin hooks.
 - Never silently ignore errors. Log or propagate.
 
@@ -142,7 +142,7 @@ New Rust developers will instinctively reach for `HashMap`, `unwrap()`, and inhe
 | Change Location | Required Tests |
 |-----------------|---------------|
 | `brioche-core` | Property tests (`proptest`), replay tests |
-| `brioche-governance` traits | Unit tests + scenario tests |
+| `brioche-core` governance traits | Unit tests + scenario tests |
 | Governance plugins | Unit tests with mocked `ExtensionStorage` |
 | Hot path changes | Criterion benchmarks (see below) |
 | `brioche-macro` | `trybuild` compilation tests (positive and negative) |
@@ -262,7 +262,7 @@ Refs: I-Gov-Rollback-BestEffort, I-Core-VTableClone
 | Change Type | Required Approvals |
 |-------------|------------------|
 | Core (`brioche-core`, `brioche-macro`) | 2 (System Architect + Core Engineer) |
-| Governance (`brioche-governance`, `brioche-governance-default`) | 2 (System Architect + Core Engineer) |
+| Governance (`brioche-governance-default`) | 2 (System Architect + Core Engineer) |
 | Shell (`brioche-shell-*`) | 1 (Shell Engineer) |
 | Ecosystem / Tooling (`brioche-std`, `plugin-kit`, `docgen`, `playground`) | 1 (Tooling Engineer) |
 | Documentation only | 1 (any maintainer) |

@@ -19,7 +19,6 @@ syn = { version = "2", features = ["full", "visit-mut", "extra-traits"] }
 [dev-dependencies]
 trybuild = { version = "1", features = ["diff"] }
 brioche-core = { workspace = true }
-brioche-governance = { workspace = true }
 brioche-plugin-kit = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 

@@ -13,7 +13,6 @@
 /tests/replay/                  @carabistouflette
 
 # Governance — requires invariant review
-/crates/brioche-governance/     @carabistouflette
 /crates/brioche-governance-default/ @carabistouflette
 
 # Shell layers

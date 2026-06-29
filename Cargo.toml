@@ -37,7 +37,6 @@ tokio = { version = "1", features = [
 ] }
 tokio-util = { version = "0.7", features = ["rt"] }
 tracing = "0.1"
-brioche-governance = { path = "crates/kernel/brioche-governance" }
 brioche-governance-default = { path = "crates/kernel/brioche-governance-default" }
 brioche-shell-runtime = { path = "crates/runtime/brioche-shell-runtime" }
 brioche-shell-persistence = { path = "crates/runtime/brioche-shell-persistence" }

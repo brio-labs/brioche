@@ -12,7 +12,7 @@
 //!
 //! ## Stability guarantee
 //! Items exported from this crate follow semver. Internal crate APIs
-//! (`brioche-core`, `brioche-governance`) may change without notice.
+//! (`brioche-core`, `brioche-governance-default`) may change without notice.
 //!
 //! Refs: docs/SPECS.md §Book IV Ch 3 §3.2
 

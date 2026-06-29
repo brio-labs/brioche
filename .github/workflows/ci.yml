@@ -244,7 +244,7 @@ jobs:
           # cargo-brioche-lint is designed for plugin crates (policy layer).
           # brioche-core is the mechanism layer — direct Session field access
           # there is legitimate kernel code, not a plugin violation.
-          cargo run --package cargo-brioche-lint -- --path crates/kernel/brioche-governance
+          cargo run --package cargo-brioche-lint -- --path crates/kernel/brioche-governance-default
           cargo run --package cargo-brioche-lint -- --path crates/brioche-plugin-template
           # Self-test: assert the linter catches known-bad patterns.
           set +e
