@@ -80,7 +80,7 @@ export default function SessionSidebar() {
 			</div>
 
 			{/* Elegant Sort Section */}
-			<div className="flex items-center gap-2.5 px-4 py-2.5 border-b border-border bg-bg-0/50 backdrop-blur-sm select-none">
+			<div className="flex items-center gap-[var(--space-3)] px-[var(--space-4)] py-[var(--space-3)] border-b border-border bg-bg-0/50 backdrop-blur-sm select-none">
 				<label htmlFor="session-sort" className="text-[9px] font-bold uppercase tracking-[0.1em] text-text-muted select-none shrink-0">Sort By</label>
 				<div className="relative flex-1">
 					<select
@@ -97,7 +97,7 @@ export default function SessionSidebar() {
 			</div>
 
 			{/* Session Cards list */}
-			<div className="flex-1 overflow-y-auto py-3 space-y-3">
+			<div className="flex-1 overflow-y-auto py-3 space-y-3 flex flex-col">
 				{sessions.length > 0 ? (
 					Array.from(groupedSessions.entries()).map(([group, items]) => (
 						<div key={group} className="space-y-1.5">
@@ -110,7 +110,7 @@ export default function SessionSidebar() {
 							{items.map((session) => (
 								<div
 									key={session.id}
-									className={`group relative flex items-center justify-between p-2.5 mx-2 rounded-lg cursor-pointer transition-all duration-200 border ${
+									className={`group relative flex items-center justify-between p-[var(--space-3)] mx-[var(--space-2)] rounded-lg cursor-pointer transition-all duration-200 border ${
 										session.active 
 											? "bg-bg-3/60 border-accent-dim/40 shadow-sm shadow-accent/5" 
 											: "bg-transparent border-transparent hover:bg-bg-2/30 hover:border-border/60"
@@ -172,7 +172,9 @@ export default function SessionSidebar() {
 						</div>
 					))
 				) : (
-					<div className="text-center text-xs text-text-muted py-8 select-none">No sessions</div>
+					<div className="flex-1 flex flex-col items-center justify-center text-center text-text-muted px-[var(--space-4)] select-none">
+						<span className="text-xs">No sessions</span>
+					</div>
 				)}
 			</div>
 		</div>

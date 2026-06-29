@@ -29,7 +29,7 @@ export default function Footer() {
 	});
 
 	return (
-		<footer className="flex items-center justify-end gap-4 px-4 bg-bg-0/90 border-t border-border text-[11px] text-text-muted shrink-0 select-none h-7 z-10">
+		<footer className="flex items-center justify-end gap-[var(--space-3)] px-[var(--space-4)] bg-bg-0/90 border-t border-border text-[11px] text-text-muted shrink-0 select-none h-8 z-10">
 			{metrics.length === 0 ? (
 				<div className="flex items-center gap-1">
 					<span className="font-medium">Brioche</span>

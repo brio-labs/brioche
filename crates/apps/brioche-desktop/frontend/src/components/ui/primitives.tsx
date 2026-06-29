@@ -32,17 +32,17 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 			<Comp
 				ref={ref}
 				className={cn(
-					"inline-flex items-center justify-center rounded font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-glow disabled:pointer-events-none disabled:opacity-50 cursor-pointer",
+					"inline-flex items-center justify-center rounded font-medium transition-all focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-glow focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1 disabled:pointer-events-none disabled:opacity-50 cursor-pointer",
 					variant === "default" &&
-						"bg-accent text-white hover:bg-accent-hover shadow-sm shadow-accent-glow/20",
+						"bg-accent text-white hover:bg-accent-hover active:bg-accent-dim shadow-sm shadow-accent-glow/20",
 					variant === "secondary" &&
-						"bg-transparent border border-border text-text-secondary hover:text-text-primary hover:bg-bg-2 hover:border-border-hover",
+						"bg-transparent border border-border text-text-secondary hover:text-text-primary hover:bg-bg-2 hover:border-border-hover active:bg-bg-3 active:border-border-hover",
 					variant === "ghost" &&
-						"bg-transparent text-text-secondary hover:text-text-primary hover:bg-bg-2",
+						"bg-transparent text-text-secondary hover:text-text-primary hover:bg-bg-2 active:bg-bg-3",
 					variant === "destructive" &&
-						"bg-transparent text-red-400 hover:text-red-300 hover:bg-red-400/10 border border-red-400/30",
-					size === "default" && "px-4 py-2 text-xs tracking-wide",
-					size === "sm" && "px-2.5 py-1 text-[11px]",
+						"bg-transparent text-red-400 hover:text-red-300 hover:bg-red-400/10 active:bg-red-400/20 border border-red-400/30",
+					size === "default" && "px-[var(--space-3)] py-[var(--space-2)] text-xs tracking-wide",
+					size === "sm" && "px-[var(--space-2)] py-[var(--space-1)] text-[11px]",
 					size === "icon" && "h-8 w-8 p-0",
 					className,
 				)}
@@ -62,7 +62,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
 			type={type}
 			ref={ref}
 			className={cn(
-				"flex w-full rounded border border-border bg-bg-2 px-3 py-2 text-[13px] font-mono text-text-primary outline-none transition-all placeholder:text-text-muted focus:border-accent-dim focus:bg-bg-3 focus:ring-1 focus:ring-accent-glow disabled:cursor-not-allowed disabled:opacity-50",
+				"flex w-full rounded border border-border bg-bg-2 px-[var(--space-3)] py-[var(--space-2)] text-[13px] font-mono text-text-primary outline-none transition-all placeholder:text-text-muted hover:border-border-hover focus:border-accent-dim focus:bg-bg-3 focus:ring-1 focus:ring-accent-glow disabled:cursor-not-allowed disabled:opacity-50",
 				className,
 			)}
 			{...props}
@@ -79,7 +79,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
 		<textarea
 			ref={ref}
 			className={cn(
-				"flex min-h-[80px] w-full rounded border border-border bg-bg-2 px-3 py-2 text-xs font-mono text-text-primary outline-none transition-all placeholder:text-text-muted focus:border-accent-dim focus:bg-bg-3 focus:ring-1 focus:ring-accent-glow disabled:cursor-not-allowed disabled:opacity-50 resize-y",
+				"flex min-h-[80px] w-full rounded border border-border bg-bg-2 px-[var(--space-3)] py-[var(--space-2)] text-xs font-mono text-text-primary outline-none transition-all placeholder:text-text-muted hover:border-border-hover focus:border-accent-dim focus:bg-bg-3 focus:ring-1 focus:ring-accent-glow disabled:cursor-not-allowed disabled:opacity-50 resize-y",
 				className,
 			)}
 			{...props}
