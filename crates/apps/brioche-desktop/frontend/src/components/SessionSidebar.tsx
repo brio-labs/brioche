@@ -63,13 +63,13 @@ export default function SessionSidebar() {
 	}, [sessions, sortMode]);
 
 	return (
-		<div className="flex flex-col h-full w-full bg-transparent text-text-primary">
+		<div className="flex flex-col h-full w-full bg-transparent text-fg-primary">
 			{/* Sleek Sidebar Header */}
-			<div className="flex items-center justify-between px-4 py-3 border-b border-border h-[52px] shrink-0 bg-bg-0/30 backdrop-blur-sm">
-				<h2 className="text-[11px] font-bold tracking-[0.14em] uppercase text-text-muted select-none">Sessions</h2>
+			<div className="flex items-center justify-between px-4 py-3 border-b border-border h-[52px] shrink-0 bg-bg-base/30 backdrop-blur-sm">
+				<h2 className="text-[11px] font-bold tracking-[0.14em] uppercase text-fg-muted select-none">Sessions</h2>
 				<button
 					type="button"
-					className="p-1.5 bg-bg-3/50 hover:bg-bg-3 border border-border hover:border-accent-dim/40 rounded-lg text-text-secondary hover:text-text-primary transition-all duration-200 cursor-pointer shadow-sm flex items-center justify-center"
+					className="p-1.5 bg-bg-highlight/50 hover:bg-bg-highlight border border-border hover:border-accent-dim/40 rounded-lg text-fg-secondary hover:text-fg-primary transition-all duration-200 cursor-pointer shadow-sm flex items-center justify-center"
 					onClick={handleNewSession}
 					title="New session"
 				>
@@ -80,18 +80,18 @@ export default function SessionSidebar() {
 			</div>
 
 			{/* Elegant Sort Section */}
-			<div className="flex items-center gap-[var(--space-3)] px-[var(--space-4)] py-[var(--space-3)] border-b border-border bg-bg-0/50 backdrop-blur-sm select-none">
-				<label htmlFor="session-sort" className="text-[9px] font-bold uppercase tracking-[0.1em] text-text-muted select-none shrink-0">Sort By</label>
+			<div className="flex items-center gap-[var(--space-3)] px-[var(--space-4)] py-[var(--space-3)] border-b border-border bg-bg-base/50 backdrop-blur-sm select-none">
+				<label htmlFor="session-sort" className="text-[9px] font-bold uppercase tracking-[0.1em] text-fg-muted select-none shrink-0">Sort By</label>
 				<div className="relative flex-1">
 					<select
 						id="session-sort"
 						value={sortMode}
 						onChange={(e) => setSortMode(e.target.value as SessionSort)}
-						className="w-full bg-bg-2/40 hover:bg-bg-2/80 border border-border/80 text-text-secondary hover:text-text-primary px-2.5 py-1 text-[11px] font-medium outline-none cursor-pointer appearance-none pr-7 transition-all duration-200 focus:border-accent-dim/60 focus:ring-1 focus:ring-accent-dim/30 shadow-sm rounded-md"
+						className="w-full bg-bg-elevated/40 hover:bg-bg-elevated/80 border border-border/80 text-fg-secondary hover:text-fg-primary px-2.5 py-1 text-[11px] font-medium outline-none cursor-pointer appearance-none pr-7 transition-all duration-200 focus:border-accent-dim/60 focus:ring-1 focus:ring-accent-dim/30 shadow-sm rounded-md"
 					>
-						<option value="date" className="bg-bg-1 text-text-primary">Date Created</option>
-						<option value="workspace" className="bg-bg-1 text-text-primary">Workspace</option>
-						<option value="name" className="bg-bg-1 text-text-primary">Session Name</option>
+						<option value="date" className="bg-bg-surface text-fg-primary">Date Created</option>
+						<option value="workspace" className="bg-bg-surface text-fg-primary">Workspace</option>
+						<option value="name" className="bg-bg-surface text-fg-primary">Session Name</option>
 					</select>
 				</div>
 			</div>
@@ -102,7 +102,7 @@ export default function SessionSidebar() {
 					Array.from(groupedSessions.entries()).map(([group, items]) => (
 						<div key={group} className="space-y-1.5">
 							{/* Header with horizontal separator line */}
-							<div className="px-4 text-[10px] font-bold uppercase tracking-[0.12em] text-text-muted select-none mb-1 flex items-center gap-2">
+							<div className="px-4 text-[10px] font-bold uppercase tracking-[0.12em] text-fg-muted select-none mb-1 flex items-center gap-2">
 								<span>{group}</span>
 								<div className="flex-1 h-[1px] bg-border/30"></div>
 							</div>
@@ -112,8 +112,8 @@ export default function SessionSidebar() {
 									key={session.id}
 									className={`group relative flex items-center justify-between p-[var(--space-3)] mx-[var(--space-2)] rounded-lg cursor-pointer transition-all duration-200 border ${
 										session.active 
-											? "bg-bg-3/60 border-accent-dim/40 shadow-sm shadow-accent/5" 
-											: "bg-transparent border-transparent hover:bg-bg-2/30 hover:border-border/60"
+											? "bg-bg-highlight/60 border-accent-dim/40 shadow-sm shadow-accent/5" 
+											: "bg-transparent border-transparent hover:bg-bg-elevated/30 hover:border-border/60"
 									}`}
 									onClick={() => switchToSession(session.id)}
 									title={session.workspace}
@@ -126,25 +126,25 @@ export default function SessionSidebar() {
 									<div className="flex-1 flex items-start gap-2.5 min-w-0 pl-1">
 										{/* Icon representation */}
 										<div className={`mt-0.5 w-3.5 h-3.5 shrink-0 transition-colors ${
-											session.active ? "text-accent" : "text-text-muted group-hover:text-text-secondary"
+											session.active ? "text-accent" : "text-fg-muted group-hover:text-fg-secondary"
 										}`}>
 											<MessageIcon className="w-full h-full" />
 										</div>
 
 										<div className="flex-1 min-w-0">
 											<div className={`text-xs font-semibold truncate transition-colors ${
-												session.active ? "text-text-primary" : "text-text-secondary group-hover:text-text-primary"
+												session.active ? "text-fg-primary" : "text-fg-secondary group-hover:text-fg-primary"
 											}`}>
 												{session.id}
 											</div>
 											
 											<div className="flex flex-col items-start gap-1 mt-0.5">
-												<span className="text-[9px] text-text-muted font-mono leading-none">
+												<span className="text-[9px] text-fg-muted font-mono leading-none">
 													{formatDate(session.created_at ?? 0)}
 												</span>
 												
 												{session.workspace && (
-													<span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-bg-4 border border-border text-text-tertiary max-w-full truncate font-mono select-none leading-none">
+													<span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-bg-subtle border border-border text-fg-tertiary max-w-full truncate font-mono select-none leading-none">
 														{workspaceName(session.workspace)}
 													</span>
 												)}
@@ -155,7 +155,7 @@ export default function SessionSidebar() {
 									{!session.active && (
 										<button
 											type="button"
-											className="opacity-0 group-hover:opacity-100 p-1 hover:bg-bg-4 border border-transparent hover:border-border rounded-md text-text-muted hover:text-red-400 transition-all duration-200 cursor-pointer ml-2"
+											className="opacity-0 group-hover:opacity-100 p-1 hover:bg-bg-subtle border border-transparent hover:border-border rounded-md text-fg-muted hover:text-error-text transition-all duration-200 cursor-pointer ml-2"
 											onClick={(e) => {
 												e.stopPropagation();
 												deleteSession(session.id);
@@ -172,7 +172,7 @@ export default function SessionSidebar() {
 						</div>
 					))
 				) : (
-					<div className="flex-1 flex flex-col items-center justify-center text-center text-text-muted px-[var(--space-4)] select-none">
+					<div className="flex-1 flex flex-col items-center justify-center text-center text-fg-muted px-[var(--space-4)] select-none">
 						<span className="text-xs">No sessions</span>
 					</div>
 				)}
