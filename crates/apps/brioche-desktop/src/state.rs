@@ -466,7 +466,7 @@ impl DesktopState {
         let mut mgr = self.manager.write().await;
         if mgr.is_none() {
             let factory = self.factory.read().await.clone();
-            let handle = build_shell("desktop-session", &factory);
+            let handle = build_shell("desktop-session", &factory).await;
             let workspace = factory.settings.working_dir();
             Self::initialize_memory_providers(&factory, "desktop-session", &workspace)?;
             *mgr = Some(SessionManager::new(
