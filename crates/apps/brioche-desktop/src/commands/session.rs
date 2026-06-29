@@ -942,7 +942,10 @@ mod tests {
         assert!(matches!(payload.role, ChatRole::ToolRequest));
         assert_eq!(payload.tool_id.as_deref(), Some("call-1"));
         assert_eq!(payload.tool_name.as_deref(), Some("read_file"));
-        assert_eq!(payload.tool_arguments.as_deref(), Some("{\"path\":\"/tmp\"}"));
+        assert_eq!(
+            payload.tool_arguments.as_deref(),
+            Some("{\"path\":\"/tmp\"}")
+        );
         Ok(())
     }
 

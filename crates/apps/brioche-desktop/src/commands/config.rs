@@ -35,7 +35,9 @@ fn validate_profile(profile: &profiles::Profile) -> Result<(), String> {
     {
         return Err("Temperature must be between 0.0 and 2.0".into());
     }
-    if let Some(max_tokens) = profile.max_tokens && max_tokens == 0 {
+    if let Some(max_tokens) = profile.max_tokens
+        && max_tokens == 0
+    {
         return Err("Max tokens must be greater than 0".into());
     }
     Ok(())
