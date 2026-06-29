@@ -189,6 +189,7 @@ The following areas are already in good shape and should not be regressed:
 | P6-MAINT-05 | #147: Renamed `crates/kernel/brioche-core/src/engine/helpers.rs` to `transition_support.rs`. |
 | P6-MAINT-07 | #147: Removed bare `TODO` placeholder from `.github/CODEOWNERS`. |
 | P6-MAINT-08 | #151: Replaced magic `priority()` literals with named `Priority` constants in `brioche-governance-default` and `brioche-std`. |
+| P5-TEST-15 | Desktop command tests added; hard-coded `/tmp` paths replaced with `tempfile`; error paths covered without Tauri runtime. |
 
 ---
 
