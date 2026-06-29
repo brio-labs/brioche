@@ -388,6 +388,8 @@ Reviewers must verify:
 
 Not every rule applies with the same strictness to every crate. The workspace is organized by architectural book, and the `philosophy-check` script maps checks accordingly.
 
+Frontend code in `crates/apps/brioche-desktop/frontend` follows `docs/frontend-style-guide.md` for Tailwind CSS v4, React component styling, and UI conventions. It is the canonical companion to this document for all browser-facing code.
+
 | Book | Crates | Mandatory checks |
 |------|--------|------------------|
 | **Book I — Core** | `brioche-core`, `brioche-macro` | All §5 checks; determinism guards; no panics; no hidden I/O |
