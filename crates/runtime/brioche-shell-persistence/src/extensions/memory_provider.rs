@@ -9,7 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{ExtensionMetadata, PanelSlot};
+use super::{ExtensionMetadata, PanelSlot, PersistenceError};
 
 /// A memory entry returned by a provider.
 ///
@@ -92,29 +92,34 @@ pub trait MemoryProvider: Send + Sync {
     /// Called once per session so the provider can scope its operations.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn initialize(&self, _ctx: MemorySessionContext) -> Result<(), String> {
+    fn initialize(&self, _ctx: MemorySessionContext) -> Result<(), PersistenceError> {
         Ok(())
     }
 
     /// Lists entries matching the query.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn list(&self, query: &MemoryQuery) -> Result<Vec<MemoryEntry>, String>;
+    fn list(&self, query: &MemoryQuery) -> Result<Vec<MemoryEntry>, PersistenceError>;
 
     /// Sets (adds or updates) an entry.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn set(&mut self, key: String, value: String, category: String) -> Result<(), String>;
+    fn set(&mut self, key: String, value: String, category: String)
+    -> Result<(), PersistenceError>;
 
     /// Deletes an entry by key.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn delete(&mut self, key: &str) -> Result<bool, String>;
+    fn delete(&mut self, key: &str) -> Result<bool, PersistenceError>;
 
     /// Returns entries that may be relevant for the current conversation.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn recall(&self, conversation_summary: &str, limit: usize) -> Result<Vec<MemoryEntry>, String>;
+    fn recall(
+        &self,
+        conversation_summary: &str,
+        limit: usize,
+    ) -> Result<Vec<MemoryEntry>, PersistenceError>;
 
     /// Optional tool schemas this provider wants to expose to the model.
     ///
@@ -130,8 +135,8 @@ pub trait MemoryProvider: Send + Sync {
         &self,
         _tool_name: &str,
         _args: serde_json::Value,
-    ) -> Result<String, String> {
-        Err("Tool calls not supported by this provider".into())
+    ) -> Result<String, PersistenceError> {
+        Err(PersistenceError::Unsupported)
     }
 
     /// Called when the agent's built-in memory tool fires, so external backends can mirror the write.
@@ -142,21 +147,21 @@ pub trait MemoryProvider: Send + Sync {
         _key: String,
         _value: String,
         _category: String,
-    ) -> Result<(), String> {
+    ) -> Result<(), PersistenceError> {
         Ok(())
     }
 
     /// Called before context compression discards old messages.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn on_pre_compress(&mut self, _messages: &[MemoryEntry]) -> Result<(), String> {
+    fn on_pre_compress(&mut self, _messages: &[MemoryEntry]) -> Result<(), PersistenceError> {
         Ok(())
     }
 
     /// Called at session end so the provider can flush or summarize.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn on_session_end(&mut self) -> Result<(), String> {
+    fn on_session_end(&mut self) -> Result<(), PersistenceError> {
         Ok(())
     }
 }
@@ -185,12 +190,10 @@ impl LocalMemoryProvider {
     ///
     /// # Panic / Safety
     /// Never panics. Returns Err if the file cannot be read or parsed.
-    pub fn load() -> Result<Self, String> {
+    pub fn load() -> Result<Self, PersistenceError> {
         let path = memory_path();
-        let data = std::fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read memory store: {e}"))?;
-        serde_json::from_str::<LocalMemoryProvider>(&data)
-            .map_err(|e| format!("Failed to parse memory store: {e}"))
+        let data = std::fs::read_to_string(&path)?;
+        serde_json::from_str::<LocalMemoryProvider>(&data).map_err(PersistenceError::Json)
     }
 
     /// Saves the local memory store to disk.
@@ -202,15 +205,13 @@ impl LocalMemoryProvider {
     ///
     /// # Panic / Safety
     /// Never panics. Returns error String on write failure.
-    pub fn save(&self) -> Result<(), String> {
+    pub fn save(&self) -> Result<(), PersistenceError> {
         let path = memory_path();
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create memory dir: {e}"))?;
+            std::fs::create_dir_all(parent)?;
         }
-        let data = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("Failed to serialize memory: {e}"))?;
-        std::fs::write(&path, data).map_err(|e| format!("Failed to write memory: {e}"))
+        let data = serde_json::to_string_pretty(self).map_err(PersistenceError::Json)?;
+        std::fs::write(&path, data).map_err(PersistenceError::Io)
     }
 }
 
@@ -225,7 +226,7 @@ impl MemoryProvider for LocalMemoryProvider {
         }
     }
 
-    fn list(&self, query: &MemoryQuery) -> Result<Vec<MemoryEntry>, String> {
+    fn list(&self, query: &MemoryQuery) -> Result<Vec<MemoryEntry>, PersistenceError> {
         let q = match query.query.as_ref() {
             Some(s) => s.to_lowercase(),
             None => String::new(),
@@ -247,7 +248,12 @@ impl MemoryProvider for LocalMemoryProvider {
             .collect())
     }
 
-    fn set(&mut self, key: String, value: String, category: String) -> Result<(), String> {
+    fn set(
+        &mut self,
+        key: String,
+        value: String,
+        category: String,
+    ) -> Result<(), PersistenceError> {
         let now = system_time_secs();
         if let Some(entry) = self.entries.iter_mut().find(|e| e.key == key) {
             entry.value = value;
@@ -267,7 +273,7 @@ impl MemoryProvider for LocalMemoryProvider {
         self.save()
     }
 
-    fn delete(&mut self, key: &str) -> Result<bool, String> {
+    fn delete(&mut self, key: &str) -> Result<bool, PersistenceError> {
         let len = self.entries.len();
         self.entries.retain(|e| e.key != key);
         let removed = self.entries.len() < len;
@@ -277,7 +283,11 @@ impl MemoryProvider for LocalMemoryProvider {
         Ok(removed)
     }
 
-    fn recall(&self, conversation_summary: &str, limit: usize) -> Result<Vec<MemoryEntry>, String> {
+    fn recall(
+        &self,
+        conversation_summary: &str,
+        limit: usize,
+    ) -> Result<Vec<MemoryEntry>, PersistenceError> {
         let q = conversation_summary.to_lowercase();
         let mut scored: Vec<(usize, &MemoryEntry)> = self
             .entries

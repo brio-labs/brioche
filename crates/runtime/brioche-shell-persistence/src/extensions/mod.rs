@@ -42,6 +42,95 @@ pub use tool_provider::{ToolProvider, ToolRegistry, UserDefinedTool, UserToolDef
 
 use crate::settings::Settings;
 
+/// Errors returned by shell-persistence extension providers.
+///
+/// This enum replaces the previous `Result<T, String>` boundary with typed
+/// variants so callers can distinguish I/O, serialization, locking and
+/// domain-specific failures without parsing strings.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) stack-allocated enum discriminant; payloads are boxed or moved strings.
+///
+/// # Panic / Safety
+/// Never panics.
+#[derive(Debug, thiserror::Error)]
+pub enum PersistenceError {
+    /// File system or other I/O operation failed.
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+
+    /// JSON serialization or deserialization failed.
+    #[error("json error: {0}")]
+    Json(#[from] serde_json::Error),
+
+    /// An HTTP request failed.
+    #[error("http error: {0}")]
+    Http(#[from] reqwest::Error),
+
+    /// The AMP backend returned an error.
+    #[error("AMP error ({code}): {message}")]
+    Amp {
+        /// AMP error code.
+        code: String,
+        /// Human-readable AMP error message.
+        message: String,
+    },
+
+    /// A requested resource was not found.
+    #[error("not found: {0}")]
+    NotFound(String),
+
+    /// A resource already exists.
+    #[error("already exists: {0}")]
+    AlreadyExists(String),
+
+    /// Input validation failed.
+    #[error("invalid input: {0}")]
+    InvalidInput(String),
+
+    /// A lock was poisoned.
+    #[error("lock poisoned")]
+    LockPoisoned,
+
+    /// The operation requires a Tokio runtime but none was available.
+    #[error("no tokio runtime available")]
+    NoRuntime,
+
+    /// The operation is not supported by this provider.
+    #[error("unsupported operation")]
+    Unsupported,
+
+    /// An uncategorized error. Used at boundaries when converting from `String`.
+    #[error("{0}")]
+    Other(String),
+}
+
+impl From<String> for PersistenceError {
+    fn from(value: String) -> Self {
+        Self::Other(value)
+    }
+}
+
+impl From<&str> for PersistenceError {
+    fn from(value: &str) -> Self {
+        Self::Other(value.into())
+    }
+}
+
+impl<T> From<std::sync::PoisonError<T>> for PersistenceError {
+    fn from(_: std::sync::PoisonError<T>) -> Self {
+        Self::LockPoisoned
+    }
+}
+
+impl From<PersistenceError> for String {
+    fn from(err: PersistenceError) -> Self {
+        err.to_string()
+    }
+}
+
 /// A panel slot where a frontend extension can render by default.
 ///
 /// Users may move extensions between slots at runtime; this value is only the

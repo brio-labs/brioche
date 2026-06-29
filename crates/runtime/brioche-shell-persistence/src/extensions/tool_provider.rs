@@ -14,7 +14,7 @@ use brioche_tools_system::{AllowList, ExecuteCommandTool, SystemTool, ToolError}
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use super::{ExtensionMetadata, PanelSlot};
+use super::{ExtensionMetadata, PanelSlot, PersistenceError};
 
 /// A tool descriptor.
 ///
@@ -49,27 +49,27 @@ pub trait ToolProvider: Send + Sync {
     /// Returns all tools provided by this provider.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn tools(&self) -> Result<Vec<ToolDescriptor>, String>;
+    fn tools(&self) -> Result<Vec<ToolDescriptor>, PersistenceError>;
 
     /// Returns user-defined tool definitions so they can be wired into the shell runtime.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn user_tools(&self) -> Result<Vec<UserToolDefinition>, String>;
+    fn user_tools(&self) -> Result<Vec<UserToolDefinition>, PersistenceError>;
 
     /// Enables or disables a tool by id.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn set_enabled(&self, id: &str, enabled: bool) -> Result<(), String>;
+    fn set_enabled(&self, id: &str, enabled: bool) -> Result<(), PersistenceError>;
 
     /// Adds a user-defined tool.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn add_user_tool(&self, tool: UserToolDefinition) -> Result<(), String>;
+    fn add_user_tool(&self, tool: UserToolDefinition) -> Result<(), PersistenceError>;
 
     /// Removes a user-defined tool.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn remove_user_tool(&self, id: &str) -> Result<(), String>;
+    fn remove_user_tool(&self, id: &str) -> Result<(), PersistenceError>;
 }
 
 /// A user-defined tool definition.
@@ -184,12 +184,10 @@ impl ToolRegistry {
     ///
     /// # Panic / Safety
     /// Never panics. Returns Err if the configuration file cannot be read or parsed.
-    pub fn load() -> Result<Self, String> {
+    pub fn load() -> Result<Self, PersistenceError> {
         let path = registry_path();
-        let data = std::fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read tool registry: {e}"))?;
-        let snapshot = serde_json::from_str::<ToolRegistrySnapshot>(&data)
-            .map_err(|e| format!("Failed to parse tool registry: {e}"))?;
+        let data = std::fs::read_to_string(&path)?;
+        let snapshot = serde_json::from_str::<ToolRegistrySnapshot>(&data)?;
         Ok(Self {
             user_tools: RwLock::new(snapshot.user_tools),
             disabled: RwLock::new(snapshot.disabled),
@@ -205,27 +203,17 @@ impl ToolRegistry {
     ///
     /// # Panic / Safety
     /// Never panics. Returns error String on write failure.
-    pub fn save(&self) -> Result<(), String> {
+    pub fn save(&self) -> Result<(), PersistenceError> {
         let path = registry_path();
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create tools dir: {e}"))?;
+            std::fs::create_dir_all(parent)?;
         }
         let snapshot = ToolRegistrySnapshot {
-            user_tools: self
-                .user_tools
-                .read()
-                .map_err(|_| "Tool registry lock poisoned".to_string())?
-                .clone(),
-            disabled: self
-                .disabled
-                .read()
-                .map_err(|_| "Tool registry lock poisoned".to_string())?
-                .clone(),
+            user_tools: self.user_tools.read()?.clone(),
+            disabled: self.disabled.read()?.clone(),
         };
-        let data = serde_json::to_string_pretty(&snapshot)
-            .map_err(|e| format!("Failed to serialize tools: {e}"))?;
-        std::fs::write(&path, data).map_err(|e| format!("Failed to write tools: {e}"))
+        let data = serde_json::to_string_pretty(&snapshot).map_err(PersistenceError::Json)?;
+        std::fs::write(&path, data).map_err(PersistenceError::Io)
     }
 
     fn built_in_tools() -> Vec<ToolDescriptor> {
@@ -297,16 +285,10 @@ impl ToolProvider for ToolRegistry {
         }
     }
 
-    fn tools(&self) -> Result<Vec<ToolDescriptor>, String> {
+    fn tools(&self) -> Result<Vec<ToolDescriptor>, PersistenceError> {
         let mut tools = Self::built_in_tools();
-        let disabled = self
-            .disabled
-            .read()
-            .map_err(|_| "Tool registry lock poisoned".to_string())?;
-        let user_tools = self
-            .user_tools
-            .read()
-            .map_err(|_| "Tool registry lock poisoned".to_string())?;
+        let disabled = self.disabled.read()?;
+        let user_tools = self.user_tools.read()?;
         for user in user_tools.iter() {
             tools.push(ToolDescriptor {
                 id: user.id.clone(),
@@ -327,15 +309,9 @@ impl ToolProvider for ToolRegistry {
         Ok(tools)
     }
 
-    fn user_tools(&self) -> Result<Vec<UserToolDefinition>, String> {
-        let disabled = self
-            .disabled
-            .read()
-            .map_err(|_| "Tool registry lock poisoned".to_string())?;
-        let user_tools = self
-            .user_tools
-            .read()
-            .map_err(|_| "Tool registry lock poisoned".to_string())?;
+    fn user_tools(&self) -> Result<Vec<UserToolDefinition>, PersistenceError> {
+        let disabled = self.disabled.read()?;
+        let user_tools = self.user_tools.read()?;
         Ok(user_tools
             .iter()
             .filter(|t| !disabled.contains(&t.id))
@@ -343,11 +319,8 @@ impl ToolProvider for ToolRegistry {
             .collect())
     }
 
-    fn set_enabled(&self, id: &str, enabled: bool) -> Result<(), String> {
-        let mut disabled = self
-            .disabled
-            .write()
-            .map_err(|_| "Tool registry lock poisoned".to_string())?;
+    fn set_enabled(&self, id: &str, enabled: bool) -> Result<(), PersistenceError> {
+        let mut disabled = self.disabled.write()?;
         if enabled {
             disabled.retain(|d| d != id);
         } else {
@@ -360,34 +333,25 @@ impl ToolProvider for ToolRegistry {
         self.save()
     }
 
-    fn add_user_tool(&self, tool: UserToolDefinition) -> Result<(), String> {
-        let mut user_tools = self
-            .user_tools
-            .write()
-            .map_err(|_| "Tool registry lock poisoned".to_string())?;
+    fn add_user_tool(&self, tool: UserToolDefinition) -> Result<(), PersistenceError> {
+        let mut user_tools = self.user_tools.write()?;
         if user_tools.iter().any(|t| t.id == tool.id) {
-            return Err(format!("Tool '{}' already exists", tool.id));
+            return Err(PersistenceError::AlreadyExists(tool.id.clone()));
         }
         user_tools.push(tool);
         drop(user_tools);
         self.save()
     }
 
-    fn remove_user_tool(&self, id: &str) -> Result<(), String> {
-        let mut user_tools = self
-            .user_tools
-            .write()
-            .map_err(|_| "Tool registry lock poisoned".to_string())?;
+    fn remove_user_tool(&self, id: &str) -> Result<(), PersistenceError> {
+        let mut user_tools = self.user_tools.write()?;
         let len = user_tools.len();
         user_tools.retain(|t| t.id != id);
         if user_tools.len() == len {
-            return Err(format!("Tool '{}' not found", id));
+            return Err(PersistenceError::NotFound(format!("Tool '{id}'")));
         }
         drop(user_tools);
-        let mut disabled = self
-            .disabled
-            .write()
-            .map_err(|_| "Tool registry lock poisoned".to_string())?;
+        let mut disabled = self.disabled.write()?;
         disabled.retain(|d| d != id);
         drop(disabled);
         self.save()
