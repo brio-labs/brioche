@@ -3,6 +3,7 @@ import {
 	useRef,
 	useCallback,
 	useState,
+	useMemo,
 } from "react";
 import { useChatStore } from "../store";
 import { useSessionStore } from "../stores/sessionStore";
@@ -26,6 +27,7 @@ import {
 	ImageIcon,
 	WrenchIcon,
 	UserIcon,
+	SearchIcon,
 } from "./Icons";
 import SessionSidebar from "./SessionSidebar";
 import FileExplorer from "./FileExplorer";
@@ -35,6 +37,8 @@ import SkillsPanel from "./SkillsPanel";
 import MemoryPanel from "./MemoryPanel";
 import ProfilesPanel from "./ProfilesPanel";
 import ToolCallMessage from "./ToolCallMessage";
+import CommandPalette, { buildCommands } from "./CommandPalette";
+import MessageSearch from "./MessageSearch";
 import { useTauriSync } from "../hooks/useTauriSync";
 
 interface PanelState {
@@ -52,7 +56,7 @@ export default function App() {
 		setLoading,
 		clearMessages,
 	} = useChatStore();
-	const { loadSessions } = useSessionStore();
+	const { loadSessions, createSession } = useSessionStore();
 	const { loadSettings, settings } = useSettingsStore();
 	const { loadDirectory } = useFileStore();
 	const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -61,6 +65,8 @@ export default function App() {
 	const [showProfiles, setShowProfiles] = useState(false);
 	const [showMemory, setShowMemory] = useState(false);
 	const [showTools, setShowTools] = useState(false);
+	const [showPalette, setShowPalette] = useState(false);
+	const [showMessageSearch, setShowMessageSearch] = useState(false);
 	const [panels, setPanels] = useState<PanelState>({
 		left: true,
 		right: true,
@@ -89,6 +95,69 @@ export default function App() {
 
 	// Synchronize Tauri events with stores reactively
 	useTauriSync();
+
+	const handleNewSession = useCallback(async () => {
+		const id = await createSession();
+		if (id) await loadSessions();
+	}, [createSession, loadSessions]);
+
+	const handleClearChat = useCallback(() => {
+		clearMessages();
+		void sendMessage("/clear");
+	}, [clearMessages]);
+
+	const handleExportChat = useCallback(() => {
+		const text = messages
+			.map((m) => `${m.role}: ${m.content}`)
+			.join("\n\n");
+		const blob = new Blob([text], { type: "text/plain" });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement("a");
+		a.href = url;
+		a.download = `brioche-chat-${new Date().toISOString().slice(0, 10)}.txt`;
+		a.click();
+		URL.revokeObjectURL(url);
+	}, [messages]);
+
+	const paletteCommands = useMemo(
+		() =>
+			buildCommands({
+				newSession: handleNewSession,
+				clearChat: handleClearChat,
+				openSettings: () => setShowSettings(true),
+				toggleSessions: () =>
+					setPanels((p) => ({ ...p, left: !p.left })),
+				toggleFiles: () =>
+					setPanels((p) => ({ ...p, right: !p.right })),
+				exportChat: handleExportChat,
+			}),
+		[handleNewSession, handleClearChat, handleExportChat],
+	);
+
+	useEffect(() => {
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key === "Escape") {
+				setShowPalette(false);
+				setShowMessageSearch(false);
+				return;
+			}
+			const meta = e.ctrlKey || e.metaKey;
+			if (meta && e.key.toLowerCase() === "k" && !e.shiftKey) {
+				e.preventDefault();
+				setShowPalette((open) => {
+					if (!open) setShowMessageSearch(false);
+					return !open;
+				});
+			}
+			if (meta && e.shiftKey && e.key.toLowerCase() === "f") {
+				e.preventDefault();
+				setShowPalette(false);
+				setShowMessageSearch(true);
+			}
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, []);
 
 	const handleSubmit = useCallback(
 		async (e?: React.FormEvent) => {
@@ -176,6 +245,15 @@ export default function App() {
 						<button
 							type="button"
 							className="btn-toolbar"
+							onClick={() => setShowMessageSearch(true)}
+							title="Search messages (Ctrl+Shift+F)"
+						>
+							<SearchIcon className="w-4 h-4" />
+							<span className="hidden lg:inline">Search</span>
+						</button>
+						<button
+							type="button"
+							className="btn-toolbar"
 							onClick={() => setShowMemory(true)}
 							title="Memory"
 						>
@@ -252,19 +330,27 @@ export default function App() {
 					)}
 					{messages.map((msg) =>
 						msg.role === "tool_request" || msg.role === "tool_result" ? (
-							<div key={msg.id} className={`flex flex-col gap-2 relative animate-fadeIn max-w-[85%] ${
-								msg.role === "tool_request" ? "self-end" : "self-start"
-							}`}>
+							<div
+								id={`msg-${msg.id}`}
+								key={msg.id}
+								className={`flex flex-col gap-2 relative animate-fadeIn max-w-[85%] ${
+									msg.role === "tool_request" ? "self-end" : "self-start"
+								}`}
+							>
 								<ToolCallMessage message={msg} />
 							</div>
 						) : (
-							<div key={msg.id} className={`flex flex-col gap-2 relative animate-fadeIn max-w-[85%] ${
-								msg.role === "user"
-									? "self-end"
-									: msg.role === "assistant"
-										? "self-start max-w-[90%]"
-										: "self-center max-w-[600px] w-full"
-							}`}>
+							<div
+								id={`msg-${msg.id}`}
+								key={msg.id}
+								className={`flex flex-col gap-2 relative animate-fadeIn max-w-[85%] ${
+									msg.role === "user"
+										? "self-end"
+										: msg.role === "assistant"
+											? "self-start max-w-[90%]"
+											: "self-center max-w-[600px] w-full"
+								}`}
+							>
 								<div className="flex items-center gap-2 mb-0.5 px-1">
 									<span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">{msg.role}</span>
 								</div>
@@ -299,7 +385,7 @@ export default function App() {
 					<div className="flex items-center gap-2">
 						<button
 							type="button"
-							className="btn-icon w-8 h-8"
+							className="btn-icon w-8 h-8 text-fg-secondary hover:text-fg-primary"
 							onClick={handleAttach}
 							title="Attach file/folder"
 						>
@@ -307,7 +393,7 @@ export default function App() {
 						</button>
 						<button
 							type="button"
-							className="btn-icon w-8 h-8"
+							className="btn-icon w-8 h-8 text-fg-secondary hover:text-fg-primary"
 							onClick={handleImage}
 							title="Send image"
 						>
@@ -345,6 +431,26 @@ export default function App() {
 			{showProfiles && <ProfilesPanel onClose={() => setShowProfiles(false)} />}
 			{showMemory && <MemoryPanel onClose={() => setShowMemory(false)} />}
 			{showTools && <ToolsPanel onClose={() => setShowTools(false)} />}
+
+			<CommandPalette
+				isOpen={showPalette}
+				onClose={() => setShowPalette(false)}
+				commands={paletteCommands}
+			/>
+			<MessageSearch
+				messages={messages.map((m) => ({
+					id: m.id,
+					role: m.role,
+					content: m.content,
+					timestamp: Date.now(),
+				}))}
+				onJumpTo={(id) => {
+					const el = document.getElementById(`msg-${id}`);
+					el?.scrollIntoView({ behavior: "smooth", block: "center" });
+				}}
+				isOpen={showMessageSearch}
+				onClose={() => setShowMessageSearch(false)}
+			/>
 		</div>
 	);
 }
