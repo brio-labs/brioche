@@ -36,12 +36,11 @@ export default function ToolsPanel({ onClose = () => {} }: ToolsPanelProps) {
 			title="Tools"
 			icon={<WrenchIcon className="w-4 h-4" />}
 			onClose={onClose}
-			panelClassName="bg-bg-surface border border-border rounded-lg w-[600px] max-w-[95vw] max-h-[85vh] flex flex-col overflow-hidden animate-slideUp shadow-2xl z-[1001]"
+			size="sm"
 		>
-			<div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
-				{error && <div className="bg-error-bg text-error-text border border-error-border px-3.5 py-2.5 rounded-lg text-xs mx-4 my-3">{error}</div>}
+				{error && <div className="bg-error-bg text-error-text border border-error-border p-4 rounded-lg text-xs">{error}</div>}
 				{!isTauriAvailable && !error && (
-					<div className="bg-error-bg text-error-text border border-error-border px-3.5 py-2.5 rounded-lg text-xs mx-4 my-3">
+					<div className="bg-error-bg text-error-text border border-error-border p-4 rounded-lg text-xs">
 						Tools preview mode: live tool list requires the Tauri desktop app.
 					</div>
 				)}
@@ -49,26 +48,26 @@ export default function ToolsPanel({ onClose = () => {} }: ToolsPanelProps) {
 					<div className="text-center text-fg-muted py-12 px-4 text-sm select-none">No tools available</div>
 				)}
 				{hasUserTools && !userToolsEnabled && (
-					<div className="flex items-start gap-2.5 bg-warning-bg text-warning-text border border-warning-border px-3.5 py-2.5 rounded-lg text-xs mx-4 my-3">
+					<div className="flex items-start gap-2.5 bg-warning-bg text-warning-text border border-warning-border p-4 rounded-lg text-xs">
 						<AlertTriangleIcon className="w-4 h-4 shrink-0 mt-0.5" />
 						<span>User-defined tools are disabled for security. Enable them in Settings &gt; Tools.</span>
 					</div>
 				)}
 				{hasUserTools && userToolsEnabled && (
-					<div className="flex items-start gap-2.5 bg-bg-highlight/50 border border-border px-3.5 py-2.5 rounded-lg text-xs text-fg-secondary mx-4 my-3">
+					<div className="flex items-start gap-2.5 bg-bg-highlight/50 border border-border p-4 rounded-lg text-xs text-fg-secondary">
 						<TerminalIcon className="w-4 h-4 shrink-0 mt-0.5" />
 						<span>User-defined tools can execute arbitrary commands.</span>
 					</div>
 				)}
 				{Object.entries(groups).map(([category, items]) => (
-					<div key={category} className="flex flex-col gap-2.5 [&_h3]:text-[11px] [&_h3]:font-bold [&_h3]:text-fg-secondary [&_h3]:uppercase [&_h3]:tracking-wider [&_h3]:border-b [&_h3]:border-border [&_h3]:pb-1.5">
+					<div key={category} className="flex flex-col gap-2.5 [&_h3]:text-xs [&_h3]:font-bold [&_h3]:text-fg-secondary [&_h3]:uppercase [&_h3]:tracking-wider [&_h3]:border-b [&_h3]:border-border [&_h3]:pb-2">
 						<h3>{category}</h3>
 						<div className="flex flex-col gap-1.5">
 							{items.map((tool) => (
 								<div key={tool.id} className="p-3 bg-bg-elevated/30 border border-border rounded-lg flex items-center justify-between gap-4 transition-all hover:border-border-hover">
 									<div className="flex flex-col gap-0.5 min-w-0">
 										<span className="font-mono text-xs font-semibold text-fg-primary">{tool.name}</span>
-										<span className="text-[11px] text-fg-secondary truncate" title={tool.description}>
+										<span className="text-xs text-fg-secondary truncate" title={tool.description}>
 											{tool.description}
 										</span>
 									</div>
@@ -88,7 +87,6 @@ export default function ToolsPanel({ onClose = () => {} }: ToolsPanelProps) {
 					{isLoading && tools.length === 0 && (
 						<div className="text-center text-fg-muted py-12 text-sm">Loading tools...</div>
 					)}
-			</div>
 		</PanelOverlay>
 	);
 }

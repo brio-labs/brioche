@@ -104,7 +104,8 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 			title="Skills"
 			icon={<BookIcon className="w-4 h-4" />}
 			onClose={onClose}
-			panelClassName="bg-bg-surface border border-border rounded-lg w-[850px] max-w-[95vw] max-h-[85vh] flex flex-col overflow-hidden animate-slideUp shadow-2xl z-[1001]"
+			size="lg"
+			padded={false}
 			headerActions={
 				<button
 					type="button"
@@ -118,29 +119,29 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 			}
 		>
 			<div className="flex flex-row flex-1 overflow-hidden min-h-0">
-				<div className="w-[280px] min-w-[280px] border-r border-border flex flex-col bg-bg-base/20">
+				<div className="w-70 min-w-70 border-r border-border flex flex-col bg-bg-base/20">
 					<SearchBar
 						placeholder="Search skills..."
 						value={searchQuery}
 						onChange={setSearchQuery}
-						containerClassName="shrink-0 border-b border-border rounded-none px-4 py-3 bg-bg-base/30"
+						containerClassName="shrink-0 border-b border-border rounded-none px-5 py-4 bg-bg-base/30"
 					/>
 
 					<CategoryFilter
 						categories={categories}
 						activeCategory={categoryFilter}
 						onSelect={setCategoryFilter}
-						containerClassName="shrink-0 px-4 py-3 border-b border-border bg-bg-base/20"
+						containerClassName="shrink-0 px-5 py-4 border-b border-border bg-bg-base/20"
 						buttonClassName="category-btn"
 					/>
 
-					{error && <div className="bg-error-bg text-error-text border border-error-border px-3.5 py-2.5 rounded-lg text-xs mx-4 my-3">{error}</div>}
+					{error && <div className="bg-error-bg text-error-text border border-error-border px-3.5 py-2.5 rounded-lg text-xs mx-4 my-2 shrink-0">{error}</div>}
 					{!isTauriAvailable && !error && (
-						<div className="bg-error-bg text-error-text border border-error-border px-3.5 py-2.5 rounded-lg text-xs mx-4 my-3">
+						<div className="bg-error-bg text-error-text border border-error-border px-3.5 py-2.5 rounded-lg text-xs mx-4 my-2 shrink-0">
 							Skills preview mode: scanning requires the Tauri desktop app.
 						</div>
 					)}
-					<div className="flex-1 overflow-y-auto min-h-0 p-3 flex flex-col gap-2">
+					<div className="flex-1 overflow-y-auto min-h-0 p-4 flex flex-col gap-3">
 						{isLoading ? (
 							<div className="text-center text-fg-muted py-12 text-sm">Loading skills...</div>
 						) : filteredSkills.length === 0 ? (
@@ -162,7 +163,7 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 										<div className="text-xs font-semibold text-fg-primary flex items-center justify-between gap-1">
 											{skill.name}
 											<span
-												className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase select-none ${
+												className={`px-1.5 py-0.5 rounded text-xs font-bold uppercase select-none ${
 													skill.enabled
 														? "bg-green-800/20 border border-green-700/30 text-green-400"
 														: "bg-bg-subtle border border-border text-fg-muted"
@@ -171,16 +172,16 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 												{skill.enabled ? "on" : "off"}
 											</span>
 										</div>
-										<div className="text-[11px] text-fg-secondary line-clamp-2">{skill.description}</div>
+										<div className="text-xs text-fg-secondary line-clamp-2">{skill.description}</div>
 									</div>
-									<div className="flex items-center gap-2 mt-1 select-none text-[10px] text-fg-muted">
-										<span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-bg-subtle border border-border text-fg-tertiary font-mono">{skill.category}</span>
+									<div className="flex items-center gap-2 mt-1 select-none text-xs text-fg-muted">
+										<span className="px-1.5 py-0.5 rounded text-xs font-medium bg-bg-subtle border border-border text-fg-tertiary font-mono">{skill.category}</span>
 										{skill.version && (
-											<span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-bg-subtle border border-border text-fg-tertiary font-mono">v{skill.version}</span>
+											<span className="px-1.5 py-0.5 rounded text-xs font-medium bg-bg-subtle border border-border text-fg-tertiary font-mono">v{skill.version}</span>
 										)}
 										<button
 											type="button"
-											className="px-2.5 py-1 bg-bg-highlight border border-border hover:border-accent-dim/45 hover:bg-bg-subtle text-fg-secondary hover:text-fg-primary rounded text-[10px] font-medium cursor-pointer transition-all ml-auto"
+											className="px-2.5 py-1 bg-bg-highlight border border-border hover:border-accent-dim/45 hover:bg-bg-subtle text-fg-secondary hover:text-fg-primary rounded text-xs font-medium cursor-pointer transition-all ml-auto"
 											onClick={() => toggleSkillEnabled(skill)}
 											title={skill.enabled ? "Disable" : "Enable"}
 										>
@@ -250,7 +251,7 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 						<>
 							<div className="border-b border-border pb-4 mb-2 flex flex-col gap-2">
 								<h3 className="text-lg font-semibold text-fg-primary">{selectedSkill.name}</h3>
-								<div className="flex flex-wrap items-center gap-3 select-none text-[11px] text-fg-muted">
+								<div className="flex flex-wrap items-center gap-3 select-none text-xs text-fg-muted">
 									<span className="flex items-center gap-1 font-medium">
 										<FolderIcon className="w-3.5 h-3.5" />
 										{selectedSkill.category}
@@ -274,7 +275,7 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 								{selectedSkill.tags.length > 0 && (
 									<div className="flex flex-wrap gap-1.5 mt-1">
 										{selectedSkill.tags.map((tag) => (
-											<span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 bg-accent/5 border border-accent/15 rounded text-[10px] text-accent-hover font-medium font-mono">
+											<span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 bg-accent/5 border border-accent/15 rounded text-xs text-accent-hover font-medium font-mono">
 												<TagIcon className="w-3 h-3" />
 												{tag}
 											</span>

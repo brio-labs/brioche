@@ -398,24 +398,25 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 		<PanelOverlay
 			title="Settings"
 			onClose={onClose}
-			panelClassName="bg-bg-surface border border-border rounded-lg w-[800px] max-w-[95vw] max-h-[85vh] flex flex-col overflow-hidden animate-slideUp shadow-2xl z-[1001]"
+			size="md"
+			padded={false}
 		>
 			<div className="flex flex-row flex-1 overflow-hidden min-h-0">
-				<div className="w-[240px] min-w-[240px] border-r border-border flex flex-col bg-bg-base/20">
+				<div className="w-60 min-w-60 border-r border-border flex flex-col bg-bg-base/20">
 					<SearchBar
 						placeholder="Search settings..."
 						value={search}
 						onChange={setSearch}
 						containerClassName="border-b border-border rounded-none px-5 py-4 bg-bg-base/30"
 					/>
-					<div className="flex-1 overflow-y-auto p-3 flex flex-col gap-0.5">
+					<div className="flex-1 overflow-y-auto p-4 flex flex-col gap-1">
 						{filteredSections.map((section) => (
 							<Button
 								key={section.id}
 								type="button"
 								variant="ghost"
 								onClick={() => setSelectedSectionId(section.id)}
-								className={`w-full justify-start px-4 py-2.5 text-[13px] font-semibold transition-all duration-150 ${
+								className={`w-full justify-start px-4 py-2.5 text-sm font-semibold transition-all duration-150 ${
 									selectedSectionId === section.id
 										? "bg-accent/15 border-l-2 border-accent text-fg-primary"
 										: "text-fg-secondary hover:bg-bg-elevated/50 hover:text-fg-primary"
@@ -456,7 +457,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 					)}
 				{saveError && (
 					<div className="mt-auto pt-5">
-						<div className="rounded-lg border border-error-border bg-error-bg px-4 py-3 text-[13px] text-error-text whitespace-pre-wrap">
+						<div className="rounded-lg border border-error-border bg-error-bg p-4 text-sm text-error-text whitespace-pre-wrap">
 							{saveError}
 						</div>
 					</div>
@@ -506,7 +507,7 @@ function FieldEditor({
 							checked={Boolean(currentValue)}
 							onCheckedChange={(checked) => onChange(Boolean(checked))}
 						/>
-						<Label htmlFor={field.key} className="normal-case text-[13px]">
+						<Label htmlFor={field.key} className="normal-case text-sm">
 							{field.label}
 						</Label>
 					</div>
@@ -613,7 +614,7 @@ function FieldEditor({
 				<Label htmlFor={field.key}>{field.label}</Label>
 			)}
 			{field.protected && (
-				<div className="text-amber-500 text-[11px] flex items-start gap-2 mt-0.5">
+				<div className="text-amber-500 text-xs flex items-start gap-2 mt-0.5">
 					<AlertTriangleIcon className="w-3.5 h-3.5 shrink-0 mt-0.5" />
 					<div className="flex flex-wrap items-center gap-x-2 gap-y-1">
 						<span>
@@ -650,7 +651,7 @@ function FieldEditor({
 			)}
 			{input}
 			{field.description && (
-				<span className="text-[11px] text-fg-muted leading-relaxed">
+				<span className="text-xs text-fg-muted leading-relaxed">
 					{field.description}
 				</span>
 			)}

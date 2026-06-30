@@ -1,14 +1,22 @@
 import React from "react";
 import { XIcon, SearchIcon } from "./Icons";
 
-interface PanelOverlayProps {
-	title: string;
-	icon?: React.ReactNode;
-	onClose: () => void;
-	children: React.ReactNode;
-	headerActions?: React.ReactNode;
-	panelClassName?: string;
+interface OverlayPanelProps {
+  title: string;
+  icon?: React.ReactNode;
+  onClose: () => void;
+  children: React.ReactNode;
+  headerActions?: React.ReactNode;
+  size?: "sm" | "md" | "lg" | "xl";
+  padded?: boolean;
 }
+
+const sizeClasses: Record<NonNullable<OverlayPanelProps["size"]>, string> = {
+  sm: "w-150",
+  md: "w-200",
+  lg: "w-[850px]",
+  xl: "w-250",
+};
 
 /**
  * Reusable modal/overlay layout that centralizes backdrop clicks, animations,
@@ -16,41 +24,60 @@ interface PanelOverlayProps {
  *
  * Refs: I-Ui-OverlayCohesion
  */
-export default function PanelOverlay({
-	title,
-	icon,
-	onClose,
-	children,
-	headerActions,
-	panelClassName = "panel w-[800px] max-w-[95vw] max-h-[85vh] z-[1001]",
-}: PanelOverlayProps) {
-	return (
-		<div className="panel-backdrop" onClick={onClose}>
-			<div className={panelClassName} onClick={(e) => e.stopPropagation()}>
-				<div className="panel-header">
-					<h2 className="flex items-center text-sm font-semibold text-fg-primary">
-						{icon && <span className="mr-2.5 flex items-center text-accent">{icon}</span>}
-						<span>{title}</span>
-					</h2>
-					<div className="flex items-center gap-2">
-						{headerActions}
-						<button type="button" className="p-1.5 bg-transparent text-fg-muted hover:text-fg-secondary hover:bg-bg-highlight rounded-md transition-all duration-150 cursor-pointer flex items-center justify-center" onClick={onClose} aria-label="Close panel">
-							<XIcon className="w-4 h-4" />
-						</button>
-					</div>
-				</div>
-				{children}
-			</div>
-		</div>
-	);
+export default function OverlayPanel({
+  title,
+  icon,
+  onClose,
+  children,
+  headerActions,
+  size = "md",
+  padded = true,
+}: OverlayPanelProps) {
+  return (
+    <div className="panel-backdrop" onClick={onClose}>
+      <div
+        className={`panel ${sizeClasses[size]} max-w-[95vw] max-h-[85vh] z-1001`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="panel-header">
+          <h2 className="flex items-center text-sm font-semibold text-fg-primary">
+            {icon && (
+              <span className="mr-2.5 flex items-center text-accent">
+                {icon}
+              </span>
+            )}
+            <span>{title}</span>
+          </h2>
+          <div className="flex items-center gap-2">
+            {headerActions}
+            <button
+              type="button"
+              className="p-1.5 bg-transparent text-fg-muted hover:text-fg-secondary hover:bg-bg-highlight rounded-md transition-all duration-150 cursor-pointer flex items-center justify-center"
+              onClick={onClose}
+              aria-label="Close panel"
+            >
+              <XIcon className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+        {padded ? (
+          <div className="flex-1 min-h-0 overflow-y-auto p-6 gap-4 flex flex-col">
+            {children}
+          </div>
+        ) : (
+          children
+        )}
+      </div>
+    </div>
+  );
 }
 
 interface SearchBarProps {
-	value: string;
-	onChange: (value: string) => void;
-	placeholder?: string;
-	onSearch?: () => void;
-	containerClassName?: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  onSearch?: () => void;
+  containerClassName?: string;
 }
 
 /**
@@ -59,41 +86,43 @@ interface SearchBarProps {
  * Refs: I-Ui-OverlayCohesion
  */
 export function SearchBar({
-	value,
-	onChange,
-	placeholder = "Search...",
-	onSearch,
-	containerClassName = "",
+  value,
+  onChange,
+  placeholder = "Search...",
+  onSearch,
+  containerClassName = "",
 }: SearchBarProps) {
-	return (
-		<div className={`flex items-center gap-2 px-3 py-2 border border-border bg-bg-elevated/30 rounded-md focus-within:border-accent-dim/60 focus-within:ring-1 focus-within:ring-accent-dim/30 transition-all ${containerClassName}`}>
-			<SearchIcon className="w-4 h-4 text-fg-muted shrink-0" />
-			<input
-				type="text"
-				placeholder={placeholder}
-				value={value}
-				onChange={(e) => onChange(e.target.value)}
-				onKeyDown={(e) => e.key === "Enter" && onSearch?.()}
-				className="flex-1 bg-transparent border-none text-fg-primary text-[13px] outline-none placeholder:text-fg-dim font-sans"
-			/>
-			{onSearch && (
-				<button
-					onClick={onSearch}
-					className="px-3 py-1 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded cursor-pointer transition-colors"
-				>
-					Search
-				</button>
-			)}
-		</div>
-	);
+  return (
+    <div
+      className={`flex items-center gap-2 px-3 py-2 border border-border bg-bg-elevated/30 rounded-md focus-within:border-accent-dim/60 focus-within:ring-1 focus-within:ring-accent-dim/30 transition-all ${containerClassName}`}
+    >
+      <SearchIcon className="w-4 h-4 text-fg-muted shrink-0" />
+      <input
+        type="text"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && onSearch?.()}
+        className="flex-1 bg-transparent border-none text-fg-primary text-sm outline-none placeholder:text-fg-dim font-sans"
+      />
+      {onSearch && (
+        <button
+          onClick={onSearch}
+          className="px-3 py-1 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded cursor-pointer transition-colors"
+        >
+          Search
+        </button>
+      )}
+    </div>
+  );
 }
 
 interface CategoryFilterProps {
-	categories: string[];
-	activeCategory: string | null;
-	onSelect: (category: string | null) => void;
-	containerClassName: string;
-	buttonClassName?: string;
+  categories: string[];
+  activeCategory: string | null;
+  onSelect: (category: string | null) => void;
+  containerClassName?: string;
+  buttonClassName?: string;
 }
 
 /**
@@ -102,42 +131,42 @@ interface CategoryFilterProps {
  * Refs: I-Ui-OverlayCohesion
  */
 export function CategoryFilter({
-	categories,
-	activeCategory,
-	onSelect,
-	containerClassName = "",
-	buttonClassName = "",
+  categories,
+  activeCategory,
+  onSelect,
+  containerClassName = "",
+  buttonClassName = "",
 }: CategoryFilterProps) {
-	return (
-		<div className={`flex flex-wrap gap-2 ${containerClassName}`}>
-			<button
-				type="button"
-				className={`px-3 py-1 rounded text-xs font-medium cursor-pointer transition-all ${
-					!activeCategory
-						? "bg-accent/20 text-fg-primary border border-accent/30"
-						: "bg-bg-elevated/50 text-fg-muted hover:text-fg-secondary border border-border/50"
-				} ${buttonClassName}`}
-				onClick={() => onSelect(null)}
-			>
-				All
-			</button>
-			{categories.map((cat) => {
-				const isActive = activeCategory === cat;
-				return (
-					<button
-						key={cat}
-						type="button"
-						className={`px-3 py-1 rounded text-xs font-medium cursor-pointer transition-all ${
-							isActive
-								? "bg-accent/20 text-fg-primary border border-accent/30"
-								: "bg-bg-elevated/50 text-fg-muted hover:text-fg-secondary border border-border/50"
-						} ${buttonClassName}`}
-						onClick={() => onSelect(cat)}
-					>
-						{cat.charAt(0).toUpperCase() + cat.slice(1)}
-					</button>
-				);
-			})}
-		</div>
-	);
+  return (
+    <div className={`flex flex-wrap gap-2 ${containerClassName}`}>
+      <button
+        type="button"
+        className={`px-3 py-1 rounded text-xs font-medium cursor-pointer transition-all ${
+          !activeCategory
+            ? "bg-accent/20 text-fg-primary border border-accent/30"
+            : "bg-bg-elevated/50 text-fg-muted hover:text-fg-secondary border border-border/50"
+        } ${buttonClassName}`}
+        onClick={() => onSelect(null)}
+      >
+        All
+      </button>
+      {categories.map((cat) => {
+        const isActive = activeCategory === cat;
+        return (
+          <button
+            key={cat}
+            type="button"
+            className={`px-3 py-1 rounded text-xs font-medium cursor-pointer transition-all ${
+              isActive
+                ? "bg-accent/20 text-fg-primary border border-accent/30"
+                : "bg-bg-elevated/50 text-fg-muted hover:text-fg-secondary border border-border/50"
+            } ${buttonClassName}`}
+            onClick={() => onSelect(cat)}
+          >
+            {cat.charAt(0).toUpperCase() + cat.slice(1)}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
