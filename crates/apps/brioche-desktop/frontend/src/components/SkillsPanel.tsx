@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useSkillsStore } from "../stores/panelStores";
 import type { Skill } from "../ipc";
 import PanelOverlay, { SearchBar, CategoryFilter } from "./PanelOverlay";
+import { cn } from "./ui/lib";
 import {
 	BookIcon,
 	TagIcon,
@@ -10,10 +11,14 @@ import {
 	TrashIcon,
 } from "./Icons";
 
+/// Props for the skills management panel.
 interface SkillsPanelProps {
 	onClose: () => void;
 }
 
+/// Renders the skills management panel with search, category filtering, and creation.
+///
+/// Refs: I-Ui-SkillsPanel
 export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 	const {
 		skills,
@@ -36,7 +41,6 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 		setError,
 	} = useSkillsStore();
 
-	// Local temporary state for the "New Skill" creation form
 	const [newName, setNewName] = useState("");
 	const [newCategory, setNewCategory] = useState("general");
 	const [newDescription, setNewDescription] = useState("");
@@ -90,7 +94,9 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 				!searchQuery.trim() ||
 				skill.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
 				skill.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-				skill.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
+				skill.tags.some((t) =>
+					t.toLowerCase().includes(searchQuery.toLowerCase()),
+				);
 			const matchesCategory =
 				!categoryFilter || skill.category === categoryFilter;
 			return matchesSearch && matchesCategory;
@@ -102,86 +108,98 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 	return (
 		<PanelOverlay
 			title="Skills"
-			icon={<BookIcon className="w-4 h-4" />}
+			icon={<BookIcon className="h-4 w-4" />}
 			onClose={onClose}
 			size="lg"
 			padded={false}
 			headerActions={
 				<button
 					type="button"
-					className="p-1.5 bg-transparent text-fg-muted hover:text-fg-secondary hover:bg-bg-highlight rounded-md transition-all duration-150 cursor-pointer flex items-center justify-center mr-1.5"
+					className="mr-1.5 flex cursor-pointer items-center justify-center rounded-md bg-transparent p-1.5 text-fg-muted transition-all duration-150 hover:bg-bg-highlight hover:text-fg-secondary"
 					onClick={() => setShowCreate(true)}
 					title="New skill"
 					aria-label="New skill"
 				>
-					<PlusIcon className="w-4 h-4" />
+					<PlusIcon className="h-4 w-4" />
 				</button>
 			}
 		>
-			<div className="flex flex-row flex-1 overflow-hidden min-h-0">
-				<div className="w-70 min-w-70 border-r border-border flex flex-col bg-bg-base/20">
+			<div className="flex min-h-0 flex-1 flex-row overflow-hidden">
+				<div className="flex w-70 min-w-70 flex-col border-r border-border bg-bg-base/20">
 					<SearchBar
 						placeholder="Search skills..."
 						value={searchQuery}
 						onChange={setSearchQuery}
-						containerClassName="shrink-0 border-b border-border rounded-none px-5 py-4 bg-bg-base/30"
+						containerClassName="shrink-0 border-b border-border rounded-none bg-bg-base/30 px-5 py-4"
 					/>
 
 					<CategoryFilter
 						categories={categories}
 						activeCategory={categoryFilter}
 						onSelect={setCategoryFilter}
-						containerClassName="shrink-0 px-5 py-4 border-b border-border bg-bg-base/20"
-						buttonClassName="category-btn"
+						containerClassName="shrink-0 border-b border-border bg-bg-base/20 px-5 py-4"
 					/>
 
-					{error && <div className="bg-error-bg text-error-text border border-error-border px-3.5 py-2.5 rounded-lg text-xs mx-4 my-2 shrink-0">{error}</div>}
-					{!isTauriAvailable && !error && (
-						<div className="bg-error-bg text-error-text border border-error-border px-3.5 py-2.5 rounded-lg text-xs mx-4 my-2 shrink-0">
-							Skills preview mode: scanning requires the Tauri desktop app.
+					{error && (
+						<div className="notice-error mx-4 my-2 shrink-0">
+							{error}
 						</div>
 					)}
-					<div className="flex-1 overflow-y-auto min-h-0 p-4 flex flex-col gap-3">
+					{!isTauriAvailable && !error && (
+						<div className="notice-error mx-4 my-2 shrink-0">
+							Skills preview mode: scanning requires the Tauri desktop
+							app.
+						</div>
+					)}
+					<div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
 						{isLoading ? (
-							<div className="text-center text-fg-muted py-12 text-sm">Loading skills...</div>
+							<div className="empty-state">Loading skills...</div>
 						) : filteredSkills.length === 0 ? (
-							<div className="text-center text-fg-muted py-12 text-sm">No skills found</div>
+							<div className="empty-state">No skills found</div>
 						) : (
 							filteredSkills.map((skill) => (
 								<div
 									key={skill.name}
-									className={`p-3 rounded-lg cursor-pointer transition-all duration-200 border flex flex-col gap-1.5 ${
+									className={cn(
+										"flex cursor-pointer flex-col gap-1.5 rounded-lg border p-3 transition-all duration-200",
 										selectedSkill?.name === skill.name
-											? "bg-accent/10 border-accent-dim/40 shadow-sm"
-											: "bg-transparent border-transparent hover:bg-bg-elevated/30 hover:border-border/60"
-									}`}
+											? "border-accent-dim/40 bg-accent/10 shadow-sm"
+											: "border-transparent bg-transparent hover:border-border/60 hover:bg-bg-elevated/30",
+									)}
 								>
 									<div
-										className="flex-1 flex flex-col gap-1"
+										className="flex flex-1 flex-col gap-1"
 										onClick={() => selectSkill(skill)}
 									>
-										<div className="text-xs font-semibold text-fg-primary flex items-center justify-between gap-1">
+										<div className="flex items-center justify-between gap-1 text-xs font-semibold text-fg-primary">
 											{skill.name}
 											<span
-												className={`px-1.5 py-0.5 rounded text-xs font-bold uppercase select-none ${
+												className={cn(
+													"rounded px-1.5 py-0.5 text-xs font-bold uppercase select-none",
 													skill.enabled
-														? "bg-green-800/20 border border-green-700/30 text-green-400"
-														: "bg-bg-subtle border border-border text-fg-muted"
-												}`}
+														? "bg-success-bg border border-success-border text-success-text"
+														: "bg-bg-subtle border border-border text-fg-muted",
+												)}
 											>
 												{skill.enabled ? "on" : "off"}
 											</span>
 										</div>
-										<div className="text-xs text-fg-secondary line-clamp-2">{skill.description}</div>
+										<div className="line-clamp-2 text-xs text-fg-secondary">
+											{skill.description}
+										</div>
 									</div>
-									<div className="flex items-center gap-2 mt-1 select-none text-xs text-fg-muted">
-										<span className="px-1.5 py-0.5 rounded text-xs font-medium bg-bg-subtle border border-border text-fg-tertiary font-mono">{skill.category}</span>
+									<div className="mt-1 flex select-none items-center gap-2 text-xs text-fg-muted">
+										<span className="rounded border border-border bg-bg-subtle px-1.5 py-0.5 font-mono text-xs font-medium text-fg-tertiary">
+											{skill.category}
+										</span>
 										{skill.version && (
-											<span className="px-1.5 py-0.5 rounded text-xs font-medium bg-bg-subtle border border-border text-fg-tertiary font-mono">v{skill.version}</span>
+											<span className="rounded border border-border bg-bg-subtle px-1.5 py-0.5 font-mono text-xs font-medium text-fg-tertiary">
+												v{skill.version}
+											</span>
 										)}
 										<button
 											type="button"
-											className="px-2.5 py-1 bg-bg-highlight border border-border hover:border-accent-dim/45 hover:bg-bg-subtle text-fg-secondary hover:text-fg-primary rounded text-xs font-medium cursor-pointer transition-all ml-auto"
+											className="ml-auto cursor-pointer rounded border border-border bg-bg-highlight px-2.5 py-1 text-xs font-medium text-fg-secondary transition-all hover:border-accent-dim/45 hover:bg-bg-subtle hover:text-fg-primary"
 											onClick={() => toggleSkillEnabled(skill)}
 											title={skill.enabled ? "Disable" : "Enable"}
 										>
@@ -189,12 +207,12 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 										</button>
 										<button
 											type="button"
-											className="p-1.5 text-fg-muted hover:text-error-text hover:bg-bg-highlight border border-transparent hover:border-border rounded transition-all cursor-pointer flex items-center justify-center shrink-0"
+											className="flex shrink-0 cursor-pointer items-center justify-center rounded border border-transparent p-1.5 text-fg-muted transition-all hover:border-border hover:bg-bg-highlight hover:text-error-text"
 											onClick={() => handleDelete(skill)}
 											title="Delete"
 											aria-label={`Delete skill ${skill.name}`}
 										>
-											<TrashIcon className="w-3.5 h-3.5" />
+											<TrashIcon className="h-3.5 w-3.5" />
 										</button>
 									</div>
 								</div>
@@ -203,9 +221,9 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 					</div>
 				</div>
 
-				<div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4 bg-bg-base/10">
+				<div className="flex flex-1 flex-col gap-4 overflow-y-auto bg-bg-base/10 p-5">
 					{showCreate ? (
-						<div className="flex flex-col gap-3 p-2 max-w-xl [&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-fg-primary [&_h3]:border-b [&_h3]:border-border [&_h3]:pb-2 [&_h3]:mb-1 [&_input]:bg-bg-elevated [&_input]:border [&_input]:border-border [&_input]:text-fg-primary [&_input]:text-xs [&_input]:px-2.5 [&_input]:py-1.5 [&_input]:rounded [&_input]:outline-none [&_input]:focus:border-accent-dim/60 [&_textarea]:bg-bg-elevated [&_textarea]:border [&_textarea]:border-border [&_textarea]:text-fg-primary [&_textarea]:text-xs [&_textarea]:px-2.5 [&_textarea]:py-1.5 [&_textarea]:rounded [&_textarea]:outline-none [&_textarea]:focus:border-accent-dim/60 [&_textarea]:font-mono">
+						<div className="flex max-w-xl flex-col gap-3 p-2 [&_h3]:mb-1 [&_h3]:border-b [&_h3]:border-border [&_h3]:pb-2 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-fg-primary [&_input]:rounded [&_input]:border [&_input]:border-border [&_input]:bg-bg-elevated [&_input]:px-2.5 [&_input]:py-1.5 [&_input]:text-xs [&_input]:text-fg-primary [&_input]:outline-none [&_input]:focus:border-accent-dim/60 [&_textarea]:rounded [&_textarea]:border [&_textarea]:border-border [&_textarea]:bg-bg-elevated [&_textarea]:px-2.5 [&_textarea]:py-1.5 [&_textarea]:font-mono [&_textarea]:text-xs [&_textarea]:text-fg-primary [&_textarea]:outline-none [&_textarea]:focus:border-accent-dim/60">
 							<h3>New skill</h3>
 							<input
 								type="text"
@@ -231,7 +249,7 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 								value={newContent}
 								onChange={(e) => setNewContent(e.target.value)}
 							/>
-							<div className="flex justify-end gap-2 [&_button]:px-3.5 [&_button]:py-1.5 [&_button]:text-xs [&_button]:font-medium [&_button]:rounded [&_button]:cursor-pointer [&_button:first-child]:bg-accent [&_button:first-child]:hover:bg-accent-hover [&_button:first-child]:text-white [&_button:first-child]:disabled:opacity-50 [&_button:first-child]:disabled:cursor-not-allowed [&_button:last-child]:bg-transparent [&_button:last-child]:border [&_button:last-child]:border-border [&_button:last-child]:text-fg-secondary [&_button:last-child]:hover:bg-bg-elevated">
+							<div className="flex justify-end gap-2 [&_button]:cursor-pointer [&_button]:rounded [&_button]:px-3.5 [&_button]:py-1.5 [&_button]:text-xs [&_button]:font-medium [&_button:first-child]:bg-accent [&_button:first-child]:text-white [&_button:first-child]:hover:bg-accent-hover [&_button:first-child]:disabled:cursor-not-allowed [&_button:first-child]:disabled:opacity-50 [&_button:last-child]:border [&_button:last-child]:border-border [&_button:last-child]:bg-transparent [&_button:last-child]:text-fg-secondary [&_button:last-child]:hover:bg-bg-elevated">
 								<button
 									type="button"
 									onClick={handleCreate}
@@ -249,48 +267,57 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 						</div>
 					) : selectedSkill ? (
 						<>
-							<div className="border-b border-border pb-4 mb-2 flex flex-col gap-2">
-								<h3 className="text-lg font-semibold text-fg-primary">{selectedSkill.name}</h3>
-								<div className="flex flex-wrap items-center gap-3 select-none text-xs text-fg-muted">
+							<div className="mb-2 flex flex-col gap-2 border-b border-border pb-4">
+								<h3 className="text-lg font-semibold text-fg-primary">
+									{selectedSkill.name}
+								</h3>
+								<div className="flex flex-wrap select-none items-center gap-3 text-xs text-fg-muted">
 									<span className="flex items-center gap-1 font-medium">
-										<FolderIcon className="w-3.5 h-3.5" />
+										<FolderIcon className="h-3.5 w-3.5" />
 										{selectedSkill.category}
 									</span>
 									{selectedSkill.version && (
-										<span className="flex items-center gap-1 font-medium border-l border-border pl-3">
+										<span className="flex items-center gap-1 border-l border-border pl-3 font-medium">
 											v{selectedSkill.version}
 										</span>
 									)}
 									{selectedSkill.author && (
-										<span className="flex items-center gap-1 font-medium border-l border-border pl-3">
+										<span className="flex items-center gap-1 border-l border-border pl-3 font-medium">
 											by {selectedSkill.author}
 										</span>
 									)}
 									{selectedSkill.license && (
-										<span className="flex items-center gap-1 font-medium border-l border-border pl-3">
+										<span className="flex items-center gap-1 border-l border-border pl-3 font-medium">
 											{selectedSkill.license}
 										</span>
 									)}
 								</div>
 								{selectedSkill.tags.length > 0 && (
-									<div className="flex flex-wrap gap-1.5 mt-1">
+									<div className="mt-1 flex flex-wrap gap-1.5">
 										{selectedSkill.tags.map((tag) => (
-											<span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 bg-accent/5 border border-accent/15 rounded text-xs text-accent-hover font-medium font-mono">
-												<TagIcon className="w-3 h-3" />
+											<span
+												key={tag}
+												className="inline-flex items-center gap-1 rounded border border-accent/15 bg-accent/5 px-2 py-0.5 font-mono text-xs font-medium text-accent-hover"
+											>
+												<TagIcon className="h-3 w-3" />
 												{tag}
 											</span>
 										))}
 									</div>
 								)}
 							</div>
-							<div className="flex-1 bg-bg-base border border-border rounded-lg p-4 overflow-auto">
-								<pre className="font-mono text-xs text-fg-secondary whitespace-pre-wrap leading-relaxed">{skillContent}</pre>
+							<div className="flex-1 overflow-auto rounded-lg border border-border bg-bg-base p-4">
+								<pre className="font-mono text-xs leading-relaxed whitespace-pre-wrap text-fg-secondary">
+									{skillContent}
+								</pre>
 							</div>
 						</>
 					) : (
-						<div className="flex flex-col items-center justify-center gap-3 py-24 text-center select-none text-fg-muted">
-							<BookIcon className="w-12 h-12 text-fg-dim stroke-[1.2]" />
-							<p className="text-sm">Select a skill to view its documentation</p>
+						<div className="flex flex-col items-center justify-center gap-3 py-24 text-center text-fg-muted select-none">
+							<BookIcon className="h-12 w-12 stroke-[1.2] text-fg-dim" />
+							<p className="text-sm">
+								Select a skill to view its documentation
+							</p>
 						</div>
 					)}
 				</div>
