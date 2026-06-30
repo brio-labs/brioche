@@ -230,4 +230,25 @@ mod tests {
             Err(SseError::TooManyMalformedLines { count: 1, .. })
         ));
     }
+
+    /// A single `data:` line may be split across multiple TCP chunks.
+    ///
+    /// The parser must buffer partial lines and only emit a JSON value
+    /// once the terminating newline arrives.
+    ///
+    /// Refs: I-Core-ChunkBudget
+    #[test]
+    fn sse_parser_reassembles_fragmented_data_line() -> Result<(), SseError> {
+        let mut parser = SseParser::new();
+        let part1 = Bytes::from("data: {\"choices\":[{\"delta\":{\"content\":\"Hello");
+        let part2 = Bytes::from(" World\"}}]}\n\n");
+
+        let r1: Vec<_> = parser.feed(&part1)?.collect();
+        assert!(r1.is_empty(), "partial line must not emit an event");
+
+        let r2: Vec<_> = parser.feed(&part2)?.collect();
+        assert_eq!(r2.len(), 1, "complete line must emit one event");
+        assert_eq!(r2[0]["choices"][0]["delta"]["content"], "Hello World");
+        Ok(())
+    }
 }

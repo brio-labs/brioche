@@ -3,8 +3,12 @@
 //! Uses `wiremock` to simulate OpenAI-compatible endpoints and validates:
 //! - Streaming text chunks reach the kernel via `BriocheShell::send_input`.
 //! - Tool-call requests are parsed and emitted to the kernel.
+//! - Malformed SSE lines are tolerated up to a threshold, then abort cleanly.
+//! - Partial SSE fragments at stream end are buffered without crashing.
 //! - Network errors emit `SystemSignal::NetworkUnavailable`.
 //! - HTTP 4xx/5xx errors emit `SystemSignal::NetworkUnavailable`.
+//! - Request timeouts are surfaced as network errors.
+//! - Transient HTTP errors trigger retries with `Retry-After` backoff.
 //!
 //! Refs: docs/SPECS.md §Book III-B, I-Shell-Network-Signal
 
@@ -12,7 +16,7 @@ use std::time::Duration;
 
 use brioche_core::{BriocheEngineBuilder, ChatMessage, Session};
 use brioche_governance_default::{BriocheEngineBuilderExt, GovernanceProfile};
-use brioche_provider_openai::{OpenAiConfig, OpenAiLlmClient};
+use brioche_provider_openai::{OpenAiConfig, OpenAiLlmClient, RetryConfig};
 use brioche_shell_runtime::{
     BriocheShell, DefaultEffectExecutor, EchoToolExecutor, LlmClient, NoopPersistence, ShellConfig,
 };
@@ -206,4 +210,194 @@ async fn http_error_body_limit_is_enforced() {
         result.is_ok(),
         "call_llm should surface error and return Ok: {result:?}"
     );
+}
+
+/// Malformed `data:` lines are skipped until the parser's threshold is hit.
+///
+/// Once the threshold is exceeded the stream aborts and the provider error
+/// is surfaced via `SystemSignal::NetworkUnavailable` so the kernel can
+/// recover.
+///
+/// Refs: docs/SPECS.md §Book III-B, I-Shell-Network-Signal
+#[tokio::test]
+async fn malformed_sse_lines_abort_and_surface_error() {
+    let mock_server = MockServer::start().await;
+    // The default parser threshold is 5 consecutive malformed lines.
+    let sse = "data: not-json-1\n\
+               data: not-json-2\n\
+               data: not-json-3\n\
+               data: not-json-4\n\
+               data: not-json-5\n";
+
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(sse))
+        .mount(&mock_server)
+        .await;
+
+    let config = OpenAiConfig {
+        base_url: mock_server.uri(),
+        api_key: "test-key".into(),
+        ..OpenAiConfig::default()
+    };
+    let (client, _rx, _history) = OpenAiLlmClient::new(config);
+    client
+        .push_message(ChatMessage::User {
+            content: "hello".into(),
+        })
+        .await;
+
+    let shell = test_shell();
+    let result = client.call_llm(&shell).await;
+
+    assert!(
+        result.is_ok(),
+        "call_llm should surface parser error and return Ok: {result:?}"
+    );
+}
+
+/// A trailing SSE fragment without a newline is buffered until stream end.
+///
+/// The provider closed the connection before finishing the last `data:` line.
+/// The client must not crash or emit a spurious event; it should finish the
+/// turn gracefully with an empty assistant message.
+///
+/// Refs: docs/SPECS.md §Book III-B
+#[tokio::test]
+async fn partial_sse_fragment_at_stream_end_is_buffered() {
+    let mock_server = MockServer::start().await;
+    let sse = "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\n\
+               data: {\"choices\":[{\"delta\":{\"content\":\" there\"}}]}\n\n\
+               data: {\"choices\":[{\"delta\":{\"content\":\"!\"}}]}"; // no trailing newline
+
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(sse))
+        .mount(&mock_server)
+        .await;
+
+    let config = OpenAiConfig {
+        base_url: mock_server.uri(),
+        api_key: "test-key".into(),
+        ..OpenAiConfig::default()
+    };
+    let (client, _rx, _history) = OpenAiLlmClient::new(config);
+    client
+        .push_message(ChatMessage::User {
+            content: "hello".into(),
+        })
+        .await;
+
+    let shell = test_shell();
+    let result = client.call_llm(&shell).await;
+
+    assert!(
+        result.is_ok(),
+        "call_llm should handle trailing fragment gracefully: {result:?}"
+    );
+}
+
+/// A request that exceeds the configured time-to-first-byte timeout fails fast.
+///
+/// The provider delays the response headers beyond `timeout_ms`. The client
+/// must report a network error rather than block indefinitely. Retries are
+/// disabled so the test finishes quickly.
+///
+/// Refs: docs/SPECS.md §Book III-B, I-Shell-Network-Signal
+#[tokio::test]
+async fn http_timeout_is_surfaced_as_network_error() {
+    let mock_server = MockServer::start().await;
+    let sse = "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\n";
+
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(Duration::from_millis(500))
+                .set_body_string(sse),
+        )
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let config = OpenAiConfig {
+        base_url: mock_server.uri(),
+        api_key: "test-key".into(),
+        timeout_ms: 100,
+        ..OpenAiConfig::default()
+    };
+    let (client, _rx, _history) = OpenAiLlmClient::new(config);
+    let client = client.with_retry_policy(RetryConfig::none());
+    client
+        .push_message(ChatMessage::User {
+            content: "hello".into(),
+        })
+        .await;
+
+    let shell = test_shell();
+    let result = client.call_llm(&shell).await;
+
+    assert!(
+        result.is_ok(),
+        "call_llm should surface timeout and return Ok: {result:?}"
+    );
+}
+
+/// Transient HTTP errors trigger retries and honour `Retry-After`.
+///
+/// The first request returns 503 with `Retry-After: 0`. The client retries
+/// immediately and receives a valid SSE stream. Both requests are recorded
+/// by wiremock expectations.
+///
+/// Refs: docs/SPECS.md §Book III-B, I-Shell-Network-Signal
+#[tokio::test]
+async fn transient_http_error_is_retried_with_retry_after() {
+    let mock_server = MockServer::start().await;
+    let sse = "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\n\
+               data: [DONE]\n\n";
+
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(503)
+                .insert_header("retry-after", "0")
+                .set_body_string("overloaded"),
+        )
+        .up_to_n_times(1)
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(sse))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let config = OpenAiConfig {
+        base_url: mock_server.uri(),
+        api_key: "test-key".into(),
+        ..OpenAiConfig::default()
+    };
+    let (client, _rx, _history) = OpenAiLlmClient::new(config);
+    let client = client.with_retry_policy(RetryConfig {
+        max_retries: 2,
+        base_backoff_ms: 50,
+        max_backoff_ms: 200,
+    });
+    client
+        .push_message(ChatMessage::User {
+            content: "hello".into(),
+        })
+        .await;
+
+    let shell = test_shell();
+    let result = client.call_llm(&shell).await;
+
+    assert!(
+        result.is_ok(),
+        "call_llm should succeed after retry: {result:?}"
+    );
+    // Wiremock expectations are verified on MockServer drop.
 }

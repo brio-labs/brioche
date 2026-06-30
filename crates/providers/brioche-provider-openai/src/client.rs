@@ -36,6 +36,91 @@ use crate::extractor::{ChunkExtractor, StreamErrorDetector};
 use crate::request::build_request_body;
 use crate::sse::SseParser;
 
+/// Retry/backoff policy for transient provider failures.
+///
+/// Retries are attempted for network errors, HTTP 5xx responses, and
+/// HTTP 429 (rate limited) responses. The provider's `Retry-After`
+/// header is honoured when present and bounded by [`RetryConfig::max_backoff_ms`].
+///
+/// Refs: docs/SPECS.md §Book III-B
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RetryConfig {
+    /// Maximum number of retry attempts after the initial request.
+    pub max_retries: u32,
+    /// Initial backoff delay in milliseconds.
+    pub base_backoff_ms: u64,
+    /// Maximum backoff delay in milliseconds.
+    pub max_backoff_ms: u64,
+}
+
+impl RetryConfig {
+    /// Creates a retry policy with no retries.
+    ///
+    /// Useful in tests that need to verify first-attempt behaviour.
+    ///
+    /// Refs: docs/SPECS.md §Book III-B
+    pub fn none() -> Self {
+        Self {
+            max_retries: 0,
+            base_backoff_ms: 0,
+            max_backoff_ms: 0,
+        }
+    }
+
+    /// Computes the backoff delay for a given retry attempt.
+    ///
+    /// Uses exponential growth: `base_backoff_ms * 2^(attempt - 1)`,
+    /// capped at `max_backoff_ms`. Attempts are 1-indexed.
+    ///
+    /// # Complexity
+    /// O(1).
+    ///
+    /// Refs: docs/SPECS.md §Book III-B
+    pub fn backoff_ms(&self, attempt: u32) -> u64 {
+        if self.base_backoff_ms == 0 || self.max_retries == 0 {
+            return 0;
+        }
+        let shift = (attempt.saturating_sub(1)).min(63);
+        let raw = self.base_backoff_ms.saturating_mul(1u64 << shift);
+        raw.min(self.max_backoff_ms)
+    }
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 2,
+            base_backoff_ms: 1_000,
+            max_backoff_ms: 30_000,
+        }
+    }
+}
+
+/// Returns true when an HTTP status code is considered transient.
+///
+/// 5xx server errors and 429 rate-limit responses may resolve on retry.
+/// 4xx client errors are not retried because the request itself is faulty.
+///
+/// Refs: docs/SPECS.md §Book III-B
+fn is_retriable_status(status: reqwest::StatusCode) -> bool {
+    status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+}
+
+/// Parses a `Retry-After` header value into a bounded millisecond delay.
+///
+/// Returns `None` for missing or unparseable values. The result is capped
+/// at `max_delay` so a malicious provider cannot stall the shell.
+///
+/// Refs: docs/SPECS.md §Book III-B
+fn parse_retry_after(
+    header: Option<&reqwest::header::HeaderValue>,
+    max_delay: Duration,
+) -> Option<Duration> {
+    let value = header?.to_str().ok()?;
+    let secs: u64 = value.parse().ok()?;
+    Some(Duration::from_secs(secs).min(max_delay))
+}
+
 /// Provider-specific error returned by `OpenAiLlmClient` operations.
 ///
 /// Preserves OpenAI-specific context (HTTP status, SSE diagnostics, parse
@@ -148,6 +233,7 @@ async fn limited_error_body(mut response: reqwest::Response, limit: usize) -> St
 pub struct OpenAiLlmClient {
     config: OpenAiConfig,
     http: reqwest::Client,
+    retry_config: RetryConfig,
     tools_schema: Arc<RwLock<Vec<serde_json::Value>>>,
     ui_tx: broadcast::Sender<LlmChunk>,
     history: SharedHistory,
@@ -163,6 +249,7 @@ impl Clone for OpenAiLlmClient {
         Self {
             config: self.config.clone(),
             http: self.http.clone(),
+            retry_config: self.retry_config,
             tools_schema: Arc::clone(&self.tools_schema),
             ui_tx: self.ui_tx.clone(),
             history: Arc::clone(&self.history),
@@ -204,6 +291,7 @@ impl OpenAiLlmClient {
         let client = Self {
             config,
             http,
+            retry_config: RetryConfig::default(),
             tools_schema: Arc::new(RwLock::new(Vec::new())),
             ui_tx,
             history: Arc::clone(&history),
@@ -223,6 +311,17 @@ impl OpenAiLlmClient {
     /// Refs: docs/SPECS.md §Book III-B
     pub fn subscribe(&self) -> broadcast::Receiver<LlmChunk> {
         self.ui_tx.subscribe()
+    }
+
+    /// Replace the retry/backoff policy used for provider requests.
+    ///
+    /// The default policy retries twice with exponential backoff starting
+    /// at one second. Tests use this setter to exercise retries quickly.
+    ///
+    /// Refs: docs/SPECS.md §Book III-B
+    pub fn with_retry_policy(mut self, retry_config: RetryConfig) -> Self {
+        self.retry_config = retry_config;
+        self
     }
 
     /// Push a message into the history mirror.
@@ -531,10 +630,16 @@ impl OpenAiLlmClient {
             .map(|s| s.to_string())
     }
 
-    /// Send the request and surface network or HTTP errors.
+    /// Send the request, retrying transient failures and surfacing fatal errors.
     ///
-    /// On error emits `SystemSignal::NetworkUnavailable` and
-    /// returns `Ok(())` so the kernel can recover.
+    /// Applies `config.timeout_ms` as the time-to-first-byte timeout so that
+    /// stalled connections fail fast without cutting off long streaming
+    /// generations. Retries are performed for network errors, HTTP 5xx
+    /// responses, and HTTP 429 responses, honouring `Retry-After` when
+    /// present. When retries are exhausted the final error is emitted as
+    /// `SystemSignal::NetworkUnavailable`.
+    ///
+    /// Refs: docs/SPECS.md §Book III-B, I-Shell-Network-Signal
     async fn send_request(
         &self,
         shell: &BriocheShell,
@@ -542,6 +647,8 @@ impl OpenAiLlmClient {
         url: &str,
     ) -> Result<reqwest::Response, ShellError> {
         let body_str = body.to_string();
+        let timeout = Duration::from_millis(self.config.timeout_ms);
+        let max_backoff = Duration::from_millis(self.retry_config.max_backoff_ms);
 
         let _ = self.ui_tx.send(LlmChunk::Status(format!(
             "HTTP POST {} — ~{} chars",
@@ -549,60 +656,118 @@ impl OpenAiLlmClient {
             body_str.len(),
         )));
 
-        let request = self
-            .http
-            .post(url)
-            .header("Authorization", format!("Bearer {}", self.config.api_key))
-            .header("Content-Type", "application/json")
-            .json(body);
+        let mut attempt: u32 = 0;
+        loop {
+            let request = self
+                .http
+                .post(url)
+                .header("Authorization", format!("Bearer {}", self.config.api_key))
+                .header("Content-Type", "application/json")
+                .json(body);
 
-        let response = match request.send().await {
-            Ok(r) => {
-                let _ = self.ui_tx.send(LlmChunk::Status(format!(
-                    "HTTP {} — starting SSE stream",
-                    r.status()
-                )));
-                r
-            }
-            Err(err) => {
-                let msg = format!("Network error: {err}");
-                tracing::error!(error = %err, "OpenAI request failed");
-                let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
-                shell
-                    .send_system_signal(SystemSignal::NetworkUnavailable { reason: msg })
-                    .await?;
-                return Err(OpenAiError::Network(err.to_string()).into());
-            }
-        };
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body_text = limited_error_body(response, MAX_ERROR_BODY_BYTES).await;
-            let compact = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body_text) {
-                json.get("error")
-                    .and_then(|e| e.get("message"))
-                    .and_then(|m| m.as_str())
-                    .map_or_else(|| body_text.clone(), |s| s.to_string())
-            } else {
-                match body_text.lines().next() {
-                    Some(line) => line.to_string(),
-                    None => body_text.clone(),
+            match tokio::time::timeout(timeout, request.send()).await {
+                Ok(Ok(response)) if response.status().is_success() => {
+                    let _ = self.ui_tx.send(LlmChunk::Status(format!(
+                        "HTTP {} — starting SSE stream",
+                        response.status()
+                    )));
+                    return Ok(response);
                 }
-            };
-            let msg = format!("HTTP {status}: {compact}");
-            tracing::error!(status = %status, error = %body_text, "OpenAI HTTP error");
-            let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
-            shell
-                .send_system_signal(SystemSignal::NetworkUnavailable { reason: msg })
-                .await?;
-            return Err(OpenAiError::Http {
-                status: status.as_u16(),
-                message: compact,
-            }
-            .into());
-        }
+                Ok(Ok(response)) => {
+                    let status = response.status();
+                    let retriable = is_retriable_status(status);
+                    let retry_after =
+                        parse_retry_after(response.headers().get("retry-after"), max_backoff);
 
-        Ok(response)
+                    if !retriable || attempt >= self.retry_config.max_retries {
+                        let body_text = limited_error_body(response, MAX_ERROR_BODY_BYTES).await;
+                        let compact = if let Ok(json) =
+                            serde_json::from_str::<serde_json::Value>(&body_text)
+                        {
+                            json.get("error")
+                                .and_then(|e| e.get("message"))
+                                .and_then(|m| m.as_str())
+                                .map_or_else(|| body_text.clone(), |s| s.to_string())
+                        } else {
+                            match body_text.lines().next() {
+                                Some(line) => line.to_string(),
+                                None => body_text.clone(),
+                            }
+                        };
+                        let msg = format!("HTTP {status}: {compact}");
+                        tracing::error!(status = %status, error = %body_text, "OpenAI HTTP error");
+                        let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
+                        shell
+                            .send_system_signal(SystemSignal::NetworkUnavailable {
+                                reason: msg.clone(),
+                            })
+                            .await?;
+                        return Err(OpenAiError::Http {
+                            status: status.as_u16(),
+                            message: compact,
+                        }
+                        .into());
+                    }
+
+                    attempt += 1;
+                    let delay = match retry_after {
+                        Some(delay) => delay,
+                        None => Duration::from_millis(self.retry_config.backoff_ms(attempt)),
+                    };
+                    let _ = self.ui_tx.send(LlmChunk::Status(format!(
+                        "HTTP {status} — retry {attempt}/{} in {:?}",
+                        self.retry_config.max_retries, delay
+                    )));
+                    tokio::time::sleep(delay).await;
+                }
+                Ok(Err(err)) => {
+                    let msg = format!("Network error: {err}");
+                    if attempt >= self.retry_config.max_retries {
+                        tracing::error!(error = %err, "OpenAI request failed");
+                        let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
+                        shell
+                            .send_system_signal(SystemSignal::NetworkUnavailable {
+                                reason: msg.clone(),
+                            })
+                            .await?;
+                        return Err(OpenAiError::Network(err.to_string()).into());
+                    }
+                    attempt += 1;
+                    let delay = Duration::from_millis(self.retry_config.backoff_ms(attempt));
+                    tracing::warn!(
+                        error = %err,
+                        attempt,
+                        "OpenAI request failed — retrying"
+                    );
+                    let _ = self.ui_tx.send(LlmChunk::Status(format!(
+                        "{msg} — retry {attempt}/{} in {:?}",
+                        self.retry_config.max_retries, delay
+                    )));
+                    tokio::time::sleep(delay).await;
+                }
+                Err(_) => {
+                    let msg = format!("Request timed out after {timeout:?}");
+                    if attempt >= self.retry_config.max_retries {
+                        tracing::error!(%msg, "OpenAI request timed out");
+                        let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
+                        shell
+                            .send_system_signal(SystemSignal::NetworkUnavailable {
+                                reason: msg.clone(),
+                            })
+                            .await?;
+                        return Err(OpenAiError::Network(msg).into());
+                    }
+                    attempt += 1;
+                    let delay = Duration::from_millis(self.retry_config.backoff_ms(attempt));
+                    tracing::warn!(%msg, attempt, "OpenAI request timed out — retrying");
+                    let _ = self.ui_tx.send(LlmChunk::Status(format!(
+                        "{msg} — retry {attempt}/{} in {:?}",
+                        self.retry_config.max_retries, delay
+                    )));
+                    tokio::time::sleep(delay).await;
+                }
+            }
+        }
     }
 
     /// Process a single parsed SSE event.
