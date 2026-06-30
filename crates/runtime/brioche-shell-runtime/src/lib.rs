@@ -27,6 +27,7 @@ pub mod signal_adapter;
 pub mod telemetry;
 pub mod transition_journal;
 pub mod unified_event_bus;
+pub mod util;
 
 // Re-export channel types from core so consumers need only one import.
 pub use brioche_core::{

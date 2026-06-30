@@ -22,6 +22,7 @@ use brioche_provider_openai::{LlmChunk, OpenAiLlmClient};
 use brioche_shell_persistence::{
     ExtensionRegistry, RedbStorage, SessionStore, Settings, new_session_store,
 };
+use brioche_shell_runtime::util::{load_json, save_json, system_time_secs};
 use brioche_shell_runtime::{BriocheShell, Persistence};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{RwLock, broadcast};
@@ -81,12 +82,6 @@ impl SessionMetadata {
     }
 }
 
-fn system_time_secs() -> u64 {
-    match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-        Ok(d) => d.as_secs(),
-        Err(_) => 0,
-    }
-}
 /// Returns the platform-appropriate persistent storage path for desktop sessions.
 ///
 /// Uses `dirs::config_dir()` so session history survives reboots. The
@@ -337,22 +332,11 @@ impl SessionManager {
     /// # Panic / Safety
     /// Never panics. Returns Err if the file cannot be read or parsed.
     pub fn load_metadata() -> Result<BTreeMap<String, SessionMetadata>, String> {
-        let path = Self::metadata_path();
-        let data = std::fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read session metadata: {e}"))?;
-        serde_json::from_str::<BTreeMap<String, SessionMetadata>>(&data)
-            .map_err(|e| format!("Failed to parse session metadata: {e}"))
+        load_json(Self::metadata_path(), "session metadata")
     }
 
     fn save_metadata(metadata: &BTreeMap<String, SessionMetadata>) -> Result<(), String> {
-        let path = Self::metadata_path();
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create session metadata dir: {e}"))?;
-        }
-        let data = serde_json::to_string_pretty(metadata)
-            .map_err(|e| format!("Failed to serialize session metadata: {e}"))?;
-        std::fs::write(&path, data).map_err(|e| format!("Failed to write session metadata: {e}"))
+        save_json(Self::metadata_path(), metadata, "session metadata")
     }
 
     fn metadata_path() -> PathBuf {

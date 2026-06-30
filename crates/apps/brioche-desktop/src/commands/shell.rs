@@ -8,18 +8,19 @@
 use std::sync::{Arc, Mutex};
 
 use brioche_core::ChatMessage;
-use brioche_plugin_kit::PluginBuilder;
 use brioche_provider_openai::{
     HistoryTransform, LlmChunk, OpenAiConfig, OpenAiLlmClient, SharedHistory,
+};
+use brioche_shell_builder::{
+    ShellBuilder, assemble_openai_config_from_settings, default_session_factory,
 };
 use brioche_shell_persistence::extensions::context::{
     CompressorContextEngine, ContextEngine, ContextEngineInput,
 };
 use brioche_shell_persistence::{
-    ExtensionRegistry, MemoryProvider, RedbStorage, SessionStore, SessionStoreEntry, Settings,
-    UserDefinedTool,
+    ExtensionRegistry, MemoryProvider, RedbStorage, SessionStore, Settings, UserDefinedTool,
 };
-use brioche_shell_runtime::{BriocheShell, DefaultEffectExecutor, ShellConfig};
+use brioche_shell_runtime::BriocheShell;
 use brioche_tools_system::{
     AllowList, ExecuteCommandTool, FetchUrlTool, ListDirTool, ReadFileTool, SandboxPolicy,
     SystemToolExecutor, WriteFileTool,
@@ -29,15 +30,7 @@ use tokio::sync::broadcast;
 
 lazy_static! {
     /// Global session start timestamp, captured the first time a shell is built.
-    static ref SESSION_START: std::sync::Mutex<u64> = std::sync::Mutex::new(system_time_secs());
-}
-
-/// Returns seconds since the UNIX epoch.
-fn system_time_secs() -> u64 {
-    match std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH) {
-        Ok(d) => d.as_secs(),
-        Err(_) => 0,
-    }
+    static ref SESSION_START: std::sync::Mutex<u64> = std::sync::Mutex::new(brioche_shell_runtime::util::system_time_secs());
 }
 
 /// Returns the timestamp when the first shell was built in this process.
@@ -52,7 +45,7 @@ fn system_time_secs() -> u64 {
 pub fn session_started_at() -> u64 {
     match SESSION_START.lock() {
         Ok(guard) => *guard,
-        Err(_) => system_time_secs(),
+        Err(_) => brioche_shell_runtime::util::system_time_secs(),
     }
 }
 
@@ -93,43 +86,8 @@ impl DesktopConfig {
     /// # Panic / Safety
     /// Never panics.
     pub fn from_settings(settings: &Settings) -> Self {
-        let api_key = if settings.api_key().is_empty() {
-            std::env::var("BRIOCHE_API_KEY").map_or(String::new(), |v| v)
-        } else {
-            settings.api_key()
-        };
-        let model = match std::env::var("BRIOCHE_MODEL") {
-            Ok(v) => v,
-            Err(_) => settings.chat_model(),
-        };
-        let base_url = match std::env::var("BRIOCHE_BASE_URL") {
-            Ok(v) => v,
-            Err(_) => settings.base_url(),
-        };
-        let max_tokens = settings.max_tokens();
-        let reasoning_enabled = match settings.get("chat.reasoning_enabled") {
-            Some(serde_json::Value::Bool(b)) => b,
-            _ => false,
-        };
-        let reasoning_effort = if reasoning_enabled {
-            let effort = match settings.get("chat.reasoning_effort") {
-                Some(serde_json::Value::String(s)) => s,
-                _ => "medium".to_string(),
-            };
-            Some(effort)
-        } else {
-            std::env::var("BRIOCHE_REASONING_EFFORT").ok()
-        };
-
         Self {
-            openai: OpenAiConfig {
-                api_key,
-                model,
-                base_url,
-                max_tokens,
-                timeout_ms: 120_000,
-                reasoning_effort,
-            },
+            openai: assemble_openai_config_from_settings(settings),
             tick_interval_ms: 1000,
         }
     }
@@ -365,6 +323,7 @@ impl brioche_tools_system::SystemTool for MemoryProviderTool {
 /// # Panic / Safety
 /// Panics if called outside of a Tokio runtime context since it spawns tokio tasks.
 pub fn build_shell(session_id: impl Into<String>, factory: &ShellFactory) -> ShellHandle {
+    let session_id = session_id.into();
     let workspace_path = factory.settings.working_dir();
     let workspace = if workspace_path.is_empty() {
         None
@@ -435,94 +394,27 @@ pub fn build_shell(session_id: impl Into<String>, factory: &ShellFactory) -> She
         }
     }
 
-    let (llm_client, llm_rx, history) = OpenAiLlmClient::new(factory.config.openai.clone());
-    llm_client.set_history_transform(Some(build_history_transform(
+    let (shell, llm, llm_rx, history) = ShellBuilder::new(
+        session_id.clone(),
+        factory.config.openai.clone(),
+        factory.redb.clone(),
+        factory.store.clone(),
+        tool_executor,
+    )
+    .with_tick_interval_ms(factory.config.tick_interval_ms)
+    .with_history_transform(Some(build_history_transform(
         factory.settings.clone(),
         factory.extensions.clone(),
         Arc::clone(&factory.last_context_note),
-    )));
-
-    // Inject default system prompt.
-    let llm_for_prompt = llm_client.clone();
-    tokio::spawn(async move {
-        llm_for_prompt
-            .push_message(ChatMessage::System {
-                content: "You are a helpful AI coding assistant with access to filesystem tools. \
-CRITICAL RULES: \
-1. When the user asks you to create, write, or modify ANY file, you MUST use the write_file tool. \
-2. NEVER output file contents directly in your response text — ALWAYS use the write_file tool with the full content. \
-3. For large files, you may use multiple write_file calls with append=true after the first call. \
-4. Use read_file before modifying existing files. \
-5. Use execute_command for shell commands. \
-6. Use list_dir to explore directories. \
-7. If you need to fetch content from the web, use fetch_url. \
-8. After using write_file, the tool result will confirm success. Do not read the file back unless the user asks."
-                    .into(),
-            })
-            .await;
-    });
-
-    let schemas = tool_executor.schema_json();
-    let llm_for_schema = llm_client.clone();
-    tokio::spawn(async move {
-        llm_for_schema.set_tools_schema(schemas).await;
-    });
-
-    let effect_executor =
-        DefaultEffectExecutor::new(tool_executor, llm_client.clone(), factory.redb.clone())
-            .with_history(Arc::clone(&history));
-    // Session callback — snapshot after each transition.
-    let store_for_callback = Arc::clone(&factory.store);
-    let session_callback: brioche_shell_runtime::SessionCallback =
-        Box::new(move |session: &mut brioche_core::Session| {
-            // Carry forward the last persisted watermark so the next delta
-            if let Ok(store) = store_for_callback.try_read()
-                && let Some(existing) = store.get(&session.id)
-            {
-                session.persisted_msg_count = session
-                    .persisted_msg_count
-                    .max(existing.head.persisted_msg_count);
-            }
-            let head = brioche_shell_persistence::SessionHeadDTO::from_session(session);
-            let entry = SessionStoreEntry {
-                head,
-                messages: session.history.clone(),
-            };
-            if let Ok(mut store) = store_for_callback.try_write() {
-                store.insert(session.id.clone(), entry);
-            }
-        });
-
-    let session_id = session_id.into();
-    let history_clone = Arc::clone(&history);
-    let redb_for_factory = factory.redb.clone();
-    let shell = BriocheShell::new(
-        move || {
-            let (engine, session) = PluginBuilder::standard()
-                .with_subroutine_hydrator(Box::new(
-                    brioche_shell_persistence::PersistenceSubRoutineHydrator::new(
-                        redb_for_factory.clone(),
-                    ),
-                ))
-                .build_with_session(&session_id);
-            (engine, session)
-        },
-        ShellConfig {
-            engine_channel_capacity: 256,
-            tick_interval_ms: factory.config.tick_interval_ms,
-            max_concurrent_effects: 32,
-            persistence_mode: brioche_shell_runtime::PersistenceMode::Async,
-            transition_journal_enabled: false,
-        },
-        effect_executor,
-        Some(session_callback),
-    );
+    )))
+    .with_engine_factory(default_session_factory(session_id, factory.redb.clone()))
+    .build();
 
     ShellHandle {
         shell,
-        llm: llm_client,
+        llm,
         llm_rx,
-        history: history_clone,
+        history,
     }
 }
 

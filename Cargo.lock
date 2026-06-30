@@ -14,9 +14,9 @@ version = "0.1.0"
 dependencies = [
  "argh",
  "brioche-core",
- "brioche-plugin-kit",
  "brioche-provider-openai",
  "brioche-reedline",
+ "brioche-shell-builder",
  "brioche-shell-persistence",
  "brioche-shell-runtime",
  "brioche-tools-system",
@@ -490,8 +490,8 @@ dependencies = [
  "async-trait",
  "base64-simd",
  "brioche-core",
- "brioche-plugin-kit",
  "brioche-provider-openai",
+ "brioche-shell-builder",
  "brioche-shell-persistence",
  "brioche-shell-runtime",
  "brioche-tools-system",
@@ -629,6 +629,19 @@ dependencies = [
  "brioche-core",
  "brioche-governance-default",
  "brioche-shell-runtime",
+]
+
+[[package]]
+name = "brioche-shell-builder"
+version = "0.1.0"
+dependencies = [
+ "brioche-core",
+ "brioche-plugin-kit",
+ "brioche-provider-openai",
+ "brioche-shell-persistence",
+ "brioche-shell-runtime",
+ "brioche-tools-system",
+ "tokio",
 ]
 
 [[package]]

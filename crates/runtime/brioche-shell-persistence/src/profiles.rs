@@ -12,6 +12,7 @@
 
 use std::path::PathBuf;
 
+use brioche_shell_runtime::util::{load_json, save_json, system_time_secs};
 use serde::{Deserialize, Serialize};
 
 /// A user profile.
@@ -81,29 +82,21 @@ impl ProfileConfig {
     /// Refs: I-Shell-Runtime-OnlyIO
     pub fn load() -> Self {
         let path = profile_config_path();
-        if let Ok(data) = std::fs::read_to_string(&path)
-            && let Ok(config) = serde_json::from_str::<ProfileConfig>(&data)
-        {
-            return config;
+        match load_json::<_, ProfileConfig>(&path, "profiles") {
+            Ok(config) => config,
+            Err(_) => {
+                let default = Self::default();
+                let _ = default.save();
+                default
+            }
         }
-        let default = Self::default();
-        let _ = default.save();
-        default
     }
 
     /// Saves the profile config to disk.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     pub fn save(&self) -> Result<(), String> {
-        let path = profile_config_path();
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create profiles dir: {e}"))?;
-        }
-        let data = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("Failed to serialize profiles: {e}"))?;
-        std::fs::write(&path, data).map_err(|e| format!("Failed to write profiles: {e}"))?;
-        Ok(())
+        save_json(profile_config_path(), self, "profiles")
     }
 
     /// Gets the active profile.
@@ -197,13 +190,6 @@ impl ProfileConfig {
         } else {
             Err(format!("Profile '{}' not found", profile.name))
         }
-    }
-}
-
-fn system_time_secs() -> u64 {
-    match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-        Ok(d) => d.as_secs(),
-        Err(_) => 0,
     }
 }
 
