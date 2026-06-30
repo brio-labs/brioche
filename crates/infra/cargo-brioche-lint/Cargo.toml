@@ -15,7 +15,6 @@ path = "src/main.rs"
 [dependencies]
 brioche-lint-core = { workspace = true }
 clap = { version = "4", features = ["derive"] }
-walkdir = "2"
 
 [lints]
 workspace = true

@@ -13,11 +13,9 @@
 
 use std::fs;
 
-use brioche_lint_core::{
-    cli::{FormatArgs, RootArgs},
-    report::print_json,
-    walk::source_files,
-};
+use brioche_lint_core::cli::{FormatArgs, RootArgs};
+use brioche_lint_core::report::print_json;
+use brioche_lint_core::walk::source_files;
 use clap::{Parser, Subcommand};
 use regex::Regex;
 

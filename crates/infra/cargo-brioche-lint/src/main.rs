@@ -14,7 +14,8 @@
 
 use std::fs;
 
-use brioche_lint_core::{cli::RootArgs, walk::source_files};
+use brioche_lint_core::cli::RootArgs;
+use brioche_lint_core::walk::source_files;
 use clap::Parser;
 
 /// CLI arguments.

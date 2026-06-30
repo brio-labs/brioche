@@ -3,6 +3,7 @@
 //! Refs: docs/SPECS.md §Book IV Ch 3 §3.4, docs/SPECS.md §Book IV Ch 3 §3.5
 
 use std::path::{Path, PathBuf};
+
 use walkdir::WalkDir;
 
 /// Walk `root` and return paths to source files matching `extensions`.

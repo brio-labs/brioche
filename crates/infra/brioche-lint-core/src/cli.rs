@@ -2,8 +2,9 @@
 //!
 //! Refs: docs/SPECS.md §Book IV Ch 3 §3.4, docs/SPECS.md §Book IV Ch 3 §3.5
 
-use clap::Parser;
 use std::path::PathBuf;
+
+use clap::Parser;
 
 /// Root directory argument shared by linting tools.
 ///
