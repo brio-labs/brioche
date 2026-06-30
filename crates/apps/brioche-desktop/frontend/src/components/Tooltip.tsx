@@ -1,4 +1,5 @@
-import type { ReactElement } from "react";
+import type { ReactElement, ReactNode } from "react";
+import * as RadixTooltip from "@radix-ui/react-tooltip";
 import { cn } from "./ui/lib";
 
 /**
@@ -8,27 +9,47 @@ import { cn } from "./ui/lib";
  */
 interface TooltipProps {
 	children: ReactElement;
-	label: string;
+	label: ReactNode;
+	side?: RadixTooltip.TooltipContentProps["side"];
+	align?: RadixTooltip.TooltipContentProps["align"];
 }
 
 /**
- * Renders a tooltip that appears on hover or focus of its child element.
+ * Renders an accessible, collision-aware tooltip on hover or focus of its child.
+ *
+ * The tooltip is rendered in a portal and automatically flips to the opposite
+ * side when it would overflow the viewport, so it is never clipped by parent
+ * `overflow: hidden` containers.
  *
  * Refs: I-Ui-OverlayCohesion
  */
-export default function Tooltip({ children, label }: TooltipProps) {
+export default function Tooltip({
+	children,
+	label,
+	side = "top",
+	align = "center",
+}: TooltipProps) {
 	return (
-		<div className="group relative inline-flex items-center justify-center">
-			{children}
-			<span
-				className={cn(
-					"pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-bg-elevated px-2 py-1 opacity-0 shadow-lg transition-opacity duration-150",
-					"group-hover:opacity-100 group-focus-within:opacity-100",
-				)}
-				role="tooltip"
-			>
-				{label}
-			</span>
-		</div>
+		<RadixTooltip.Root delayDuration={150}>
+			<RadixTooltip.Trigger asChild>{children}</RadixTooltip.Trigger>
+			<RadixTooltip.Portal>
+				<RadixTooltip.Content
+					side={side}
+					align={align}
+					sideOffset={8}
+					collisionPadding={8}
+					avoidCollisions
+					className={cn(
+						"z-[9999] rounded-md border border-border bg-bg-elevated px-2 py-1 shadow-lg",
+						"text-xs text-fg-secondary whitespace-nowrap",
+						"data-[state=delayed-open]:animate-fadeIn data-[state=instant-open]:animate-fadeIn",
+					)}
+					role="tooltip"
+				>
+					{label}
+					<RadixTooltip.Arrow className="fill-bg-elevated" />
+				</RadixTooltip.Content>
+			</RadixTooltip.Portal>
+		</RadixTooltip.Root>
 	);
 }
