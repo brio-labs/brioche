@@ -91,7 +91,7 @@
 	--radius: 8px;
 	--radius-lg: 12px;
 
-	/* ----- Legacy aliases (kept for backward compatibility during transition) ----- */
+	/* ----- Legacy aliases (deprecated; kept for backward compatibility) ----- */
 	--color-bg-0: var(--color-bg-base);
 	--color-bg-1: var(--color-bg-surface);
 	--color-bg-2: var(--color-bg-elevated);
@@ -168,7 +168,7 @@
 	--radius-md: 6px;
 	--radius-lg: 12px;
 
-	/* Legacy aliases */
+	/* Legacy aliases (deprecated; kept for backward compatibility during transition). Prefer --bg-base, --bg-surface, --bg-elevated, --bg-highlight, --bg-subtle and --fg-primary, --fg-secondary, --fg-tertiary, --fg-muted, --fg-dim. */
 	--bg-0: var(--color-bg-base);
 	--bg-1: var(--color-bg-surface);
 	--bg-2: var(--color-bg-elevated);
@@ -230,35 +230,6 @@ body {
 	}
 }
 
-@utility btn-toolbar {
-	display: inline-flex;
-	align-items: center;
-	gap: var(--space-2);
-	border-radius: var(--radius);
-	padding: var(--space-2) var(--space-3);
-	font-size: 11px;
-	font-weight: 500;
-	letter-spacing: 0.05em;
-	transition: all 200ms ease;
-	cursor: pointer;
-	background: transparent;
-	color: var(--fg-muted);
-
-	&:hover {
-		color: var(--fg-secondary);
-		background: var(--bg-highlight);
-	}
-
-	&:active {
-		background: var(--bg-subtle);
-	}
-
-	&:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 1px var(--accent-glow);
-	}
-}
-
 @utility dock-button {
 	display: inline-flex;
 	align-items: center;
@@ -298,16 +269,6 @@ body {
 	}
 }
 
-@utility dock-separator {
-	display: inline-block;
-	width: 1px;
-	height: 1rem;
-	background: var(--border);
-	margin: 0 0.25rem;
-	flex-shrink: 0;
-	vertical-align: middle;
-}
-
 @utility panel {
 	background: var(--bg-surface);
 	border: 1px solid var(--border);
@@ -338,18 +299,6 @@ body {
 	padding: var(--space-4) var(--space-5);
 	border-bottom: 1px solid var(--border);
 	background: color-mix(in srgb, var(--bg-base) 50%, transparent);
-}
-
-@utility surface-card {
-	padding: var(--space-3);
-	background: color-mix(in srgb, var(--bg-elevated) 30%, transparent);
-	border: 1px solid var(--border);
-	border-radius: var(--radius);
-	transition: all 200ms ease;
-
-	&:hover {
-		border-color: var(--border-hover);
-	}
 }
 
 @utility input-field {
@@ -420,51 +369,13 @@ body {
 	}
 }
 
-@utility empty-state {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	justify-content: center;
-	text-align: center;
-	color: var(--fg-muted);
-	padding: var(--space-6) var(--space-4);
-	font-size: 14px;
-	user-select: none;
-}
-
-@utility notice-error {
-	border-radius: var(--radius);
-	border: 1px solid var(--error-border);
-	background: var(--error-bg);
-	padding: var(--space-2) var(--space-3);
-	font-size: 12px;
-	color: var(--error-text);
-}
-
-@utility notice-warning {
-	display: flex;
-	align-items: flex-start;
-	gap: var(--space-2);
-	border-radius: var(--radius);
-	border: 1px solid var(--warning-border);
-	background: var(--warning-bg);
-	padding: var(--space-2) var(--space-3);
-	font-size: 12px;
-	color: var(--warning-text);
-}
-
-@utility notice-info {
-	border-radius: var(--radius);
-	border: 1px solid var(--border);
-	background: color-mix(in srgb, var(--bg-elevated) 50%, transparent);
-	padding: var(--space-2) var(--space-3);
-	font-size: 12px;
-	color: var(--fg-secondary);
-}
-
 /* ========================================================================
    App shell background
    ======================================================================== */
+
+/* The ambient glow uses literal RGBA stops so the gradient fades to transparent
+   without premultiplying the clay hue; color-mix with transparent would muddy
+   the warm accent. */
 
 .app {
 	background:
@@ -783,5 +694,19 @@ body {
 	}
 	100% {
 		content: "";
+	}
+}
+
+/* ========================================================================
+   Reduced motion
+   ======================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
 	}
 }
