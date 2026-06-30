@@ -391,7 +391,7 @@ Not every rule applies with the same strictness to every crate. The workspace is
 | Book | Crates | Mandatory checks |
 |------|--------|------------------|
 | **Book I — Core** | `brioche-core`, `brioche-macro` | All §5 checks; determinism guards; no panics; no hidden I/O |
-| **Book II — Governance** | `brioche-governance`, `brioche-governance-default` | All §5 checks; trait-hierarchy guard |
+| **Book II — Governance** | `brioche-governance-default` | All §5 checks; trait-hierarchy guard |
 | **Book III-A — Shell Runtime** | `brioche-shell-runtime`, `brioche-shell-persistence`, `brioche-shell-projection` | Module docs; invariant refs; English prose; TODO policy; async standards (§10) |
 | **Book III-B — Providers** | `brioche-provider-openai`, future providers | Module docs; invariant refs; English prose; TODO policy; structured errors (§12) |
 | **Book III-C — Tools** | `brioche-tools-system`, future tools | Module docs; invariant refs; English prose; TODO policy |
@@ -627,7 +627,7 @@ All internal channels must be bounded. Document the capacity and `DropPolicy`.
 ### 10.4 Output Conventions
 - `println!` and `eprintln!` are allowed **only** in app crates.
 - Library crates use `tracing` at the appropriate level.
-- Never emit user-facing text from `brioche-core`, `brioche-governance`, or provider internals.
+- Never emit user-facing text from `brioche-core` or provider internals.
 
 ### 10.5 Error Mapping at Boundaries
 When an async provider or tool returns an error, map it to the appropriate crate error type (`ShellError`, `PersistenceError`, etc.) at the architectural boundary. Never let provider-specific error types leak into `Effect` payloads.

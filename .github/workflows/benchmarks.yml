@@ -5,7 +5,6 @@ on:
     paths:
       - ".github/workflows/benchmarks.yml"
       - "crates/kernel/brioche-core/**"
-      - "crates/kernel/brioche-governance/**"
       - "crates/kernel/brioche-governance-default/**"
       - "crates/runtime/brioche-shell-persistence/**"
       - "crates/runtime/brioche-shell-runtime/**"

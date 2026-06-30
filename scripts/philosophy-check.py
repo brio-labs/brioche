@@ -70,7 +70,6 @@ HOT_PATH_MODULES = [
     "crates/kernel/brioche-core/src/types/trace.rs",
     "crates/kernel/brioche-core/src/types/runtime.rs",
     "crates/kernel/brioche-core/src/plugin.rs",
-    "crates/kernel/brioche-governance/src/lib.rs",
 ]
 
 COMPLEXITY_KEYWORDS = [
@@ -213,7 +212,6 @@ INVARIANT_CRATES = [
     "crates/kernel/brioche-core/src",
     "crates/kernel/brioche-macro/src",
     # Book II — Governance
-    "crates/kernel/brioche-governance/src",
     "crates/kernel/brioche-governance-default/src",
     # Book III-A — Shell Runtime
     "crates/runtime/brioche-shell-runtime/src",
@@ -405,7 +403,6 @@ DETERMINISM_FORBIDDEN = [
 
 DETERMINISM_CRATES = [
     "crates/kernel/brioche-core/src",
-    "crates/kernel/brioche-governance/src",
     "crates/kernel/brioche-governance-default/src",
 ]
 
@@ -445,7 +442,6 @@ def check_determinism() -> CheckResult:
 
 PRINT_MACRO_CRATES = [
     "crates/kernel/brioche-core/src",
-    "crates/kernel/brioche-governance/src",
     "crates/kernel/brioche-governance-default/src",
     "crates/kernel/brioche-macro/src",
     "crates/runtime/brioche-shell-runtime/src",
@@ -857,7 +853,6 @@ def check_invariant_format() -> CheckResult:
 COHESION_CRATES = [
     "crates/kernel/brioche-core/src",
     "crates/kernel/brioche-governance-default/src",
-    "crates/kernel/brioche-governance/src",
 ]
 
 COHESION_MIN_LOGIC_LINES = 60
@@ -985,7 +980,6 @@ def check_trivial_state_structs() -> CheckResult:
 
     for rel in [
         "crates/kernel/brioche-governance-default/src",
-        "crates/kernel/brioche-governance/src",
     ]:
         crate_src = PROJECT_ROOT / rel
         if not crate_src.exists():
@@ -1219,7 +1213,6 @@ def check_module_doc_visibility() -> CheckResult:
 MODULE_DOC_CRATES = [
     "crates/kernel/brioche-core/src",
     "crates/kernel/brioche-macro/src",
-    "crates/kernel/brioche-governance/src",
     "crates/kernel/brioche-governance-default/src",
     "crates/runtime/brioche-shell-runtime/src",
     "crates/runtime/brioche-shell-persistence/src",
@@ -1437,7 +1430,6 @@ def check_critical_state() -> CheckResult:
 TODO_FORBIDDEN_CRATES = {
     "crates/kernel/brioche-core/src",
     "crates/kernel/brioche-macro/src",
-    "crates/kernel/brioche-governance/src",
     "crates/kernel/brioche-governance-default/src",
 }
 
@@ -1518,7 +1510,6 @@ def check_async_cancel_safety() -> CheckResult:
 
 INDEXING_FORBIDDEN_CRATES = [
     "crates/kernel/brioche-core/src",
-    "crates/kernel/brioche-governance/src",
     "crates/kernel/brioche-governance-default/src",
     "crates/runtime/brioche-shell-runtime/src",
     "crates/runtime/brioche-shell-persistence/src",

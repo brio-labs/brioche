@@ -520,10 +520,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "brioche-governance"
-version = "0.1.0"
-
-[[package]]
 name = "brioche-governance-default"
 version = "0.1.0"
 dependencies = [
@@ -557,7 +553,6 @@ name = "brioche-macro"
 version = "0.1.0"
 dependencies = [
  "brioche-core",
- "brioche-governance",
  "brioche-plugin-kit",
  "proc-macro2",
  "quote",

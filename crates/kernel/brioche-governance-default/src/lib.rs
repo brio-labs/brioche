@@ -1,7 +1,7 @@
 //! # Brioche Governance Default — Book II (Implementations)
 //!
 //! Reference implementations of governance traits defined in
-//! `brioche-governance`. These are the default plugins shipped with
+//! `brioche-core`. These are the default plugins shipped with
 //! Brioche.
 //!
 //! ## Public interface

@@ -10,7 +10,6 @@ A deterministic, invariant-governed plugin execution kernel with layered archite
 | `brioche-core` | Kernel | Synchronous kernel — pure mechanisms |
 | `brioche-desktop` | Apps | Tauri desktop GUI |
 | `brioche-docgen` | Ecosystem | Documentation generator |
-| `brioche-governance` | Kernel | Governance traits — policy contracts |
 | `brioche-governance-default` | Kernel | Reference governance implementations |
 | `brioche-macro` | Kernel | Procedural macros |
 | `brioche-playground` | Ecosystem | Docker dev environment and playground |

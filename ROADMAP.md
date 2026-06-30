@@ -31,7 +31,6 @@
 
 | ID | Area | Location | Problem | Action | Acceptance Criteria | Effort | Owner |
 |---|---|---|---|---|---|---|---|
-| P1-ARC-01 | Architecture | `crates/kernel/brioche-governance/src/lib.rs` (empty), `crates/kernel/brioche-core/src/plugin.rs` | Book II crate is empty; all governance traits live in Book I Core. | Move `BriochePlugin`, `EpochInterceptor`, `DecisionAggregator`, `SubRoutineHandler`, `HookEffectConstraint`, etc. into `brioche-governance`; have `brioche-core` depend on the trait crate. | `brioche-governance` exports all policy traits; `brioche-core` compiles with only trait deps. | L | Books I/II |
 | P1-ARC-02 | Architecture | `crates/kernel/brioche-core/src/plugin.rs` | `BriochePlugin` is a monolithic 8-method taxonomy trait spanning multiple lifecycle phases. | Split into atomic capability traits (`OnInput`, `OnStreamEvent`, `OnToolCalls`, `OnToolResult`, etc.) and a separate persistence capability. | Each plugin implements exactly one capability trait; routing table still pre-computes indices. | L | Book II |
 | P1-PERF-01 | Performance | `crates/kernel/brioche-core/src/engine/hooks.rs:117,151,249,288`; `src/engine/dispatch.rs:79,165,235` | Every transition clones the pre-routed `Vec<usize>` route table, contradicting the "no allocation after build" claim. | Change `eval_route` and dispatch helpers to accept `&[usize]` and iterate without cloning. | No `.clone()` on route tables in hot path; benchmarks show reduced allocations. | S | Book I |
 | P1-ARC-03 | Architecture | `crates/kernel/brioche-governance-default/src/guards.rs:85-109` | `StateConsistencyGuard::verify_consistency` directly mutates `session.state`, `state_stack`, and `active_tools`. | Return an `OverrideTransition(Vec<Effect>)` and let Core apply the recovery. | Governance plugin no longer takes `&mut Session`; `I-Gov-NoCoreMutation` restored. | M | Books I/II |
@@ -147,7 +146,6 @@
 | P6-DOC-04 | Docs | `CONTRIBUTING.md` "Before Submitting PR" | Claims lint tool is unimplemented and uses inconsistent command names. | Update guidance; standardize on actual binary name. | Contributors run the real tool. | S | Repo |
 | P6-DOC-05 | Docs | `scripts/philosophy-check.py` | Accepts `Refs: SPECS` as valid, enabling malformed refs. | Tighten validation to require `Refs: I-Category-Name` or documented path format. | Malformed refs fail CI. | S | Repo |
 | P6-DOC-06 | Docs | `docs/adr/` | Missing ADRs for `SubRoutineHydrator`, `SignalDrainOrder`/`SignalBuffer`, `GovernanceProfile`/`BriocheEngineBuilderExt`. | Add ADRs for recent cross-book abstractions. | Cross-book changes documented. | M | Repo |
-| P6-MAINT-01 | Maintainability | `crates/kernel/brioche-governance/src/lib.rs`, `crates/kernel/brioche-macro/Cargo.toml`, `docs/first-pr-guide.md:59` | Empty crate with stale references and unused dependency. | Move traits in or delete crate and update all references. | Crate has a clear purpose or is removed. | L | Books I/II |
 | P6-MAINT-02 | Maintainability | `crates/ecosystem/brioche-playground/src/lib.rs` | Empty library file; crate is binary-only. | Make `[[bin]]`-only or merge docs into `main.rs` and remove `lib.rs`. | No empty lib.rs. | S | Book IV |
 | P6-MAINT-03 | Maintainability | `crates/apps/agent-terminal/src/shell_builder.rs`, `crates/apps/brioche-desktop/src/commands/shell.rs`, `crates/runtime/brioche-shell-persistence/src/extensions/*.rs` | Duplicated `system_time_secs`, JSON load/save, OpenAI config assembly, `build_shell` routines. | Extract shared helpers into `brioche-shell-runtime` or a new `brioche-shell-builder` crate. | Common routines live in one place. | L | Books III-A/IV |
 | P6-MAINT-04 | Maintainability | `crates/runtime/brioche-shell-persistence/src/extensions/{memory_provider,skill_provider,tool_provider}.rs` | Extension traits return `Result<T, String>`. | Define `PersistenceError` enum and use it across traits; map at boundary. | No `String` errors in public trait APIs. | M | Book III-A |
@@ -162,7 +160,7 @@
 
 The following areas are already in good shape and should not be regressed:
 
-- **Core panic discipline**: no `unwrap`/`expect`/`panic` in `brioche-core`/`brioche-governance` production code.
+- **Core panic discipline**: no `unwrap`/`expect`/`panic` in `brioche-core`/`brioche-governance-default` production code.
 - **Effect-permission model**: explicit `EffectBit` bitmask with `FastHookEffectConstraint` O(1) validation.
 - **Determinism guard**: `BTreeMap`/`BTreeSet` in persisted state; `HashMap`/`HashSet`/`Instant::now` banned in Core.
 - **Bounded channels and backpressure**: primary `mpsc` channels are bounded with documented capacities.
@@ -223,6 +221,7 @@ The following areas are already in good shape and should not be regressed:
 | P0-DET-01 | #162: `ExtensionStorage` serialization errors surfaced instead of empty blobs. |
 | P0-SEC-04/06 | #174: Terminal SSE `StreamEvent::Error` and shared HTTP client hardening (timeout/URL/redirect/size). |
 | P3-SEC-02/12 | #175: `Permissive` sandbox requires confirmation; `Permissive` profile logs a warning. |
+| P6-MAINT-01 | #230: Removed empty `brioche-governance` crate, unused `brioche-macro` dev-dependency, and all stale references. |
 
 ---
 
