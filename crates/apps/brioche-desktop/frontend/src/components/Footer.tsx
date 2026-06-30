@@ -1,6 +1,7 @@
 import { useTauriEvent } from "../hooks/useTauriSync";
 import Tooltip from "./Tooltip";
 import { MessageIcon, ChatBubbleIcon, FolderIcon } from "./Icons";
+import { cn } from "./ui/lib";
 
 interface PanelState {
 	left: boolean;
@@ -28,42 +29,67 @@ export default function Footer({
 	const toggleChat = () => setShowChat(!showChat);
 
 	return (
-		<footer className="flex items-center justify-between px-4 h-10 bg-bg-0/90 border-t border-border text-text-muted shrink-0 select-none z-10">
-			<Tooltip label="Sessions">
-				<button
-					type="button"
-					onClick={toggleLeft}
-					className={`dock-button ${panels.left ? "dock-button-active" : ""}`}
-					aria-pressed={panels.left}
-					aria-label="Sessions"
-				>
-					<MessageIcon className="w-4 h-4" />
-				</button>
-			</Tooltip>
+		<footer className="flex h-10 bg-bg-base/90 border-t border-border text-fg-muted shrink-0 select-none z-10">
+			<div
+				className={cn(
+					"flex items-center justify-start",
+					panels.left ? "w-70 min-w-70" : "w-0 min-w-0",
+				)}
+			>
+				<Tooltip label="Sessions">
+					<button
+						type="button"
+						onClick={toggleLeft}
+						className={cn(
+							"dock-button",
+							panels.left && "dock-button-active",
+						)}
+						aria-pressed={panels.left}
+						aria-label="Sessions"
+					>
+						<MessageIcon className="w-4 h-4" />
+					</button>
+				</Tooltip>
+			</div>
 
-			<Tooltip label="Conversation">
-				<button
-					type="button"
-					onClick={toggleChat}
-					className={`dock-button ${showChat ? "dock-button-active" : ""}`}
-					aria-pressed={showChat}
-					aria-label="Conversation"
-				>
-					<ChatBubbleIcon className="w-4 h-4" />
-				</button>
-			</Tooltip>
+			<div className="flex items-center justify-center flex-1">
+				<Tooltip label="Conversation">
+					<button
+						type="button"
+						onClick={toggleChat}
+						className={cn(
+							"dock-button",
+							showChat && "dock-button-active",
+						)}
+						aria-pressed={showChat}
+						aria-label="Conversation"
+					>
+						<ChatBubbleIcon className="w-4 h-4" />
+					</button>
+				</Tooltip>
+			</div>
 
-			<Tooltip label="Explorer">
-				<button
-					type="button"
-					onClick={toggleRight}
-					className={`dock-button ${panels.right ? "dock-button-active" : ""}`}
-					aria-pressed={panels.right}
-					aria-label="Explorer"
-				>
-					<FolderIcon className="w-4 h-4" />
-				</button>
-			</Tooltip>
+			<div
+				className={cn(
+					"flex items-center justify-end",
+					panels.right ? "w-70 min-w-70" : "w-0 min-w-0",
+				)}
+			>
+				<Tooltip label="Explorer">
+					<button
+						type="button"
+						onClick={toggleRight}
+						className={cn(
+							"dock-button",
+							panels.right && "dock-button-active",
+						)}
+						aria-pressed={panels.right}
+						aria-label="Explorer"
+					>
+						<FolderIcon className="w-4 h-4" />
+					</button>
+				</Tooltip>
+			</div>
 		</footer>
 	);
 }

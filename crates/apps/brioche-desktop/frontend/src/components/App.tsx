@@ -4,9 +4,13 @@ import { useSessionStore } from "../stores/sessionStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useFileStore } from "../stores/fileStore";
 import { open } from "@tauri-apps/plugin-dialog";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isTauri } from "@tauri-apps/api/core";
+import { Minus, Square, Minimize2, X } from "lucide-react";
 import { sendMessage, attachReference, sendImage } from "../ipc";
 import Footer from "./Footer";
 import Tooltip from "./Tooltip";
+import { cn } from "./ui/lib";
 import { ClearIcon, SendIcon, PaperclipIcon, ImageIcon } from "./Icons";
 import SessionSidebar from "./SessionSidebar";
 import FileExplorer from "./FileExplorer";
@@ -31,6 +35,129 @@ import {
 interface PanelState {
   left: boolean;
   right: boolean;
+}
+
+interface OverlayButton {
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  active: boolean;
+  onClick: () => void;
+}
+
+function useMaximized() {
+  const [maximized, setMaximized] = useState(false);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    const win = getCurrentWindow();
+    void win.isMaximized().then((m) => {
+      if (!cancelled) setMaximized(m);
+    });
+
+    void win.onResized(() => {
+      void win.isMaximized().then((m) => {
+        if (!cancelled) setMaximized(m);
+      });
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, []);
+
+  return maximized;
+}
+
+function TitleBar({ buttons }: { buttons: OverlayButton[] }) {
+  const maximized = useMaximized();
+
+  const handleMinimize = useCallback(() => {
+    void getCurrentWindow().minimize();
+  }, []);
+
+  const handleMaximize = useCallback(async () => {
+    const win = getCurrentWindow();
+    const m = await win.isMaximized();
+    if (m) {
+      await win.unmaximize();
+    } else {
+      await win.maximize();
+    }
+  }, []);
+
+  const handleClose = useCallback(() => {
+    void getCurrentWindow().close();
+  }, []);
+
+  return (
+    <header className="title-bar">
+      <div className="flex items-center px-3">
+        <span className="text-sm font-semibold text-fg-secondary tracking-wider">
+          Brioche
+        </span>
+      </div>
+      <div className="flex-1" data-tauri-drag-region />
+      <div className="flex items-center">
+        {buttons.map(({ label, icon: Icon, active, onClick }) => (
+          <Tooltip key={label} label={label}>
+            <button
+              type="button"
+              onClick={onClick}
+              className={cn(
+                "dock-button",
+                active && "dock-button-active",
+              )}
+              aria-pressed={active}
+              aria-label={label}
+            >
+              <Icon className="w-4 h-4" />
+            </button>
+          </Tooltip>
+        ))}
+        <div className="w-px h-4 bg-border mx-1" aria-hidden="true" />
+        <button
+          type="button"
+          className="title-bar-button"
+          onClick={handleMinimize}
+          aria-label="Minimize"
+        >
+          <Minus className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
+          className="title-bar-button"
+          onClick={handleMaximize}
+          aria-label={maximized ? "Restore" : "Maximize"}
+        >
+          {maximized ? (
+            <Minimize2 className="w-4 h-4" />
+          ) : (
+            <Square className="w-4 h-4" />
+          )}
+        </button>
+        <button
+          type="button"
+          className="title-bar-button"
+          data-close
+          onClick={handleClose}
+          aria-label="Close"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    </header>
+  );
 }
 
 export default function App() {
@@ -246,26 +373,7 @@ export default function App() {
 
   return (
     <div className="app flex flex-col h-screen w-screen overflow-hidden relative text-text-primary">
-      <header className="flex items-center justify-between px-4 h-13 bg-bg-1/70 backdrop-blur-md border-b border-border shrink-0">
-        <span className="text-sm font-semibold text-fg-secondary tracking-wider">
-          Brioche
-        </span>
-        <div className="flex items-center gap-3">
-          {overlayButtons.map(({ label, icon: Icon, active, onClick }) => (
-            <Tooltip key={label} label={label}>
-              <button
-                type="button"
-                onClick={onClick}
-                className={`dock-button ${active ? "dock-button-active" : ""}`}
-                aria-pressed={active}
-                aria-label={label}
-              >
-                <Icon className="w-4 h-4" />
-              </button>
-            </Tooltip>
-          ))}
-        </div>
-      </header>
+      <TitleBar buttons={overlayButtons} />
 
       <div className="flex flex-row flex-1 overflow-hidden">
         <div
