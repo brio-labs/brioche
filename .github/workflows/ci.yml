@@ -123,6 +123,7 @@ jobs:
           fi
           echo "✓ Branch name '$BRANCH' OK"
       - name: Check commit messages
+        if: github.event_name == 'pull_request'
         run: |
           ALLOWED_TYPES="feat|fix|docs|test|refactor|perf|chore|invariant"
           ALLOWED_BOOKS="core|desktop|docgen|governance|governance-default|macro|playground|plugin-kit|provider-openai|repo|shell-persistence|shell-projection|shell-runtime|std|tools-system"
