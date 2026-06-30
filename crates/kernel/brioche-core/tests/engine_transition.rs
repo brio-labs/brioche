@@ -1545,10 +1545,11 @@ fn engine_with_adaptive_undo_frame_guard_instruments_hooks() {
 /// resulting engine still drives the full user-message → predict → tool
 /// execution → response lifecycle.
 ///
-/// Refs: P5-TEST-12, I-Gov-Profile-Agnostic
+/// Refs: I-Gov-Profile-Agnostic
 mod production_profile_tests {
-    use super::*;
     use brioche_governance_default::{BriocheEngineBuilderExt, GovernanceProfile};
+
+    use super::*;
 
     /// Build an engine wired with the given production governance profile.
     fn engine_with_profile(profile: GovernanceProfile) -> brioche_core::BriocheEngine {
