@@ -16,12 +16,19 @@ import {
 	SelectTrigger,
 	SelectValue,
 	MultiSelect,
+	cn,
 } from "./ui";
 
+/// Props for the settings management panel.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 interface SettingsPanelProps {
 	onClose: () => void;
 }
 
+/// Reads a dotted path from the settings record.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 function getFieldValue(
 	settings: Record<string, unknown>,
 	key: string,
@@ -38,6 +45,9 @@ function getFieldValue(
 	return current;
 }
 
+/// Schema for a single field inside a record list row.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 interface RecordListFieldSchema {
 	key: string;
 	placeholder: string;
@@ -46,6 +56,9 @@ interface RecordListFieldSchema {
 	nullable?: boolean;
 }
 
+/// Props for the record list editor used for fallback models and memory endpoints.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 interface RecordListProps {
 	items: Record<string, unknown>[];
 	onChange: (value: unknown) => void;
@@ -54,6 +67,10 @@ interface RecordListProps {
 	addLabel: string;
 	groups?: number[];
 }
+
+/// Renders a list of record rows that can be edited, added, and removed.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 function RecordList({
 	items,
 	onChange,
@@ -106,7 +123,7 @@ function RecordList({
 					value={String(value ?? "")}
 					onValueChange={(v) => onChangeField(v)}
 				>
-					<SelectTrigger className="flex-1 text-xs px-2.5 py-1.5" />
+					<SelectTrigger className="flex-1 px-2.5 py-1.5 text-xs" />
 					<SelectContent>
 						{(field.options || []).map((opt) => (
 							<SelectItem key={opt.value} value={opt.value}>
@@ -148,7 +165,7 @@ function RecordList({
 						onChangeField(n > 0 ? n : "");
 					}}
 					placeholder={field.placeholder}
-					className="flex-1 text-xs px-2.5 py-1.5"
+					className="flex-1 px-2.5 py-1.5 text-xs"
 				/>
 			);
 		}
@@ -160,33 +177,28 @@ function RecordList({
 				value={String(value ?? "")}
 				onChange={(e) => onChangeField(e.target.value)}
 				placeholder={field.placeholder}
-				className="flex-1 text-xs px-2.5 py-1.5"
+				className="flex-1 px-2.5 py-1.5 text-xs"
 			/>
 		);
 	};
 
 	return (
-		<div className="flex flex-col gap-3 mt-2">
+		<div className="mt-2 flex flex-col gap-3">
 			{items.map((item, index) => (
 				<div
 					key={index}
-					className="p-3 bg-bg-elevated/30 border border-border rounded-lg flex flex-col gap-2"
+					className="flex flex-col gap-2 rounded-lg border border-border bg-bg-elevated/30 p-3"
 				>
 					{rows.map((rowFields, rowIndex) => (
-						<div
-							key={rowIndex}
-							className="flex gap-2 items-center"
-						>
-							{rowFields.map((field) =>
-								renderField(item, index, field),
-							)}
+						<div key={rowIndex} className="flex items-center gap-2">
+							{rowFields.map((field) => renderField(item, index, field))}
 							{rowIndex === 0 && (
 								<Button
 									type="button"
 									variant="ghost"
 									size="icon"
 									onClick={() => removeItem(index)}
-									className="text-fg-muted hover:text-error-text shrink-0"
+									className="shrink-0 text-fg-muted hover:text-error-text"
 								>
 									×
 								</Button>
@@ -208,6 +220,7 @@ function RecordList({
 	);
 }
 
+/// Schema for the fallback model record list.
 const fallbackModelSchema: RecordListFieldSchema[] = [
 	{ key: "provider", placeholder: "provider" },
 	{ key: "model", placeholder: "model" },
@@ -227,6 +240,7 @@ const fallbackModelSchema: RecordListFieldSchema[] = [
 	{ key: "reasoning_effort", placeholder: "reasoning effort", nullable: true },
 ];
 
+/// Default values for a new fallback model entry.
 const FALLBACK_MODEL_DEFAULT: Record<string, unknown> = {
 	provider: "openrouter",
 	model: "",
@@ -237,6 +251,7 @@ const FALLBACK_MODEL_DEFAULT: Record<string, unknown> = {
 	reasoning_effort: "medium",
 };
 
+/// Schema for the memory endpoint record list.
 const memoryEndpointSchema: RecordListFieldSchema[] = [
 	{ key: "id", placeholder: "ID (e.g. memory-amp-1)" },
 	{ key: "name", placeholder: "Name" },
@@ -244,6 +259,10 @@ const memoryEndpointSchema: RecordListFieldSchema[] = [
 	{ key: "api_key", placeholder: "API Key (optional)", nullable: true },
 	{ key: "scope", placeholder: "Scope (optional)", nullable: true },
 ];
+
+/// Renders a memory endpoint record list with sensible default IDs.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 function MemoryEndpointList({
 	items,
 	onChange,
@@ -280,12 +299,18 @@ function MemoryEndpointList({
 	);
 }
 
+/// Props for a select that can represent true, false, or null.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 interface NullableBooleanSelectProps {
 	value: boolean | null;
 	placeholder: string;
 	onChange: (value: boolean | null) => void;
 }
 
+/// Renders a select dropdown with true, false, and unset (null) options.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 function NullableBooleanSelect({
 	value,
 	placeholder,
@@ -296,7 +321,7 @@ function NullableBooleanSelect({
 			value={value === null ? "unset" : String(value)}
 			onValueChange={(v) => onChange(v === "unset" ? null : v === "true")}
 		>
-			<SelectTrigger className="flex-1 text-xs px-2.5 py-1.5" />
+			<SelectTrigger className="flex-1 px-2.5 py-1.5 text-xs" />
 			<SelectContent>
 				<SelectItem value="unset">{placeholder}</SelectItem>
 				<SelectItem value="true">enabled</SelectItem>
@@ -306,6 +331,9 @@ function NullableBooleanSelect({
 	);
 }
 
+/// Renders the settings panel with a searchable section list and field editor.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 	const { settings, loadSettings, updateSetting, sections, loadSections } =
 		useSettingsStore();
@@ -317,7 +345,6 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 	const [editingProtected, setEditingProtected] = useState<Set<string>>(
 		new Set(),
 	);
-
 
 	useEffect(() => {
 		loadSettings();
@@ -401,26 +428,27 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 			size="md"
 			padded={false}
 		>
-			<div className="flex flex-row flex-1 overflow-hidden min-h-0">
-				<div className="w-60 min-w-60 border-r border-border flex flex-col bg-bg-base/20">
+			<div className="flex flex-1 min-h-0 flex-row overflow-hidden">
+				<div className="flex flex-col w-60 min-w-60 border-r border-border bg-bg-base/20">
 					<SearchBar
 						placeholder="Search settings..."
 						value={search}
 						onChange={setSearch}
-						containerClassName="border-b border-border rounded-none px-5 py-4 bg-bg-base/30"
+						containerClassName="border-b border-border rounded-none bg-bg-base/30 px-5 py-4"
 					/>
-					<div className="flex-1 overflow-y-auto p-4 flex flex-col gap-1">
+					<div className="flex flex-1 flex-col gap-1 overflow-y-auto p-4">
 						{filteredSections.map((section) => (
 							<Button
 								key={section.id}
 								type="button"
 								variant="ghost"
 								onClick={() => setSelectedSectionId(section.id)}
-								className={`w-full justify-start px-4 py-2.5 text-sm font-semibold transition-all duration-150 ${
+								className={cn(
+									"w-full justify-start px-4 py-2.5 text-sm font-semibold transition-all duration-150",
 									selectedSectionId === section.id
-										? "bg-accent/15 border-l-2 border-accent text-fg-primary"
-										: "text-fg-secondary hover:bg-bg-elevated/50 hover:text-fg-primary"
-								}`}
+										? "border-l-2 border-accent bg-accent/15 text-fg-primary"
+										: "text-fg-secondary hover:bg-bg-elevated/50 hover:text-fg-primary",
+								)}
 							>
 								{section.title}
 							</Button>
@@ -428,10 +456,10 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 					</div>
 				</div>
 
-				<div className="flex-1 overflow-y-auto p-6 flex flex-col gap-4">
+				<div className="flex flex-1 flex-col gap-4 overflow-y-auto p-6">
 					{selectedSection ? (
 						<>
-							<div className="border-b border-border pb-3 mb-2">
+							<div className="mb-2 border-b border-border pb-3">
 								<h3 className="text-base font-semibold text-fg-primary">
 									{selectedSection.title}
 								</h3>
@@ -451,21 +479,21 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 							</div>
 						</>
 					) : (
-						<div className="flex-1 flex flex-col items-center justify-center text-fg-muted py-16 text-sm">
+						<div className="flex flex-1 flex-col items-center justify-center py-16 text-sm text-fg-muted">
 							Select a section from the left to view its settings.
 						</div>
 					)}
-				{saveError && (
-					<div className="mt-auto pt-5">
-						<div className="rounded-lg border border-error-border bg-error-bg p-4 text-sm text-error-text whitespace-pre-wrap">
-							{saveError}
+					{saveError && (
+						<div className="mt-auto pt-5">
+							<div className="whitespace-pre-wrap rounded-lg border border-error-border bg-error-bg p-4 text-sm text-error-text">
+								{saveError}
+							</div>
 						</div>
-					</div>
-				)}
+					)}
 				</div>
 			</div>
 
-			<div className="flex justify-end gap-3 px-6 py-5 border-t border-border bg-bg-base/30 shrink-0">
+			<div className="flex shrink-0 justify-end gap-3 border-t border-border bg-bg-base/30 px-6 py-5">
 				<Button type="button" variant="secondary" onClick={onClose}>
 					Cancel
 				</Button>
@@ -477,6 +505,9 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 	);
 }
 
+/// Props for the editor that renders a single settings field.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 interface FieldEditorProps {
 	field: SettingsField;
 	value: unknown;
@@ -486,6 +517,9 @@ interface FieldEditorProps {
 	onReset: () => void;
 }
 
+/// Renders the appropriate editor for a settings field based on its type.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 function FieldEditor({
 	field,
 	value,
@@ -507,7 +541,7 @@ function FieldEditor({
 							checked={Boolean(currentValue)}
 							onCheckedChange={(checked) => onChange(Boolean(checked))}
 						/>
-						<Label htmlFor={field.key} className="normal-case text-sm">
+						<Label htmlFor={field.key} className="text-sm normal-case">
 							{field.label}
 						</Label>
 					</div>
@@ -580,16 +614,16 @@ function FieldEditor({
 						/>
 					);
 				}
-			return (
-				<RecordList
-					items={items as Record<string, unknown>[]}
-					onChange={onChange}
-					schema={fallbackModelSchema}
-					defaultItem={FALLBACK_MODEL_DEFAULT}
-					addLabel="Add fallback model"
-					groups={[2, 2, 3]}
-				/>
-			);
+				return (
+					<RecordList
+						items={items as Record<string, unknown>[]}
+						onChange={onChange}
+						schema={fallbackModelSchema}
+						defaultItem={FALLBACK_MODEL_DEFAULT}
+						addLabel="Add fallback model"
+						groups={[2, 2, 3]}
+					/>
+				);
 			}
 			case "path":
 			default:
@@ -606,16 +640,18 @@ function FieldEditor({
 
 	return (
 		<div
-			className={`flex flex-col gap-2 ${
-				field.protected ? "p-3.5 bg-bg-elevated/20 border border-border/50 rounded-lg" : ""
-			}`}
+			className={cn(
+				"flex flex-col gap-2",
+				field.protected &&
+					"rounded-lg border border-border/50 bg-bg-elevated/20 p-3.5",
+			)}
 		>
 			{field.field_type !== "boolean" && (
 				<Label htmlFor={field.key}>{field.label}</Label>
 			)}
 			{field.protected && (
-				<div className="text-amber-500 text-xs flex items-start gap-2 mt-0.5">
-					<AlertTriangleIcon className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+				<div className="mt-0.5 flex items-start gap-2 text-xs text-warning-text">
+					<AlertTriangleIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
 					<div className="flex flex-wrap items-center gap-x-2 gap-y-1">
 						<span>
 							{isProtected
@@ -630,9 +666,9 @@ function FieldEditor({
 								onClick={() =>
 									setEditingProtected((prev) => new Set(prev).add(field.key))
 								}
-								className="h-auto px-1 py-0.5 text-accent hover:text-accent-hover underline"
+								className="h-auto px-1 py-0.5 text-accent underline hover:text-accent-hover"
 							>
-								<EditIcon className="w-3 h-3 mr-1" />
+								<EditIcon className="mr-1 h-3 w-3" />
 								Unlock to edit
 							</Button>
 						) : (
@@ -641,7 +677,7 @@ function FieldEditor({
 								variant="ghost"
 								size="sm"
 								onClick={onReset}
-								className="h-auto px-1 py-0.5 text-fg-muted hover:text-fg-secondary underline"
+								className="h-auto px-1 py-0.5 text-fg-muted underline hover:text-fg-secondary"
 							>
 								Reset to default
 							</Button>
@@ -651,7 +687,7 @@ function FieldEditor({
 			)}
 			{input}
 			{field.description && (
-				<span className="text-xs text-fg-muted leading-relaxed">
+				<span className="text-xs leading-relaxed text-fg-muted">
 					{field.description}
 				</span>
 			)}

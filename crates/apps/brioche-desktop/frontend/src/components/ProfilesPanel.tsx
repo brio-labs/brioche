@@ -26,17 +26,25 @@ import {
 	SelectItem,
 	SelectTrigger,
 	SelectValue,
+	cn,
 } from "./ui";
 
+/// Props for the profile management panel.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 interface ProfilesPanelProps {
 	onClose: () => void;
 }
 
+/// Available LLM providers when creating a new profile.
 const PROVIDERS = [
 	{ value: "openai", label: "OpenAI" },
 	{ value: "openrouter", label: "OpenRouter" },
 ];
 
+/// Renders a single profile entry in the selectable list.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 function ProfileListItem({
 	profile,
 	isActive,
@@ -50,30 +58,42 @@ function ProfileListItem({
 }) {
 	return (
 		<div
+			tabIndex={0}
+			role="button"
 			onClick={() => onSelect(profile.name)}
-			className={`p-3 rounded-lg cursor-pointer transition-all duration-200 border flex flex-col gap-1.5 ${
+			onKeyDown={(e) => {
+				if (e.key === "Enter" || e.key === " ") {
+					e.preventDefault();
+					onSelect(profile.name);
+				}
+			}}
+			className={cn(
+				"flex cursor-pointer flex-col gap-1.5 rounded-lg border p-3 transition-all duration-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-glow",
 				isSelected
-					? "bg-accent/10 border-accent-dim/40 shadow-sm"
-					: "bg-transparent border-transparent hover:bg-bg-elevated/30 hover:border-border/60"
-			}`}
+					? "border-accent-dim/40 bg-accent/10 shadow-sm"
+					: "border-transparent bg-transparent hover:border-border/60 hover:bg-bg-elevated/30",
+			)}
 		>
 			<div className="flex items-center justify-between gap-2">
-				<span className="text-xs font-semibold text-fg-primary truncate">
+				<span className="truncate text-xs font-semibold text-fg-primary">
 					{profile.display_name || profile.name}
 				</span>
 				{isActive && (
-					<span className="px-1.5 py-0.5 rounded text-xs font-bold uppercase select-none bg-green-800/20 border border-green-700/30 text-green-400 shrink-0">
+					<span className="shrink-0 rounded border border-success-border bg-success-bg px-1.5 py-0.5 text-xs font-bold uppercase text-success-text select-none">
 						Active
 					</span>
 				)}
 			</div>
-			<div className="text-xs text-fg-secondary truncate">
+			<div className="truncate text-xs text-fg-secondary">
 				{profile.provider} / {profile.model}
 			</div>
 		</div>
 	);
 }
 
+/// Form for creating a new profile.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 function CreateProfileForm({
 	onCancel,
 	onCreated,
@@ -122,9 +142,9 @@ function CreateProfileForm({
 	};
 
 	return (
-		<div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
+		<div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
 			<h3 className="text-sm font-semibold text-fg-primary">Create profile</h3>
-			<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+			<div className="grid grid-cols-1 gap-4 md:grid-cols-2">
 				<div className="flex flex-col gap-1.5">
 					<Label className="text-xs font-medium text-fg-secondary">Name</Label>
 					<Input
@@ -161,14 +181,14 @@ function CreateProfileForm({
 			</div>
 			<div className="flex flex-col gap-1.5">
 				<Label className="text-xs font-medium text-fg-secondary">Model</Label>
-					<Input
-						value={model}
-						onChange={(e) => setModel(e.target.value)}
-						placeholder="e.g. gpt-4o-mini"
-					/>
-				</div>
-				<div className="flex flex-col gap-1.5">
-					<Label className="text-xs font-medium text-fg-secondary">API key</Label>
+				<Input
+					value={model}
+					onChange={(e) => setModel(e.target.value)}
+					placeholder="e.g. gpt-4o-mini"
+				/>
+			</div>
+			<div className="flex flex-col gap-1.5">
+				<Label className="text-xs font-medium text-fg-secondary">API key</Label>
 				<Input
 					type="password"
 					value={apiKey}
@@ -176,11 +196,16 @@ function CreateProfileForm({
 					placeholder="sk-..."
 				/>
 			</div>
-			<div className="flex justify-end gap-2 mt-2">
-				<Button variant="secondary" onClick={onCancel} disabled={isSaving}>
+			<div className="mt-2 flex justify-end gap-2">
+				<Button
+					type="button"
+					variant="secondary"
+					onClick={onCancel}
+					disabled={isSaving}
+				>
 					Cancel
 				</Button>
-				<Button onClick={handleSubmit} disabled={!canSubmit}>
+				<Button type="button" onClick={handleSubmit} disabled={!canSubmit}>
 					Create
 				</Button>
 			</div>
@@ -188,6 +213,9 @@ function CreateProfileForm({
 	);
 }
 
+/// Renders details for the selected profile and allows editing, switching, or deleting it.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 function ProfileDetails({
 	profile,
 	isActive,
@@ -249,7 +277,7 @@ function ProfileDetails({
 	};
 
 	return (
-		<div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
+		<div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
 			<div className="flex items-start justify-between gap-4">
 				<div className="flex flex-col gap-0.5">
 					<h3 className="text-sm font-semibold text-fg-primary">
@@ -259,29 +287,31 @@ function ProfileDetails({
 						{profile.provider} / {profile.model}
 					</div>
 				</div>
-				<div className="flex items-center gap-2 shrink-0">
+				<div className="flex shrink-0 items-center gap-2">
 					{!isActive && (
 						<div className="flex items-center gap-2">
 							<Button
+								type="button"
 								variant="secondary"
 								size="sm"
 								onClick={() => onSwitch(profile.name)}
 							>
-								<CheckIcon className="w-3 h-3 mr-1" />
+								<CheckIcon className="mr-1 h-3 w-3" />
 								Switch
 							</Button>
 							<Button
+								type="button"
 								variant="destructive"
 								size="sm"
 								onClick={() => onDelete(profile.name)}
 							>
-								<TrashIcon className="w-3 h-3 mr-1" />
+								<TrashIcon className="mr-1 h-3 w-3" />
 								Delete
 							</Button>
 						</div>
 					)}
 					{isActive && (
-						<span className="px-2 py-1 rounded text-xs font-bold uppercase select-none bg-green-800/20 border border-green-700/30 text-green-400">
+						<span className="rounded border border-success-border bg-success-bg px-2 py-1 text-xs font-bold uppercase text-success-text select-none">
 							Active
 						</span>
 					)}
@@ -298,15 +328,16 @@ function ProfileDetails({
 					placeholder={profile.name}
 				/>
 			</div>
-			<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+			<div className="grid grid-cols-1 gap-4 md:grid-cols-2">
 				<div className="flex flex-col gap-1.5">
 					<Label className="text-xs font-medium text-fg-secondary">
 						Provider
 					</Label>
-						<Input value={profile.provider} disabled />
-					</div>
-					<div className="flex flex-col gap-1.5">
-						<Label className="text-xs font-medium text-fg-secondary">Model</Label>
+					<Input value={profile.provider} disabled />
+				</div>
+				<div className="flex flex-col gap-1.5">
+					<Label className="text-xs font-medium text-fg-secondary">Model</Label>
 					<Input
 						value={model}
 						onChange={(e) => setModel(e.target.value)}
@@ -323,17 +354,23 @@ function ProfileDetails({
 					placeholder="sk-..."
 				/>
 			</div>
-			<div className="flex justify-end gap-2 mt-2">
+			<div className="mt-2 flex justify-end gap-2">
 				<Button
+					type="button"
 					variant="secondary"
 					size="sm"
 					onClick={handleReset}
 					disabled={!hasChanges || isSaving}
 				>
-					<RefreshIcon className="w-3 h-3 mr-1" />
+					<RefreshIcon className="mr-1 h-3 w-3" />
 					Reset
 				</Button>
-				<Button size="sm" onClick={handleSave} disabled={!hasChanges || isSaving}>
+				<Button
+					type="button"
+					size="sm"
+					onClick={handleSave}
+					disabled={!hasChanges || isSaving}
+				>
 					Save
 				</Button>
 			</div>
@@ -341,6 +378,9 @@ function ProfileDetails({
 	);
 }
 
+/// Renders the profiles panel with a searchable list and an editor pane.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export default function ProfilesPanel({ onClose }: ProfilesPanelProps) {
 	const [profiles, setProfiles] = useState<Profile[]>([]);
 	const [activeName, setActiveName] = useState<string | null>(null);
@@ -429,48 +469,48 @@ export default function ProfilesPanel({ onClose }: ProfilesPanelProps) {
 	return (
 		<PanelOverlay
 			title="Profiles"
-			icon={<UserIcon className="w-4 h-4" />}
+			icon={<UserIcon className="h-4 w-4" />}
 			onClose={onClose}
 			size="lg"
 			padded={false}
 			headerActions={
 				<button
 					type="button"
-					className="p-1.5 bg-transparent text-fg-muted hover:text-fg-secondary hover:bg-bg-highlight rounded-md transition-all duration-150 cursor-pointer flex items-center justify-center mr-1.5"
+					className="mr-1.5 flex cursor-pointer items-center justify-center rounded-md bg-transparent p-1.5 text-fg-muted transition-all duration-150 hover:bg-bg-highlight hover:text-fg-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-glow"
 					onClick={() => setShowCreate(true)}
 					title="New profile"
 					aria-label="New profile"
 				>
-					<PlusIcon className="w-4 h-4" />
+					<PlusIcon className="h-4 w-4" />
 				</button>
 			}
 		>
-			<div className="flex flex-row flex-1 overflow-hidden min-h-0">
-				<div className="w-70 min-w-70 border-r border-border flex flex-col bg-bg-base/20">
+			<div className="flex flex-1 min-h-0 flex-row overflow-hidden">
+				<div className="flex flex-col w-70 min-w-70 border-r border-border bg-bg-base/20">
 					<SearchBar
 						placeholder="Search profiles..."
 						value={searchQuery}
 						onChange={setSearchQuery}
-						containerClassName="shrink-0 border-b border-border rounded-none px-5 py-4 bg-bg-base/30"
+						containerClassName="shrink-0 px-5 py-4 border-b border-border rounded-none bg-bg-base/30"
 					/>
 					{error && (
-						<div className="bg-error-bg text-error-text border border-error-border px-3.5 py-2.5 rounded-lg text-xs mx-4 my-2 shrink-0">
+						<div className="shrink-0 mx-4 my-2 rounded-lg border border-error-border bg-error-bg px-3.5 py-2.5 text-xs text-error-text">
 							{error}
 						</div>
 					)}
 					{!isTauriAvailable && !error && (
-						<div className="bg-error-bg text-error-text border border-error-border px-3.5 py-2.5 rounded-lg text-xs mx-4 my-2 shrink-0">
+						<div className="shrink-0 mx-4 my-2 rounded-lg border border-error-border bg-error-bg px-3.5 py-2.5 text-xs text-error-text">
 							Profiles preview mode: profile management requires the Tauri
 							desktop app.
 						</div>
 					)}
-					<div className="flex-1 overflow-y-auto min-h-0 p-4 flex flex-col gap-3">
+					<div className="flex flex-1 min-h-0 flex-col gap-3 overflow-y-auto p-4">
 						{isLoading ? (
-							<div className="text-center text-fg-muted py-12 text-sm">
+							<div className="py-12 text-center text-sm text-fg-muted">
 								Loading profiles...
 							</div>
 						) : filteredProfiles.length === 0 ? (
-							<div className="text-center text-fg-muted py-12 text-sm">
+							<div className="py-12 text-center text-sm text-fg-muted">
 								No profiles found
 							</div>
 						) : (
@@ -487,7 +527,7 @@ export default function ProfilesPanel({ onClose }: ProfilesPanelProps) {
 					</div>
 				</div>
 
-				<div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+				<div className="flex flex-1 min-w-0 flex-col overflow-hidden">
 					{showCreate ? (
 						<CreateProfileForm
 							onCancel={() => setShowCreate(false)}
@@ -504,7 +544,7 @@ export default function ProfilesPanel({ onClose }: ProfilesPanelProps) {
 							setError={setError}
 						/>
 					) : (
-						<div className="flex-1 flex flex-col items-center justify-center p-5 text-fg-muted text-sm text-center">
+						<div className="flex flex-1 flex-col items-center justify-center p-5 text-center text-sm text-fg-muted">
 							Select a profile to view details
 						</div>
 					)}

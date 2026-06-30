@@ -15,6 +15,10 @@ import * as SeparatorPrimitive from "@radix-ui/react-separator";
 import { Check } from "lucide-react";
 import { cn } from "./lib";
 
+/// Props for the Button primitive.
+///
+/// Supports multiple visual variants, sizes, and optional child composition via
+/// Radix Slot. Refs: I-Shell-Runtime-OnlyIO
 export interface ButtonProps
 	extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 	variant?: "default" | "secondary" | "ghost" | "destructive";
@@ -22,17 +26,26 @@ export interface ButtonProps
 	asChild?: boolean;
 }
 
+/// Theme-aware button with default `type="button"` and visible interaction
+/// states.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 	(
-		{ className, variant = "default", size = "default", asChild = false, ...props },
+		{ className, variant = "default", size = "default", asChild = false, type, ...props },
 		ref,
 	) => {
 		const Comp = asChild ? Slot : "button";
 		return (
 			<Comp
 				ref={ref}
+				type={asChild ? undefined : (type ?? "button")}
 				className={cn(
-					"inline-flex items-center justify-center rounded font-medium transition-all focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-glow focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface disabled:pointer-events-none disabled:opacity-50 cursor-pointer",
+					"inline-flex items-center justify-center rounded font-medium",
+					"px-3 py-2 text-xs tracking-wide",
+					"focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-glow focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface",
+					"disabled:pointer-events-none disabled:opacity-50 cursor-pointer",
+					"transition-all",
 					variant === "default" &&
 						"bg-accent text-accent-text hover:bg-accent-hover active:bg-accent-dim shadow-sm shadow-accent-glow/20",
 					variant === "secondary" &&
@@ -40,9 +53,9 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 					variant === "ghost" &&
 						"bg-transparent text-fg-secondary hover:text-fg-primary hover:bg-bg-elevated active:bg-bg-highlight",
 					variant === "destructive" &&
-						"bg-transparent text-red-400 hover:text-red-300 hover:bg-red-400/10 active:bg-red-400/20 border border-red-400/30",
-					size === "default" && "px-3 py-2 text-xs tracking-wide",
-					size === "sm" && "px-2 py-1 text-xs",
+						"bg-transparent border border-error-border text-error-text hover:bg-error-bg active:bg-error-bg/80",
+					size === "default" && "px-3 py-2",
+					size === "sm" && "px-2 py-1",
 					size === "icon" && "h-8 w-8 p-0",
 					className,
 				)}
@@ -53,9 +66,15 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 );
 Button.displayName = "Button";
 
+/// Props for the Input primitive.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export interface InputProps
 	extends React.InputHTMLAttributes<HTMLInputElement> {}
 
+/// Theme-aware text input that delegates to the shared `input-field` utility.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
 	({ className, type, ...props }, ref) => (
 		<input
@@ -68,9 +87,15 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
 );
 Input.displayName = "Input";
 
+/// Props for the Textarea primitive.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export interface TextareaProps
 	extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {}
 
+/// Theme-aware textarea that delegates to the shared `textarea-field` utility.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
 	({ className, ...props }, ref) => (
 		<textarea
@@ -82,6 +107,9 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
 );
 Textarea.displayName = "Textarea";
 
+/// Theme-aware label for form controls.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export const Label = React.forwardRef<
 	React.ElementRef<typeof LabelPrimitive.Root>,
 	React.ComponentPropsWithoutRef<typeof LabelPrimitive.Root>
@@ -97,6 +125,9 @@ export const Label = React.forwardRef<
 ));
 Label.displayName = LabelPrimitive.Root.displayName;
 
+/// Theme-aware checkbox with visible checked, focus, and disabled states.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export const Checkbox = React.forwardRef<
 	React.ElementRef<typeof CheckboxPrimitive.Root>,
 	React.ComponentPropsWithoutRef<typeof CheckboxPrimitive.Root>
@@ -104,7 +135,11 @@ export const Checkbox = React.forwardRef<
 	<CheckboxPrimitive.Root
 		ref={ref}
 		className={cn(
-			"peer h-4 w-4 shrink-0 rounded border border-border bg-bg-elevated ring-offset-bg-surface focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-glow disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-accent data-[state=checked]:border-accent data-[state=checked]:text-accent-text cursor-pointer",
+			"peer h-4 w-4 shrink-0 rounded cursor-pointer",
+			"border border-border bg-bg-elevated",
+			"ring-offset-bg-surface focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-glow",
+			"disabled:cursor-not-allowed disabled:opacity-50",
+			"data-[state=checked]:bg-accent data-[state=checked]:border-accent data-[state=checked]:text-accent-text",
 			className,
 		)}
 		{...props}
@@ -118,6 +153,9 @@ export const Checkbox = React.forwardRef<
 ));
 Checkbox.displayName = CheckboxPrimitive.Root.displayName;
 
+/// Theme-aware horizontal or vertical separator.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export const Separator = React.forwardRef<
 	React.ElementRef<typeof SeparatorPrimitive.Root>,
 	React.ComponentPropsWithoutRef<typeof SeparatorPrimitive.Root>
