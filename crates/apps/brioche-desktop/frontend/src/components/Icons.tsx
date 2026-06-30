@@ -1,8 +1,15 @@
+//! Brioche Desktop SVG icon set.
+//!
+//! All icons are 24x24, stroke-based, and inherit the surrounding text color
+//! via `currentColor`. They are used by shell, panels, and message components.
+//!
+//! Refs: I-Shell-Runtime-OnlyIO
+
 import type React from 'react';
 
-// SVG icons as React components - clean, minimal stroke icons
-// All icons are 24x24 viewBox with 1.5-2px stroke width
-
+/// Renders a plus icon for add actions.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function PlusIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -12,6 +19,9 @@ export function PlusIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a trash icon for delete actions.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function TrashIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -21,6 +31,9 @@ export function TrashIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a hamburger menu icon.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function MenuIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -31,6 +44,9 @@ export function MenuIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a folder icon for directory entries.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function FolderIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -39,6 +55,9 @@ export function FolderIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a file icon for document entries.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function FileIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -48,6 +67,9 @@ export function FileIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a chevron-up icon for collapse actions.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function ChevronUpIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -56,6 +78,9 @@ export function ChevronUpIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a chevron-down icon for expand or dropdown actions.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function ChevronDownIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -64,6 +89,9 @@ export function ChevronDownIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a chevron-right icon for navigation or disclosure.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function ChevronRightIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -72,6 +100,9 @@ export function ChevronRightIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a settings icon for configuration panels.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function SettingsIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -81,6 +112,9 @@ export function SettingsIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a close (X) icon for dismiss actions.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function XIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -90,6 +124,9 @@ export function XIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a send icon for message submission.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function SendIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -99,6 +136,9 @@ export function SendIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a clear/delete icon for removal actions.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function ClearIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -110,6 +150,9 @@ export function ClearIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a copy icon for clipboard actions.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function CopyIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -119,6 +162,9 @@ export function CopyIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders an edit/pencil icon for modification actions.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function EditIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -128,6 +174,9 @@ export function EditIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a search/magnifier icon for query actions.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function SearchIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -137,6 +186,9 @@ export function SearchIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a command/keyboard icon for the command palette.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function CommandIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -145,6 +197,9 @@ export function CommandIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a checkmark icon for selected or completed states.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function CheckIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -153,6 +208,9 @@ export function CheckIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a sparkles icon for AI or special actions.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function SparklesIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -165,6 +223,9 @@ export function SparklesIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a terminal icon for shell or command-line contexts.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function TerminalIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -174,6 +235,9 @@ export function TerminalIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a message bubble icon for conversations.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function MessageIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -182,6 +246,9 @@ export function MessageIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a chat bubble icon with lines for threaded messages.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function ChatBubbleIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -192,6 +259,9 @@ export function ChatBubbleIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a brain icon for memory or reasoning contexts.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function BrainIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -201,6 +271,9 @@ export function BrainIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a refresh icon for reload or retry actions.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function RefreshIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -211,6 +284,9 @@ export function RefreshIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a save icon for persistence actions.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function SaveIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -221,6 +297,9 @@ export function SaveIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders an export/download icon for data export actions.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function ExportIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -231,6 +310,9 @@ export function ExportIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a book icon for documentation or skills.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function BookIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -240,6 +322,9 @@ export function BookIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a tag icon for labeling or categorization.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function TagIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -249,6 +334,9 @@ export function TagIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a memory/storage icon for memory panels.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function MemoryIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -259,6 +347,9 @@ export function MemoryIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a user icon for profile or account contexts.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function UserIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -268,6 +359,9 @@ export function UserIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a layers icon for stacked or grouped items.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function LayersIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -278,6 +372,9 @@ export function LayersIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a paperclip icon for file attachments.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function PaperclipIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -286,6 +383,9 @@ export function PaperclipIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders an image icon for media attachments.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function ImageIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -296,6 +396,9 @@ export function ImageIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a wrench icon for tools or settings actions.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function WrenchIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -304,6 +407,9 @@ export function WrenchIcon(props: React.ComponentProps<'svg'>) {
     );
 }
 
+/// Renders a warning triangle icon for alert or error states.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 export function AlertTriangleIcon(props: React.ComponentProps<'svg'>) {
     return (
         <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
