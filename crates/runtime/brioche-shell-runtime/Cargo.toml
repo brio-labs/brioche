@@ -28,6 +28,11 @@ async-trait = "0.1"
 [dev-dependencies]
 tokio-test = "0.4"
 brioche-governance-default = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "effect_loop"
+harness = false
 
 [lints]
 workspace = true
