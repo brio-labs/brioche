@@ -10,7 +10,7 @@ use std::sync::RwLock;
 
 use serde::{Deserialize, Serialize};
 
-use super::{ExtensionMetadata, PanelSlot};
+use super::{ExtensionMetadata, PanelSlot, PersistenceError};
 /// A skill descriptor.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
@@ -52,22 +52,22 @@ pub trait SkillProvider: Send + Sync {
     /// Scans and returns all available skills.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn list(&self) -> Result<Vec<SkillDescriptor>, String>;
+    fn list(&self) -> Result<Vec<SkillDescriptor>, PersistenceError>;
 
     /// Reads the raw markdown content of a skill.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn read_content(&self, name: &str) -> Result<String, String>;
+    fn read_content(&self, name: &str) -> Result<String, PersistenceError>;
 
     /// Reads an auxiliary file from a skill directory.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn read_file(&self, name: &str, file_path: &str) -> Result<String, String>;
+    fn read_file(&self, name: &str, file_path: &str) -> Result<String, PersistenceError>;
 
     /// Enables or disables a skill.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn set_enabled(&self, name: &str, enabled: bool) -> Result<(), String>;
+    fn set_enabled(&self, name: &str, enabled: bool) -> Result<(), PersistenceError>;
 
     /// Creates a new skill package.
     ///
@@ -78,12 +78,12 @@ pub trait SkillProvider: Send + Sync {
         category: &str,
         description: &str,
         content: &str,
-    ) -> Result<(), String>;
+    ) -> Result<(), PersistenceError>;
 
     /// Deletes a skill package.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    fn delete_skill(&self, name: &str) -> Result<(), String>;
+    fn delete_skill(&self, name: &str) -> Result<(), PersistenceError>;
 }
 
 /// Default skill registry that scans `~/.hermes/skills/`.
@@ -130,28 +130,21 @@ impl SkillRegistry {
     ///
     /// # Panic / Safety
     /// Never panics. Returns Err if the file cannot be read or parsed.
-    fn load_enabled() -> Result<Vec<String>, String> {
+    fn load_enabled() -> Result<Vec<String>, PersistenceError> {
         let path = Self::enabled_path();
-        let data = std::fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read enabled skills: {e}"))?;
-        serde_json::from_str::<Vec<String>>(&data)
-            .map_err(|e| format!("Failed to parse enabled skills: {e}"))
+        let data = std::fs::read_to_string(&path)?;
+        serde_json::from_str::<Vec<String>>(&data).map_err(PersistenceError::Json)
     }
 
     /// Saves enabled state to disk.
-    fn save_enabled(&self) -> Result<(), String> {
+    fn save_enabled(&self) -> Result<(), PersistenceError> {
         let path = Self::enabled_path();
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create skills dir: {e}"))?;
+            std::fs::create_dir_all(parent)?;
         }
-        let enabled = self
-            .enabled
-            .read()
-            .map_err(|_| "Skill registry lock poisoned".to_string())?;
-        let data = serde_json::to_string_pretty(&*enabled)
-            .map_err(|e| format!("Failed to serialize enabled skills: {e}"))?;
-        std::fs::write(&path, data).map_err(|e| format!("Failed to write enabled skills: {e}"))
+        let enabled = self.enabled.read()?;
+        let data = serde_json::to_string_pretty(&*enabled).map_err(PersistenceError::Json)?;
+        std::fs::write(&path, data).map_err(PersistenceError::Io)
     }
 
     fn enabled_path() -> std::path::PathBuf {
@@ -176,7 +169,7 @@ impl SkillProvider for SkillRegistry {
         }
     }
 
-    fn list(&self) -> Result<Vec<SkillDescriptor>, String> {
+    fn list(&self) -> Result<Vec<SkillDescriptor>, PersistenceError> {
         let skills_dir = Self::skills_dir();
         if !skills_dir.exists() {
             return Ok(Vec::new());
@@ -184,10 +177,7 @@ impl SkillProvider for SkillRegistry {
         let mut skills = Vec::new();
         scan_dir(&skills_dir, &skills_dir, &mut skills);
         skills.sort_by(|a, b| a.name.cmp(&b.name));
-        let enabled = self
-            .enabled
-            .read()
-            .map_err(|_| "Skill registry lock poisoned".to_string())?;
+        let enabled = self.enabled.read()?;
         let all_enabled = enabled.is_empty();
         Ok(skills
             .into_iter()
@@ -198,31 +188,28 @@ impl SkillProvider for SkillRegistry {
             .collect())
     }
 
-    fn read_content(&self, name: &str) -> Result<String, String> {
+    fn read_content(&self, name: &str) -> Result<String, PersistenceError> {
         let skills = self.list()?;
         let skill = skills
             .into_iter()
             .find(|s| s.name == name)
-            .ok_or_else(|| format!("Skill '{name}' not found"))?;
+            .ok_or_else(|| PersistenceError::NotFound(format!("Skill '{name}'")))?;
         let skill_md = std::path::PathBuf::from(&skill.path).join("SKILL.md");
-        std::fs::read_to_string(&skill_md).map_err(|e| format!("Failed to read skill content: {e}"))
+        std::fs::read_to_string(&skill_md).map_err(PersistenceError::Io)
     }
 
-    fn read_file(&self, name: &str, file_path: &str) -> Result<String, String> {
+    fn read_file(&self, name: &str, file_path: &str) -> Result<String, PersistenceError> {
         let skills = self.list()?;
         let skill = skills
             .into_iter()
             .find(|s| s.name == name)
-            .ok_or_else(|| format!("Skill '{name}' not found"))?;
+            .ok_or_else(|| PersistenceError::NotFound(format!("Skill '{name}'")))?;
         let full_path = std::path::PathBuf::from(&skill.path).join(file_path);
-        std::fs::read_to_string(&full_path).map_err(|e| format!("Failed to read skill file: {e}"))
+        std::fs::read_to_string(&full_path).map_err(PersistenceError::Io)
     }
 
-    fn set_enabled(&self, name: &str, enabled: bool) -> Result<(), String> {
-        let mut guard = self
-            .enabled
-            .write()
-            .map_err(|_| "Skill registry lock poisoned".to_string())?;
+    fn set_enabled(&self, name: &str, enabled: bool) -> Result<(), PersistenceError> {
+        let mut guard = self.enabled.write()?;
         if enabled {
             let key = name.to_string();
             if !guard.contains(&key) {
@@ -241,31 +228,28 @@ impl SkillProvider for SkillRegistry {
         category: &str,
         description: &str,
         content: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), PersistenceError> {
         if name.is_empty() {
-            return Err("Skill name cannot be empty".into());
+            return Err(PersistenceError::InvalidInput(
+                "Skill name cannot be empty".into(),
+            ));
         }
         let skills_dir = Self::skills_dir();
         let dir = skills_dir.join(category).join(name);
         if dir.exists() {
-            return Err(format!("Skill '{}' already exists", name));
+            return Err(PersistenceError::AlreadyExists(name.into()));
         }
-        std::fs::create_dir_all(&dir)
-            .map_err(|e| format!("Failed to create skill directory: {e}"))?;
+        std::fs::create_dir_all(&dir)?;
 
         let frontmatter = format!(
             "---\nname: {}\ndescription: {}\nversion: 0.1.0\nauthor: user\nlicense: MIT\ntags: []\n---\n\n",
             name, description
         );
         let skill_md = dir.join("SKILL.md");
-        std::fs::write(&skill_md, format!("{}{}", frontmatter, content))
-            .map_err(|e| format!("Failed to write SKILL.md: {e}"))?;
+        std::fs::write(&skill_md, format!("{}{}", frontmatter, content))?;
 
         // Enable the new skill by default.
-        let mut guard = self
-            .enabled
-            .write()
-            .map_err(|_| "Skill registry lock poisoned".to_string())?;
+        let mut guard = self.enabled.write()?;
         let key = name.to_string();
         if !guard.contains(&key) {
             guard.push(key);
@@ -274,19 +258,15 @@ impl SkillProvider for SkillRegistry {
         self.save_enabled()
     }
 
-    fn delete_skill(&self, name: &str) -> Result<(), String> {
+    fn delete_skill(&self, name: &str) -> Result<(), PersistenceError> {
         let skills = self.list()?;
         let skill = skills
             .into_iter()
             .find(|s| s.name == name)
-            .ok_or_else(|| format!("Skill '{}' not found", name))?;
+            .ok_or_else(|| PersistenceError::NotFound(format!("Skill '{name}'")))?;
         let path = std::path::PathBuf::from(&skill.path);
-        std::fs::remove_dir_all(&path)
-            .map_err(|e| format!("Failed to delete skill directory: {e}"))?;
-        let mut guard = self
-            .enabled
-            .write()
-            .map_err(|_| "Skill registry lock poisoned".to_string())?;
+        std::fs::remove_dir_all(&path)?;
+        let mut guard = self.enabled.write()?;
         guard.retain(|n| n != name);
         drop(guard);
         self.save_enabled()

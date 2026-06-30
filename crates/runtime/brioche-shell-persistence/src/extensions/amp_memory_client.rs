@@ -14,7 +14,7 @@ use std::sync::{Arc, RwLock};
 use serde::{Deserialize, Serialize};
 
 use super::memory_provider::{MemoryEntry, MemoryProvider, MemoryQuery, MemorySessionContext};
-use super::{ExtensionMetadata, PanelSlot};
+use super::{ExtensionMetadata, PanelSlot, PersistenceError};
 
 /// Configuration for a generic AMP-compatible memory endpoint.
 ///
@@ -112,7 +112,7 @@ impl AmpMemoryProvider {
         }
     }
 
-    fn ensure_client(&self) -> Result<reqwest::Client, String> {
+    fn ensure_client(&self) -> Result<reqwest::Client, PersistenceError> {
         // Fast path: client already initialized and shared across clones.
         if let Ok(guard) = self.client.read()
             && let Some(client) = guard.as_ref()
@@ -126,14 +126,16 @@ impl AmpMemoryProvider {
             let mut headers = reqwest::header::HeaderMap::new();
             let value = match reqwest::header::HeaderValue::from_str(api_key) {
                 Ok(v) => v,
-                Err(_) => return Err("Invalid API key header value".into()),
+                Err(_) => {
+                    return Err(PersistenceError::InvalidInput(
+                        "Invalid API key header value".into(),
+                    ));
+                }
             };
             headers.insert("Authorization", value);
             builder = builder.default_headers(headers);
         }
-        let client = builder
-            .build()
-            .map_err(|err| format!("Failed to build HTTP client: {err}"))?;
+        let client = builder.build()?;
 
         if let Ok(mut guard) = self.client.write() {
             *guard = Some(client.clone());
@@ -177,30 +179,28 @@ impl AmpMemoryProvider {
         scope
     }
 
-    async fn post<Req, Res>(&self, path: &str, body: &Req) -> Result<Res, String>
+    async fn post<Req, Res>(&self, path: &str, body: &Req) -> Result<Res, PersistenceError>
     where
         Req: Serialize,
         Res: for<'de> Deserialize<'de>,
     {
         let url = format!("{}{}", self.base_url(), path);
         let client = self.ensure_client()?;
-        let response = client
-            .post(&url)
-            .json(body)
-            .send()
-            .await
-            .map_err(|err| format!("AMP request failed: {err}"))?;
+        let response = client.post(&url).json(body).send().await?;
         let status = response.status();
-        let envelope: AmpResponse<Res> = response
-            .json()
-            .await
-            .map_err(|err| format!("Failed to parse AMP response: {err}"))?;
+        let envelope: AmpResponse<Res> = response.json().await?;
         if let Some(err) = envelope.error {
-            return Err(format!("AMP error ({}): {}", err.code, err.message));
+            return Err(PersistenceError::Amp {
+                code: err.code,
+                message: err.message,
+            });
         }
         match envelope.data {
             Some(data) => Ok(data),
-            None => Err(format!("AMP returned empty data (HTTP {status})")),
+            None => Err(PersistenceError::Amp {
+                code: status.to_string(),
+                message: "empty data".into(),
+            }),
         }
     }
 }
@@ -216,16 +216,13 @@ impl MemoryProvider for AmpMemoryProvider {
         }
     }
 
-    fn initialize(&self, ctx: MemorySessionContext) -> Result<(), String> {
-        let mut guard = self
-            .session_context
-            .write()
-            .map_err(|_| "AMP session context lock poisoned".to_string())?;
+    fn initialize(&self, ctx: MemorySessionContext) -> Result<(), PersistenceError> {
+        let mut guard = self.session_context.write()?;
         *guard = Some(ctx);
         Ok(())
     }
 
-    fn list(&self, query: &MemoryQuery) -> Result<Vec<MemoryEntry>, String> {
+    fn list(&self, query: &MemoryQuery) -> Result<Vec<MemoryEntry>, PersistenceError> {
         // AMP Core does not have a generic list verb; use recall with an empty query.
         let q = match &query.query {
             Some(s) => s.clone(),
@@ -250,7 +247,12 @@ impl MemoryProvider for AmpMemoryProvider {
         })
     }
 
-    fn set(&mut self, key: String, value: String, category: String) -> Result<(), String> {
+    fn set(
+        &mut self,
+        key: String,
+        value: String,
+        category: String,
+    ) -> Result<(), PersistenceError> {
         let mut scope = self.scope();
         scope.insert("key".into(), key);
         let request = AmpEncodeRequest {
@@ -267,7 +269,7 @@ impl MemoryProvider for AmpMemoryProvider {
         })
     }
 
-    fn delete(&mut self, key: &str) -> Result<bool, String> {
+    fn delete(&mut self, key: &str) -> Result<bool, PersistenceError> {
         let request = AmpForgetRequest { key: key.into() };
         let this = self.clone();
         block_on(async move {
@@ -277,7 +279,11 @@ impl MemoryProvider for AmpMemoryProvider {
         })
     }
 
-    fn recall(&self, conversation_summary: &str, limit: usize) -> Result<Vec<MemoryEntry>, String> {
+    fn recall(
+        &self,
+        conversation_summary: &str,
+        limit: usize,
+    ) -> Result<Vec<MemoryEntry>, PersistenceError> {
         let this = self.clone();
         let summary = conversation_summary.into();
         block_on(async move {
@@ -309,7 +315,11 @@ impl MemoryProvider for AmpMemoryProvider {
         ]
     }
 
-    fn handle_tool_call(&self, tool_name: &str, args: serde_json::Value) -> Result<String, String> {
+    fn handle_tool_call(
+        &self,
+        tool_name: &str,
+        args: serde_json::Value,
+    ) -> Result<String, PersistenceError> {
         let mut this = self.clone();
         let recall_name = format!("{}_recall", self.endpoint.id);
         let store_name = format!("{}_store", self.endpoint.id);
@@ -317,7 +327,10 @@ impl MemoryProvider for AmpMemoryProvider {
             let query = args["query"].as_str().map_or("", |s| s);
             let entries = this.recall(query, 8)?;
             let results: Vec<String> = entries.into_iter().map(|e| e.value).collect();
-            return serde_json::to_string(&results).or_else(|_| Ok("[]".into()));
+            return match serde_json::to_string(&results) {
+                Ok(json) => Ok(json),
+                Err(_) => Ok("[]".into()),
+            };
         }
         if tool_name == store_name {
             let content = args["content"]
@@ -326,7 +339,9 @@ impl MemoryProvider for AmpMemoryProvider {
             this.set(random_key("tool"), content, "tool_store".into())?;
             return Ok("{\"status\":\"stored\"}".into());
         }
-        Err(format!("Unknown tool: {}", tool_name))
+        Err(PersistenceError::NotFound(format!(
+            "Unknown tool: {tool_name}"
+        )))
     }
 }
 
@@ -453,20 +468,18 @@ fn random_key(prefix: &str) -> String {
 /// the spawned blocking task; the HTTP request may run to completion. AMP
 /// memory operations are short-lived idempotent reads/writes, so this is
 /// acceptable.
-fn block_on<T, F>(f: F) -> Result<T, String>
+fn block_on<T, F>(f: F) -> Result<T, PersistenceError>
 where
-    F: Future<Output = Result<T, String>> + Send + 'static,
+    F: Future<Output = Result<T, PersistenceError>> + Send + 'static,
     T: Send + 'static,
 {
-    let _ = tokio::runtime::Handle::try_current().map_err(|_| {
-        "AMP memory provider must be called from within a Tokio runtime".to_string()
-    })?;
+    let _ = tokio::runtime::Handle::try_current().map_err(|_| PersistenceError::NoRuntime)?;
     let handle = tokio::task::spawn_blocking(move || tokio::runtime::Handle::current().block_on(f));
     tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(async {
-            handle
-                .await
-                .map_err(|e| format!("AMP memory provider blocking task failed: {e}"))?
+            handle.await.map_err(|e| {
+                PersistenceError::Other(format!("AMP memory provider blocking task failed: {e}"))
+            })?
         })
     })
 }

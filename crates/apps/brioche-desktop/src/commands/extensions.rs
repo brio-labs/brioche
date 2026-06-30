@@ -92,7 +92,9 @@ pub async fn list_memories(category: Option<String>) -> Result<Vec<MemoryEntryPa
 pub async fn set_memory(key: String, value: String, category: String) -> Result<(), String> {
     let mut store =
         LocalMemoryProvider::load().map_err(|e| format!("Failed to load memory store: {e}"))?;
-    store.set(key, value, category)
+    store
+        .set(key, value, category)
+        .map_err(|e| format!("Failed to set memory: {e}"))
 }
 
 /// Deletes a memory entry by key.
@@ -253,7 +255,9 @@ pub async fn set_skill_enabled(
 ) -> Result<(), String> {
     let registry = state.extensions.read().await;
     match registry.skill_providers().iter().next() {
-        Some(provider) => provider.set_enabled(&name, enabled),
+        Some(provider) => provider
+            .set_enabled(&name, enabled)
+            .map_err(|e| e.to_string()),
         None => Err("No skill provider available".into()),
     }
 }
@@ -277,7 +281,9 @@ pub async fn create_skill(
 ) -> Result<(), String> {
     let registry = state.extensions.read().await;
     match registry.skill_providers().iter().next() {
-        Some(provider) => provider.create_skill(&name, &category, &description, &content),
+        Some(provider) => provider
+            .create_skill(&name, &category, &description, &content)
+            .map_err(|e| e.to_string()),
         None => Err("No skill provider available".into()),
     }
 }
@@ -295,7 +301,7 @@ pub async fn create_skill(
 pub async fn delete_skill(state: State<'_, DesktopState>, name: String) -> Result<(), String> {
     let registry = state.extensions.read().await;
     match registry.skill_providers().iter().next() {
-        Some(provider) => provider.delete_skill(&name),
+        Some(provider) => provider.delete_skill(&name).map_err(|e| e.to_string()),
         None => Err("No skill provider available".into()),
     }
 }
@@ -436,7 +442,9 @@ pub async fn set_tool_enabled(
 ) -> Result<(), String> {
     let registry = state.extensions.read().await;
     match registry.tool_providers().iter().next() {
-        Some(provider) => provider.set_enabled(&id, enabled),
+        Some(provider) => provider
+            .set_enabled(&id, enabled)
+            .map_err(|e| e.to_string()),
         None => Err(format!("Tool provider not available for '{}'", id)),
     }
 }
@@ -466,7 +474,7 @@ pub async fn add_user_tool(
     }
     let registry = state.extensions.read().await;
     match registry.tool_providers().iter().next() {
-        Some(provider) => provider.add_user_tool(tool),
+        Some(provider) => provider.add_user_tool(tool).map_err(|e| e.to_string()),
         None => Err("No tool provider available".into()),
     }
 }
@@ -484,7 +492,7 @@ pub async fn add_user_tool(
 pub async fn remove_user_tool(state: State<'_, DesktopState>, id: String) -> Result<(), String> {
     let registry = state.extensions.read().await;
     match registry.tool_providers().iter().next() {
-        Some(provider) => provider.remove_user_tool(&id),
+        Some(provider) => provider.remove_user_tool(&id).map_err(|e| e.to_string()),
         None => Err("No tool provider available".into()),
     }
 }
