@@ -116,10 +116,9 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           BRANCH="${{ github.head_ref }}"
-          ALLOWED_TYPES="feature|fix|doc|chore|refactor|test"
           ALLOWED_BOOKS="core|desktop|docgen|governance|governance-default|macro|playground|plugin-kit|provider-openai|repo|shell-persistence|shell-projection|shell-runtime|std|tools-system"
-          if ! [[ "$BRANCH" =~ ^($ALLOWED_TYPES)/($ALLOWED_BOOKS)-[a-z0-9-]+$ ]]; then
-            echo "❌ Branch '$BRANCH' does not match CONTRIBUTING.md naming convention: <type>/<book>-<description>"
+          if ! [[ "$BRANCH" =~ ^(feature|fix)/($ALLOWED_BOOKS)-[a-z0-9-]+$ ]] && ! [[ "$BRANCH" =~ ^(doc|chore|refactor|test)/[a-z0-9-]+$ ]]; then
+            echo "❌ Branch '$BRANCH' does not match CONTRIBUTING.md naming convention: <type>/<book>-<description> or <type>/<description>"
             exit 1
           fi
           echo "✓ Branch name '$BRANCH' OK"
