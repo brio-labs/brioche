@@ -184,10 +184,12 @@
 	--text-dim: var(--color-fg-dim);
 }
 
-* {
-	box-sizing: border-box;
-	margin: 0;
-	padding: 0;
+@layer base {
+	* {
+		box-sizing: border-box;
+		margin: 0;
+		padding: 0;
+	}
 }
 
 body {
@@ -255,6 +257,55 @@ body {
 		outline: none;
 		box-shadow: 0 0 0 1px var(--accent-glow);
 	}
+}
+
+@utility dock-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	border-radius: var(--radius);
+	border: 1px solid transparent;
+	transition: all 200ms ease;
+	cursor: pointer;
+	background: transparent;
+	color: var(--fg-muted);
+
+	&:hover {
+		color: var(--fg-secondary);
+		background: var(--bg-highlight);
+	}
+
+	&:active {
+		background: var(--bg-subtle);
+	}
+
+	&:focus-visible {
+		outline: none;
+		border-color: var(--border-accent);
+		box-shadow: 0 0 0 1px var(--accent-glow);
+	}
+}
+
+@utility dock-button-active {
+	color: var(--accent);
+	background: rgba(189, 101, 50, 0.1);
+
+	&:hover {
+		color: var(--accent-hover);
+		background: rgba(189, 101, 50, 0.15);
+	}
+}
+
+@utility dock-separator {
+	display: inline-block;
+	width: 1px;
+	height: 1rem;
+	background: var(--border);
+	margin: 0 0.25rem;
+	flex-shrink: 0;
+	vertical-align: middle;
 }
 
 @utility panel {
