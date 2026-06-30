@@ -24,7 +24,7 @@ export const SelectTrigger = React.forwardRef<
 	<SelectPrimitive.Trigger
 		ref={ref}
 		className={cn(
-			"flex w-full items-center justify-between rounded border border-border bg-bg-2 px-3 py-2 text-[13px] font-mono text-text-primary outline-none transition-all focus:border-accent-dim focus:bg-bg-3 focus:ring-1 focus:ring-accent-glow disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer",
+			"flex w-full items-center justify-between rounded border border-border bg-bg-2 px-3 py-2 text-sm font-mono text-text-primary outline-none transition-all focus:border-accent-dim focus:bg-bg-3 focus:ring-1 focus:ring-accent-glow disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer",
 			className,
 		)}
 		{...props}
@@ -45,7 +45,7 @@ export const SelectContent = React.forwardRef<
 		<SelectPrimitive.Content
 			ref={ref}
 			className={cn(
-				"relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded border border-border bg-bg-1 text-text-primary shadow-md animate-fadeIn",
+				"relative z-50 max-h-96 min-w-32 overflow-hidden rounded border border-border bg-bg-1 text-text-primary shadow-md animate-fadeIn",
 				position === "popper" &&
 					"data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
 				className,
@@ -74,7 +74,7 @@ export const SelectItem = React.forwardRef<
 	<SelectPrimitive.Item
 		ref={ref}
 		className={cn(
-			"relative flex w-full cursor-pointer select-none items-center rounded py-1.5 pl-2 pr-8 text-[13px] text-text-secondary outline-none focus:bg-bg-2 focus:text-text-primary",
+			"relative flex w-full cursor-pointer select-none items-center rounded py-1.5 pl-2 pr-8 text-sm text-text-secondary outline-none focus:bg-bg-2 focus:text-text-primary",
 			className,
 		)}
 		{...props}
@@ -142,7 +142,7 @@ export function MultiSelect({
 				<button
 					type="button"
 					className={cn(
-						"flex w-full items-center justify-between rounded border border-border bg-bg-2 px-3 py-2 text-[13px] font-mono outline-none transition-all focus:border-accent-dim focus:bg-bg-3 focus:ring-1 focus:ring-accent-glow cursor-pointer",
+						"flex w-full items-center justify-between rounded border border-border bg-bg-2 px-3 py-2 text-sm font-mono outline-none transition-all focus:border-accent-dim focus:bg-bg-3 focus:ring-1 focus:ring-accent-glow cursor-pointer",
 						value.length === 0 && "text-text-muted",
 						value.length > 0 && "text-text-primary",
 					)}
@@ -161,7 +161,7 @@ export function MultiSelect({
 						{options.map((option) => (
 							<label
 								key={option.value}
-								className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-[13px] text-text-secondary hover:bg-bg-2 hover:text-text-primary"
+								className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-text-secondary hover:bg-bg-2 hover:text-text-primary"
 							>
 								<Checkbox
 									checked={value.includes(option.value)}

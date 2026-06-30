@@ -42,7 +42,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 					variant === "destructive" &&
 						"bg-transparent text-red-400 hover:text-red-300 hover:bg-red-400/10 active:bg-red-400/20 border border-red-400/30",
 					size === "default" && "px-3 py-2 text-xs tracking-wide",
-					size === "sm" && "px-2 py-1 text-[11px]",
+					size === "sm" && "px-2 py-1 text-xs",
 					size === "icon" && "h-8 w-8 p-0",
 					className,
 				)}
@@ -89,7 +89,7 @@ export const Label = React.forwardRef<
 	<LabelPrimitive.Root
 		ref={ref}
 		className={cn(
-			"text-[11px] font-bold uppercase tracking-wider text-fg-secondary",
+			"text-xs font-bold uppercase tracking-wider text-fg-secondary",
 			className,
 		)}
 		{...props}
@@ -132,7 +132,7 @@ export const Separator = React.forwardRef<
 			orientation={orientation}
 			className={cn(
 				"shrink-0 bg-border",
-				orientation === "horizontal" ? "h-[1px] w-full" : "h-full w-[1px]",
+				orientation === "horizontal" ? "h-px w-full" : "h-full w-px",
 				className,
 			)}
 			{...props}
