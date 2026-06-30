@@ -51,6 +51,9 @@ ignore = [
 
 [bans]
 multiple-versions = "warn"
+# cargo-deny 0.19.x flags `{ workspace = true }` dependencies as wildcards due to
+# an unresolved-workspace-dependency bug, so we keep `allow` here. Revisit once
+# cargo-deny correctly resolves workspace-inherited internal dependencies.
 wildcards = "allow"
 highlight = "all"
 workspace-default-features = "allow"
@@ -58,8 +61,8 @@ external-default-features = "allow"
 allow-workspace = false
 
 [sources]
-unknown-registry = "warn"
-unknown-git = "warn"
+unknown-registry = "deny"
+unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = []
 
