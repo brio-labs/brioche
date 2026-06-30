@@ -14,7 +14,6 @@ version = "0.1.0"
 dependencies = [
  "argh",
  "brioche-core",
- "brioche-plugin-kit",
  "brioche-provider-openai",
  "brioche-reedline",
  "brioche-shell-builder",
@@ -491,7 +490,6 @@ dependencies = [
  "async-trait",
  "base64-simd",
  "brioche-core",
- "brioche-plugin-kit",
  "brioche-provider-openai",
  "brioche-shell-builder",
  "brioche-shell-persistence",
@@ -643,11 +641,7 @@ dependencies = [
  "brioche-shell-persistence",
  "brioche-shell-runtime",
  "brioche-tools-system",
- "serde",
- "serde_json",
  "tokio",
- "tokio-util",
- "tracing",
 ]
 
 [[package]]

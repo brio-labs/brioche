@@ -8,7 +8,6 @@
 use std::sync::{Arc, Mutex};
 
 use brioche_core::ChatMessage;
-
 use brioche_provider_openai::{
     HistoryTransform, LlmChunk, OpenAiConfig, OpenAiLlmClient, SharedHistory,
 };

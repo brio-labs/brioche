@@ -22,10 +22,8 @@ use brioche_provider_openai::{LlmChunk, OpenAiLlmClient};
 use brioche_shell_persistence::{
     ExtensionRegistry, RedbStorage, SessionStore, Settings, new_session_store,
 };
-use brioche_shell_runtime::{
-    BriocheShell, Persistence,
-    util::{load_json, save_json, system_time_secs},
-};
+use brioche_shell_runtime::util::{load_json, save_json, system_time_secs};
+use brioche_shell_runtime::{BriocheShell, Persistence};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{RwLock, broadcast};
 

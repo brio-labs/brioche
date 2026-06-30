@@ -2,7 +2,7 @@
 //!
 //! This crate sits above `brioche-shell-runtime` and `brioche-shell-persistence`
 //! and provides the common logic used by both `agent-terminal` and
-//! `brioche-desktop` to assemble a [`BriocheShell`], its LLM client, and the
+//! `brioche-desktop` to assemble a [`BriocheShell`](brioche_shell_runtime::BriocheShell), its LLM client, and the
 //! standard effect executor.
 //!
 //! Refs: I-Shell-Runtime-OnlyIO

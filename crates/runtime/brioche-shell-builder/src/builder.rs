@@ -59,7 +59,7 @@ type EngineFactory = Box<dyn FnOnce() -> (BriocheEngine, Session) + Send>;
 /// in the background.
 ///
 /// # Panic / Safety
-/// Panics if called outside of a Tokio runtime context because [`build`]
+/// Panics if called outside of a Tokio runtime context because [`ShellBuilder::build`]
 /// spawns `tokio::spawn` tasks.
 pub struct ShellBuilder {
     openai_config: OpenAiConfig,

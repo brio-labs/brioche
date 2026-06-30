@@ -18,7 +18,6 @@ path = "src/lib.rs"
 
 [dependencies]
 brioche-core = { workspace = true }
-brioche-plugin-kit = { workspace = true }
 brioche-reedline = { workspace = true }
 brioche-shell-runtime = { workspace = true }
 brioche-shell-persistence = { workspace = true }
