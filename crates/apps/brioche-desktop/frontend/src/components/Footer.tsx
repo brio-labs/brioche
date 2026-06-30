@@ -52,7 +52,9 @@ export default function Footer({
 				</Tooltip>
 			</div>
 
-			<div className="flex items-center justify-center flex-1">
+			<div className="w-px h-4 bg-fg-muted/30 shrink-0" aria-hidden="true" />
+
+			<div className="flex items-center justify-start flex-1">
 				<Tooltip label="Conversation">
 					<button
 						type="button"
@@ -68,6 +70,8 @@ export default function Footer({
 					</button>
 				</Tooltip>
 			</div>
+
+			<div className="w-px h-4 bg-fg-muted/30 shrink-0" aria-hidden="true" />
 
 			<div
 				className={cn(

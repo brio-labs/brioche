@@ -83,10 +83,12 @@ function TitleBar({ buttons }: { buttons: OverlayButton[] }) {
   const maximized = useMaximized();
 
   const handleMinimize = useCallback(() => {
+    if (!isTauri()) return;
     void getCurrentWindow().minimize();
   }, []);
 
   const handleMaximize = useCallback(async () => {
+    if (!isTauri()) return;
     const win = getCurrentWindow();
     const m = await win.isMaximized();
     if (m) {
@@ -97,6 +99,7 @@ function TitleBar({ buttons }: { buttons: OverlayButton[] }) {
   }, []);
 
   const handleClose = useCallback(() => {
+    if (!isTauri()) return;
     void getCurrentWindow().close();
   }, []);
 
@@ -107,7 +110,7 @@ function TitleBar({ buttons }: { buttons: OverlayButton[] }) {
           Brioche
         </span>
       </div>
-      <div className="flex-1" data-tauri-drag-region />
+      <div className="flex-1 cursor-default" data-tauri-drag-region />
       <div className="flex items-center">
         {buttons.map(({ label, icon: Icon, active, onClick }) => (
           <Tooltip key={label} label={label}>
@@ -125,7 +128,7 @@ function TitleBar({ buttons }: { buttons: OverlayButton[] }) {
             </button>
           </Tooltip>
         ))}
-        <div className="w-px h-4 bg-border mx-1" aria-hidden="true" />
+        <div className="w-px h-5 bg-fg-muted/30 mx-2" aria-hidden="true" />
         <button
           type="button"
           className="title-bar-button"

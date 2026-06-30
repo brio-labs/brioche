@@ -3,6 +3,7 @@
 /// Refs: I-Ui-Entry
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { TooltipProvider } from '@radix-ui/react-tooltip';
 import App from './components/App';
 import './styles/global.css';
 
@@ -14,6 +15,8 @@ if (!container) {
 const root = createRoot(container);
 root.render(
     <StrictMode>
-        <App />
+        <TooltipProvider delayDuration={150}>
+            <App />
+        </TooltipProvider>
     </StrictMode>,
 );

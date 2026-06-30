@@ -277,13 +277,14 @@ body {
 	background: color-mix(in srgb, var(--bg-surface) 70%, transparent);
 	backdrop-filter: blur(12px);
 	user-select: none;
+	cursor: default;
 }
 
 @utility title-bar-button {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	width: 2.75rem;
+	width: 3.25rem;
 	height: 100%;
 	background: transparent;
 	color: var(--fg-muted);
