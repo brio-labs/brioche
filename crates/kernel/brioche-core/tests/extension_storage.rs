@@ -467,4 +467,73 @@ proptest! {
 
         prop_assert_eq!(storage1.cold_snapshot(), storage2.cold_snapshot());
     }
+
+    #[test]
+    fn prop_teststate_postcard_serialization_is_bit_for_bit_deterministic(
+        pairs in prop::collection::vec((any::<String>(), any::<u64>()), 0..20)
+    ) {
+        let unique = dedup_sorted_pairs(pairs);
+
+        let mut tags = BTreeMap::new();
+        for (k, v) in &unique {
+            tags.insert(k.clone(), *v);
+        }
+        let state = TestState { counter: 42, tags };
+
+        let bytes1 = match postcard::to_stdvec(&state) {
+            Ok(b) => b,
+            Err(_) => {
+                prop_assert!(false, "first postcard serialization failed");
+                return Ok(());
+            }
+        };
+        let bytes2 = match postcard::to_stdvec(&state) {
+            Ok(b) => b,
+            Err(_) => {
+                prop_assert!(false, "second postcard serialization failed");
+                return Ok(());
+            }
+        };
+        prop_assert_eq!(bytes1, bytes2);
+    }
+
+    #[test]
+    fn prop_brioche_extension_type_roundtrip_is_deterministic(
+        pairs in prop::collection::vec((any::<String>(), any::<u64>()), 0..20)
+    ) {
+        let unique = dedup_sorted_pairs(pairs);
+
+        let mut tags = BTreeMap::new();
+        for (k, v) in &unique {
+            tags.insert(k.clone(), *v);
+        }
+        let state = TestState { counter: 42, tags };
+
+        let blob = match postcard::to_stdvec(&state) {
+            Ok(b) => b,
+            Err(_) => {
+                prop_assert!(false, "postcard serialization failed");
+                return Ok(());
+            }
+        };
+
+        let mut storage = ExtensionStorage::new();
+        storage.register::<TestState>();
+        if !storage.hydrate_plugin(TestState::EXT_ID, &blob) {
+            prop_assert!(false, "hydrate_plugin should succeed for registered type");
+            return Ok(());
+        }
+
+        let roundtrip = storage.get_or_insert_default::<TestState>();
+        prop_assert_eq!(roundtrip.clone(), state);
+
+        let roundtrip_blob = match postcard::to_stdvec(roundtrip) {
+            Ok(b) => b,
+            Err(_) => {
+                prop_assert!(false, "re-serialize roundtripped state failed");
+                return Ok(());
+            }
+        };
+        prop_assert_eq!(blob, roundtrip_blob);
+    }
 }

@@ -29,6 +29,7 @@ rand = "0.8"
 tracing = { workspace = true }
 
 [dev-dependencies]
+proptest = { workspace = true }
 tokio-test = "0.4"
 tempfile = "3"
 divan = "=0.1.21"
