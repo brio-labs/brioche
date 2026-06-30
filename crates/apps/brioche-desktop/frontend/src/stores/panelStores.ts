@@ -18,19 +18,20 @@ import { useSettingsStore } from "./settingsStore";
 
 const USER_TOOL_SOURCE = "user-json";
 
-function getUserToolsEnabled(): boolean {
-	return useSettingsStore.getState().getSetting("tools.user_tools_enabled") === true;
-}
-
+/// Returns true when the given tool was defined by the user.
+///
+/// Refs: I-Ui-UserTool
 export function isUserTool(tool: ToolDescriptor): boolean {
 	return tool.source === USER_TOOL_SOURCE;
 }
-
 
 // ============================================================================
 // 1. Skills State Store
 // ============================================================================
 
+/// State and actions for the skills panel.
+///
+/// Refs: I-Ui-SkillsStore
 interface SkillsStore {
 	skills: Skill[];
 	selectedSkill: Skill | null;
@@ -52,12 +53,9 @@ interface SkillsStore {
 	setError: (error: string | null) => void;
 }
 
-/**
- * Zustand store to manage user skills list, documentation details, category filters,
- * and skill creation/deletion states.
- *
- * Refs: I-Ui-SkillsState
- */
+/// Zustand store for the skills list, selected skill content, and skill lifecycle.
+///
+/// Refs: I-Ui-SkillsStore
 export const useSkillsStore = create<SkillsStore>((set, get) => ({
 	skills: [],
 	selectedSkill: null,
@@ -78,7 +76,7 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
 		try {
 			const data = await listSkills();
 			set({ skills: data, isLoading: false });
-		} catch (err) {
+		} catch (err: unknown) {
 			console.error("Failed to load skills:", err);
 			set({ error: String(err), isLoading: false });
 		}
@@ -97,7 +95,7 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
 		try {
 			const content = await getSkillContent(skill.name);
 			set({ skillContent: content });
-		} catch (err) {
+		} catch (err: unknown) {
 			console.error("Failed to load skill content:", err);
 			set({ skillContent: `Error loading skill: ${err}` });
 		}
@@ -117,7 +115,7 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
 			if (currentSelected?.name === skill.name) {
 				set({ selectedSkill: { ...currentSelected, enabled: newStatus } });
 			}
-		} catch (err) {
+		} catch (err: unknown) {
 			console.error("Failed to toggle skill:", err);
 			set({ error: String(err) });
 		}
@@ -133,7 +131,7 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
 			await createSkill(name, category, description, content);
 			await get().loadSkills();
 			return true;
-		} catch (err) {
+		} catch (err: unknown) {
 			console.error("Failed to create skill:", err);
 			set({ error: String(err) });
 			return false;
@@ -153,7 +151,7 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
 			}
 			await get().loadSkills();
 			return true;
-		} catch (err) {
+		} catch (err: unknown) {
 			console.error("Failed to delete skill:", err);
 			set({ error: String(err) });
 			return false;
@@ -170,6 +168,9 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
 // 2. Memory State Store
 // ============================================================================
 
+/// State and actions for the memory panel.
+///
+/// Refs: I-Ui-MemoryStore
 interface MemoryStore {
 	memories: MemoryEntry[];
 	searchQuery: string;
@@ -188,12 +189,9 @@ interface MemoryStore {
 	setError: (error: string | null) => void;
 }
 
-/**
- * Zustand store to manage user memories, categories, search queries,
- * and memory creation/deletion actions.
- *
- * Refs: I-Ui-MemoryState
- */
+/// Zustand store for the memory list, category filter, and search state.
+///
+/// Refs: I-Ui-MemoryStore
 export const useMemoryStore = create<MemoryStore>((set, get) => ({
 	memories: [],
 	searchQuery: "",
@@ -213,7 +211,7 @@ export const useMemoryStore = create<MemoryStore>((set, get) => ({
 			const cat = get().selectedCategory;
 			const data = cat === "all" ? await listMemories() : await listMemories(cat);
 			set({ memories: data, isLoading: false });
-		} catch (err) {
+		} catch (err: unknown) {
 			console.error("Failed to load memories:", err);
 			set({ error: String(err), isLoading: false });
 		}
@@ -233,7 +231,7 @@ export const useMemoryStore = create<MemoryStore>((set, get) => ({
 		try {
 			const results = await searchMemories(query);
 			set({ memories: results, isLoading: false });
-		} catch (err) {
+		} catch (err: unknown) {
 			console.error("Failed to search memories:", err);
 			set({ error: String(err), isLoading: false });
 		}
@@ -249,7 +247,7 @@ export const useMemoryStore = create<MemoryStore>((set, get) => ({
 			await setMemory(key, value, category);
 			await get().loadMemories();
 			return true;
-		} catch (err) {
+		} catch (err: unknown) {
 			console.error("Failed to add memory:", err);
 			set({ error: String(err) });
 			return false;
@@ -265,7 +263,7 @@ export const useMemoryStore = create<MemoryStore>((set, get) => ({
 		try {
 			await deleteMemory(key);
 			await get().loadMemories();
-		} catch (err) {
+		} catch (err: unknown) {
 			console.error("Failed to delete memory:", err);
 			set({ error: String(err) });
 		}
@@ -284,6 +282,9 @@ export const useMemoryStore = create<MemoryStore>((set, get) => ({
 // 3. Tools State Store
 // ============================================================================
 
+/// State and actions for the tools panel.
+///
+/// Refs: I-Ui-ToolsStore
 interface ToolsStore {
 	tools: ToolDescriptor[];
 	isLoading: boolean;
@@ -294,20 +295,20 @@ interface ToolsStore {
 	toggleTool: (id: string, enabled: boolean) => Promise<void>;
 }
 
-
-/**
- * Zustand store to manage active/inactive status and listings of LLM tools.
- *
- * Refs: I-Ui-ToolsState
- */
+/// Zustand store for the tool list and the user-defined tool security gate.
+///
+/// Refs: I-Ui-ToolsStore
 export const useToolsStore = create<ToolsStore>((set, get) => {
-	const syncUserToolsEnabled = () => {
-		set({ userToolsEnabled: getUserToolsEnabled() });
-	};
-
-	// Keep the security gate state in sync when the user toggles the setting.
-	useSettingsStore.subscribe(syncUserToolsEnabled);
-	syncUserToolsEnabled();
+	useSettingsStore.subscribe(() => {
+		set({
+			userToolsEnabled:
+				useSettingsStore.getState().getSetting("tools.user_tools_enabled") === true,
+		});
+	});
+	set({
+		userToolsEnabled:
+			useSettingsStore.getState().getSetting("tools.user_tools_enabled") === true,
+	});
 
 	return {
 		tools: [],
@@ -325,7 +326,7 @@ export const useToolsStore = create<ToolsStore>((set, get) => {
 			try {
 				const data = await listTools();
 				set({ tools: data, isLoading: false });
-			} catch (err) {
+			} catch (err: unknown) {
 				console.error("Failed to load tools:", err);
 				set({ error: String(err), isLoading: false });
 			}
@@ -340,7 +341,7 @@ export const useToolsStore = create<ToolsStore>((set, get) => {
 			try {
 				await setToolEnabled(id, enabled);
 				await get().loadTools();
-			} catch (err) {
+			} catch (err: unknown) {
 				console.error("Failed to toggle tool:", err);
 				set({ error: String(err) });
 			}
