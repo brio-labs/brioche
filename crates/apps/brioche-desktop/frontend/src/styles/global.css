@@ -272,7 +272,7 @@ body {
 	flex-direction: row;
 	align-items: center;
 	flex-shrink: 0;
-	height: 3.25rem;
+	height: 2.5rem;
 	border-bottom: 1px solid var(--border);
 	background: color-mix(in srgb, var(--bg-surface) 70%, transparent);
 	backdrop-filter: blur(12px);
@@ -280,12 +280,13 @@ body {
 	cursor: default;
 }
 
-@utility title-bar-button {
+@utility top-bar-button {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	height: 100%;
-	aspect-ratio: 1 / 1;
+	width: 2.5rem;
+	height: 2.5rem;
+	padding: 0.5rem;
 	background: transparent;
 	color: var(--fg-muted);
 	border: 1px solid transparent;
@@ -306,8 +307,8 @@ body {
 	&:focus-visible {
 		outline: none;
 		background: var(--bg-highlight);
-		box-shadow: inset 0 0 0 1px var(--accent-glow);
 		border-color: var(--border);
+		box-shadow: inset 0 0 0 1px var(--accent-glow);
 	}
 
 	&[data-close]:hover {

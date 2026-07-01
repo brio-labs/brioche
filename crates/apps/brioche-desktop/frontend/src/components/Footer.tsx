@@ -5,90 +5,91 @@ import { cn } from "./ui/lib";
 
 interface PanelState {
 	left: boolean;
+	center: boolean;
 	right: boolean;
 }
 
 interface FooterProps {
 	panels: PanelState;
-	setPanels: React.Dispatch<React.SetStateAction<PanelState>>;
-	showChat: boolean;
-	setShowChat: (value: boolean) => void;
+	panelWidths?: {
+		left: number;
+		center: number;
+		right: number;
+	};
+	onToggleLeft: () => void;
+	onToggleRight: () => void;
+	onToggleChat: () => void;
 }
+
+const BUTTON_WIDTH = 28;
+const SEPARATOR_WIDTH = 1;
 
 export default function Footer({
 	panels,
-	setPanels,
-	showChat,
-	setShowChat,
+	panelWidths,
+	onToggleLeft,
+	onToggleRight,
+	onToggleChat,
 }: FooterProps) {
 	// Kept for future reactive footer state; chat-message listener is a no-op for now.
 	useTauriEvent("chat-message", () => {});
 
-	const toggleLeft = () => setPanels((p) => ({ ...p, left: !p.left }));
-	const toggleRight = () => setPanels((p) => ({ ...p, right: !p.right }));
-	const toggleChat = () => setShowChat(!showChat);
+	const left = panelWidths?.left ?? 0;
+	const center = panelWidths?.center ?? 0;
+	const right = panelWidths?.right ?? 0;
+
+	const leftIconRight = Math.max(left, BUTTON_WIDTH);
+	const centerIconRight = Math.max(left + SEPARATOR_WIDTH + center, leftIconRight + BUTTON_WIDTH + SEPARATOR_WIDTH);
+	const rightIconRight = left + SEPARATOR_WIDTH + center + SEPARATOR_WIDTH + right;
 
 	return (
-		<footer className="flex h-10 items-center bg-bg-base/90 border-t border-border text-fg-muted shrink-0 select-none z-10">
-			<div
-				className={cn(
-					"flex items-center justify-start",
-					panels.left ? "w-70 min-w-70" : "w-0 min-w-0",
-				)}
-			>
-				<Tooltip label="Sessions">
-					<button
-						type="button"
-						onClick={toggleLeft}
-						className={cn(
-							"dock-button",
-							panels.left && "dock-button-active",
-						)}
-						aria-pressed={panels.left}
-						aria-label="Sessions"
-					>
-						<MessageIcon className="w-4 h-4" />
-					</button>
-				</Tooltip>
-			</div>
+		<footer className="relative flex h-10 bg-bg-base/90 border-t border-border text-fg-muted shrink-0 select-none z-10">
+			<Tooltip label="Sessions">
+				<button
+					type="button"
+					onClick={onToggleLeft}
+					className={cn(
+						"dock-button absolute",
+						panels.left && "dock-button-active",
+					)}
+					style={{ left: Math.max(leftIconRight - BUTTON_WIDTH, 0) }}
+					aria-pressed={panels.left}
+					aria-label="Sessions"
+				>
+					<MessageIcon className="w-4 h-4" />
+				</button>
+			</Tooltip>
 
-			<div className="w-px h-5 bg-fg-muted/40 shrink-0" aria-hidden="true" />
+			<Tooltip label="Conversation">
+				<button
+					type="button"
+					onClick={onToggleChat}
+					className={cn(
+						"dock-button absolute",
+						panels.center && "dock-button-active",
+					)}
+					style={{ left: Math.max(centerIconRight - BUTTON_WIDTH, leftIconRight + SEPARATOR_WIDTH) }}
+					aria-pressed={panels.center}
+					aria-label="Conversation"
+				>
+					<ChatBubbleIcon className="w-4 h-4" />
+				</button>
+			</Tooltip>
 
-			<div className="flex items-center justify-start flex-1">
-				<Tooltip label="Conversation">
-					<button
-						type="button"
-						onClick={toggleChat}
-						className={cn(
-							"dock-button",
-							showChat && "dock-button-active",
-						)}
-						aria-pressed={showChat}
-						aria-label="Conversation"
-					>
-						<ChatBubbleIcon className="w-4 h-4" />
-					</button>
-				</Tooltip>
-			</div>
-
-			<div className="w-px h-5 bg-fg-muted/40 shrink-0" aria-hidden="true" />
-
-			<div className="flex items-center justify-end">
-				<Tooltip label="Explorer">
-					<button
-						type="button"
-						onClick={toggleRight}
-						className={cn(
-							"dock-button",
-							panels.right && "dock-button-active",
-						)}
-						aria-pressed={panels.right}
-						aria-label="Explorer"
-					>
-						<FolderIcon className="w-4 h-4" />
-					</button>
-				</Tooltip>
-			</div>
+			<Tooltip label="Explorer">
+				<button
+					type="button"
+					onClick={onToggleRight}
+					className={cn(
+						"dock-button absolute right-0",
+						panels.right && "dock-button-active",
+					)}
+					aria-pressed={panels.right}
+					aria-label="Explorer"
+				>
+					<FolderIcon className="w-4 h-4" />
+				</button>
+			</Tooltip>
 		</footer>
 	);
 }

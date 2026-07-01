@@ -6,8 +6,10 @@ import { useFileStore } from "../stores/fileStore";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauri } from "@tauri-apps/api/core";
-import { Minus, Square, Minimize2, X } from "lucide-react";
+import { Minus, Square, Copy, X } from "lucide-react";
 import { sendMessage, attachReference, sendImage } from "../ipc";
+import { Group, Panel, Separator } from "react-resizable-panels";
+import type { PanelImperativeHandle } from "react-resizable-panels";
 import Footer from "./Footer";
 import Tooltip from "./Tooltip";
 import { cn } from "./ui/lib";
@@ -79,8 +81,15 @@ function useMaximized() {
   return maximized;
 }
 
-function TitleBar({ buttons }: { buttons: OverlayButton[] }) {
+function TitleBar({
+  buttons,
+  projectName,
+}: {
+  buttons: OverlayButton[];
+  projectName?: string;
+}) {
   const maximized = useMaximized();
+  const title = projectName ? `Brioche - ${projectName}` : "Brioche";
 
   const handleMinimize = useCallback(() => {
     if (!isTauri()) return;
@@ -115,19 +124,19 @@ function TitleBar({ buttons }: { buttons: OverlayButton[] }) {
     <header className="title-bar">
       <div className="flex items-center px-3">
         <span className="text-sm font-semibold text-fg-secondary tracking-wider">
-          Brioche
+          {title}
         </span>
       </div>
       <div className="flex-1 cursor-default" data-tauri-drag-region />
-      <div className="flex items-center">
+      <div className="flex items-center gap-1">
         {buttons.map(({ label, icon: Icon, active, onClick }) => (
           <Tooltip key={label} label={label}>
             <button
               type="button"
               onClick={onClick}
               className={cn(
-                "dock-button",
-                active && "dock-button-active",
+                "top-bar-button",
+                active && "text-accent",
               )}
               aria-pressed={active}
               aria-label={label}
@@ -139,7 +148,7 @@ function TitleBar({ buttons }: { buttons: OverlayButton[] }) {
         <div className="w-px h-5 bg-fg-muted/30 mx-2" aria-hidden="true" />
         <button
           type="button"
-          className="title-bar-button"
+          className="top-bar-button"
           onClick={handleMinimize}
           aria-label="Minimize"
         >
@@ -147,19 +156,19 @@ function TitleBar({ buttons }: { buttons: OverlayButton[] }) {
         </button>
         <button
           type="button"
-          className="title-bar-button"
+          className="top-bar-button"
           onClick={handleMaximize}
           aria-label={maximized ? "Restore" : "Maximize"}
         >
           {maximized ? (
-            <Minimize2 className="w-4 h-4" />
+            <Copy className="w-4 h-4" />
           ) : (
             <Square className="w-4 h-4" />
           )}
         </button>
         <button
           type="button"
-          className="title-bar-button"
+          className="top-bar-button"
           data-close
           onClick={handleClose}
           aria-label="Close"
@@ -197,6 +206,80 @@ export default function App() {
     left: true,
     right: true,
   });
+  const [panelWidths, setPanelWidths] = useState({
+    left: 0,
+    center: 0,
+    right: 0,
+  });
+  const leftPanelRef = useRef<PanelImperativeHandle>(null);
+  const centerPanelRef = useRef<PanelImperativeHandle>(null);
+  const rightPanelRef = useRef<PanelImperativeHandle>(null);
+
+  const handleLeftCollapse = useCallback(() => {
+    setPanels((p) => ({ ...p, left: false }));
+  }, []);
+
+  const handleLeftExpand = useCallback(() => {
+    setPanels((p) => ({ ...p, left: true }));
+  }, []);
+
+  const handleCenterCollapse = useCallback(() => {
+    setShowChat(false);
+  }, []);
+
+  const handleCenterExpand = useCallback(() => {
+    setShowChat(true);
+  }, []);
+
+  const handleLeftResize = useCallback((size: { inPixels: number }) => {
+    setPanelWidths((w) => ({ ...w, left: size.inPixels }));
+  }, []);
+
+  const handleCenterResize = useCallback((size: { inPixels: number }) => {
+    setPanelWidths((w) => ({ ...w, center: size.inPixels }));
+  }, []);
+
+  const handleRightResize = useCallback((size: { inPixels: number }) => {
+    setPanelWidths((w) => ({ ...w, right: size.inPixels }));
+  }, []);
+
+  const handleRightCollapse = useCallback(() => {
+    setPanels((p) => ({ ...p, right: false }));
+  }, []);
+
+  const handleRightExpand = useCallback(() => {
+    setPanels((p) => ({ ...p, right: true }));
+  }, []);
+
+  const toggleLeftPanel = useCallback(() => {
+    const ref = leftPanelRef.current;
+    if (!ref) return;
+    if (panels.left) {
+      ref.collapse();
+    } else {
+      ref.expand();
+    }
+  }, [panels.left]);
+
+  const toggleCenterPanel = useCallback(() => {
+    const ref = centerPanelRef.current;
+    if (!ref) return;
+    if (showChat) {
+      ref.collapse();
+    } else {
+      ref.expand();
+    }
+  }, [showChat]);
+
+  const toggleRightPanel = useCallback(() => {
+    const ref = rightPanelRef.current;
+    if (!ref) return;
+    if (panels.right) {
+      ref.collapse();
+    } else {
+      ref.expand();
+    }
+  }, [panels.right]);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -211,13 +294,19 @@ export default function App() {
     loadSettings();
   }, [loadSessions, loadSettings]);
 
+  const workingDir = (settings.ui as Record<string, unknown> | undefined)
+    ?.working_dir as string | undefined;
+  const projectName = useMemo(() => {
+    if (!workingDir) return undefined;
+    const parts = workingDir.split(/[/\\]/).filter(Boolean);
+    return parts[parts.length - 1];
+  }, [workingDir]);
+
   useEffect(() => {
-    const workingDir = (settings.ui as Record<string, unknown> | undefined)
-      ?.working_dir as string | undefined;
     if (workingDir) {
       loadDirectory(workingDir);
     }
-  }, [settings, loadDirectory]);
+  }, [workingDir, loadDirectory]);
 
   // Synchronize Tauri events with stores reactively
   useTauriSync();
@@ -249,11 +338,11 @@ export default function App() {
         newSession: handleNewSession,
         clearChat: handleClearChat,
         openSettings: () => setShowSettings(true),
-        toggleSessions: () => setPanels((p) => ({ ...p, left: !p.left })),
-        toggleFiles: () => setPanels((p) => ({ ...p, right: !p.right })),
+        toggleSessions: toggleLeftPanel,
+        toggleFiles: toggleRightPanel,
         exportChat: handleExportChat,
       }),
-    [handleNewSession, handleClearChat, handleExportChat],
+    [handleNewSession, handleClearChat, toggleLeftPanel, toggleRightPanel, handleExportChat],
   );
 
   useEffect(() => {
@@ -384,17 +473,34 @@ export default function App() {
 
   return (
     <div className="app flex flex-col h-screen w-screen overflow-hidden relative text-text-primary">
-      <TitleBar buttons={overlayButtons} />
+      <TitleBar buttons={overlayButtons} projectName={projectName} />
 
-      <div className="flex flex-row flex-1 overflow-hidden">
-        <div
-          className={`left-sidebar flex flex-col bg-bg-1/85 backdrop-blur-md border-r border-border overflow-hidden transition-all duration-300 ease-out z-10 max-[900px]:absolute max-[900px]:top-0 max-[900px]:bottom-0 max-[900px]:z-20 max-[900px]:left-0 ${panels.left ? "w-70 min-w-70 opacity-100" : "w-0 min-w-0 opacity-0 border-r-0 pointer-events-none"}`}
+      <Group orientation="horizontal" className="flex-1 overflow-hidden">
+        <Panel
+          panelRef={leftPanelRef}
+          defaultSize="20%"
+          minSize="15%"
+          maxSize="40%"
+          collapsible
+          collapsedSize="0%"
+          onCollapse={handleLeftCollapse}
+          onExpand={handleLeftExpand}
+          onResize={handleLeftResize}
+          className="flex flex-col bg-bg-1/85 backdrop-blur-md border-r border-border overflow-hidden z-10"
         >
           <SessionSidebar />
-        </div>
-
-        <div
-          className={`flex flex-col min-w-0 overflow-hidden bg-transparent relative z-10 transition-all duration-300 ease-out ${showChat ? "flex-1" : "w-0 opacity-0 pointer-events-none border-r-0"}`}
+        </Panel>
+        <Separator className="w-1 bg-transparent hover:bg-accent/30 active:bg-accent/50 transition-colors data-[resize-handle-state=drag]:bg-accent/50" />
+        <Panel
+          panelRef={centerPanelRef}
+          defaultSize="60%"
+          minSize="30%"
+          collapsible
+          collapsedSize="0%"
+          onCollapse={handleCenterCollapse}
+          onExpand={handleCenterExpand}
+          onResize={handleCenterResize}
+          className="flex flex-col min-w-0 overflow-hidden bg-transparent relative z-10"
         >
           <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4 relative">
             {messages.length === 0 && (
@@ -520,20 +626,30 @@ export default function App() {
               <SendIcon className="w-4 h-4" />
             </button>
           </form>
-        </div>
-
-        <div
-          className={`right-sidebar flex flex-col bg-bg-1/85 backdrop-blur-md border-l border-border overflow-hidden transition-all duration-300 ease-out z-10 max-[900px]:absolute max-[900px]:top-0 max-[900px]:bottom-0 max-[900px]:z-20 max-[900px]:right-0 ${panels.right ? "w-70 min-w-70 opacity-100" : "w-0 min-w-0 opacity-0 border-l-0 pointer-events-none"}`}
+        </Panel>
+        <Separator className="w-1 bg-transparent hover:bg-accent/30 active:bg-accent/50 transition-colors data-[resize-handle-state=drag]:bg-accent/50" />
+        <Panel
+          panelRef={rightPanelRef}
+          defaultSize="20%"
+          minSize="15%"
+          maxSize="40%"
+          collapsible
+          collapsedSize="0%"
+          onCollapse={handleRightCollapse}
+          onExpand={handleRightExpand}
+          onResize={handleRightResize}
+          className="flex flex-col bg-bg-1/85 backdrop-blur-md border-l border-border overflow-hidden z-10"
         >
           <FileExplorer />
-        </div>
-      </div>
+        </Panel>
+      </Group>
 
       <Footer
-        panels={panels}
-        setPanels={setPanels}
-        showChat={showChat}
-        setShowChat={setShowChat}
+        panels={{ left: panels.left, center: showChat, right: panels.right }}
+        panelWidths={panelWidths}
+        onToggleLeft={toggleLeftPanel}
+        onToggleRight={toggleRightPanel}
+        onToggleChat={toggleCenterPanel}
       />
 
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
