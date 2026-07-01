@@ -1,51 +1,241 @@
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useFileStore } from "../stores/fileStore";
 import { useSettingsStore, getWorkingDir } from "../stores/settingsStore";
-import { readFile } from "../ipc";
+import { readDirectory, readFile } from "../ipc";
 import { open } from "@tauri-apps/plugin-dialog";
+import type { DirEntry } from "../ipc";
 import {
 	FolderIcon,
 	FileIcon,
-	ChevronUpIcon,
+	ChevronRightIcon,
 	RefreshIcon,
 	TrashIcon,
 	SaveIcon,
 } from "./Icons";
+import { cn } from "./ui/lib";
 
-/// Renders a file explorer with directory navigation, file preview, and context-menu creation.
+interface TreeEntry extends DirEntry {
+	children?: TreeEntry[];
+	isLoading?: boolean;
+}
+
+interface FileTreeItemProps {
+	entry: TreeEntry;
+	depth: number;
+	workspaceRoot: string;
+	expandedPaths: Set<string>;
+	childrenMap: Map<string, TreeEntry[]>;
+	onToggle: (path: string) => void;
+	onLoadChildren: (path: string) => void;
+	onPreview: (path: string) => void;
+	onDelete: (path: string) => void;
+	onContextMenu: (
+		e: React.MouseEvent,
+		entry: { path: string; is_dir: boolean },
+	) => void;
+	creatingFor: string | null;
+	createType: "file" | "folder";
+	newName: string;
+	onNewNameChange: (value: string) => void;
+	onCommitCreation: () => void;
+	onCancelCreation: () => void;
+}
+
+/**
+ * Renders a single node in the file explorer tree, including recursive children.
+ *
+ * Refs: I-Ui-FileExplorer
+ */
+function FileTreeItem({
+	entry,
+	depth,
+	expandedPaths,
+	childrenMap,
+	onToggle,
+	onLoadChildren,
+	onPreview,
+	onDelete,
+	onContextMenu,
+	creatingFor,
+	createType,
+	newName,
+	onNewNameChange,
+	onCommitCreation,
+	onCancelCreation,
+}: FileTreeItemProps) {
+	const isExpanded = expandedPaths.has(entry.path);
+	const children = childrenMap.get(entry.path);
+	const isCreatingHere = creatingFor === entry.path;
+	const indent = depth * 0.75;
+
+	const handleClick = useCallback(() => {
+		if (entry.is_dir) {
+			if (!isExpanded && !childrenMap.has(entry.path)) {
+				onLoadChildren(entry.path);
+			}
+			onToggle(entry.path);
+		}
+	}, [entry, isExpanded, childrenMap, onLoadChildren, onToggle]);
+
+	const handleDoubleClick = useCallback(() => {
+		if (!entry.is_dir) {
+			onPreview(entry.path);
+		}
+	}, [entry, onPreview]);
+
+	return (
+		<div>
+			<div
+				className={cn(
+					"group mx-2 flex cursor-pointer items-center gap-2 rounded-lg border border-transparent px-3 py-2 text-fg-secondary transition-all duration-200 hover:border-border-accent hover:bg-accent/5 hover:text-fg-primary",
+				)}
+				style={{ paddingLeft: `${0.75 + indent}rem` }}
+				onClick={handleClick}
+				onDoubleClick={handleDoubleClick}
+				onContextMenu={(e) =>
+					onContextMenu(e, { path: entry.path, is_dir: entry.is_dir })
+				}
+				title={entry.path}
+			>
+				{entry.is_dir ? (
+					<ChevronRightIcon
+						className={cn(
+							"h-3.5 w-3.5 shrink-0 text-fg-muted transition-transform duration-150",
+							isExpanded && "rotate-90",
+						)}
+					/>
+				) : (
+					<span className="h-3.5 w-3.5 shrink-0" />
+				)}
+				{entry.is_dir ? (
+					<FolderIcon className="h-3.5 w-3.5 shrink-0 text-accent-dim group-hover:text-accent" />
+				) : (
+					<FileIcon className="h-3.5 w-3.5 shrink-0 text-fg-muted group-hover:text-fg-secondary" />
+				)}
+				<span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-xs">
+					{entry.name}
+				</span>
+				{!entry.is_dir && (
+					<button
+						type="button"
+						className="btn-icon ml-2 h-6 w-6 border border-transparent text-fg-muted opacity-0 transition-opacity duration-200 hover:border-error-border hover:bg-error-bg hover:text-error-text group-hover:opacity-100"
+						onClick={(e) => {
+							e.stopPropagation();
+							onDelete(entry.path);
+						}}
+						title="Delete"
+						aria-label={`Delete ${entry.name}`}
+					>
+						<TrashIcon className="h-3.5 w-3.5" />
+					</button>
+				)}
+			</div>
+
+			{isCreatingHere && (
+				<div
+					className="flex items-center gap-2 bg-bg-elevated/50 py-2 pr-3"
+					style={{ paddingLeft: `${1.5 + indent}rem` }}
+				>
+					{createType === "folder" ? (
+						<FolderIcon className="h-3.5 w-3.5 text-accent-dim" />
+					) : (
+						<FileIcon className="h-3.5 w-3.5 text-fg-muted" />
+					)}
+					<input
+						type="text"
+						value={newName}
+						onChange={(e) => onNewNameChange(e.target.value)}
+						placeholder={createType === "folder" ? "Folder Name" : "File Name"}
+						autoFocus
+						onBlur={onCommitCreation}
+						className="input-field flex-1 rounded-sm px-1.5 py-0.5 text-xs"
+						onKeyDown={(e) => {
+							if (e.key === "Enter") onCommitCreation();
+							else if (e.key === "Escape") onCancelCreation();
+						}}
+					/>
+				</div>
+			)}
+
+			{isExpanded && entry.is_dir && (
+				<div>
+					{entry.isLoading ? (
+						<div className="py-2 text-xs text-fg-muted">Loading...</div>
+					) : children && children.length > 0 ? (
+						children.map((child) => (
+							<FileTreeItem
+								key={child.path}
+								entry={child}
+								depth={depth + 1}
+								workspaceRoot={workspaceRoot}
+								expandedPaths={expandedPaths}
+								childrenMap={childrenMap}
+								onToggle={onToggle}
+								onLoadChildren={onLoadChildren}
+								onPreview={onPreview}
+								onDelete={onDelete}
+								onContextMenu={onContextMenu}
+								creatingFor={creatingFor}
+								createType={createType}
+								newName={newName}
+								onNewNameChange={onNewNameChange}
+								onCommitCreation={onCommitCreation}
+								onCancelCreation={onCancelCreation}
+							/>
+						))
+					) : (
+						<div
+							className="py-2 text-xs text-fg-muted"
+							style={{ paddingLeft: `${1.5 + indent}rem` }}
+						>
+							Empty
+						</div>
+					)}
+				</div>
+			)}
+		</div>
+	);
+}
+
+/// Renders a file explorer with an IDE-style collapsible tree.
 ///
 /// Refs: I-Ui-FileExplorer
 export default function FileExplorer() {
 	const {
 		currentPath,
 		entries,
-		isLoading,
+		isLoading: storeLoading,
 		loadDirectory,
-		navigateUp,
-		navigateTo,
 		createNewFile,
 		createNewFolder,
 		deleteExistingFile,
 		writeExistingFile,
 	} = useFileStore();
-	const [preview, setPreview] = useState<{
-		path: string;
-		content: string;
-	} | null>(null);
 	const workspaceRoot = useSettingsStore((state) =>
 		getWorkingDir(state.settings),
 	);
+	const [preview, setPreview] = useState<{ path: string; content: string } | null>(null);
 	const [isCreating, setIsCreating] = useState(false);
 	const [createType, setCreateType] = useState<"file" | "folder">("file");
 	const [createParentPath, setCreateParentPath] = useState("");
 	const [newName, setNewName] = useState("");
-
+	const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+	const [childrenMap, setChildrenMap] = useState<Map<string, TreeEntry[]>>(new Map());
+	const [loadingPaths, setLoadingPaths] = useState<Set<string>>(new Set());
 	const [contextMenu, setContextMenu] = useState<{
 		x: number;
 		y: number;
 		targetPath: string | null;
 		isDir: boolean;
 	} | null>(null);
+
+	// Load the workspace root when it changes.
+	useEffect(() => {
+		if (workspaceRoot) {
+			void loadDirectory(workspaceRoot);
+			setExpandedPaths(new Set([workspaceRoot]));
+		}
+	}, [workspaceRoot, loadDirectory]);
 
 	const handleOpenFolder = useCallback(async () => {
 		try {
@@ -58,56 +248,88 @@ export default function FileExplorer() {
 				store.updateSetting("ui.working_dir", selected);
 				await store.saveSettings(useSettingsStore.getState().settings);
 				await loadDirectory(selected);
+				setExpandedPaths(new Set([selected]));
+				setChildrenMap(new Map());
 			}
 		} catch (err) {
 			console.error("Failed to open directory picker:", err);
 		}
 	}, [loadDirectory]);
 
-	const handleEntryClick = useCallback(
-		(entry: { is_dir: boolean; path: string }) => {
-			if (entry.is_dir) {
-				navigateTo(entry.path);
+	const handleRefresh = useCallback(() => {
+		// Reload all currently expanded paths from root outward.
+		const paths = Array.from(expandedPaths).sort((a, b) => a.length - b.length);
+		setChildrenMap(new Map());
+		void (async () => {
+			for (const path of paths) {
+				try {
+					const entries = await readDirectory(path);
+					setChildrenMap((prev) => new Map(prev).set(path, entries));
+				} catch (err) {
+					console.error("Failed to refresh directory:", err);
+				}
 			}
-		},
-		[navigateTo],
-	);
+		})();
+		if (currentPath) {
+			void loadDirectory(currentPath);
+		}
+	}, [expandedPaths, currentPath, loadDirectory]);
 
-	const handleEntryDoubleClick = useCallback(
-		async (entry: { is_dir: boolean; path: string }) => {
-			if (entry.is_dir) return;
-			try {
-				const content = await readFile(entry.path);
-				setPreview({ path: entry.path, content });
-			} catch (err) {
-				console.error("Failed to read file:", err);
+	const handleToggle = useCallback((path: string) => {
+		setExpandedPaths((prev) => {
+			const next = new Set(prev);
+			if (next.has(path)) {
+				next.delete(path);
+			} else {
+				next.add(path);
 			}
-		},
-		[],
-	);
+			return next;
+		});
+	}, []);
+
+	const handleLoadChildren = useCallback(async (path: string) => {
+		if (childrenMap.has(path)) return;
+		setLoadingPaths((prev) => new Set(prev).add(path));
+		try {
+			const entries = await readDirectory(path);
+			setChildrenMap((prev) => new Map(prev).set(path, entries));
+		} catch (err) {
+			console.error("Failed to load directory children:", err);
+		} finally {
+			setLoadingPaths((prev) => {
+				const next = new Set(prev);
+				next.delete(path);
+				return next;
+			});
+		}
+	}, [childrenMap]);
+
+	const handlePreview = useCallback(async (path: string) => {
+		try {
+			const content = await readFile(path);
+			setPreview({ path, content });
+		} catch (err) {
+			console.error("Failed to read file:", err);
+		}
+	}, []);
 
 	const handleDelete = useCallback(
-		async (e: React.MouseEvent, path: string) => {
-			e.stopPropagation();
+		async (path: string) => {
 			if (!confirm(`Delete ${path}?`)) return;
 			try {
 				await deleteExistingFile(path);
+				// Refresh parent directories that are expanded.
+				const parent = path.split("/").slice(0, -1).join("/") || "/";
+				if (expandedPaths.has(parent)) {
+					const entries = await readDirectory(parent);
+					setChildrenMap((prev) => new Map(prev).set(parent, entries));
+				}
 			} catch (err) {
 				console.error("Failed to delete:", err);
 			}
 		},
-		[deleteExistingFile],
+		[deleteExistingFile, expandedPaths],
 	);
-
-	const handleSavePreview = useCallback(async () => {
-		if (!preview) return;
-		try {
-			await writeExistingFile(preview.path, preview.content);
-			setPreview(null);
-		} catch (err) {
-			console.error("Failed to save file:", err);
-		}
-	}, [preview, writeExistingFile]);
 
 	const handleContainerContextMenu = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
@@ -134,9 +356,7 @@ export default function FileExplorer() {
 	);
 
 	useEffect(() => {
-		const handleOutsideClick = () => {
-			setContextMenu(null);
-		};
+		const handleOutsideClick = () => setContextMenu(null);
 		window.addEventListener("click", handleOutsideClick);
 		return () => window.removeEventListener("click", handleOutsideClick);
 	}, []);
@@ -146,9 +366,8 @@ export default function FileExplorer() {
 			setIsCreating(true);
 			setCreateType(type);
 			setNewName("");
-
 			if (targetPath === null) {
-				setCreateParentPath(currentPath);
+				setCreateParentPath(currentPath || workspaceRoot || "");
 			} else if (isDir) {
 				setCreateParentPath(targetPath);
 			} else {
@@ -157,7 +376,7 @@ export default function FileExplorer() {
 			}
 			setContextMenu(null);
 		},
-		[currentPath],
+		[currentPath, workspaceRoot],
 	);
 
 	const cancelCreation = useCallback(() => {
@@ -178,6 +397,15 @@ export default function FileExplorer() {
 			} else {
 				await createNewFolder(fullPath);
 			}
+			// Refresh the parent directory in the tree.
+			if (expandedPaths.has(createParentPath)) {
+				const entries = await readDirectory(createParentPath);
+				setChildrenMap((prev) => new Map(prev).set(createParentPath, entries));
+			} else {
+				setExpandedPaths((prev) => new Set(prev).add(createParentPath));
+				const entries = await readDirectory(createParentPath);
+				setChildrenMap((prev) => new Map(prev).set(createParentPath, entries));
+			}
 		} catch (err) {
 			console.error("Failed to create item:", err);
 		} finally {
@@ -191,20 +419,37 @@ export default function FileExplorer() {
 		createNewFile,
 		createNewFolder,
 		cancelCreation,
+		expandedPaths,
 	]);
 
 	const handleDeleteFromMenu = useCallback(
 		async (path: string) => {
 			setContextMenu(null);
-			if (!confirm(`Delete ${path}?`)) return;
-			try {
-				await deleteExistingFile(path);
-			} catch (err) {
-				console.error("Failed to delete:", err);
-			}
+			await handleDelete(path);
 		},
-		[deleteExistingFile],
+		[handleDelete],
 	);
+
+	const handleSavePreview = useCallback(async () => {
+		if (!preview) return;
+		try {
+			await writeExistingFile(preview.path, preview.content);
+			setPreview(null);
+		} catch (err) {
+			console.error("Failed to save file:", err);
+		}
+	}, [preview, writeExistingFile]);
+
+	const rootEntries = useMemo(() => {
+		if (!workspaceRoot) return [];
+		return entries.map((entry) => ({
+			...entry,
+			isLoading: loadingPaths.has(entry.path),
+			children: childrenMap.get(entry.path),
+		}));
+	}, [entries, childrenMap, loadingPaths, workspaceRoot]);
+
+	const creatingFor = isCreating ? createParentPath : null;
 
 	return (
 		<div className="relative flex h-full w-full flex-col overflow-hidden bg-transparent text-fg-primary">
@@ -224,7 +469,7 @@ export default function FileExplorer() {
 					<button
 						type="button"
 						className="btn-icon h-7 w-7"
-						onClick={() => loadDirectory(currentPath)}
+						onClick={handleRefresh}
 						title="Refresh"
 					>
 						<RefreshIcon className="h-4 w-4" />
@@ -232,20 +477,11 @@ export default function FileExplorer() {
 				</div>
 			</div>
 			<div className="flex items-center gap-2 border-b border-border bg-bg-base/50 px-4 py-3">
-				<button
-					type="button"
-					className="btn-icon h-6 w-6 disabled:cursor-not-allowed disabled:opacity-30"
-					onClick={navigateUp}
-					disabled={currentPath === "/" || currentPath === workspaceRoot}
-					title="Parent directory"
-				>
-					<ChevronUpIcon className="h-3.5 w-3.5" />
-				</button>
 				<span
 					className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-xs text-fg-muted"
-					title={currentPath}
+					title={workspaceRoot || currentPath}
 				>
-					{currentPath || "No directory"}
+					{workspaceRoot || currentPath || "No directory"}
 				</span>
 			</div>
 
@@ -253,99 +489,35 @@ export default function FileExplorer() {
 				className="flex flex-1 flex-col overflow-y-auto py-2"
 				onContextMenu={handleContainerContextMenu}
 			>
-				{isLoading && (
-					<div className="py-4 text-center text-xs text-fg-muted">
-						Loading...
-					</div>
+				{storeLoading && (
+					<div className="py-4 text-center text-xs text-fg-muted">Loading...</div>
 				)}
 
-				{isCreating && createParentPath === currentPath && (
-					<div className="flex items-center gap-2 bg-bg-elevated/50 px-3 py-2">
-						{createType === "folder" ? (
-							<FolderIcon className="h-3.5 w-3.5 text-accent-dim" />
-						) : (
-							<FileIcon className="h-3.5 w-3.5 text-fg-muted" />
-						)}
-						<input
-							type="text"
-							value={newName}
-							onChange={(e) => setNewName(e.target.value)}
-							placeholder={
-								createType === "folder" ? "Folder Name" : "File Name"
-							}
-							autoFocus
-							onBlur={handleCommitCreation}
-							className="input-field flex-1 rounded-sm px-1.5 py-0.5 text-xs"
-							onKeyDown={(e) => {
-								if (e.key === "Enter") void handleCommitCreation();
-								else if (e.key === "Escape") cancelCreation();
-							}}
-						/>
-					</div>
-				)}
-
-				{entries.map((entry) => (
-					<div key={entry.path}>
-						<div
-							className="group mx-2 flex cursor-pointer items-center gap-2.5 rounded-lg border border-transparent px-3 py-2 text-fg-secondary transition-all duration-200 hover:border-border-accent hover:bg-accent/5 hover:text-fg-primary"
-							onClick={() => handleEntryClick(entry)}
-							onDoubleClick={() => handleEntryDoubleClick(entry)}
-							onContextMenu={(e) => handleItemContextMenu(e, entry)}
-							title={entry.path}
-						>
-							{entry.is_dir ? (
-								<FolderIcon className="h-3.5 w-3.5 shrink-0 text-accent-dim group-hover:text-accent" />
-							) : (
-								<FileIcon className="h-3.5 w-3.5 shrink-0 text-fg-muted group-hover:text-fg-secondary" />
-							)}
-							<span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-xs">
-								{entry.name}
-							</span>
-							{!entry.is_dir && (
-								<button
-									type="button"
-									className="btn-icon ml-2 h-6 w-6 border border-transparent text-fg-muted opacity-0 transition-opacity duration-200 hover:border-error-border hover:bg-error-bg hover:text-error-text group-hover:opacity-100"
-									onClick={(e) => handleDelete(e, entry.path)}
-									title="Delete"
-								>
-									<TrashIcon className="h-3.5 w-3.5" />
-								</button>
-							)}
-						</div>
-						{isCreating && createParentPath === entry.path && (
-							<div className="flex items-center gap-2 bg-bg-elevated/50 py-2 pl-6 pr-3">
-								{createType === "folder" ? (
-									<FolderIcon className="h-3.5 w-3.5 text-accent-dim" />
-								) : (
-									<FileIcon className="h-3.5 w-3.5 text-fg-muted" />
-								)}
-								<input
-									type="text"
-									value={newName}
-									onChange={(e) => setNewName(e.target.value)}
-									placeholder={
-										createType === "folder"
-											? "Folder Name"
-											: "File Name"
-									}
-									autoFocus
-									onBlur={handleCommitCreation}
-									className="input-field flex-1 rounded-sm px-1.5 py-0.5 text-xs"
-									onKeyDown={(e) => {
-										if (e.key === "Enter") void handleCommitCreation();
-										else if (e.key === "Escape") cancelCreation();
-									}}
-								/>
-							</div>
-						)}
-					</div>
+				{rootEntries.map((entry) => (
+					<FileTreeItem
+						key={entry.path}
+						entry={entry}
+						depth={0}
+						workspaceRoot={workspaceRoot || ""}
+						expandedPaths={expandedPaths}
+						childrenMap={childrenMap}
+						onToggle={handleToggle}
+						onLoadChildren={handleLoadChildren}
+						onPreview={handlePreview}
+						onDelete={handleDelete}
+						onContextMenu={handleItemContextMenu}
+						creatingFor={creatingFor}
+						createType={createType}
+						newName={newName}
+						onNewNameChange={setNewName}
+						onCommitCreation={handleCommitCreation}
+						onCancelCreation={cancelCreation}
+					/>
 				))}
-				{entries.length === 0 && !isLoading && currentPath && (
-					<div className="py-8 text-center text-xs text-fg-muted select-none">
-						Empty
-					</div>
+				{rootEntries.length === 0 && !storeLoading && workspaceRoot && (
+					<div className="py-8 text-center text-xs text-fg-muted select-none">Empty</div>
 				)}
-				{!currentPath && !isLoading && (
+				{!workspaceRoot && !storeLoading && (
 					<div className="flex flex-1 flex-col items-center justify-center px-4 py-12 text-center text-xs text-fg-muted select-none">
 						<span>No directory open</span>
 						<button
