@@ -1,5 +1,5 @@
+import type { ChatMessagePayload } from './ipc';
 import { create } from 'zustand';
-import { type ChatMessagePayload } from './ipc';
 
 /// Every role that a chat message can assume in the desktop UI.
 ///

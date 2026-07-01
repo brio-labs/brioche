@@ -1,8 +1,10 @@
 import { useEffect, useRef } from "react";
-import { listen, type Event } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
+import type { Event } from "@tauri-apps/api/event";
 import { useChatStore } from "../store";
 import { useSessionStore } from "../stores/sessionStore";
-import { getMessages, type ChatMessagePayload } from "../ipc";
+import { getMessages } from "../ipc";
+import type { ChatMessagePayload } from "../ipc";
 
 /// Subscribes to a named Tauri event and invokes the callback on every payload.
 /// Keeps the callback in a ref so the listener is not recreated on each render.
