@@ -84,23 +84,31 @@ function TitleBar({ buttons }: { buttons: OverlayButton[] }) {
 
   const handleMinimize = useCallback(() => {
     if (!isTauri()) return;
-    void getCurrentWindow().minimize();
+    getCurrentWindow()
+      .minimize()
+      .catch((err: unknown) => console.error("Failed to minimize window:", err));
   }, []);
 
   const handleMaximize = useCallback(async () => {
     if (!isTauri()) return;
-    const win = getCurrentWindow();
-    const m = await win.isMaximized();
-    if (m) {
-      await win.unmaximize();
-    } else {
-      await win.maximize();
+    try {
+      const win = getCurrentWindow();
+      const m = await win.isMaximized();
+      if (m) {
+        await win.unmaximize();
+      } else {
+        await win.maximize();
+      }
+    } catch (err: unknown) {
+      console.error("Failed to maximize/restore window:", err);
     }
   }, []);
 
   const handleClose = useCallback(() => {
     if (!isTauri()) return;
-    void getCurrentWindow().close();
+    getCurrentWindow()
+      .close()
+      .catch((err: unknown) => console.error("Failed to close window:", err));
   }, []);
 
   return (

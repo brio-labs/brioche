@@ -29,7 +29,7 @@ export default function Footer({
 	const toggleChat = () => setShowChat(!showChat);
 
 	return (
-		<footer className="flex h-10 bg-bg-base/90 border-t border-border text-fg-muted shrink-0 select-none z-10">
+		<footer className="flex h-10 items-center bg-bg-base/90 border-t border-border text-fg-muted shrink-0 select-none z-10">
 			<div
 				className={cn(
 					"flex items-center justify-start",
@@ -52,7 +52,7 @@ export default function Footer({
 				</Tooltip>
 			</div>
 
-			<div className="w-px h-4 bg-fg-muted/30 shrink-0" aria-hidden="true" />
+			<div className="w-px h-5 bg-fg-muted/40 shrink-0" aria-hidden="true" />
 
 			<div className="flex items-center justify-start flex-1">
 				<Tooltip label="Conversation">
@@ -71,14 +71,9 @@ export default function Footer({
 				</Tooltip>
 			</div>
 
-			<div className="w-px h-4 bg-fg-muted/30 shrink-0" aria-hidden="true" />
+			<div className="w-px h-5 bg-fg-muted/40 shrink-0" aria-hidden="true" />
 
-			<div
-				className={cn(
-					"flex items-center justify-end",
-					panels.right ? "w-70 min-w-70" : "w-0 min-w-0",
-				)}
-			>
+			<div className="flex items-center justify-end">
 				<Tooltip label="Explorer">
 					<button
 						type="button"

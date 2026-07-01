@@ -284,17 +284,19 @@ body {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	width: 3.25rem;
 	height: 100%;
+	aspect-ratio: 1 / 1;
 	background: transparent;
 	color: var(--fg-muted);
-	border: none;
+	border: 1px solid transparent;
+	border-radius: 0;
 	transition: all 200ms ease;
 	cursor: pointer;
 
 	&:hover {
 		color: var(--fg-primary);
 		background: var(--bg-highlight);
+		border-color: var(--border);
 	}
 
 	&:active {
@@ -305,11 +307,13 @@ body {
 		outline: none;
 		background: var(--bg-highlight);
 		box-shadow: inset 0 0 0 1px var(--accent-glow);
+		border-color: var(--border);
 	}
 
 	&[data-close]:hover {
 		color: var(--error-text);
 		background: var(--error-bg);
+		border-color: var(--error-border);
 	}
 
 	&[data-close]:active {
