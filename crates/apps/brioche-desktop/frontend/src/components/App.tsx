@@ -60,17 +60,19 @@ function useMaximized() {
       if (!cancelled) setMaximized(m);
     });
 
-    void win.onResized(() => {
-      void win.isMaximized().then((m) => {
-        if (!cancelled) setMaximized(m);
+    void win
+      .onResized(() => {
+        void win.isMaximized().then((m) => {
+          if (!cancelled) setMaximized(m);
+        });
+      })
+      .then((fn) => {
+        if (cancelled) {
+          fn();
+        } else {
+          unlisten = fn;
+        }
       });
-    }).then((fn) => {
-      if (cancelled) {
-        fn();
-      } else {
-        unlisten = fn;
-      }
-    });
 
     return () => {
       cancelled = true;
@@ -95,7 +97,9 @@ function TitleBar({
     if (!isTauri()) return;
     getCurrentWindow()
       .minimize()
-      .catch((err: unknown) => console.error("Failed to minimize window:", err));
+      .catch((err: unknown) =>
+        console.error("Failed to minimize window:", err),
+      );
   }, []);
 
   const handleMaximize = useCallback(async () => {
@@ -128,16 +132,13 @@ function TitleBar({
         </span>
       </div>
       <div className="flex-1 cursor-default" data-tauri-drag-region />
-      <div className="flex items-center gap-1">
+      <div className="flex items-center">
         {buttons.map(({ label, icon: Icon, active, onClick }) => (
           <Tooltip key={label} label={label}>
             <button
               type="button"
               onClick={onClick}
-              className={cn(
-                "top-bar-button",
-                active && "text-accent",
-              )}
+              className={cn("top-bar-button", active && "text-accent")}
               aria-pressed={active}
               aria-label={label}
             >
@@ -215,40 +216,19 @@ export default function App() {
   const centerPanelRef = useRef<PanelImperativeHandle>(null);
   const rightPanelRef = useRef<PanelImperativeHandle>(null);
 
-  const handleLeftCollapse = useCallback(() => {
-    setPanels((p) => ({ ...p, left: false }));
-  }, []);
-
-  const handleLeftExpand = useCallback(() => {
-    setPanels((p) => ({ ...p, left: true }));
-  }, []);
-
-  const handleCenterCollapse = useCallback(() => {
-    setShowChat(false);
-  }, []);
-
-  const handleCenterExpand = useCallback(() => {
-    setShowChat(true);
-  }, []);
-
   const handleLeftResize = useCallback((size: { inPixels: number }) => {
     setPanelWidths((w) => ({ ...w, left: size.inPixels }));
+    setPanels((p) => ({ ...p, left: size.inPixels > 0 }));
   }, []);
 
   const handleCenterResize = useCallback((size: { inPixels: number }) => {
     setPanelWidths((w) => ({ ...w, center: size.inPixels }));
+    setShowChat(size.inPixels > 0);
   }, []);
 
   const handleRightResize = useCallback((size: { inPixels: number }) => {
     setPanelWidths((w) => ({ ...w, right: size.inPixels }));
-  }, []);
-
-  const handleRightCollapse = useCallback(() => {
-    setPanels((p) => ({ ...p, right: false }));
-  }, []);
-
-  const handleRightExpand = useCallback(() => {
-    setPanels((p) => ({ ...p, right: true }));
+    setPanels((p) => ({ ...p, right: size.inPixels > 0 }));
   }, []);
 
   const toggleLeftPanel = useCallback(() => {
@@ -342,7 +322,13 @@ export default function App() {
         toggleFiles: toggleRightPanel,
         exportChat: handleExportChat,
       }),
-    [handleNewSession, handleClearChat, toggleLeftPanel, toggleRightPanel, handleExportChat],
+    [
+      handleNewSession,
+      handleClearChat,
+      toggleLeftPanel,
+      toggleRightPanel,
+      handleExportChat,
+    ],
   );
 
   useEffect(() => {
@@ -483,8 +469,6 @@ export default function App() {
           maxSize="40%"
           collapsible
           collapsedSize="0%"
-          onCollapse={handleLeftCollapse}
-          onExpand={handleLeftExpand}
           onResize={handleLeftResize}
           className="flex flex-col bg-bg-1/85 backdrop-blur-md border-r border-border overflow-hidden z-10"
         >
@@ -497,8 +481,6 @@ export default function App() {
           minSize="30%"
           collapsible
           collapsedSize="0%"
-          onCollapse={handleCenterCollapse}
-          onExpand={handleCenterExpand}
           onResize={handleCenterResize}
           className="flex flex-col min-w-0 overflow-hidden bg-transparent relative z-10"
         >
@@ -635,8 +617,6 @@ export default function App() {
           maxSize="40%"
           collapsible
           collapsedSize="0%"
-          onCollapse={handleRightCollapse}
-          onExpand={handleRightExpand}
           onResize={handleRightResize}
           className="flex flex-col bg-bg-1/85 backdrop-blur-md border-l border-border overflow-hidden z-10"
         >

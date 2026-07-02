@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useFileStore } from "../stores/fileStore";
 import { useSettingsStore, getWorkingDir } from "../stores/settingsStore";
-import { readDirectory, readFile } from "../ipc";
+import { readDirectory, readFile, isTauri } from "../ipc";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { DirEntry } from "../ipc";
 import {
@@ -222,6 +222,7 @@ export default function FileExplorer() {
 	const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
 	const [childrenMap, setChildrenMap] = useState<Map<string, TreeEntry[]>>(new Map());
 	const [loadingPaths, setLoadingPaths] = useState<Set<string>>(new Set());
+	const [notice, setNotice] = useState<string | null>(null);
 	const [contextMenu, setContextMenu] = useState<{
 		x: number;
 		y: number;
@@ -229,7 +230,12 @@ export default function FileExplorer() {
 		isDir: boolean;
 	} | null>(null);
 
-	// Load the workspace root when it changes.
+	// Clear transient notices after a short delay.
+	useEffect(() => {
+		if (!notice) return;
+		const timeout = window.setTimeout(() => setNotice(null), 3000);
+		return () => window.clearTimeout(timeout);
+	}, [notice]);
 	useEffect(() => {
 		if (workspaceRoot) {
 			void loadDirectory(workspaceRoot);
@@ -238,6 +244,10 @@ export default function FileExplorer() {
 	}, [workspaceRoot, loadDirectory]);
 
 	const handleOpenFolder = useCallback(async () => {
+		if (!isTauri()) {
+			setNotice("Folder picker requires the Tauri desktop app.");
+			return;
+		}
 		try {
 			const selected = await open({
 				multiple: false,
@@ -288,6 +298,10 @@ export default function FileExplorer() {
 	}, []);
 
 	const handleLoadChildren = useCallback(async (path: string) => {
+		if (!isTauri()) {
+			setNotice("File system access requires the Tauri desktop app.");
+			return;
+		}
 		if (childrenMap.has(path)) return;
 		setLoadingPaths((prev) => new Set(prev).add(path));
 		try {
@@ -476,6 +490,15 @@ export default function FileExplorer() {
 					</button>
 				</div>
 			</div>
+			{!isTauri() && (
+				<div className="notice-error shrink-0 px-5 py-2 text-xs">
+					Explorer preview mode: folder operations require the Tauri desktop
+					app.
+				</div>
+			)}
+			{notice && (
+				<div className="notice-error shrink-0 px-5 py-2 text-xs">{notice}</div>
+			)}
 			<div className="flex items-center gap-2 border-b border-border bg-bg-base/50 px-4 py-3">
 				<span
 					className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-xs text-fg-muted"

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, cleanup } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import FileExplorer from "./FileExplorer";
 import { useFileStore } from "../stores/fileStore";
@@ -20,6 +21,7 @@ vi.mock("../ipc", () => ({
 	getSessions: vi.fn(),
 	createSession: vi.fn(),
 	getWorkingDir: vi.fn((settings: { ui?: { working_dir?: string } }) => settings.ui?.working_dir),
+	isTauri: vi.fn(() => false),
 }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -35,6 +37,7 @@ vi.mock("./Tooltip", () => ({
 }));
 
 function resetStores() {
+	cleanup();
 	useFileStore.setState({
 		currentPath: "",
 		entries: [],
@@ -58,5 +61,15 @@ describe("FileExplorer", () => {
 		render(<FileExplorer />);
 		expect(screen.getByText("No directory open")).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "Open Folder" })).toBeInTheDocument();
+	});
+
+	it("shows a notice when Open Folder is clicked without Tauri", async () => {
+		render(<FileExplorer />);
+		const user = userEvent.setup();
+		const button = screen.getByRole("button", { name: "Open Folder" });
+		await user.click(button);
+		expect(
+			screen.getByText("Folder picker requires the Tauri desktop app."),
+		).toBeInTheDocument();
 	});
 });

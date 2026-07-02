@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSettingsStore, FALLBACK_SECTIONS } from "../stores/settingsStore";
-import { setSettings } from "../ipc";
+import { setSettings, isTauri } from "../ipc";
 import type { SettingsSection, SettingsField } from "../ipc";
 import PanelOverlay, { SearchBar } from "./PanelOverlay";
 import { AlertTriangleIcon, EditIcon } from "./Icons";
@@ -345,11 +345,13 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 	const [editingProtected, setEditingProtected] = useState<Set<string>>(
 		new Set(),
 	);
+	const isTauriAvailable = isTauri();
 
 	useEffect(() => {
+		if (!isTauriAvailable) return;
 		loadSettings();
 		loadSections();
-	}, [loadSettings, loadSections]);
+	}, [loadSettings, loadSections, isTauriAvailable]);
 
 	const endpoints =
 		(Array.isArray(getFieldValue(settings, "memory.endpoints"))
@@ -457,6 +459,11 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 				</div>
 
 				<div className="flex flex-1 flex-col gap-4 overflow-y-auto p-6">
+					{!isTauriAvailable && (
+						<div className="rounded-lg border border-error-border bg-error-bg p-4 text-xs text-error-text">
+							Settings preview mode: saving requires the Tauri desktop app.
+						</div>
+					)}
 					{selectedSection ? (
 						<>
 							<div className="mb-2 border-b border-border pb-3">
@@ -497,7 +504,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 				<Button type="button" variant="secondary" onClick={onClose}>
 					Cancel
 				</Button>
-				<Button type="button" onClick={handleSave}>
+				<Button type="button" onClick={handleSave} disabled={!isTauriAvailable}>
 					Save
 				</Button>
 			</div>

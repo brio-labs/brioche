@@ -145,6 +145,7 @@ export interface MultiSelectProps {
 	options: MultiSelectOption[];
 	placeholder?: string;
 	onChange: (value: string[]) => void;
+	className?: string;
 }
 
 /// Popover-based multi-select control. Displays selected option labels in the
@@ -156,6 +157,7 @@ export function MultiSelect({
 	options,
 	placeholder = "Select options...",
 	onChange,
+	className,
 }: MultiSelectProps) {
 	const toggle = (optionValue: string) => {
 		const next = value.includes(optionValue)
