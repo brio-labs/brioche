@@ -24,6 +24,7 @@ dependencies = [
  "reedline",
  "tokio",
  "tokio-util",
+ "tracing",
 ]
 
 [[package]]

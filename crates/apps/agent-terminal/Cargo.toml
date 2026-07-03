@@ -28,6 +28,7 @@ reedline = { version = "0.48", features = ["external_printer"] }
 nu-ansi-term = "0.50"
 tokio = { workspace = true }
 tokio-util = { workspace = true }
+tracing = { workspace = true }
 argh = "0.1"
 
 [lints]
