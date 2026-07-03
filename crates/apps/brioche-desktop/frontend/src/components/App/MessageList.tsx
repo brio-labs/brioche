@@ -1,3 +1,5 @@
+import { Brain } from "lucide-react";
+import { EmptyState } from "../ui";
 import type { ChatMessage } from "../../store";
 import ToolCallMessage from "../ToolCallMessage";
 
@@ -15,14 +17,11 @@ export default function MessageList({
   return (
     <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4 relative">
       {messages.length === 0 && (
-        <div className="text-center text-text-muted mt-8 flex flex-col gap-3 items-center">
-          <div className="text-base font-semibold text-text-tertiary tracking-wide">
-            Brioche Desktop
-          </div>
-          <div className="text-sm text-text-muted">
-            Type a message or use /help for commands
-          </div>
-        </div>
+        <EmptyState
+          icon={Brain}
+          title="Brioche Desktop"
+          description="Type a message or use /help for commands to begin."
+        />
       )}
       {messages.map((msg) =>
         msg.role === "tool_request" || msg.role === "tool_result" ? (
@@ -48,19 +47,19 @@ export default function MessageList({
             }`}
           >
             <div className="flex items-center gap-2 mb-0.5 px-1">
-              <span className="text-xs font-bold uppercase tracking-wider text-text-muted">
+              <span className="text-xs font-medium text-text-muted capitalize">
                 {msg.role}
               </span>
             </div>
             <div
-              className={`px-4 py-3 rounded-lg leading-relaxed text-sm wrap-break-word relative overflow-hidden ${
+              className={`px-4 py-3 rounded-[8px] leading-relaxed text-sm wrap-break-word relative overflow-hidden ${
                 msg.role === "user"
                   ? "bg-user-bg text-text-primary border border-accent/15 shadow-md"
                   : msg.role === "assistant"
                     ? "bg-assistant-bg text-text-primary border border-border shadow-md"
                     : msg.role === "system"
-                      ? "bg-system-bg text-text-secondary border border-border rounded-lg text-xs font-mono"
-                      : "bg-error-bg text-error-text border border-error-border rounded-lg text-sm"
+                      ? "bg-system-bg text-text-secondary border border-border rounded-[8px] text-xs font-mono"
+                      : "bg-error-bg text-error-text border border-error-border rounded-[8px] text-sm"
               }`}
             >
               <div className="message-content">{msg.content}</div>
@@ -71,11 +70,11 @@ export default function MessageList({
       {isLoading && (
         <div className="flex flex-col gap-2 relative animate-fadeIn max-w-[85%] self-start">
           <div className="flex items-center gap-2 mb-0.5 px-1">
-            <span className="text-xs font-bold uppercase tracking-wider text-text-muted">
+            <span className="text-xs font-medium text-text-muted capitalize">
               assistant
             </span>
           </div>
-          <div className="px-4 py-3 rounded-lg leading-relaxed text-sm wrap-break-word relative overflow-hidden bg-assistant-bg text-text-primary border border-border shadow-md">
+          <div className="px-4 py-3 rounded-[8px] leading-relaxed text-sm wrap-break-word relative overflow-hidden bg-assistant-bg text-text-primary border border-border shadow-md">
             <div className="text-text-muted italic">Thinking...</div>
           </div>
         </div>

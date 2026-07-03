@@ -1,5 +1,5 @@
 import Tooltip from "../Tooltip";
-import { SendIcon, PaperclipIcon, ImageIcon, ClearIcon } from "../Icons";
+import { Trash2, Paperclip, Image, Send } from "lucide-react";
 
 interface ChatInputProps {
   input: string;
@@ -24,7 +24,7 @@ export default function ChatInput({
 }: ChatInputProps) {
   return (
     <form
-      className="input-bar flex gap-3 px-4 py-3 bg-bg-1/80 backdrop-blur-md border-t border-border shrink-0 relative"
+      className="input-bar flex gap-3 px-4 py-3 bg-bg-surface border-t border-border shrink-0 relative"
       onSubmit={handleSubmit}
     >
       <div className="flex items-center gap-2">
@@ -35,7 +35,7 @@ export default function ChatInput({
             onClick={handleClearChat}
             aria-label="Clear history"
           >
-            <ClearIcon className="w-4 h-4" />
+            <Trash2 className="w-4 h-4" />
           </button>
         </Tooltip>
         <Tooltip label="Attach file/folder">
@@ -45,7 +45,7 @@ export default function ChatInput({
             onClick={handleAttach}
             aria-label="Attach file/folder"
           >
-            <PaperclipIcon className="w-4 h-4" />
+            <Paperclip className="w-4 h-4" />
           </button>
         </Tooltip>
         <Tooltip label="Send image">
@@ -55,7 +55,7 @@ export default function ChatInput({
             onClick={handleImage}
             aria-label="Send image"
           >
-            <ImageIcon className="w-4 h-4" />
+            <Image className="w-4 h-4" />
           </button>
         </Tooltip>
       </div>
@@ -74,7 +74,7 @@ export default function ChatInput({
         disabled={isLoading || !input.trim()}
         aria-label="Send message"
       >
-        <SendIcon className="w-4 h-4" />
+        <Send className="w-4 h-4" />
       </button>
     </form>
   );
