@@ -54,7 +54,7 @@ brioche-lint-core = { path = "crates/infra/brioche-lint-core" }
 cargo-brioche-lint-invariants = { path = "crates/infra/cargo-brioche-lint-invariants" }
 cargo-brioche-lint = { path = "crates/infra/cargo-brioche-lint" }
 dirs = "6"
-reqwest = { version = "0.13", features = ["json"] }
+reqwest = { version = "0.13", default-features = false }
 lazy_static = "1"
 base64-simd = "0.8"
 tauri = "2"
@@ -69,6 +69,7 @@ criterion = { version = "0.5", features = ["async_tokio"] }
 unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
+cognitive_complexity = "warn"
 
 [workspace.lints.rust]
 missing_docs = "warn"
