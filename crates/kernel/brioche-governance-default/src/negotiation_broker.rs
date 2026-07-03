@@ -138,3 +138,134 @@ impl DecisionAggregator for NegotiationBroker {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use brioche_core::{Effect, ExtensionStorage, HistoryEdit, PolicyDecision};
+
+    fn run_phase(
+        broker: &NegotiationBroker,
+        decisions: Vec<PolicyDecision>,
+        ext: &mut ExtensionStorage,
+    ) -> PolicyDecision {
+        match broker.aggregate_decisions(decisions, ext) {
+            Ok(d) => d,
+            Err(_) => {
+                assert!(false, "aggregate_decisions should succeed");
+                PolicyDecision::Allow
+            }
+        }
+    }
+
+    #[test]
+    fn broker_settles_immediately_on_block() {
+        let broker = NegotiationBroker::new();
+        let mut ext = ExtensionStorage::new();
+
+        let decisions = vec![
+            PolicyDecision::Allow,
+            PolicyDecision::Block {
+                reason: "stop".into(),
+            },
+        ];
+
+        let result = run_phase(&broker, decisions, &mut ext);
+
+        assert_eq!(
+            result,
+            PolicyDecision::Block {
+                reason: "stop".into()
+            }
+        );
+    }
+
+    #[test]
+    fn broker_settles_when_all_allow() {
+        let broker = NegotiationBroker::new();
+        let mut ext = ExtensionStorage::new();
+
+        let result = run_phase(
+            &broker,
+            vec![PolicyDecision::Allow, PolicyDecision::Allow],
+            &mut ext,
+        );
+
+        assert!(matches!(result, PolicyDecision::Allow));
+    }
+
+    #[test]
+    fn broker_runs_up_to_max_phases() {
+        let broker = NegotiationBroker::with_max_phases(2);
+        let mut ext = ExtensionStorage::new();
+
+        let first = run_phase(&broker, vec![PolicyDecision::RequestEffect(Effect::SaveSession)], &mut ext);
+        assert!(
+            matches!(first, PolicyDecision::RequestEffect(Effect::CallLlmNetwork)),
+            "first phase should request another prediction round"
+        );
+
+        let second = run_phase(&broker, vec![PolicyDecision::Allow], &mut ext);
+        assert!(
+            matches!(second, PolicyDecision::RequestEffect(Effect::SaveSession)),
+            "second phase should settle and return the accumulated effect"
+        );
+    }
+
+    #[test]
+    fn broker_accumulates_mutate_history() {
+        let broker = NegotiationBroker::with_max_phases(2);
+        let mut ext = ExtensionStorage::new();
+
+        let edit_one = HistoryEdit::Insert {
+            index: 0,
+            message: brioche_core::ChatMessage::System {
+                content: "first".into(),
+            },
+        };
+        let edit_two = HistoryEdit::Insert {
+            index: 1,
+            message: brioche_core::ChatMessage::System {
+                content: "second".into(),
+            },
+        };
+
+        let first = run_phase(
+            &broker,
+            vec![PolicyDecision::MutateHistory(vec![edit_one.clone()])],
+            &mut ext,
+        );
+        assert!(matches!(first, PolicyDecision::RequestEffect(Effect::CallLlmNetwork)));
+
+        let second = run_phase(
+            &broker,
+            vec![
+                PolicyDecision::Allow,
+                PolicyDecision::MutateHistory(vec![edit_two.clone()]),
+            ],
+            &mut ext,
+        );
+
+        match second {
+            PolicyDecision::MutateHistory(edits) => {
+                assert_eq!(edits.len(), 2);
+                assert_eq!(edits[0], edit_one);
+                assert_eq!(edits[1], edit_two);
+            }
+            _ => assert!(false, "expected combined MutateHistory"),
+        }
+    }
+
+    #[test]
+    fn broker_resets_state_after_settlement() {
+        let broker = NegotiationBroker::new();
+        let mut ext = ExtensionStorage::new();
+
+        let _ = run_phase(&broker, vec![PolicyDecision::Allow], &mut ext);
+
+        let state = ext.get_or_insert_default::<NegotiationState>();
+        assert_eq!(state.current_phase, 0);
+        assert!(state.phase_decisions.is_empty());
+        assert!(!state.settled);
+    }
+}

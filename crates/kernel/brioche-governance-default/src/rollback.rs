@@ -594,3 +594,165 @@ impl CowBudgetPolicy for HistoricalCowBudgetPolicy {
         self.adaptive_budget()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use brioche_core::{BriocheExtensionType, ExtensionStorage, RollbackEventLog};
+
+    fn snapshot_epoch(ext: &mut ExtensionStorage, generation: u64) {
+        ext.insert(brioche_core::EpochState {
+            current_generation: generation,
+        });
+    }
+
+    #[test]
+    fn undo_frame_guard_restores_on_rollback() {
+        let mut guard = UndoFrameGuard::new();
+        let mut ext = ExtensionStorage::new();
+        snapshot_epoch(&mut ext, 42);
+
+        guard.begin_hook("on_input");
+
+        let type_id = std::any::TypeId::of::<brioche_core::EpochState>();
+        let vtable = brioche_core::EpochState::build_vtable();
+        let current = ext.get_or_insert_default::<brioche_core::EpochState>();
+        guard.on_mutation(type_id, &vtable, current);
+
+        current.current_generation = 999;
+
+        guard.rollback_hook(&mut ext);
+
+        let restored = ext.get_or_insert_default::<brioche_core::EpochState>();
+        assert_eq!(restored.current_generation, 42);
+
+        let log = ext.get_or_insert_default::<RollbackEventLog>();
+        assert_eq!(log.events.len(), 1);
+        assert!(log.events[0].was_rollback);
+    }
+
+    #[test]
+    fn undo_frame_guard_discards_on_commit() {
+        let mut guard = UndoFrameGuard::new();
+        let mut ext = ExtensionStorage::new();
+        snapshot_epoch(&mut ext, 42);
+
+        guard.begin_hook("on_input");
+
+        let type_id = std::any::TypeId::of::<brioche_core::EpochState>();
+        let vtable = brioche_core::EpochState::build_vtable();
+        let current = ext.get_or_insert_default::<brioche_core::EpochState>();
+        guard.on_mutation(type_id, &vtable, current);
+
+        current.current_generation = 999;
+
+        guard.commit_hook(&mut ext);
+
+        let committed = ext.get_or_insert_default::<brioche_core::EpochState>();
+        assert_eq!(committed.current_generation, 999);
+
+        let log = ext.get_or_insert_default::<RollbackEventLog>();
+        assert_eq!(log.events.len(), 1);
+        assert!(!log.events[0].was_rollback);
+    }
+
+    #[test]
+    fn tiered_undo_frame_guard_restores_critical_type() {
+        let mut guard = TieredUndoFrameGuard::new();
+        let mut ext = ExtensionStorage::new();
+        snapshot_epoch(&mut ext, 42);
+
+        guard.begin_hook("on_input");
+
+        let type_id = std::any::TypeId::of::<brioche_core::EpochState>();
+        let vtable = brioche_core::EpochState::build_vtable();
+        let current = ext.get_or_insert_default::<brioche_core::EpochState>();
+        guard.on_mutation(type_id, &vtable, current);
+
+        current.current_generation = 999;
+
+        guard.rollback_hook(&mut ext);
+
+        let restored = ext.get_or_insert_default::<brioche_core::EpochState>();
+        assert_eq!(restored.current_generation, 42);
+    }
+
+    #[test]
+    fn adaptive_undo_frame_guard_restores_on_rollback() {
+        let mut guard = AdaptiveUndoFrameGuard::new();
+        let mut ext = ExtensionStorage::new();
+        snapshot_epoch(&mut ext, 7);
+
+        guard.begin_hook("on_input");
+
+        let type_id = std::any::TypeId::of::<brioche_core::EpochState>();
+        let vtable = brioche_core::EpochState::build_vtable();
+        let current = ext.get_or_insert_default::<brioche_core::EpochState>();
+        guard.on_mutation(type_id, &vtable, current);
+
+        current.current_generation = 77;
+
+        guard.rollback_hook(&mut ext);
+
+        let restored = ext.get_or_insert_default::<brioche_core::EpochState>();
+        assert_eq!(restored.current_generation, 7);
+    }
+
+    #[test]
+    fn adaptive_undo_frame_guard_uses_budget_policy() {
+        struct FixedBudget(usize);
+
+        impl CowBudgetPolicy for FixedBudget {
+            fn max_cow_bytes(&self, _hook_name: &str) -> usize {
+                self.0
+            }
+        }
+
+        let guard =
+            AdaptiveUndoFrameGuard::new().with_budget_policy(Box::new(FixedBudget(1024)));
+        assert_eq!(guard.effective_max(), 1024);
+    }
+
+    #[test]
+    fn historical_budget_policy_defaults_to_base() {
+        let policy = HistoricalCowBudgetPolicy::new();
+        assert_eq!(policy.success_rate(), 1.0);
+        assert_eq!(policy.adaptive_budget(), 65536);
+    }
+
+    #[test]
+    fn historical_budget_policy_reduces_on_high_success() {
+        let mut policy = HistoricalCowBudgetPolicy::with_params(65536, 16384, 262144, 32);
+        for _ in 0..32 {
+            policy.record_frame("hook", true, 100);
+        }
+
+        let budget = policy.adaptive_budget();
+        assert!(budget < 65536, "high success rate should reduce budget");
+        assert!(budget >= 16384, "budget should be clamped to min");
+    }
+
+    #[test]
+    fn historical_budget_policy_increases_on_low_success() {
+        let mut policy = HistoricalCowBudgetPolicy::with_params(65536, 16384, 262144, 4);
+        for _ in 0..3 {
+            policy.record_frame("hook", false, 100);
+        }
+        policy.record_frame("hook", true, 100);
+
+        let budget = policy.adaptive_budget();
+        assert!(budget > 65536, "low success rate should increase budget");
+        assert!(budget <= 262144, "budget should be clamped to max");
+    }
+
+    #[test]
+    fn historical_budget_policy_sliding_window() {
+        let mut policy = HistoricalCowBudgetPolicy::with_params(65536, 16384, 262144, 2);
+        policy.record_frame("hook", false, 100);
+        policy.record_frame("hook", false, 100);
+        policy.record_frame("hook", true, 100);
+
+        assert_eq!(policy.history.len(), 2);
+        assert_eq!(policy.success_rate(), 0.5);
+    }
+}
