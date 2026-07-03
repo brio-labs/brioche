@@ -286,6 +286,17 @@ impl BriocheEngine {
         effects
     }
 
+    /// Access the current pre-computed routing table.
+    ///
+    /// Complexity: O(1). Returns a reference; no allocation.
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Core-StreamNoBranch
+    pub fn routing_table(&self) -> &UnifiedRoutingTable {
+        &self.router.routing_table
+    }
+
     /// Access the internal `SessionRegistry`.
     ///
     /// Refs: I-Shell-Session-NoSend
