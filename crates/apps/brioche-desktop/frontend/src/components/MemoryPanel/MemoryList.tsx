@@ -1,3 +1,5 @@
+import { Brain } from "lucide-react";
+import { EmptyState } from "../ui";
 import type { MemoryEntry } from "../../ipc";
 import MemoryListItem from "./MemoryListItem";
 
@@ -16,7 +18,13 @@ export default function MemoryList({
 	onDelete,
 }: MemoryListProps) {
 	if (memories.length === 0) {
-		return <div className="empty-state">No memories yet</div>;
+		return (
+			<EmptyState
+				icon={Brain}
+				title="No memories yet"
+				description="Add facts or preferences below to persist context for the model."
+			/>
+		);
 	}
 
 	return (

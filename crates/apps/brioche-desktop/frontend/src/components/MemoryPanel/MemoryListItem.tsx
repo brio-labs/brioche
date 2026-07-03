@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import type { MemoryEntry } from "../../ipc";
 
 interface MemoryListItemProps {
@@ -15,33 +16,22 @@ export default function MemoryListItem({
 	onDelete,
 }: MemoryListItemProps) {
 	return (
-		<div className="surface-card flex flex-col gap-1.5">
+		<div className="flex flex-col gap-2 rounded-none border border-border bg-bg-elevated p-3">
 			<div className="flex items-center justify-between gap-2">
 				<span className="font-mono text-xs font-semibold text-fg-primary">
 					{memory.key}
 				</span>
 				<div className="flex items-center gap-2">
-					<span className="rounded border border-accent/20 bg-accent/10 px-1.5 py-0.5 font-sans text-xs font-medium uppercase tracking-wider text-accent select-none">
+					<span className="rounded-sm border border-border bg-bg-surface px-2 py-0.5 font-sans text-xs font-medium uppercase tracking-wider text-fg-secondary select-none">
 						{memory.category}
 					</span>
 					<button
 						type="button"
-						className="flex shrink-0 cursor-pointer items-center justify-center rounded p-1.5 text-fg-muted transition-colors hover:bg-bg-highlight hover:text-error-text"
+						className="flex shrink-0 cursor-pointer items-center justify-center rounded-md p-1 text-fg-muted transition-colors hover:bg-bg-highlight hover:text-error-text"
 						onClick={() => onDelete(memory.key)}
 						aria-label={`Delete memory ${memory.key}`}
 					>
-						<svg
-							width="12"
-							height="12"
-							viewBox="0 0 12 12"
-							fill="currentColor"
-						>
-							<path
-								d="M3 3l6 6M3 9l6-6"
-								stroke="currentColor"
-								strokeWidth="1.5"
-							/>
-						</svg>
+						<X className="h-3.5 w-3.5" />
 					</button>
 				</div>
 			</div>

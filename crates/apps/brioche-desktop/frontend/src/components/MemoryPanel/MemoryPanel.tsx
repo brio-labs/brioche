@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { Plus } from "lucide-react";
 import { useMemoryStore } from "../../stores/panelStores";
 import PanelOverlay, { SearchBar, CategoryFilter } from "../PanelOverlay";
 import { useMemoryPanel } from "../../hooks/memory";
@@ -86,7 +87,7 @@ export default function MemoryPanel({ onClose }: MemoryPanelProps) {
 				onDelete={handleDelete}
 			/>
 
-			<div className="shrink-0 border-t border-border/30 pt-2">
+			<div className="shrink-0 border-t border-border pt-2">
 				{isAdding ? (
 					<MemoryCreateForm
 						categories={CATEGORIES}
@@ -103,10 +104,11 @@ export default function MemoryPanel({ onClose }: MemoryPanelProps) {
 				) : (
 					<button
 						type="button"
-						className="flex w-full cursor-pointer items-center justify-center gap-1 rounded bg-accent py-2.5 text-xs font-semibold text-white shadow-sm shadow-accent-glow/10 transition-colors hover:bg-accent-hover"
+						className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-accent py-2 text-xs font-semibold text-white shadow-sm shadow-accent-glow/10 transition-colors hover:bg-accent-hover"
 						onClick={() => setIsAdding(true)}
 					>
-						+ Add Memory
+						<Plus className="h-4 w-4" />
+						Add Memory
 					</button>
 				)}
 			</div>
