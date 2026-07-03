@@ -7,8 +7,9 @@
 //!
 //! Refs: I-Gov-Profile-Agnostic
 
-use brioche_core::{BriocheEngineBuilder, Missing, Present};
 use std::fmt;
+
+use brioche_core::{BriocheEngineBuilder, Missing, Present};
 
 use crate::{
     AdaptiveUndoFrameGuard, DepthGuard, EpochGuard, FastHookEffectConstraint,
@@ -261,9 +262,10 @@ impl GovernanceProfile {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use brioche_core::BriocheEngineBuilder;
     use tracing_test::traced_test;
+
+    use super::*;
 
     #[cfg(debug_assertions)]
     #[traced_test]
