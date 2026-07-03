@@ -97,7 +97,7 @@ export default function App() {
           collapsible
           collapsedSize="0%"
           onResize={handleLeftResize}
-          className="flex flex-col bg-bg-1/85 backdrop-blur-md border-r border-border overflow-hidden z-10"
+          className="flex flex-col bg-bg-surface border-r border-border overflow-hidden z-10"
         >
           <SessionSidebar />
         </Panel>
@@ -133,7 +133,7 @@ export default function App() {
           collapsible
           collapsedSize="0%"
           onResize={handleRightResize}
-          className="flex flex-col bg-bg-1/85 backdrop-blur-md border-l border-border overflow-hidden z-10"
+          className="flex flex-col bg-bg-surface border-l border-border overflow-hidden z-10"
         >
           <FileExplorer />
         </Panel>

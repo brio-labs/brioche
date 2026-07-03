@@ -1,4 +1,4 @@
-import { SearchIcon, BrainIcon, BookIcon, UserIcon, WrenchIcon, SettingsIcon } from "../Icons";
+import { Search, Brain, BookOpen, User, Wrench, Settings } from "lucide-react";
 import { TitleBar } from "../TitleBar";
 
 interface TitleBarWrapperProps {
@@ -35,37 +35,37 @@ export default function TitleBarWrapper({
   const overlayButtons = [
     {
       label: "Search messages (Ctrl+Shift+F)",
-      icon: SearchIcon,
+      icon: Search,
       active: showMessageSearch,
       onClick: () => setShowMessageSearch(true),
     },
     {
       label: "Memory",
-      icon: BrainIcon,
+      icon: Brain,
       active: showMemory,
       onClick: () => setShowMemory(true),
     },
     {
       label: "Skills",
-      icon: BookIcon,
+      icon: BookOpen,
       active: showSkills,
       onClick: () => setShowSkills(true),
     },
     {
       label: "Profiles",
-      icon: UserIcon,
+      icon: User,
       active: showProfiles,
       onClick: () => setShowProfiles(true),
     },
     {
       label: "Tools",
-      icon: WrenchIcon,
+      icon: Wrench,
       active: showTools,
       onClick: () => setShowTools(true),
     },
     {
       label: "Settings",
-      icon: SettingsIcon,
+      icon: Settings,
       active: showSettings,
       onClick: () => setShowSettings(true),
     },

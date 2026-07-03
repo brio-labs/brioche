@@ -40,7 +40,7 @@ export default function Tooltip({
 					collisionPadding={8}
 					avoidCollisions
 					className={cn(
-						"z-[9999] rounded-md border border-border bg-bg-elevated px-2 py-1 shadow-lg",
+						"z-[9999] rounded-[8px] border border-border bg-bg-elevated px-2 py-1 shadow-lg",
 						"text-xs text-fg-secondary whitespace-nowrap",
 						"data-[state=delayed-open]:animate-fadeIn data-[state=instant-open]:animate-fadeIn",
 					)}

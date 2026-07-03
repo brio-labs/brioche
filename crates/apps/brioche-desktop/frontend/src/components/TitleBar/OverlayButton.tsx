@@ -23,7 +23,7 @@ export function OverlayButton({
         aria-pressed={active}
         aria-label={label}
       >
-        <Icon className="w-4 h-4" />
+        <Icon className="w-5 h-5" />
       </button>
     </Tooltip>
   );

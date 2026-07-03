@@ -19,7 +19,7 @@ export function TitleBar({ buttons, projectName }: TitleBarProps) {
   return (
     <header className="title-bar">
       <div className="flex items-center px-3">
-        <span className="text-sm font-semibold text-fg-secondary tracking-wider">
+        <span className="font-mono text-xs text-fg-secondary">
           {title}
         </span>
       </div>

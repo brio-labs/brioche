@@ -1,6 +1,6 @@
 import { useTauriEvent } from "../hooks/useTauriSync";
 import Tooltip from "./Tooltip";
-import { MessageIcon, ChatBubbleIcon, FolderIcon } from "./Icons";
+import { MessageSquare, MessageCircle, Folder } from "lucide-react";
 import { cn } from "./ui/lib";
 
 interface PanelState {
@@ -32,7 +32,7 @@ function FooterSlot({
 }) {
   return (
     <div
-      className="flex items-center justify-end shrink min-w-[48px]"
+      className="flex items-center justify-end shrink min-w-12"
       style={{ flexBasis: Math.max(width, MIN_SLOT_WIDTH) }}
     >
       {children}
@@ -63,7 +63,7 @@ export default function Footer({
   const center = Math.max(panelWidths?.center ?? 0, 0);
 
   return (
-    <footer className="flex h-10 bg-bg-base/90 border-t border-border text-fg-muted shrink-0 select-none z-10">
+    <footer className="flex h-10 bg-bg-base border-t border-border text-fg-muted shrink-0 select-none z-10">
       <FooterSlot width={left}>
         <Tooltip label="Sessions">
           <button
@@ -80,23 +80,7 @@ export default function Footer({
 
       <FooterSeparator />
 
-      <FooterSlot width={center}>
-        <Tooltip label="Conversation">
-          <button
-            type="button"
-            onClick={onToggleChat}
-            className={cn("dock-button", panels.center && "dock-button-active")}
-            aria-pressed={panels.center}
-            aria-label="Conversation"
-          >
-            <ChatBubbleIcon className="w-4 h-4" />
-          </button>
-        </Tooltip>
-      </FooterSlot>
-
-      <FooterSeparator />
-
-      <div className="flex-1 flex items-center justify-end min-w-[48px]">
+      <div className="flex-1 flex items-center justify-end min-w-12">
         <Tooltip label="Explorer">
           <button
             type="button"
@@ -105,7 +89,7 @@ export default function Footer({
             aria-pressed={panels.right}
             aria-label="Explorer"
           >
-            <FolderIcon className="w-4 h-4" />
+            <Folder className="w-4 h-4" />
           </button>
         </Tooltip>
       </div>
