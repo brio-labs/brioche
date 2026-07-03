@@ -46,6 +46,12 @@ impl Default for SandboxPolicy {
 }
 
 /// Explicit list of allowed commands.
+///
+/// The default list is intentionally conservative and contains only
+/// read-only, non-privileged utilities. Higher-risk tools such as
+/// compilers and version-control clients must be opted into explicitly
+/// via `with_development_tools`, `with_vcs_tools`, etc.
+///
 /// Refs: docs/SPECS.md §Book III-C
 #[derive(Clone, Debug)]
 pub struct AllowList {
@@ -54,6 +60,7 @@ pub struct AllowList {
 
 impl AllowList {
     /// Creates an empty allow-list.
+    ///
     /// Refs: docs/SPECS.md §Book III-C
     pub fn new() -> Self {
         Self {
@@ -62,6 +69,7 @@ impl AllowList {
     }
 
     /// Adds a command to the allow-list.
+    ///
     /// Refs: docs/SPECS.md §Book III-C
     pub fn with_command(mut self, cmd: &str) -> Self {
         self.commands.insert(cmd.to_string());
@@ -69,10 +77,41 @@ impl AllowList {
     }
 
     /// Checks whether a command is in the allow-list.
+    ///
     /// Refs: docs/SPECS.md §Book III-C
     pub fn is_allowed(&self, command: &str) -> bool {
         let first_word = command.split_whitespace().next().map_or("", |s| s).trim();
         self.commands.contains(first_word)
+    }
+
+    /// Adds common development/build tools to the allow-list.
+    ///
+    /// This is opt-in because compilers and build systems can execute
+    /// arbitrary code and write to the filesystem.
+    ///
+    /// Refs: docs/SPECS.md §Book III-C
+    pub fn with_development_tools(self) -> Self {
+        self.with_command("cargo").with_command("rustc")
+    }
+
+    /// Adds common version-control tools to the allow-list.
+    ///
+    /// This is opt-in because VCS clients can access network remotes
+    /// and mutate repository state.
+    ///
+    /// Refs: docs/SPECS.md §Book III-C
+    pub fn with_vcs_tools(self) -> Self {
+        self.with_command("git")
+    }
+
+    /// Adds common filesystem search tools to the allow-list.
+    ///
+    /// This is opt-in because recursive filesystem searches can be
+    /// expensive and may traverse sensitive paths.
+    ///
+    /// Refs: docs/SPECS.md §Book III-C
+    pub fn with_filesystem_search_tools(self) -> Self {
+        self.with_command("find")
     }
 }
 
@@ -82,10 +121,6 @@ impl Default for AllowList {
             .with_command("ls")
             .with_command("cat")
             .with_command("grep")
-            .with_command("find")
-            .with_command("git")
-            .with_command("cargo")
-            .with_command("rustc")
             .with_command("pwd")
             .with_command("echo")
             .with_command("head")
@@ -285,5 +320,42 @@ impl Default for SystemToolExecutor {
 impl ToolExecutor for SystemToolExecutor {
     async fn execute(&self, call: &ActiveToolCall, cancel: CancellationToken) -> ToolResultDTO {
         self.run_tool(call, cancel).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The default allow-list must not include high-risk commands.
+    #[test]
+    fn default_allow_list_excludes_high_risk_commands() {
+        let list = AllowList::default();
+        assert!(!list.is_allowed("cargo"));
+        assert!(!list.is_allowed("rustc"));
+        assert!(!list.is_allowed("git"));
+        assert!(!list.is_allowed("find"));
+    }
+
+    /// Development/build tools require an explicit opt-in.
+    #[test]
+    fn development_tools_opt_in_adds_cargo_and_rustc() {
+        let list = AllowList::new().with_development_tools();
+        assert!(list.is_allowed("cargo"));
+        assert!(list.is_allowed("rustc"));
+    }
+
+    /// Version-control tools require an explicit opt-in.
+    #[test]
+    fn vcs_tools_opt_in_adds_git() {
+        let list = AllowList::new().with_vcs_tools();
+        assert!(list.is_allowed("git"));
+    }
+
+    /// Filesystem search tools require an explicit opt-in.
+    #[test]
+    fn filesystem_search_tools_opt_in_adds_find() {
+        let list = AllowList::new().with_filesystem_search_tools();
+        assert!(list.is_allowed("find"));
     }
 }
