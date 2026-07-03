@@ -21,7 +21,7 @@ async fn write_file_is_idempotent() -> std::io::Result<()> {
         .to_str()
         .ok_or_else(|| std::io::Error::other("temp path is not valid UTF-8"))?;
 
-    let tool = WriteFileTool::default();
+    let tool = WriteFileTool::default().with_allow_absolute(true);
     let args = serde_json::Value::Object({
         let mut m = serde_json::Map::new();
         m.insert("path".into(), path.into());
@@ -53,7 +53,7 @@ async fn write_file_append_is_idempotent() -> std::io::Result<()> {
         .to_str()
         .ok_or_else(|| std::io::Error::other("temp path is not valid UTF-8"))?;
 
-    let tool = WriteFileTool::default();
+    let tool = WriteFileTool::default().with_allow_absolute(true);
     let args = serde_json::Value::Object({
         let mut m = serde_json::Map::new();
         m.insert("path".into(), path.into());
@@ -177,7 +177,8 @@ async fn schema_validation_accepts_valid_arguments() -> std::io::Result<()> {
         .to_str()
         .ok_or_else(|| std::io::Error::other("temp path is not valid UTF-8"))?;
 
-    let executor = SystemToolExecutor::new().with_tool(WriteFileTool::default());
+    let executor =
+        SystemToolExecutor::new().with_tool(WriteFileTool::default().with_allow_absolute(true));
     let call = brioche_core::ActiveToolCall {
         tool_id: "t1".into(),
         tool_name: "write_file".into(),
@@ -198,7 +199,8 @@ async fn schema_validation_accepts_valid_arguments() -> std::io::Result<()> {
 
 #[tokio::test]
 async fn schema_validation_rejects_missing_required_field() {
-    let executor = SystemToolExecutor::new().with_tool(WriteFileTool::default());
+    let executor =
+        SystemToolExecutor::new().with_tool(WriteFileTool::default().with_allow_absolute(true));
     let call = brioche_core::ActiveToolCall {
         tool_id: "t1".into(),
         tool_name: "write_file".into(),
@@ -220,7 +222,8 @@ async fn schema_validation_rejects_missing_required_field() {
 
 #[tokio::test]
 async fn schema_validation_rejects_wrong_type() {
-    let executor = SystemToolExecutor::new().with_tool(WriteFileTool::default());
+    let executor =
+        SystemToolExecutor::new().with_tool(WriteFileTool::default().with_allow_absolute(true));
     let call = brioche_core::ActiveToolCall {
         tool_id: "t1".into(),
         tool_name: "write_file".into(),
@@ -242,7 +245,8 @@ async fn schema_validation_rejects_wrong_type() {
 
 #[tokio::test]
 async fn schema_validation_rejects_invalid_json() {
-    let executor = SystemToolExecutor::new().with_tool(WriteFileTool::default());
+    let executor =
+        SystemToolExecutor::new().with_tool(WriteFileTool::default().with_allow_absolute(true));
     let call = brioche_core::ActiveToolCall {
         tool_id: "t1".into(),
         tool_name: "write_file".into(),
