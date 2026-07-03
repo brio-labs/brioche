@@ -78,7 +78,9 @@ impl BriochePlugin for FaultPlugin {
         input: &EngineInput,
         _ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
-        if let EngineInput::UserMessage(content) = input && content == self.trigger {
+        if let EngineInput::UserMessage(content) = input
+            && content == self.trigger
+        {
             return Err(PluginError::Fatal {
                 plugin_name: "fault_plugin".into(),
                 message: "simulated fatal fault".into(),

@@ -237,8 +237,10 @@ impl BriochePlugin for JsonArgumentAccumulator {
 
 #[cfg(test)]
 mod tests {
-        use super::*;
-    use brioche_core::{AgentStateTag, EngineInput, ExtensionStorage, PluginError, SessionSnapshot};
+    use super::*;
+    use brioche_core::{
+        AgentStateTag, EngineInput, ExtensionStorage, PluginError, SessionSnapshot,
+    };
 
     #[test]
     fn calculate_depth_adds_one_in_subroutine() {

@@ -250,7 +250,7 @@ impl BriochePlugin for RecoveryPolicy {
 
 #[cfg(test)]
 mod tests {
-        use super::*;
+    use super::*;
     use brioche_core::{
         AgentStateTag, Effect, EngineInput, ExtensionStorage, PluginError, SessionSnapshot,
     };

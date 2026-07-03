@@ -258,10 +258,9 @@ async fn effect_trigger_summarization_emits_async_result() -> Result<(), ShellEr
 
     executor.trigger_summarization(&shell).await?;
 
-    let result = async_rx
-        .recv()
-        .await
-        .ok_or_else(|| ShellError::EffectExecution("expected SummarizationDone async task result".into()))?;
+    let result = async_rx.recv().await.ok_or_else(|| {
+        ShellError::EffectExecution("expected SummarizationDone async task result".into())
+    })?;
     assert!(
         matches!(
             result,
@@ -293,10 +292,9 @@ async fn effect_execute_cpu_task_dispatches_registry() -> Result<(), ShellError>
         .execute_cpu_task("double".into(), vec![1, 2, 3], &shell)
         .await?;
 
-    let result = async_rx
-        .recv()
-        .await
-        .ok_or_else(|| ShellError::EffectExecution("expected CpuTaskDone async task result".into()))?;
+    let result = async_rx.recv().await.ok_or_else(|| {
+        ShellError::EffectExecution("expected CpuTaskDone async task result".into())
+    })?;
     assert_eq!(
         result,
         AsyncTaskResult::CpuTaskDone {

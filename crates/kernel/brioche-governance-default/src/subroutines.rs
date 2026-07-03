@@ -249,7 +249,7 @@ impl SubRoutineLifecycleGuard for SubRoutineCleanupGuard {
 
 #[cfg(test)]
 mod tests {
-        use super::*;
+    use super::*;
     use brioche_core::{
         AgentState, BriocheError, ChatMessage, Effect, EngineInput, PluginError, Session,
         SubRoutineHandle,

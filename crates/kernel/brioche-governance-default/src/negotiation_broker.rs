@@ -141,7 +141,7 @@ impl DecisionAggregator for NegotiationBroker {
 
 #[cfg(test)]
 mod tests {
-        use super::*;
+    use super::*;
     use brioche_core::{Effect, ExtensionStorage, HistoryEdit, PluginError, PolicyDecision};
 
     fn run_phase(
