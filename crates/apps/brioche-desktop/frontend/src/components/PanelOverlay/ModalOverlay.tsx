@@ -27,14 +27,14 @@ export function ModalOverlay({
 		<div
 			className={cn(
 				"fixed inset-0 z-2000 flex items-start justify-center",
-				"bg-black/60 backdrop-blur-sm pt-[15vh]",
+				"bg-black/60 pt-[15vh]",
 				"animate-fadeIn",
 			)}
 			onClick={onClose}
 		>
 			<div
 				className={cn(
-					"flex flex-col w-140 max-w-[90vw] max-h-[60vh] overflow-hidden rounded-lg border border-border bg-bg-surface",
+					"flex flex-col w-140 max-w-[90vw] max-h-[60vh] overflow-hidden rounded-[8px] border border-border bg-bg-surface",
 					"shadow-2xl animate-slideDown",
 				)}
 				onClick={(e) => e.stopPropagation()}

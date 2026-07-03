@@ -59,7 +59,7 @@ export const SelectContent = React.forwardRef<
 		<SelectPrimitive.Content
 			ref={ref}
 	className={cn(
-			"relative z-50 overflow-hidden rounded-md border border-border bg-bg-surface shadow-md",
+			"relative z-50 overflow-hidden rounded-[8px] border border-border bg-bg-surface shadow-md",
 				"max-h-96 min-w-32",
 				"text-fg-primary",
 				"animate-fadeIn",
@@ -95,7 +95,7 @@ export const SelectItem = React.forwardRef<
 		ref={ref}
 		className={cn(
 			"relative flex w-full cursor-pointer select-none items-center rounded-md",
-			"py-1.5 pl-2 pr-8 text-sm text-fg-secondary",
+			"py-2 pl-2 pr-8 text-sm text-fg-secondary",
 			"outline-none focus:bg-bg-elevated focus:text-fg-primary",
 			"hover:bg-bg-highlight hover:text-fg-primary",
 			className,
@@ -200,7 +200,7 @@ export function MultiSelect({
 					align="start"
 					sideOffset={4}
 					className={cn(
-						"z-50 min-w-[var(--radix-popover-trigger-width)] rounded-md border border-border bg-bg-surface p-1 shadow-md",
+						"z-50 min-w-[var(--radix-popover-trigger-width)] rounded-[8px] border border-border bg-bg-surface p-1 shadow-md",
 						"animate-fadeIn",
 					)}
 				>
@@ -210,7 +210,7 @@ export function MultiSelect({
 								key={option.value}
 								className={cn(
 									"flex cursor-pointer items-center gap-2 rounded-md",
-									"px-2 py-1.5 text-sm text-fg-secondary",
+									"px-2 py-2 text-sm text-fg-secondary",
 									"hover:bg-bg-elevated hover:text-fg-primary",
 								)}
 							>

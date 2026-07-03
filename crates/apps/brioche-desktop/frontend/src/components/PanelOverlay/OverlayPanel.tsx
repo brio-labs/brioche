@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { XIcon } from "../Icons";
+import { X } from "lucide-react";
 import { cn } from "../ui/lib";
 
 /**
@@ -66,7 +66,7 @@ export default function OverlayPanel({
 							onClick={onClose}
 							aria-label="Close panel"
 						>
-							<XIcon className="w-4 h-4" />
+							<X className="w-4 h-4" />
 						</button>
 					</div>
 				</div>

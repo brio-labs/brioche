@@ -215,7 +215,7 @@ export const ContextMenuContent = React.forwardRef<
 			role="menu"
 			className={cn(
 				"fixed z-[9999] min-w-[160px]",
-				"rounded-md border border-border bg-bg-surface shadow-lg backdrop-blur-sm",
+				"rounded-[8px] border border-border bg-bg-surface shadow-lg",
 				"p-1",
 				"animate-fadeIn",
 				"outline-none",
@@ -350,7 +350,7 @@ export function ContextMenuGroup({
 			aria-label={label}
 		>
 			{label && (
-				<div className="px-3 py-1.5 text-xs font-semibold text-fg-muted uppercase tracking-wider">
+				<div className="px-3 py-1 text-xs font-medium text-fg-muted">
 					{label}
 				</div>
 			)}
