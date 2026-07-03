@@ -7,67 +7,42 @@ import {
 } from "../ui/context-menu";
 import { cn } from "../ui/lib";
 import FileTreeItemMenu from "./FileTreeItemMenu";
+import { useFileExplorerContext } from "./FileExplorerContext";
 import type { TreeEntry } from "../../hooks/fileExplorer";
 
 interface FileTreeItemProps {
   entry: TreeEntry;
   depth: number;
-  workspaceRoot: string;
-  expandedPaths: Set<string>;
-  childrenMap: Map<string, TreeEntry[]>;
-  clipboard: { path: string; operation: "copy" | "cut" } | null;
-  renamingPath: string | null;
-  renameValue: string;
-  onToggle: (path: string) => void;
-  onLoadChildren: (path: string) => void;
-  onPreview: (path: string) => void;
-  onDelete: (path: string) => void;
-  onNewFile: (targetPath: string, isDir: boolean) => void;
-  onNewFolder: (targetPath: string, isDir: boolean) => void;
-  onRename: (path: string, name: string) => void;
-  onCopy: (path: string) => void;
-  onCut: (path: string) => void;
-  onPaste: (targetPath: string, isDir: boolean) => void;
-  onRenameValueChange: (value: string) => void;
-  onCommitRename: () => void;
-  onCancelRename: () => void;
-  creatingFor: string | null;
-  createType: "file" | "folder";
-  newName: string;
-  onNewNameChange: (value: string) => void;
-  onCommitCreation: () => void;
-  onCancelCreation: () => void;
 }
 
-export default function FileTreeItem({
-  entry,
-  depth,
-  workspaceRoot,
-  expandedPaths,
-  childrenMap,
-  clipboard,
-  renamingPath,
-  renameValue,
-  onToggle,
-  onLoadChildren,
-  onPreview,
-  onDelete,
-  onNewFile,
-  onNewFolder,
-  onRename,
-  onCopy,
-  onCut,
-  onPaste,
-  onRenameValueChange,
-  onCommitRename,
-  onCancelRename,
-  creatingFor,
-  createType,
-  newName,
-  onNewNameChange,
-  onCommitCreation,
-  onCancelCreation,
-}: FileTreeItemProps) {
+export default function FileTreeItem({ entry, depth }: FileTreeItemProps) {
+  const {
+    expandedPaths,
+    childrenMap,
+    clipboard,
+    renamingPath,
+    renameValue,
+    creatingFor,
+    createType,
+    newName,
+    handleToggle,
+    handleLoadChildren,
+    handlePreview,
+    handleDelete,
+    onNewFile,
+    onNewFolder,
+    onRename,
+    onCopy,
+    onCut,
+    onPaste,
+    onRenameValueChange,
+    onCommitRename,
+    onCancelRename,
+    onNewNameChange,
+    onCommitCreation,
+    onCancelCreation,
+  } = useFileExplorerContext();
+
   const isExpanded = expandedPaths.has(entry.path);
   const children = childrenMap.get(entry.path);
   const isCreatingHere = creatingFor === entry.path;
@@ -77,17 +52,17 @@ export default function FileTreeItem({
   const handleClick = useCallback(() => {
     if (entry.is_dir) {
       if (!isExpanded && !childrenMap.has(entry.path)) {
-        onLoadChildren(entry.path);
+        handleLoadChildren(entry.path);
       }
-      onToggle(entry.path);
+      handleToggle(entry.path);
     }
-  }, [entry, isExpanded, childrenMap, onLoadChildren, onToggle]);
+  }, [entry, isExpanded, childrenMap, handleLoadChildren, handleToggle]);
 
   const handleDoubleClick = useCallback(() => {
     if (!entry.is_dir) {
-      onPreview(entry.path);
+      handlePreview(entry.path);
     }
-  }, [entry, onPreview]);
+  }, [entry, handlePreview]);
 
   return (
     <div>
@@ -134,14 +109,6 @@ export default function FileTreeItem({
         <ContextMenuContent>
           <FileTreeItemMenu
             entry={entry}
-            clipboard={clipboard}
-            onNewFile={onNewFile}
-            onNewFolder={onNewFolder}
-            onRename={onRename}
-            onCopy={onCopy}
-            onCut={onCut}
-            onPaste={onPaste}
-            onDelete={onDelete}
           />
         </ContextMenuContent>
       </ContextMenu>
@@ -182,31 +149,6 @@ export default function FileTreeItem({
                 key={child.path}
                 entry={child}
                 depth={depth + 1}
-                workspaceRoot={workspaceRoot}
-                expandedPaths={expandedPaths}
-                childrenMap={childrenMap}
-                clipboard={clipboard}
-                renamingPath={renamingPath}
-                renameValue={renameValue}
-                onToggle={onToggle}
-                onLoadChildren={onLoadChildren}
-                onPreview={onPreview}
-                onDelete={onDelete}
-                onNewFile={onNewFile}
-                onNewFolder={onNewFolder}
-                onRename={onRename}
-                onCopy={onCopy}
-                onCut={onCut}
-                onPaste={onPaste}
-                onRenameValueChange={onRenameValueChange}
-                onCommitRename={onCommitRename}
-                onCancelRename={onCancelRename}
-                creatingFor={creatingFor}
-                createType={createType}
-                newName={newName}
-                onNewNameChange={onNewNameChange}
-                onCommitCreation={onCommitCreation}
-                onCancelCreation={onCancelCreation}
               />
             ))
           ) : (

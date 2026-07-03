@@ -10,6 +10,7 @@ import {
 } from "../ui/context-menu";
 import { isTauri } from "../../ipc";
 import FileTreeItem from "./FileTreeItem";
+import { FileExplorerProvider, type FileExplorerContextValue } from "./FileExplorerContext";
 
 export default function FileExplorer() {
   const {
@@ -58,6 +59,61 @@ export default function FileExplorer() {
     }));
   }, [entries, childrenMap, loadingPaths, workspaceRoot]);
 
+  const contextValue = useMemo<FileExplorerContextValue>(
+    () => ({
+      expandedPaths,
+      childrenMap,
+      clipboard,
+      renamingPath,
+      renameValue,
+      creatingFor,
+      createType,
+      newName,
+      handleToggle,
+      handleLoadChildren,
+      handlePreview,
+      handleDelete,
+      onNewFile: (targetPath, isDir) => startCreation("file", targetPath, isDir),
+      onNewFolder: (targetPath, isDir) =>
+        startCreation("folder", targetPath, isDir),
+      onRename: handleStartRename,
+      onCopy: handleCopy,
+      onCut: handleCut,
+      onPaste: handlePaste,
+      onRenameValueChange: handleRenameValueChange,
+      onCommitRename: handleCommitRename,
+      onCancelRename: handleCancelRename,
+      onNewNameChange: setNewName,
+      onCommitCreation: handleCommitCreation,
+      onCancelCreation: cancelCreation,
+    }),
+    [
+      expandedPaths,
+      childrenMap,
+      clipboard,
+      renamingPath,
+      renameValue,
+      creatingFor,
+      createType,
+      newName,
+      handleToggle,
+      handleLoadChildren,
+      handlePreview,
+      handleDelete,
+      startCreation,
+      handleStartRename,
+      handleCopy,
+      handleCut,
+      handlePaste,
+      handleRenameValueChange,
+      handleCommitRename,
+      handleCancelRename,
+      setNewName,
+      handleCommitCreation,
+      cancelCreation,
+    ],
+  );
+
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-transparent text-fg-primary">
       <div className="flex h-13 shrink-0 items-center justify-between border-b border-border bg-bg-base/30 px-5 py-4 backdrop-blur-sm">
@@ -101,81 +157,58 @@ export default function FileExplorer() {
         </span>
       </div>
 
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <div className="flex flex-1 flex-col overflow-y-auto py-2">
-            {storeLoading && (
-              <div className="py-4 text-center text-xs text-fg-muted">
-                Loading...
-              </div>
-            )}
+      <FileExplorerProvider value={contextValue}>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div className="flex flex-1 flex-col overflow-y-auto py-2">
+              {storeLoading && (
+                <div className="py-4 text-center text-xs text-fg-muted">
+                  Loading...
+                </div>
+              )}
 
-            {rootEntries.map((entry) => (
-              <FileTreeItem
-                key={entry.path}
-                entry={entry}
-                depth={0}
-                workspaceRoot={workspaceRoot || ""}
-                expandedPaths={expandedPaths}
-                childrenMap={childrenMap}
-                clipboard={clipboard}
-                renamingPath={renamingPath}
-                renameValue={renameValue}
-                onToggle={handleToggle}
-                onLoadChildren={handleLoadChildren}
-                onPreview={handlePreview}
-                onDelete={handleDelete}
-                onNewFile={startCreation}
-                onNewFolder={startCreation}
-                onRename={handleStartRename}
-                onCopy={handleCopy}
-                onCut={handleCut}
-                onPaste={handlePaste}
-                onRenameValueChange={handleRenameValueChange}
-                onCommitRename={handleCommitRename}
-                onCancelRename={handleCancelRename}
-                creatingFor={creatingFor}
-                createType={createType}
-                newName={newName}
-                onNewNameChange={setNewName}
-                onCommitCreation={handleCommitCreation}
-                onCancelCreation={cancelCreation}
-              />
-            ))}
-            {rootEntries.length === 0 && !storeLoading && workspaceRoot && (
-              <div className="py-8 text-center text-xs text-fg-muted select-none">
-                Empty
-              </div>
-            )}
-            {!workspaceRoot && !storeLoading && (
-              <div className="flex flex-1 flex-col items-center justify-center px-4 py-12 text-center text-xs text-fg-muted select-none">
-                <span>No directory open</span>
-                <button
-                  type="button"
-                  className="mt-3 w-full max-w-50 cursor-pointer rounded-md bg-accent py-2 px-3 text-sm font-medium text-white shadow-sm transition-colors hover:bg-accent-hover active:bg-accent-dim"
-                  onClick={handleOpenFolder}
-                >
-                  Open Folder
-                </button>
-              </div>
-            )}
-          </div>
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          <ContextMenuGroup>
-            <ContextMenuItem
-              onClick={() => startCreation("file", null, true)}
-            >
-              New File
-            </ContextMenuItem>
-            <ContextMenuItem
-              onClick={() => startCreation("folder", null, true)}
-            >
-              New Folder
-            </ContextMenuItem>
-          </ContextMenuGroup>
-        </ContextMenuContent>
-      </ContextMenu>
+              {rootEntries.map((entry) => (
+                <FileTreeItem
+                  key={entry.path}
+                  entry={entry}
+                  depth={0}
+                />
+              ))}
+              {rootEntries.length === 0 && !storeLoading && workspaceRoot && (
+                <div className="py-8 text-center text-xs text-fg-muted select-none">
+                  Empty
+                </div>
+              )}
+              {!workspaceRoot && !storeLoading && (
+                <div className="flex flex-1 flex-col items-center justify-center px-4 py-12 text-center text-xs text-fg-muted select-none">
+                  <span>No directory open</span>
+                  <button
+                    type="button"
+                    className="mt-3 w-full max-w-50 cursor-pointer rounded-md bg-accent py-2 px-3 text-sm font-medium text-white shadow-sm transition-colors hover:bg-accent-hover active:bg-accent-dim"
+                    onClick={handleOpenFolder}
+                  >
+                    Open Folder
+                  </button>
+                </div>
+              )}
+            </div>
+          </ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuGroup>
+              <ContextMenuItem
+                onClick={() => startCreation("file", null, true)}
+              >
+                New File
+              </ContextMenuItem>
+              <ContextMenuItem
+                onClick={() => startCreation("folder", null, true)}
+              >
+                New Folder
+              </ContextMenuItem>
+            </ContextMenuGroup>
+          </ContextMenuContent>
+        </ContextMenu>
+      </FileExplorerProvider>
 
       {preview && (
         <div className="absolute bottom-0 left-0 right-0 z-10 flex h-[45%] flex-col border-t border-border bg-bg-surface">
