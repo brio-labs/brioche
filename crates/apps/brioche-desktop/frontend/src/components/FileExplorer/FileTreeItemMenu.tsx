@@ -2,7 +2,7 @@ import {
   ContextMenuGroup,
   ContextMenuItem,
   ContextMenuSeparator,
-} from "../ui/context-menu";
+} from "../ui/ContextMenu";
 import { useFileExplorerContext } from "./FileExplorerContext";
 import type { TreeEntry } from "../../hooks/fileExplorer";
 

@@ -1,10 +1,11 @@
 import { useCallback } from "react";
-import { FolderIcon, FileIcon } from "../Icons";
+import { Folder, FolderOpen } from "lucide-react";
+import { FileIcon } from "../Icons";
 import {
   ContextMenu,
   ContextMenuTrigger,
   ContextMenuContent,
-} from "../ui/context-menu";
+} from "../ui/ContextMenu";
 import { cn } from "../ui/lib";
 import FileTreeItemMenu from "./FileTreeItemMenu";
 import { useFileExplorerContext } from "./FileExplorerContext";
@@ -81,7 +82,11 @@ export default function FileTreeItem({ entry, depth }: FileTreeItemProps) {
             title={entry.path}
           >
             {entry.is_dir ? (
-              <FolderIcon className="h-3.5 w-3.5 shrink-0 text-accent-dim group-hover:text-accent" />
+              isExpanded ? (
+                <FolderOpen className="h-3.5 w-3.5 shrink-0 text-accent-dim group-hover:text-accent" />
+              ) : (
+                <Folder className="h-3.5 w-3.5 shrink-0 fill-current text-accent-dim group-hover:text-accent" />
+              )
             ) : (
               <FileIcon className="h-3.5 w-3.5 shrink-0 text-fg-muted group-hover:text-fg-secondary" />
             )}
@@ -119,7 +124,7 @@ export default function FileTreeItem({ entry, depth }: FileTreeItemProps) {
           style={{ paddingLeft: `${1.5 + indent}rem` }}
         >
           {createType === "folder" ? (
-            <FolderIcon className="h-3.5 w-3.5 text-accent-dim" />
+            <Folder className="h-3.5 w-3.5 fill-current text-accent-dim" />
           ) : (
             <FileIcon className="h-3.5 w-3.5 text-fg-muted" />
           )}

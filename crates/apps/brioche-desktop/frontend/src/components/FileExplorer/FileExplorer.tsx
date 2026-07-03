@@ -7,7 +7,7 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuGroup,
-} from "../ui/context-menu";
+} from "../ui/ContextMenu";
 import { isTauri } from "../../ipc";
 import FileTreeItem from "./FileTreeItem";
 import { FileExplorerProvider, type FileExplorerContextValue } from "./FileExplorerContext";

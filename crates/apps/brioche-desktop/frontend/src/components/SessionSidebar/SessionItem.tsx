@@ -66,7 +66,7 @@ export function SessionItem({ session, switchToSession, deleteSession }: Session
 				{!session.active && (
 					<button
 						type="button"
-						className="cursor-pointer p-1 text-fg-muted opacity-0 transition-all duration-200 hover:bg-bg-subtle hover:text-error-text group-hover:opacity-100"
+						className="absolute right-0 top-0 flex h-full aspect-square cursor-pointer items-center justify-center rounded-none text-error-text opacity-0 transition-all duration-200 pointer-events-none hover:bg-error-bg focus-visible:bg-error-bg group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:opacity-100"
 						onClick={(e) => {
 							e.stopPropagation();
 							deleteSession(session.id);

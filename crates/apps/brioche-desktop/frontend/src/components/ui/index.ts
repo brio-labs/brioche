@@ -43,4 +43,4 @@ export {
 	type ContextMenuProps,
 	type ContextMenuSeparatorProps,
 	type ContextMenuTriggerProps,
-} from "./context-menu";
+} from "./ContextMenu";
