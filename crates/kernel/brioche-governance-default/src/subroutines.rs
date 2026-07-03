@@ -246,3 +246,199 @@ impl SubRoutineLifecycleGuard for SubRoutineCleanupGuard {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use brioche_core::{AgentState, ChatMessage, Effect, EngineInput, Session, SubRoutineHandle};
+
+    fn subroutine_parent() -> Session {
+        let mut parent = Session::new("parent");
+        let _ = parent.push_state(AgentState::Predicting { generation_id: 1 });
+        let _ = parent.push_state(AgentState::SubRoutine(SubRoutineHandle::new("sub")));
+        parent
+    }
+
+    #[test]
+    fn orchestrator_delegates_user_message() {
+        let orchestrator = SubRoutineOrchestrator::new();
+        let mut parent = subroutine_parent();
+        let mut child = Session::new("child");
+
+        let result = orchestrator.handle_subroutine(
+            &mut parent,
+            &mut child,
+            &EngineInput::UserMessage("hello".into()),
+        );
+
+        let effects = match result {
+            Ok(Some(effects)) => effects,
+            Ok(None) => Vec::new(),
+            Err(_) => {
+                assert!(false, "handle_subroutine should succeed");
+                return;
+            }
+        };
+
+        assert_eq!(child.history.len(), 1);
+        assert!(matches!(child.history[0], ChatMessage::User { .. }));
+        assert!(matches!(child.state, AgentState::Predicting { .. }));
+        assert!(effects.contains(&Effect::CallLlmNetwork));
+        assert!(effects.contains(&Effect::SaveSession));
+    }
+
+    #[test]
+    fn orchestrator_accumulates_stream_tools() {
+        let orchestrator = SubRoutineOrchestrator::new();
+        let mut parent = subroutine_parent();
+        let mut child = Session::new("child");
+        let _ = child.push_state(AgentState::Predicting { generation_id: 1 });
+
+        let path = brioche_core::ExecutionPath::default();
+        let events = vec![
+            EngineInput::LlmStream(brioche_core::StreamEvent::ToolCallStart {
+                path: path.clone(),
+                id: "tc1".into(),
+                name: "calc".into(),
+            }),
+            EngineInput::LlmStream(brioche_core::StreamEvent::ToolArgumentChunk {
+                path: path.clone(),
+                id: "tc1".into(),
+                chunk: From::from(&b"{\"x\":1}"[..]),
+            }),
+            EngineInput::LlmStream(brioche_core::StreamEvent::ToolCallDone { path }),
+        ];
+
+        let mut effects = Vec::new();
+        for event in &events {
+            match orchestrator.handle_subroutine(&mut parent, &mut child, event) {
+                Ok(Some(e)) => effects.extend(e),
+                Ok(None) => {}
+                Err(_) => {
+                    assert!(false, "handle_subroutine should succeed");
+                    return;
+                }
+            }
+        }
+
+        assert!(matches!(child.state, AgentState::ExecutingTools { .. }));
+        assert_eq!(child.active_tools.len(), 1);
+        assert_eq!(child.active_tools[0].tool_id, "tc1");
+        assert_eq!(child.active_tools[0].tool_name, "calc");
+        assert_eq!(
+            child.active_tools[0].timeout_ms,
+            brioche_core::DEFAULT_TOOL_TIMEOUT_MS
+        );
+        assert!(effects.iter().any(|e| matches!(e, Effect::ExecuteTools(_))));
+        assert!(effects.contains(&Effect::SaveSession));
+    }
+
+    #[test]
+    fn orchestrator_bubbles_up_on_idle() {
+        let orchestrator = SubRoutineOrchestrator::new();
+        let mut parent = subroutine_parent();
+        let mut child = Session::new("child");
+        child.history.push(ChatMessage::Assistant {
+            content: "sub-result".into(),
+            reasoning: None,
+            tool_calls: Vec::new(),
+        });
+        child.state = AgentState::Idle;
+
+        let result = orchestrator.handle_subroutine(
+            &mut parent,
+            &mut child,
+            &EngineInput::ToolCallsResult {
+                generation_id: 1,
+                results: Vec::new(),
+            },
+        );
+
+        let effects = match result {
+            Ok(Some(effects)) => effects,
+            Ok(None) => {
+                assert!(false, "expected bubble-up effects");
+                return;
+            }
+            Err(_) => {
+                assert!(false, "handle_subroutine should succeed");
+                return;
+            }
+        };
+
+        assert_eq!(parent.history.len(), 1);
+        assert_eq!(
+            parent.history[0],
+            ChatMessage::Assistant {
+                content: "sub-result".into(),
+                reasoning: None,
+                tool_calls: Vec::new(),
+            }
+        );
+        assert!(matches!(parent.state, AgentState::Predicting { generation_id: 1 }));
+        assert!(effects.contains(&Effect::SaveSession));
+        assert!(effects.contains(&Effect::CallLlmNetwork));
+    }
+
+    #[test]
+    fn orchestrator_bubbles_up_on_failure() {
+        let orchestrator = SubRoutineOrchestrator::new();
+        let mut parent = subroutine_parent();
+        let mut child = Session::new("child");
+        child.state = AgentState::Failure;
+
+        let result = orchestrator.handle_subroutine(
+            &mut parent,
+            &mut child,
+            &EngineInput::ToolCallsResult {
+                generation_id: 1,
+                results: Vec::new(),
+            },
+        );
+
+        let effects = match result {
+            Ok(Some(effects)) => effects,
+            Ok(None) => {
+                assert!(false, "expected bubble-up effects");
+                return;
+            }
+            Err(_) => {
+                assert!(false, "handle_subroutine should succeed");
+                return;
+            }
+        };
+
+        assert_eq!(parent.history.len(), 1);
+        assert_eq!(
+            parent.history[0],
+            ChatMessage::System {
+                content: "sub-routine failed".into(),
+            }
+        );
+        assert!(matches!(parent.state, AgentState::Predicting { generation_id: 1 }));
+        assert!(effects.contains(&Effect::SaveSession));
+        assert!(effects.contains(&Effect::CallLlmNetwork));
+    }
+
+    #[test]
+    fn cleanup_guard_removes_child_session() {
+        let guard = SubRoutineCleanupGuard::new();
+        let handle = SubRoutineHandle::new("sub");
+        let mut registry = SessionRegistry::new();
+        registry.insert(handle.clone(), Session::new("child"));
+        let mut parent = Session::new("parent");
+
+        let result = guard.on_exit(handle, &mut parent, &mut registry);
+
+        let effects = match result {
+            Ok(effects) => effects,
+            Err(_) => {
+                assert!(false, "on_exit should succeed");
+                return;
+            }
+        };
+
+        assert!(!registry.contains(&SubRoutineHandle::new("sub")));
+        assert_eq!(effects, vec![Effect::SaveSession]);
+    }
+}
