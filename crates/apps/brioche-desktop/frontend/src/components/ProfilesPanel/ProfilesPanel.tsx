@@ -1,7 +1,8 @@
 import { useProfilesPanel } from "../../hooks/profiles/useProfilesPanel";
 import PanelOverlay, { SearchBar } from "../PanelOverlay";
-import { UserIcon, PlusIcon } from "../Icons";
+import { User, Plus } from "lucide-react";
 import { ProfileListItem } from "./ProfileListItem";
+import { EmptyState } from "../ui";
 import { CreateProfileForm } from "./CreateProfileForm";
 import { ProfileDetails } from "./ProfileDetails";
 
@@ -39,50 +40,46 @@ export default function ProfilesPanel({ onClose }: ProfilesPanelProps) {
 	return (
 		<PanelOverlay
 			title="Profiles"
-			icon={<UserIcon className="h-4 w-4" />}
+			icon={<User className="h-4 w-4" />}
 			onClose={onClose}
 			size="lg"
 			padded={false}
 			headerActions={
 				<button
 					type="button"
-					className="mr-1.5 flex cursor-pointer items-center justify-center rounded-md bg-transparent p-1.5 text-fg-muted transition-all duration-150 hover:bg-bg-highlight hover:text-fg-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-glow"
+					className="mr-2 flex cursor-pointer items-center justify-center rounded-md bg-transparent p-2 text-fg-muted transition-all duration-150 hover:bg-bg-highlight hover:text-fg-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-glow"
 					onClick={() => setShowCreate(true)}
 					title="New profile"
 					aria-label="New profile"
 				>
-					<PlusIcon className="h-4 w-4" />
+					<Plus className="h-4 w-4" />
 				</button>
 			}
 		>
 			<div className="flex flex-1 min-h-0 flex-row overflow-hidden">
-				<div className="flex flex-col w-70 min-w-70 border-r border-border bg-bg-base/20">
+				<div className="flex flex-col w-70 min-w-70 border-r border-border bg-bg-base">
 					<SearchBar
 						placeholder="Search profiles..."
 						value={searchQuery}
 						onChange={setSearchQuery}
-						containerClassName="shrink-0 px-5 py-4 border-b border-border rounded-none bg-bg-base/30"
+						containerClassName="shrink-0 px-4 py-4 border-b border-border rounded-none bg-bg-base"
 					/>
 					{error && (
-						<div className="shrink-0 mx-4 my-2 rounded-lg border border-error-border bg-error-bg px-3.5 py-2.5 text-xs text-error-text">
+						<div className="shrink-0 mx-4 my-2 rounded-sm border border-error-border bg-error-bg px-4 py-3 text-xs text-error-text">
 							{error}
 						</div>
 					)}
 					{!isTauriAvailable && !error && (
-						<div className="shrink-0 mx-4 my-2 rounded-lg border border-error-border bg-error-bg px-3.5 py-2.5 text-xs text-error-text">
+						<div className="shrink-0 mx-4 my-2 rounded-sm border border-error-border bg-error-bg px-4 py-3 text-xs text-error-text">
 							Profiles preview mode: profile management requires the Tauri
 							desktop app.
 						</div>
 					)}
 					<div className="flex flex-1 min-h-0 flex-col gap-3 overflow-y-auto p-4">
 						{isLoading ? (
-							<div className="py-12 text-center text-sm text-fg-muted">
-								Loading profiles...
-							</div>
+							<EmptyState title="Loading profiles..." description="Fetching profile definitions." />
 						) : filteredProfiles.length === 0 ? (
-							<div className="py-12 text-center text-sm text-fg-muted">
-								No profiles found
-							</div>
+							<EmptyState icon={User} title="No profiles found" description="Create a profile to configure access." />
 						) : (
 							filteredProfiles.map((profile) => (
 								<ProfileListItem
@@ -114,9 +111,7 @@ export default function ProfilesPanel({ onClose }: ProfilesPanelProps) {
 							setError={setError}
 						/>
 					) : (
-						<div className="flex flex-1 flex-col items-center justify-center p-5 text-center text-sm text-fg-muted">
-							Select a profile to view details
-						</div>
+						<EmptyState icon={User} title="Select a profile" description="Choose a profile from the sidebar to view details." />
 					)}
 				</div>
 			</div>

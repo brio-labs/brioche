@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { Profile } from "../../ipc";
 import { updateProfile } from "../../ipc";
 import { Button, Input, Label } from "../ui";
-import { CheckIcon, TrashIcon, RefreshIcon } from "../Icons";
+import { Check, Trash2, RefreshCw } from "lucide-react";
 
 interface ProfileDetailsProps {
 	profile: Profile;
@@ -89,7 +89,7 @@ export function ProfileDetails({
 								size="sm"
 								onClick={() => onSwitch(profile.name)}
 							>
-								<CheckIcon className="mr-1 h-3 w-3" />
+								<Check className="mr-1 h-3.5 w-3.5" />
 								Switch
 							</Button>
 							<Button
@@ -98,20 +98,20 @@ export function ProfileDetails({
 								size="sm"
 								onClick={() => onDelete(profile.name)}
 							>
-								<TrashIcon className="mr-1 h-3 w-3" />
+								<Trash2 className="mr-1 h-3.5 w-3.5" />
 								Delete
 							</Button>
 						</div>
 					)}
 					{isActive && (
-						<span className="rounded border border-success-border bg-success-bg px-2 py-1 text-xs font-bold uppercase text-success-text select-none">
+						<span className="rounded-sm border border-success-border bg-success-bg px-2 py-1 text-xs font-bold uppercase text-success-text select-none">
 							Active
 						</span>
 					)}
 				</div>
 			</div>
 
-			<div className="flex flex-col gap-1.5">
+			<div className="flex flex-col gap-2">
 				<Label className="text-xs font-medium text-fg-secondary">
 					Display name
 				</Label>
@@ -123,13 +123,13 @@ export function ProfileDetails({
 			</div>
 
 			<div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-				<div className="flex flex-col gap-1.5">
+				<div className="flex flex-col gap-2">
 					<Label className="text-xs font-medium text-fg-secondary">
 						Provider
 					</Label>
 					<Input value={profile.provider} disabled />
 				</div>
-				<div className="flex flex-col gap-1.5">
+				<div className="flex flex-col gap-2">
 					<Label className="text-xs font-medium text-fg-secondary">Model</Label>
 					<Input
 						value={model}
@@ -138,7 +138,7 @@ export function ProfileDetails({
 					/>
 				</div>
 			</div>
-			<div className="flex flex-col gap-1.5">
+			<div className="flex flex-col gap-2">
 				<Label className="text-xs font-medium text-fg-secondary">API key</Label>
 				<Input
 					type="password"
@@ -155,7 +155,7 @@ export function ProfileDetails({
 					onClick={handleReset}
 					disabled={!hasChanges || isSaving}
 				>
-					<RefreshIcon className="mr-1 h-3 w-3" />
+					<RefreshCw className="mr-1 h-3.5 w-3.5" />
 					Reset
 				</Button>
 				<Button

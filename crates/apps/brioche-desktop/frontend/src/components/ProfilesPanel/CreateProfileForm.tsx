@@ -64,7 +64,7 @@ export function CreateProfileForm({
 		<div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
 			<h3 className="text-sm font-semibold text-fg-primary">Create profile</h3>
 			<div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-				<div className="flex flex-col gap-1.5">
+				<div className="flex flex-col gap-2">
 					<Label className="text-xs font-medium text-fg-secondary">Name</Label>
 					<Input
 						value={name}
@@ -72,7 +72,7 @@ export function CreateProfileForm({
 						placeholder="e.g. work"
 					/>
 				</div>
-				<div className="flex flex-col gap-1.5">
+				<div className="flex flex-col gap-2">
 					<Label className="text-xs font-medium text-fg-secondary">
 						Display name
 					</Label>
@@ -83,7 +83,7 @@ export function CreateProfileForm({
 					/>
 				</div>
 			</div>
-			<div className="flex flex-col gap-1.5">
+			<div className="flex flex-col gap-2">
 				<Label className="text-xs font-medium text-fg-secondary">Provider</Label>
 				<Select value={provider} onValueChange={setProvider}>
 					<SelectTrigger>
@@ -98,7 +98,7 @@ export function CreateProfileForm({
 					</SelectContent>
 				</Select>
 			</div>
-			<div className="flex flex-col gap-1.5">
+			<div className="flex flex-col gap-2">
 				<Label className="text-xs font-medium text-fg-secondary">Model</Label>
 				<Input
 					value={model}
@@ -106,7 +106,7 @@ export function CreateProfileForm({
 					placeholder="e.g. gpt-4o-mini"
 				/>
 			</div>
-			<div className="flex flex-col gap-1.5">
+			<div className="flex flex-col gap-2">
 				<Label className="text-xs font-medium text-fg-secondary">API key</Label>
 				<Input
 					type="password"

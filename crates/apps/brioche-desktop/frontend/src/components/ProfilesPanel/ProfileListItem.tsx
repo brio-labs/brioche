@@ -29,10 +29,10 @@ export function ProfileListItem({
 				}
 			}}
 			className={cn(
-				"flex cursor-pointer flex-col gap-1.5 rounded-lg border p-3 transition-all duration-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-glow",
+				"flex cursor-pointer flex-col gap-2 rounded-none border p-3 transition-all duration-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-glow",
 				isSelected
-					? "border-accent-dim/40 bg-accent/10 shadow-sm"
-					: "border-transparent bg-transparent hover:border-border/60 hover:bg-bg-elevated/30",
+					? "border-accent-dim/40 bg-bg-highlight shadow-sm"
+					: "border-transparent bg-transparent hover:border-border hover:bg-bg-elevated",
 			)}
 		>
 			<div className="flex items-center justify-between gap-2">
@@ -40,7 +40,7 @@ export function ProfileListItem({
 					{profile.display_name || profile.name}
 				</span>
 				{isActive && (
-					<span className="shrink-0 rounded border border-success-border bg-success-bg px-1.5 py-0.5 text-xs font-bold uppercase text-success-text select-none">
+					<span className="shrink-0 rounded-sm border border-success-border bg-success-bg px-2 py-0.5 text-xs font-bold uppercase text-success-text select-none">
 						Active
 					</span>
 				)}
