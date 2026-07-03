@@ -1714,6 +1714,96 @@ fn engine_with_adaptive_undo_frame_guard_instruments_hooks() {
 }
 
 // ---------------------------------------------------------------------------
+// Direct public method tests
+// ---------------------------------------------------------------------------
+
+struct RebuildRoutesPlugin {
+    name: &'static str,
+    priority: i16,
+    cap: PluginCapabilities,
+}
+
+impl BriochePlugin for RebuildRoutesPlugin {
+    fn name(&self) -> &'static str {
+        self.name
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        self.cap
+    }
+
+    fn priority(&self) -> i16 {
+        self.priority
+    }
+}
+
+#[test]
+fn rebuild_routes_filters_and_reorders_active_plugins() {
+    let mut engine = BriocheEngineBuilder::new()
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .with_plugin(Box::new(RebuildRoutesPlugin {
+            name: "alpha",
+            priority: 0,
+            cap: PluginCapabilities::ON_INPUT,
+        }))
+        .with_plugin(Box::new(RebuildRoutesPlugin {
+            name: "beta",
+            priority: 1,
+            cap: PluginCapabilities::ON_INPUT,
+        }))
+        .with_plugin(Box::new(RebuildRoutesPlugin {
+            name: "gamma",
+            priority: 0,
+            cap: PluginCapabilities::BEFORE_PREDICTION,
+        }))
+        .build();
+
+    assert_eq!(engine.routing_table().route_on_input, vec![0, 1]);
+    assert_eq!(engine.routing_table().route_before_prediction, vec![2]);
+
+    // Disable plugin alpha (index 0); beta and gamma remain active.
+    engine.rebuild_routes(&[false, true, true]);
+
+    assert_eq!(engine.routing_table().route_on_input, vec![1]);
+    assert_eq!(engine.routing_table().route_before_prediction, vec![2]);
+
+    // Re-enable all, then omit later mask entries; missing entries default
+    // to active so the full route is restored.
+    engine.rebuild_routes(&[true, true, true]);
+    assert_eq!(engine.routing_table().route_on_input, vec![0, 1]);
+    assert_eq!(engine.routing_table().route_before_prediction, vec![2]);
+
+    engine.rebuild_routes(&[false]);
+    assert_eq!(engine.routing_table().route_on_input, vec![1]);
+    assert_eq!(engine.routing_table().route_before_prediction, vec![2]);
+}
+
+#[test]
+fn remove_subroutine_returns_session_and_second_remove_returns_none() {
+    let mut engine = BriocheEngineBuilder::new()
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .build();
+
+    let handle = SubRoutineHandle::new("sub-1");
+    let mut subroutine = Session::new("sub-1");
+    subroutine.state = AgentState::Predicting { generation_id: 42 };
+
+    engine.create_subroutine(handle.clone(), subroutine);
+
+    let removed = engine.remove_subroutine(&handle);
+    assert!(removed.is_some(), "expected subroutine to be removed");
+    if let Some(removed) = removed {
+        assert_eq!(removed.id, "sub-1");
+        assert_eq!(removed.state, AgentState::Predicting { generation_id: 42 });
+    }
+
+    let second = engine.remove_subroutine(&handle);
+    assert!(second.is_none(), "second remove should return None");
+}
+
+// ---------------------------------------------------------------------------
 // Production profile wiring tests
 // ---------------------------------------------------------------------------
 

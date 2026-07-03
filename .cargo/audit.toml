@@ -1,36 +1,8 @@
-# cargo-deny configuration for Brioche
-# https://embarkstudios.github.io/cargo-deny/index.html
-
-[graph]
-targets = [
-  { triple = "x86_64-unknown-linux-gnu" },
-  { triple = "aarch64-unknown-linux-gnu" },
-  { triple = "x86_64-pc-windows-msvc" },
-  { triple = "aarch64-apple-darwin" },
-  { triple = "x86_64-apple-darwin" },
-  { triple = "wasm32-unknown-unknown" },
-]
-all-features = true
-
-[licenses]
-confidence-threshold = 0.9
-allow = [
-  "MIT",
-  "Apache-2.0",
-  "Apache-2.0 WITH LLVM-exception",
-  "BSD-3-Clause",
-  "ISC",
-  "MPL-2.0",
-  "Unicode-3.0",
-  "Unicode-DFS-2016",
-  "CC0-1.0",
-  "Zlib",
-  "CDLA-Permissive-2.0",
-  "MIT-0",
-]
+# cargo-audit configuration used by rustsec/audit-check in CI.
+# Keep this list in sync with the `[advisories] ignore` list in `deny.toml`.
+# next review: 2026-10-03
 
 [advisories]
-# next review: 2026-10-03
 ignore = [
   "RUSTSEC-2025-0080", # unic-common unmaintained, inherited transitively by Tauri
   "RUSTSEC-2025-0100", # unic-ucd-ident unmaintained, inherited transitively by Tauri
@@ -51,23 +23,3 @@ ignore = [
   "RUSTSEC-2026-0194", # quick-xml quadratic duplicate check, inherited transitively by Tauri (plist) - review quarterly
   "RUSTSEC-2026-0195", # quick-xml unbounded namespace allocation, inherited transitively by Tauri (plist) - review quarterly
 ]
-
-[bans]
-multiple-versions = "warn"
-# cargo-deny 0.19.x flags `{ workspace = true }` dependencies as wildcards due to
-# an unresolved-workspace-dependency bug, so we keep `allow` here. Revisit once
-# cargo-deny correctly resolves workspace-inherited internal dependencies.
-wildcards = "allow"
-highlight = "all"
-workspace-default-features = "allow"
-external-default-features = "allow"
-allow-workspace = false
-
-[sources]
-unknown-registry = "deny"
-unknown-git = "deny"
-allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = []
-
-[sources.allow-org]
-github = ["brio-labs"]
