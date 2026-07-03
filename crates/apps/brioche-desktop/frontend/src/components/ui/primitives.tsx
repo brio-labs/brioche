@@ -175,6 +175,95 @@ export const Separator = React.forwardRef<
 			)}
 			{...props}
 		/>
-	),
+	)
 );
 Separator.displayName = SeparatorPrimitive.Root.displayName;
+
+/// A theme-aware solid surface panel container.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+export const Panel = React.forwardRef<
+	HTMLDivElement,
+	React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+	<div
+		ref={ref}
+		className={cn(
+			"flex flex-col overflow-hidden border border-border bg-bg-surface",
+			className,
+		)}
+		{...props}
+	/>
+));
+Panel.displayName = "Panel";
+
+/// A theme-aware header container for lists and panels.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+export const SectionHeader = React.forwardRef<
+	HTMLDivElement,
+	React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+	<div
+		ref={ref}
+		className={cn(
+			"flex h-12 shrink-0 items-center justify-between border-b border-border bg-bg-surface px-4 py-3 select-none",
+			className,
+		)}
+		{...props}
+	/>
+));
+SectionHeader.displayName = "SectionHeader";
+
+/// Standard section title text for SectionHeader.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+export const SectionHeaderTitle = React.forwardRef<
+	HTMLHeadingElement,
+	React.HTMLAttributes<HTMLHeadingElement>
+>(({ className, ...props }, ref) => (
+	<h3
+		ref={ref}
+		className={cn(
+			"text-xs font-semibold text-fg-primary tracking-wide",
+			className,
+		)}
+		{...props}
+	/>
+));
+SectionHeaderTitle.displayName = "SectionHeaderTitle";
+
+/// Props for the EmptyState component.
+export interface EmptyStateProps extends React.HTMLAttributes<HTMLDivElement> {
+	icon?: React.ComponentType<{ className?: string }>;
+	title: string;
+	description?: string;
+	action?: React.ReactNode;
+}
+
+/// A unified empty/loading state display.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+export const EmptyState = React.forwardRef<HTMLDivElement, EmptyStateProps>(
+	({ className, icon: Icon, title, description, action, ...props }, ref) => (
+		<div
+			ref={ref}
+			className={cn(
+				"flex flex-1 flex-col items-center justify-center p-6 text-center select-none animate-fadeIn",
+				className,
+			)}
+			{...props}
+		>
+			{Icon && <Icon className="h-8 w-8 text-fg-muted mb-3 stroke-[1.5]" />}
+			<h4 className="text-xs font-semibold text-fg-primary mb-1">{title}</h4>
+			{description && (
+				<p className="text-xs text-fg-muted max-w-[220px] mb-3 leading-relaxed">
+					{description}
+				</p>
+			)}
+			{action}
+		</div>
+	),
+);
+EmptyState.displayName = "EmptyState";
+

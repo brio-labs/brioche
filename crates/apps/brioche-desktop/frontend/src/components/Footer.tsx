@@ -73,7 +73,7 @@ export default function Footer({
             aria-pressed={panels.left}
             aria-label="Sessions"
           >
-            <MessageIcon className="w-4 h-4" />
+            <MessageSquare className="w-4 h-4" />
           </button>
         </Tooltip>
       </FooterSlot>
