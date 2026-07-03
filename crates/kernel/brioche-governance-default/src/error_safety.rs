@@ -251,7 +251,9 @@ impl BriochePlugin for RecoveryPolicy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use brioche_core::{AgentStateTag, Effect, EngineInput, ExtensionStorage, PluginError, SessionSnapshot};
+    use brioche_core::{
+        AgentStateTag, Effect, EngineInput, ExtensionStorage, PluginError, SessionSnapshot,
+    };
 
     #[test]
     fn quarantine_manager_rebuilds_routes_on_fatal() {
@@ -271,7 +273,10 @@ mod tests {
         };
 
         assert!(
-            matches!(decision, PolicyDecision::RequestEffect(Effect::RebuildRoutes)),
+            matches!(
+                decision,
+                PolicyDecision::RequestEffect(Effect::RebuildRoutes)
+            ),
             "quarantine manager should request RebuildRoutes on fatal error"
         );
 

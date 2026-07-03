@@ -708,8 +708,7 @@ mod tests {
             }
         }
 
-        let guard =
-            AdaptiveUndoFrameGuard::new().with_budget_policy(Box::new(FixedBudget(1024)));
+        let guard = AdaptiveUndoFrameGuard::new().with_budget_policy(Box::new(FixedBudget(1024)));
         assert_eq!(guard.effective_max(), 1024);
     }
 

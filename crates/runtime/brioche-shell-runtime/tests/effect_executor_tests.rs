@@ -14,11 +14,11 @@ use brioche_core::{
 use bytes::Bytes;
 use tokio::sync::mpsc;
 
+use brioche_shell_runtime::effect_executor::CpuTaskRegistry;
 use brioche_shell_runtime::{
     BriocheShell, DefaultEffectExecutor, EchoToolExecutor, EffectExecutor, MockLlmClient,
     NoopPersistence, Persistence, PersistenceMode, ShellError,
 };
-use brioche_shell_runtime::effect_executor::CpuTaskRegistry;
 
 // ---------------------------------------------------------------------------
 // Local counting persistence
@@ -44,11 +44,7 @@ impl Persistence for CountingPersistence {
         Ok(())
     }
 
-    async fn save_plugin_blob(
-        &self,
-        plugin_id: &str,
-        data: Vec<u8>,
-    ) -> Result<(), ShellError> {
+    async fn save_plugin_blob(&self, plugin_id: &str, data: Vec<u8>) -> Result<(), ShellError> {
         self.save_plugin_blob_count.fetch_add(1, Ordering::SeqCst);
         if let Ok(mut guard) = self.saved_blobs.lock() {
             guard.push((plugin_id.to_string(), data));
@@ -117,7 +113,10 @@ async fn effect_execute_tools_returns_tool_calls_result() {
 
     let result = input_rx.recv().await.expect("expected ToolCallsResult");
     match result {
-        EngineInput::ToolCallsResult { generation_id, results } => {
+        EngineInput::ToolCallsResult {
+            generation_id,
+            results,
+        } => {
             assert_eq!(generation_id, 42);
             assert_eq!(results.len(), 1);
             assert_eq!(results[0].tool_id, "tc1");

@@ -234,8 +234,8 @@ impl BriochePlugin for SubRoutineTimeoutPolicy {
 mod tests {
     use super::*;
     use brioche_core::{
-        AgentStateTag, EngineInput, ExtensionStorage, SessionSnapshot, SignalBuffer, SubRoutineHandle,
-        SystemSignal, ToolCallDescriptor,
+        AgentStateTag, EngineInput, ExtensionStorage, SessionSnapshot, SignalBuffer,
+        SubRoutineHandle, SystemSignal, ToolCallDescriptor,
     };
 
     #[test]
@@ -277,7 +277,9 @@ mod tests {
 
     fn tick_at(ext: &mut ExtensionStorage, elapsed_ms: u64) {
         let buffer = ext.get_or_insert_default::<SignalBuffer>();
-        buffer.system_signals.push(SystemSignal::Tick { elapsed_ms });
+        buffer
+            .system_signals
+            .push(SystemSignal::Tick { elapsed_ms });
     }
 
     #[test]

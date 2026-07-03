@@ -375,7 +375,10 @@ mod tests {
                 tool_calls: Vec::new(),
             }
         );
-        assert!(matches!(parent.state, AgentState::Predicting { generation_id: 1 }));
+        assert!(matches!(
+            parent.state,
+            AgentState::Predicting { generation_id: 1 }
+        ));
         assert!(effects.contains(&Effect::SaveSession));
         assert!(effects.contains(&Effect::CallLlmNetwork));
     }
@@ -415,7 +418,10 @@ mod tests {
                 content: "sub-routine failed".into(),
             }
         );
-        assert!(matches!(parent.state, AgentState::Predicting { generation_id: 1 }));
+        assert!(matches!(
+            parent.state,
+            AgentState::Predicting { generation_id: 1 }
+        ));
         assert!(effects.contains(&Effect::SaveSession));
         assert!(effects.contains(&Effect::CallLlmNetwork));
     }

@@ -199,7 +199,11 @@ mod tests {
         let broker = NegotiationBroker::with_max_phases(2);
         let mut ext = ExtensionStorage::new();
 
-        let first = run_phase(&broker, vec![PolicyDecision::RequestEffect(Effect::SaveSession)], &mut ext);
+        let first = run_phase(
+            &broker,
+            vec![PolicyDecision::RequestEffect(Effect::SaveSession)],
+            &mut ext,
+        );
         assert!(
             matches!(first, PolicyDecision::RequestEffect(Effect::CallLlmNetwork)),
             "first phase should request another prediction round"
@@ -235,7 +239,10 @@ mod tests {
             vec![PolicyDecision::MutateHistory(vec![edit_one.clone()])],
             &mut ext,
         );
-        assert!(matches!(first, PolicyDecision::RequestEffect(Effect::CallLlmNetwork)));
+        assert!(matches!(
+            first,
+            PolicyDecision::RequestEffect(Effect::CallLlmNetwork)
+        ));
 
         let second = run_phase(
             &broker,

@@ -263,10 +263,7 @@ mod tests {
             snapshot.current_state = AgentStateTag::SubRoutine;
         }
 
-        let decision = match guard.on_input(
-            &EngineInput::UserMessage("deep".into()),
-            &mut ext,
-        ) {
+        let decision = match guard.on_input(&EngineInput::UserMessage("deep".into()), &mut ext) {
             Ok(d) => d,
             Err(_) => {
                 assert!(false, "on_input should succeed");
@@ -293,10 +290,7 @@ mod tests {
             snapshot.current_state = AgentStateTag::SubRoutine;
         }
 
-        let decision = match guard.on_input(
-            &EngineInput::UserMessage("ok".into()),
-            &mut ext,
-        ) {
+        let decision = match guard.on_input(&EngineInput::UserMessage("ok".into()), &mut ext) {
             Ok(d) => d,
             Err(_) => {
                 assert!(false, "on_input should succeed");
