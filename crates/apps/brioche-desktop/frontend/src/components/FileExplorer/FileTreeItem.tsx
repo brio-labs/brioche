@@ -1,6 +1,5 @@
 import { useCallback } from "react";
-import { Folder, FolderOpen } from "lucide-react";
-import { FileIcon } from "../Icons";
+import { Folder, FolderOpen, File } from "lucide-react";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -74,7 +73,7 @@ export default function FileTreeItem({ entry, depth }: FileTreeItemProps) {
         >
           <div
             className={cn(
-              "group flex w-full cursor-pointer items-center gap-2 border border-transparent px-3 py-2 text-fg-secondary transition-all duration-200 hover:border-border-accent hover:bg-accent/5 hover:text-fg-primary",
+              "group flex w-full cursor-pointer items-center gap-2 border border-transparent px-3 py-2 text-fg-secondary transition-all duration-200 hover:bg-bg-elevated hover:text-fg-primary",
             )}
             style={{ paddingLeft: `${0.75 + indent}rem` }}
             onClick={handleClick}
@@ -88,7 +87,7 @@ export default function FileTreeItem({ entry, depth }: FileTreeItemProps) {
                 <Folder className="h-3.5 w-3.5 shrink-0 fill-current text-accent-dim group-hover:text-accent" />
               )
             ) : (
-              <FileIcon className="h-3.5 w-3.5 shrink-0 text-fg-muted group-hover:text-fg-secondary" />
+              <File className="h-3.5 w-3.5 shrink-0 text-fg-muted group-hover:text-fg-secondary" />
             )}
             {isRenamingHere ? (
               <input
@@ -120,13 +119,13 @@ export default function FileTreeItem({ entry, depth }: FileTreeItemProps) {
 
       {isCreatingHere && (
         <div
-          className="flex items-center gap-2 bg-bg-elevated/50 py-2 pr-3"
+          className="flex items-center gap-2 bg-bg-elevated py-2 pr-3"
           style={{ paddingLeft: `${1.5 + indent}rem` }}
         >
           {createType === "folder" ? (
             <Folder className="h-3.5 w-3.5 fill-current text-accent-dim" />
           ) : (
-            <FileIcon className="h-3.5 w-3.5 text-fg-muted" />
+            <File className="h-3.5 w-3.5 text-fg-muted" />
           )}
           <input
             type="text"
