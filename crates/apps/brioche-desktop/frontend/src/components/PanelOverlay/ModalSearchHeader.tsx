@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import { XIcon, SearchIcon } from "../Icons";
+import { X, Search } from "lucide-react";
 
 /**
  * Props for the modal search input header.
@@ -30,7 +30,7 @@ export function ModalSearchHeader({
 }: ModalSearchHeaderProps) {
 	return (
 		<div className="flex items-center gap-3 p-5 border-b border-border">
-			<SearchIcon className="w-4 h-4 shrink-0 text-fg-muted" />
+			<Search className="w-4 h-4 shrink-0 text-fg-muted" />
 			<input
 				ref={inputRef}
 				type="text"
@@ -47,7 +47,7 @@ export function ModalSearchHeader({
 					onClick={onClear}
 					title="Clear search"
 				>
-					<XIcon className="w-3.5 h-3.5" />
+					<X className="w-3.5 h-3.5" />
 				</button>
 			)}
 		</div>

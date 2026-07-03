@@ -1,4 +1,4 @@
-import { SearchIcon } from "../Icons";
+import { Search } from "lucide-react";
 import { cn } from "../ui/lib";
 
 /**
@@ -31,13 +31,13 @@ export function SearchBar({
 			className={cn(
 				"flex items-center gap-2",
 				"px-3 py-2",
-				"rounded-md border border-border bg-bg-elevated/30",
+				"rounded-md border border-border bg-bg-elevated",
 				"transition-all",
 				"focus-within:border-accent-dim/60 focus-within:ring-1 focus-within:ring-accent-dim/30",
 				containerClassName,
 			)}
 		>
-			<SearchIcon className="w-4 h-4 shrink-0 text-fg-muted" />
+			<Search className="w-4 h-4 shrink-0 text-fg-muted" />
 			<input
 				type="text"
 				placeholder={placeholder}

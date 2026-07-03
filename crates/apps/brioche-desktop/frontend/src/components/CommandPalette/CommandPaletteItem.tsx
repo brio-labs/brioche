@@ -17,9 +17,9 @@ export default function CommandPaletteItem({
 	return (
 		<div
 			className={cn(
-				"flex cursor-pointer items-center gap-3 rounded-sm px-4 py-3 text-sm text-fg-secondary transition-all hover:bg-accent/10 hover:text-fg-primary",
+				"flex cursor-pointer items-center gap-3 rounded-sm px-4 py-3 text-sm text-fg-secondary transition-all hover:bg-bg-elevated hover:text-fg-primary",
 				isSelected &&
-					"border-l-2 border-accent bg-accent/10 text-fg-primary",
+					"border-l-2 border-accent bg-bg-highlight text-fg-primary",
 			)}
 			onClick={() => {
 				cmd.action();
@@ -32,7 +32,7 @@ export default function CommandPaletteItem({
 			</div>
 			<div className="flex-1">{cmd.label}</div>
 			{cmd.shortcut && (
-				<div className="rounded bg-bg-highlight px-1.5 py-0.5 font-mono text-xs text-fg-muted">
+				<div className="rounded-sm bg-bg-highlight px-2 py-0.5 font-mono text-xs text-fg-muted">
 					{cmd.shortcut}
 				</div>
 			)}

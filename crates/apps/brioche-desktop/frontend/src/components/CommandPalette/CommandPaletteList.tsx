@@ -21,7 +21,7 @@ export default function CommandPaletteList({
 		<div className="flex-1 min-h-0 overflow-y-auto p-4">
 			{Object.entries(grouped).map(([groupName, items]) => (
 				<div key={groupName} className="mb-3">
-					<div className="select-none px-3 py-2 text-xs font-bold uppercase tracking-wider text-fg-muted">
+					<div className="select-none px-3 py-2 text-xs font-medium text-fg-muted">
 						{groupName}
 					</div>
 					{items.map((cmd) => {

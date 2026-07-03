@@ -1,11 +1,11 @@
 import {
-	MessageIcon,
-	SettingsIcon,
-	TerminalIcon,
-	PlusIcon,
-	ExportIcon,
-	XIcon,
-} from "../Icons";
+	Plus,
+	X,
+	Download,
+	MessageSquare,
+	Terminal,
+	Settings,
+} from "lucide-react";
 import type { Command } from "./CommandPalette.types";
 
 export interface BuildCommandsHandlers {
@@ -24,7 +24,7 @@ export function buildCommands(handlers: BuildCommandsHandlers): Command[] {
 			label: "New Session",
 			shortcut: "⌘N",
 			group: "Session",
-			icon: <PlusIcon />,
+			icon: <Plus />,
 			action: handlers.newSession,
 		},
 		{
@@ -32,7 +32,7 @@ export function buildCommands(handlers: BuildCommandsHandlers): Command[] {
 			label: "Clear Chat",
 			shortcut: "⌘K C",
 			group: "Session",
-			icon: <XIcon />,
+			icon: <X />,
 			action: handlers.clearChat,
 		},
 		{
@@ -40,7 +40,7 @@ export function buildCommands(handlers: BuildCommandsHandlers): Command[] {
 			label: "Export Chat",
 			shortcut: "⌘E",
 			group: "Session",
-			icon: <ExportIcon />,
+			icon: <Download />,
 			action: handlers.exportChat,
 		},
 		{
@@ -48,7 +48,7 @@ export function buildCommands(handlers: BuildCommandsHandlers): Command[] {
 			label: "Toggle Sessions Panel",
 			shortcut: "⌘B",
 			group: "View",
-			icon: <MessageIcon />,
+			icon: <MessageSquare />,
 			action: handlers.toggleSessions,
 		},
 		{
@@ -56,7 +56,7 @@ export function buildCommands(handlers: BuildCommandsHandlers): Command[] {
 			label: "Toggle Files Panel",
 			shortcut: "⌘J",
 			group: "View",
-			icon: <TerminalIcon />,
+			icon: <Terminal />,
 			action: handlers.toggleFiles,
 		},
 		{
@@ -64,7 +64,7 @@ export function buildCommands(handlers: BuildCommandsHandlers): Command[] {
 			label: "Settings",
 			shortcut: "⌘,",
 			group: "Settings",
-			icon: <SettingsIcon />,
+			icon: <Settings />,
 			action: handlers.openSettings,
 		},
 	];

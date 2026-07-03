@@ -32,8 +32,8 @@ export function CategoryFilter({
 				className={cn(
 					"rounded-md border px-3 py-1 text-xs font-medium transition-all",
 					!activeCategory
-						? "border-accent/30 bg-accent/20 text-fg-primary"
-						: "border-border/50 bg-bg-elevated/50 text-fg-muted hover:text-fg-secondary",
+						? "border-accent bg-accent text-accent-text"
+						: "border-border bg-bg-elevated text-fg-muted hover:bg-bg-highlight hover:text-fg-secondary",
 					buttonClassName,
 				)}
 				onClick={() => onSelect(null)}
@@ -49,8 +49,8 @@ export function CategoryFilter({
 						className={cn(
 							"rounded-md border px-3 py-1 text-xs font-medium transition-all",
 							isActive
-								? "border-accent/30 bg-accent/20 text-fg-primary"
-								: "border-border/50 bg-bg-elevated/50 text-fg-muted hover:text-fg-secondary",
+								? "border-accent bg-accent text-accent-text"
+								: "border-border bg-bg-elevated text-fg-muted hover:bg-bg-highlight hover:text-fg-secondary",
 							buttonClassName,
 						)}
 						onClick={() => onSelect(cat)}
