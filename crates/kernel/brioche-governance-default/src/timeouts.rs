@@ -232,14 +232,14 @@ impl BriochePlugin for SubRoutineTimeoutPolicy {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+        use super::*;
     use brioche_core::{
-        AgentStateTag, EngineInput, ExtensionStorage, SessionSnapshot, SignalBuffer,
+        AgentStateTag, EngineInput, ExtensionStorage, PluginError, SessionSnapshot, SignalBuffer,
         SubRoutineHandle, SystemSignal, ToolCallDescriptor,
     };
 
     #[test]
-    fn tool_timeout_policy_applies_default_when_missing() {
+    fn tool_timeout_policy_applies_default_when_missing() -> Result<(), PluginError> {
         let policy = ToolTimeoutPolicy::with_default_timeout(15000);
         let mut ext = ExtensionStorage::new();
         let mut calls = vec![ToolCallDescriptor {
@@ -249,13 +249,13 @@ mod tests {
             timeout_ms: None,
         }];
 
-        let result = policy.on_tool_calls(&mut calls, &mut ext);
-        assert!(result.is_ok());
+        policy.on_tool_calls(&mut calls, &mut ext)?;
         assert_eq!(calls[0].timeout_ms, Some(15000));
+        Ok(())
     }
 
     #[test]
-    fn tool_timeout_policy_caps_to_max() {
+    fn tool_timeout_policy_caps_to_max() -> Result<(), PluginError> {
         let policy = ToolTimeoutPolicy::with_bounds(10000, 20000);
         let mut ext = ExtensionStorage::new();
         let mut calls = vec![ToolCallDescriptor {
@@ -265,9 +265,9 @@ mod tests {
             timeout_ms: Some(50000),
         }];
 
-        let result = policy.on_tool_calls(&mut calls, &mut ext);
-        assert!(result.is_ok());
+        policy.on_tool_calls(&mut calls, &mut ext)?;
         assert_eq!(calls[0].timeout_ms, Some(20000));
+        Ok(())
     }
 
     fn subroutine_snapshot(ext: &mut ExtensionStorage) {
@@ -283,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn subroutine_timeout_policy_flags_expired_timer() {
+    fn subroutine_timeout_policy_flags_expired_timer() -> Result<(), PluginError> {
         let policy = SubRoutineTimeoutPolicy::new();
         let mut ext = ExtensionStorage::new();
         let handle = SubRoutineHandle::new("sub");
@@ -296,13 +296,7 @@ mod tests {
             state.timers.insert(handle.clone(), (0, 100));
         }
 
-        let decision = match policy.on_input(&EngineInput::UserMessage("tick".into()), &mut ext) {
-            Ok(d) => d,
-            Err(_) => {
-                assert!(false, "on_input should succeed");
-                return;
-            }
-        };
+        let decision = policy.on_input(&EngineInput::UserMessage("tick".into()), &mut ext)?;
 
         assert!(
             matches!(decision, PolicyDecision::Block { .. }),
@@ -312,10 +306,11 @@ mod tests {
         let state = ext.get_or_insert_default::<SubRoutineTimerState>();
         assert!(!state.timers.contains_key(&handle));
         assert_eq!(state.last_tick_ms, 101);
+        Ok(())
     }
 
     #[test]
-    fn subroutine_timeout_policy_allows_active_timer() {
+    fn subroutine_timeout_policy_allows_active_timer() -> Result<(), PluginError> {
         let policy = SubRoutineTimeoutPolicy::new();
         let mut ext = ExtensionStorage::new();
         let handle = SubRoutineHandle::new("sub");
@@ -327,22 +322,17 @@ mod tests {
             state.timers.insert(handle.clone(), (0, 100));
         }
 
-        let decision = match policy.on_input(&EngineInput::UserMessage("tick".into()), &mut ext) {
-            Ok(d) => d,
-            Err(_) => {
-                assert!(false, "on_input should succeed");
-                return;
-            }
-        };
+        let decision = policy.on_input(&EngineInput::UserMessage("tick".into()), &mut ext)?;
 
         assert!(matches!(decision, PolicyDecision::Allow));
 
         let state = ext.get_or_insert_default::<SubRoutineTimerState>();
         assert!(state.timers.contains_key(&handle));
+        Ok(())
     }
 
     #[test]
-    fn subroutine_timeout_policy_clears_timers_outside_subroutine() {
+    fn subroutine_timeout_policy_clears_timers_outside_subroutine() -> Result<(), PluginError> {
         let policy = SubRoutineTimeoutPolicy::new();
         let mut ext = ExtensionStorage::new();
         let handle = SubRoutineHandle::new("sub");
@@ -354,17 +344,12 @@ mod tests {
             state.timers.insert(handle.clone(), (0, 100));
         }
 
-        let decision = match policy.on_input(&EngineInput::UserMessage("exit".into()), &mut ext) {
-            Ok(d) => d,
-            Err(_) => {
-                assert!(false, "on_input should succeed");
-                return;
-            }
-        };
+        let decision = policy.on_input(&EngineInput::UserMessage("exit".into()), &mut ext)?;
 
         assert!(matches!(decision, PolicyDecision::Allow));
 
         let state = ext.get_or_insert_default::<SubRoutineTimerState>();
         assert!(state.timers.is_empty());
+        Ok(())
     }
 }

@@ -694,6 +694,7 @@ dependencies = [
  "async-trait",
  "brioche-core",
  "brioche-governance-default",
+ "brioche-shell-persistence",
  "bytes",
  "criterion",
  "postcard",

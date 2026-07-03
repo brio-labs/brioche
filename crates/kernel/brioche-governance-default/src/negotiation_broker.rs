@@ -141,25 +141,19 @@ impl DecisionAggregator for NegotiationBroker {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use brioche_core::{Effect, ExtensionStorage, HistoryEdit, PolicyDecision};
+        use super::*;
+    use brioche_core::{Effect, ExtensionStorage, HistoryEdit, PluginError, PolicyDecision};
 
     fn run_phase(
         broker: &NegotiationBroker,
         decisions: Vec<PolicyDecision>,
         ext: &mut ExtensionStorage,
-    ) -> PolicyDecision {
-        match broker.aggregate_decisions(decisions, ext) {
-            Ok(d) => d,
-            Err(_) => {
-                assert!(false, "aggregate_decisions should succeed");
-                PolicyDecision::Allow
-            }
-        }
+    ) -> Result<PolicyDecision, PluginError> {
+        broker.aggregate_decisions(decisions, ext)
     }
 
     #[test]
-    fn broker_settles_immediately_on_block() {
+    fn broker_settles_immediately_on_block() -> Result<(), PluginError> {
         let broker = NegotiationBroker::new();
         let mut ext = ExtensionStorage::new();
 
@@ -170,7 +164,7 @@ mod tests {
             },
         ];
 
-        let result = run_phase(&broker, decisions, &mut ext);
+        let result = run_phase(&broker, decisions, &mut ext)?;
 
         assert_eq!(
             result,
@@ -178,10 +172,11 @@ mod tests {
                 reason: "stop".into()
             }
         );
+        Ok(())
     }
 
     #[test]
-    fn broker_settles_when_all_allow() {
+    fn broker_settles_when_all_allow() -> Result<(), PluginError> {
         let broker = NegotiationBroker::new();
         let mut ext = ExtensionStorage::new();
 
@@ -189,13 +184,14 @@ mod tests {
             &broker,
             vec![PolicyDecision::Allow, PolicyDecision::Allow],
             &mut ext,
-        );
+        )?;
 
         assert!(matches!(result, PolicyDecision::Allow));
+        Ok(())
     }
 
     #[test]
-    fn broker_runs_up_to_max_phases() {
+    fn broker_runs_up_to_max_phases() -> Result<(), PluginError> {
         let broker = NegotiationBroker::with_max_phases(2);
         let mut ext = ExtensionStorage::new();
 
@@ -203,21 +199,22 @@ mod tests {
             &broker,
             vec![PolicyDecision::RequestEffect(Effect::SaveSession)],
             &mut ext,
-        );
+        )?;
         assert!(
             matches!(first, PolicyDecision::RequestEffect(Effect::CallLlmNetwork)),
             "first phase should request another prediction round"
         );
 
-        let second = run_phase(&broker, vec![PolicyDecision::Allow], &mut ext);
+        let second = run_phase(&broker, vec![PolicyDecision::Allow], &mut ext)?;
         assert!(
             matches!(second, PolicyDecision::RequestEffect(Effect::SaveSession)),
             "second phase should settle and return the accumulated effect"
         );
+        Ok(())
     }
 
     #[test]
-    fn broker_accumulates_mutate_history() {
+    fn broker_accumulates_mutate_history() -> Result<(), PluginError> {
         let broker = NegotiationBroker::with_max_phases(2);
         let mut ext = ExtensionStorage::new();
 
@@ -238,7 +235,7 @@ mod tests {
             &broker,
             vec![PolicyDecision::MutateHistory(vec![edit_one.clone()])],
             &mut ext,
-        );
+        )?;
         assert!(matches!(
             first,
             PolicyDecision::RequestEffect(Effect::CallLlmNetwork)
@@ -251,28 +248,31 @@ mod tests {
                 PolicyDecision::MutateHistory(vec![edit_two.clone()]),
             ],
             &mut ext,
-        );
+        )?;
 
-        match second {
-            PolicyDecision::MutateHistory(edits) => {
-                assert_eq!(edits.len(), 2);
-                assert_eq!(edits[0], edit_one);
-                assert_eq!(edits[1], edit_two);
-            }
-            _ => assert!(false, "expected combined MutateHistory"),
-        }
+        let PolicyDecision::MutateHistory(edits) = second else {
+            return Err(PluginError::Fatal {
+                plugin_name: "negotiation_broker_test".into(),
+                message: "expected combined MutateHistory".into(),
+            });
+        };
+        assert_eq!(edits.len(), 2);
+        assert_eq!(edits[0], edit_one);
+        assert_eq!(edits[1], edit_two);
+        Ok(())
     }
 
     #[test]
-    fn broker_resets_state_after_settlement() {
+    fn broker_resets_state_after_settlement() -> Result<(), PluginError> {
         let broker = NegotiationBroker::new();
         let mut ext = ExtensionStorage::new();
 
-        let _ = run_phase(&broker, vec![PolicyDecision::Allow], &mut ext);
+        let _ = run_phase(&broker, vec![PolicyDecision::Allow], &mut ext)?;
 
         let state = ext.get_or_insert_default::<NegotiationState>();
         assert_eq!(state.current_phase, 0);
         assert!(state.phase_decisions.is_empty());
         assert!(!state.settled);
+        Ok(())
     }
 }

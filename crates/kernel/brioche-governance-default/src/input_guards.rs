@@ -237,8 +237,8 @@ impl BriochePlugin for JsonArgumentAccumulator {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use brioche_core::{AgentStateTag, EngineInput, ExtensionStorage, SessionSnapshot};
+        use super::*;
+    use brioche_core::{AgentStateTag, EngineInput, ExtensionStorage, PluginError, SessionSnapshot};
 
     #[test]
     fn calculate_depth_adds_one_in_subroutine() {
@@ -254,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn depth_guard_blocks_at_limit() {
+    fn depth_guard_blocks_at_limit() -> Result<(), PluginError> {
         let guard = DepthGuard::with_max_depth(5);
         let mut ext = ExtensionStorage::new();
         {
@@ -263,13 +263,7 @@ mod tests {
             snapshot.current_state = AgentStateTag::SubRoutine;
         }
 
-        let decision = match guard.on_input(&EngineInput::UserMessage("deep".into()), &mut ext) {
-            Ok(d) => d,
-            Err(_) => {
-                assert!(false, "on_input should succeed");
-                return;
-            }
-        };
+        let decision = guard.on_input(&EngineInput::UserMessage("deep".into()), &mut ext)?;
 
         assert!(
             matches!(decision, PolicyDecision::OverrideTransition(_)),
@@ -278,10 +272,11 @@ mod tests {
 
         let state = ext.get_or_insert_default::<DepthState>();
         assert_eq!(state.current_depth, 5);
+        Ok(())
     }
 
     #[test]
-    fn depth_guard_allows_below_limit() {
+    fn depth_guard_allows_below_limit() -> Result<(), PluginError> {
         let guard = DepthGuard::with_max_depth(5);
         let mut ext = ExtensionStorage::new();
         {
@@ -290,22 +285,17 @@ mod tests {
             snapshot.current_state = AgentStateTag::SubRoutine;
         }
 
-        let decision = match guard.on_input(&EngineInput::UserMessage("ok".into()), &mut ext) {
-            Ok(d) => d,
-            Err(_) => {
-                assert!(false, "on_input should succeed");
-                return;
-            }
-        };
+        let decision = guard.on_input(&EngineInput::UserMessage("ok".into()), &mut ext)?;
 
         assert!(matches!(decision, PolicyDecision::Allow));
 
         let state = ext.get_or_insert_default::<DepthState>();
         assert_eq!(state.current_depth, 4);
+        Ok(())
     }
 
     #[test]
-    fn json_argument_accumulator_collects_fragments() {
+    fn json_argument_accumulator_collects_fragments() -> Result<(), PluginError> {
         let accumulator = JsonArgumentAccumulator::new();
         let mut ext = ExtensionStorage::new();
         let path = brioche_core::ExecutionPath::default();
@@ -324,23 +314,18 @@ mod tests {
         ];
 
         for event in &events {
-            let action = match accumulator.on_stream_event(event, &mut ext) {
-                Ok(a) => a,
-                Err(_) => {
-                    assert!(false, "on_stream_event should succeed");
-                    return;
-                }
-            };
+            let action = accumulator.on_stream_event(event, &mut ext)?;
             assert!(matches!(action, StreamAction::Pass));
         }
 
         let state = ext.get_or_insert_default::<JsonArgumentAccumulatorState>();
         assert_eq!(state.accumulated.get("tc1"), Some(&"{\"x\":1}".to_string()));
         assert_eq!(state.total_fragments, 2);
+        Ok(())
     }
 
     #[test]
-    fn json_argument_accumulator_clears_on_done() {
+    fn json_argument_accumulator_clears_on_done() -> Result<(), PluginError> {
         let accumulator = JsonArgumentAccumulator::new();
         let mut ext = ExtensionStorage::new();
 
@@ -354,16 +339,11 @@ mod tests {
         let done = StreamEvent::ToolCallDone {
             path: brioche_core::ExecutionPath::default(),
         };
-        let action = match accumulator.on_stream_event(&done, &mut ext) {
-            Ok(a) => a,
-            Err(_) => {
-                assert!(false, "on_stream_event should succeed");
-                return;
-            }
-        };
+        let action = accumulator.on_stream_event(&done, &mut ext)?;
 
         assert!(matches!(action, StreamAction::Pass));
         let state = ext.get_or_insert_default::<JsonArgumentAccumulatorState>();
         assert!(state.accumulated.is_empty());
+        Ok(())
     }
 }

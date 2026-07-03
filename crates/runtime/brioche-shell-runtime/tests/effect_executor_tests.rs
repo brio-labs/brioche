@@ -31,8 +31,10 @@ struct CountingPersistence {
     save_plugin_blob_count: Arc<AtomicU64>,
     gc_count: Arc<AtomicU64>,
     saved_sessions: Arc<Mutex<Vec<String>>>,
-    saved_blobs: Arc<Mutex<Vec<(String, Vec<u8>)>>>,
+    saved_blobs: Arc<Mutex<Vec<BlobRecord>>>,
 }
+
+type BlobRecord = (String, Vec<u8>);
 
 #[async_trait]
 impl Persistence for CountingPersistence {
@@ -63,14 +65,14 @@ impl Persistence for CountingPersistence {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn effect_call_llm_network_streams_text_chunks() {
+async fn effect_call_llm_network_streams_text_chunks() -> Result<(), ShellError> {
     let (input_tx, mut input_rx) = mpsc::channel(16);
     let (async_tx, _async_rx) = mpsc::channel(1);
     let shell = BriocheShell::test_with_loopback_channels(input_tx, async_tx);
     let executor =
         DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), NoopPersistence);
 
-    executor.call_llm(&shell).await.unwrap();
+    executor.call_llm(&shell).await?;
 
     let mut chunks = Vec::new();
     let mut saw_done = false;
@@ -92,10 +94,11 @@ async fn effect_call_llm_network_streams_text_chunks() {
         chunks,
         vec![Bytes::from("Hello"), Bytes::from(" "), Bytes::from("world")]
     );
+    Ok(())
 }
 
 #[tokio::test]
-async fn effect_execute_tools_returns_tool_calls_result() {
+async fn effect_execute_tools_returns_tool_calls_result() -> Result<(), ShellError> {
     let (input_tx, mut input_rx) = mpsc::channel(16);
     let (async_tx, _async_rx) = mpsc::channel(1);
     let shell = BriocheShell::test_with_loopback_channels(input_tx, async_tx);
@@ -109,32 +112,38 @@ async fn effect_execute_tools_returns_tool_calls_result() {
         timeout_ms: 1000,
     }];
 
-    executor.execute_tools(calls, 42, &shell).await.unwrap();
+    executor.execute_tools(calls, 42, &shell).await?;
 
-    let result = input_rx.recv().await.expect("expected ToolCallsResult");
-    match result {
-        EngineInput::ToolCallsResult {
-            generation_id,
-            results,
-        } => {
-            assert_eq!(generation_id, 42);
-            assert_eq!(results.len(), 1);
-            assert_eq!(results[0].tool_id, "tc1");
-            assert_eq!(results[0].tool_name, "echo");
-            assert!(
-                matches!(
-                    &results[0].outcome,
-                    ToolOutcome::Success(s) if s == "{\"msg\":\"hi\"}"
-                ),
-                "echo executor should return arguments as success"
-            );
-        }
-        other => panic!("expected ToolCallsResult, got {:?}", other),
-    }
+    let result = input_rx
+        .recv()
+        .await
+        .ok_or_else(|| ShellError::EffectExecution("expected ToolCallsResult".into()))?;
+    let EngineInput::ToolCallsResult {
+        generation_id,
+        results,
+    } = result
+    else {
+        return Err(ShellError::EffectExecution(format!(
+            "expected ToolCallsResult, got {:?}",
+            result
+        )));
+    };
+    assert_eq!(generation_id, 42);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].tool_id, "tc1");
+    assert_eq!(results[0].tool_name, "echo");
+    assert!(
+        matches!(
+            &results[0].outcome,
+            ToolOutcome::Success(s) if s == "{\"msg\":\"hi\"}"
+        ),
+        "echo executor should return arguments as success"
+    );
+    Ok(())
 }
 
 #[tokio::test]
-async fn effect_forward_to_ui_forwards_widget() {
+async fn effect_forward_to_ui_forwards_widget() -> Result<(), ShellError> {
     let received = Arc::new(Mutex::new(None));
     let received_clone = Arc::clone(&received);
     let executor =
@@ -144,31 +153,33 @@ async fn effect_forward_to_ui_forwards_widget() {
             });
 
     let widget = UiWidget::Status("ready".into());
-    executor.forward_to_ui(widget.clone()).await.unwrap();
+    executor.forward_to_ui(widget.clone()).await?;
 
-    let guard = received.lock().expect("mutex poisoned");
+    let guard = received
+        .lock()
+        .map_err(|_| ShellError::EffectExecution("mutex poisoned".into()))?;
     assert_eq!(*guard, Some(widget));
+    Ok(())
 }
 
 #[tokio::test]
-async fn effect_error_logs_and_succeeds() {
+async fn effect_error_logs_and_succeeds() -> Result<(), ShellError> {
     let executor =
         DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), NoopPersistence);
 
-    let result = executor
+    executor
         .log_error(
             ErrorCode::StateInconsistency,
             ErrorDetail::TransitionFailed {
                 reason: "test error".into(),
             },
         )
-        .await;
-
-    assert!(result.is_ok());
+        .await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn effect_save_session_persists() {
+async fn effect_save_session_persists() -> Result<(), ShellError> {
     let persistence = CountingPersistence::default();
     let executor = DefaultEffectExecutor::new(
         EchoToolExecutor,
@@ -177,19 +188,23 @@ async fn effect_save_session_persists() {
     )
     .with_persistence_mode(PersistenceMode::Sync);
 
-    executor.save_session("session-abc").await.unwrap();
+    executor.save_session("session-abc").await?;
 
     assert_eq!(
         persistence.save_session_count.load(Ordering::SeqCst),
         1,
         "save_session should be called once"
     );
-    let sessions = persistence.saved_sessions.lock().expect("mutex poisoned");
+    let sessions = persistence
+        .saved_sessions
+        .lock()
+        .map_err(|_| ShellError::EffectExecution("mutex poisoned".into()))?;
     assert_eq!(sessions.as_slice(), &["session-abc"]);
+    Ok(())
 }
 
 #[tokio::test]
-async fn effect_save_plugin_blob_persists() {
+async fn effect_save_plugin_blob_persists() -> Result<(), ShellError> {
     let persistence = CountingPersistence::default();
     let executor = DefaultEffectExecutor::new(
         EchoToolExecutor,
@@ -200,20 +215,23 @@ async fn effect_save_plugin_blob_persists() {
     let data = vec![1, 2, 3, 4];
     executor
         .save_plugin_blob("plugin-xyz", data.clone())
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(
         persistence.save_plugin_blob_count.load(Ordering::SeqCst),
         1,
         "save_plugin_blob should be called once"
     );
-    let blobs = persistence.saved_blobs.lock().expect("mutex poisoned");
+    let blobs = persistence
+        .saved_blobs
+        .lock()
+        .map_err(|_| ShellError::EffectExecution("mutex poisoned".into()))?;
     assert_eq!(blobs.as_slice(), &[("plugin-xyz".into(), data)]);
+    Ok(())
 }
 
 #[tokio::test]
-async fn effect_trigger_summarization_emits_async_result() {
+async fn effect_trigger_summarization_emits_async_result() -> Result<(), ShellError> {
     let (input_tx, _input_rx) = mpsc::channel(1);
     let (async_tx, mut async_rx) = mpsc::channel(4);
     let shell = BriocheShell::test_with_loopback_channels(input_tx, async_tx);
@@ -238,12 +256,12 @@ async fn effect_trigger_summarization_emits_async_result() {
         DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), NoopPersistence)
             .with_history(Arc::clone(&history));
 
-    executor.trigger_summarization(&shell).await.unwrap();
+    executor.trigger_summarization(&shell).await?;
 
     let result = async_rx
         .recv()
         .await
-        .expect("expected SummarizationDone async task result");
+        .ok_or_else(|| ShellError::EffectExecution("expected SummarizationDone async task result".into()))?;
     assert!(
         matches!(
             result,
@@ -255,10 +273,11 @@ async fn effect_trigger_summarization_emits_async_result() {
         "expected summarization of 3 messages, got {:?}",
         result
     );
+    Ok(())
 }
 
 #[tokio::test]
-async fn effect_execute_cpu_task_dispatches_registry() {
+async fn effect_execute_cpu_task_dispatches_registry() -> Result<(), ShellError> {
     let (input_tx, _input_rx) = mpsc::channel(1);
     let (async_tx, mut async_rx) = mpsc::channel(4);
     let shell = BriocheShell::test_with_loopback_channels(input_tx, async_tx);
@@ -272,13 +291,12 @@ async fn effect_execute_cpu_task_dispatches_registry() {
 
     executor
         .execute_cpu_task("double".into(), vec![1, 2, 3], &shell)
-        .await
-        .unwrap();
+        .await?;
 
     let result = async_rx
         .recv()
         .await
-        .expect("expected CpuTaskDone async task result");
+        .ok_or_else(|| ShellError::EffectExecution("expected CpuTaskDone async task result".into()))?;
     assert_eq!(
         result,
         AsyncTaskResult::CpuTaskDone {
@@ -286,10 +304,11 @@ async fn effect_execute_cpu_task_dispatches_registry() {
             result: vec![1, 1, 2, 2, 3, 3],
         }
     );
+    Ok(())
 }
 
 #[tokio::test]
-async fn effect_trigger_gc_calls_persistence() {
+async fn effect_trigger_gc_calls_persistence() -> Result<(), ShellError> {
     let persistence = CountingPersistence::default();
     let executor = DefaultEffectExecutor::new(
         EchoToolExecutor,
@@ -300,40 +319,39 @@ async fn effect_trigger_gc_calls_persistence() {
     let (async_tx, _async_rx) = mpsc::channel(1);
     let _shell = BriocheShell::test_with_loopback_channels(input_tx, async_tx);
 
-    executor.trigger_gc("session-gc").await.unwrap();
+    executor.trigger_gc("session-gc").await?;
 
     assert_eq!(
         persistence.gc_count.load(Ordering::SeqCst),
         1,
         "gc should be invoked once"
     );
+    Ok(())
 }
 
 #[tokio::test]
-async fn effect_system_idle_is_no_op() {
+async fn effect_system_idle_is_no_op() -> Result<(), ShellError> {
     let (input_tx, _input_rx) = mpsc::channel(1);
     let (async_tx, _async_rx) = mpsc::channel(1);
     let shell = BriocheShell::test_with_loopback_channels(input_tx, async_tx);
     let executor =
         DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), NoopPersistence);
 
-    let result = executor.on_system_idle(&shell, "session-idle").await;
-
-    assert!(result.is_ok());
+    executor.on_system_idle(&shell, "session-idle").await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn effect_rebuild_routes_is_no_op() {
+async fn effect_rebuild_routes_is_no_op() -> Result<(), ShellError> {
     let executor =
         DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), NoopPersistence);
 
-    let result = executor.rebuild_routes().await;
-
-    assert!(result.is_ok());
+    executor.rebuild_routes().await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn effect_sub_routine_restored_invokes_callback() {
+async fn effect_sub_routine_restored_invokes_callback() -> Result<(), ShellError> {
     let received = Arc::new(Mutex::new(None));
     let received_clone = Arc::clone(&received);
     let executor =
@@ -345,8 +363,11 @@ async fn effect_sub_routine_restored_invokes_callback() {
             });
 
     let handle = SubRoutineHandle::new("sub-42");
-    executor.sub_routine_restored(handle).await.unwrap();
+    executor.sub_routine_restored(handle).await?;
 
-    let guard = received.lock().expect("mutex poisoned");
+    let guard = received
+        .lock()
+        .map_err(|_| ShellError::EffectExecution("mutex poisoned".into()))?;
     assert_eq!(*guard, Some("sub-42".to_string()));
+    Ok(())
 }

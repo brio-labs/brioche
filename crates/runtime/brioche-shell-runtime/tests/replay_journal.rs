@@ -78,20 +78,18 @@ impl BriochePlugin for FaultPlugin {
         input: &EngineInput,
         _ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
-        if let EngineInput::UserMessage(content) = input {
-            if content == self.trigger {
-                return Err(PluginError::Fatal {
-                    plugin_name: "fault_plugin".into(),
-                    message: "simulated fatal fault".into(),
-                });
-            }
+        if let EngineInput::UserMessage(content) = input && content == self.trigger {
+            return Err(PluginError::Fatal {
+                plugin_name: "fault_plugin".into(),
+                message: "simulated fatal fault".into(),
+            });
         }
         Ok(PolicyDecision::Allow)
     }
 }
 
 #[test]
-fn replay_journal_user_message_sequence() {
+fn replay_journal_user_message_sequence() -> Result<(), Box<dyn std::error::Error>> {
     let journal = TransitionJournal::new();
     let mut engine = build_engine();
     let mut session = Session::new("journal_replay");
@@ -124,7 +122,7 @@ fn replay_journal_user_message_sequence() {
                 recovered_effects.push(recovered_engine.transition(&mut recovered_session, input));
             }
             JournalEntry::Oversized { .. } => {
-                std::process::abort();
+                return Err("oversized journal entry".into());
             }
         }
     }
@@ -142,10 +140,11 @@ fn replay_journal_user_message_sequence() {
         recovered_session.history.len(),
         "history lengths diverged after journal replay"
     );
+    Ok(())
 }
 
 #[test]
-fn replay_journal_acknowledge_then_empty() {
+fn replay_journal_acknowledge_then_empty() -> Result<(), Box<dyn std::error::Error>> {
     let journal = TransitionJournal::new();
     let mut engine = build_engine();
     let mut session = Session::new("ack");
@@ -169,10 +168,11 @@ fn replay_journal_acknowledge_then_empty() {
 
     // Unacknowledged bytes should be zero.
     assert_eq!(journal.unacknowledged_bytes(), 0);
+    Ok(())
 }
 
 #[test]
-fn replay_journal_partial_acknowledge() {
+fn replay_journal_partial_acknowledge() -> Result<(), Box<dyn std::error::Error>> {
     let journal = TransitionJournal::new();
 
     let inputs = vec![
@@ -194,6 +194,7 @@ fn replay_journal_partial_acknowledge() {
     journal.acknowledge_all();
     let after_ack = journal.read_unacknowledged();
     assert!(after_ack.is_empty());
+    Ok(())
 }
 
 #[test]
@@ -255,7 +256,7 @@ fn replay_journal_tool_call_sequence() -> Result<(), Box<dyn std::error::Error>>
                 recovered_effects.push(recovered_engine.transition(&mut recovered_session, input));
             }
             JournalEntry::Oversized { .. } => {
-                std::process::abort();
+                return Err("oversized journal entry".into());
             }
         }
     }
@@ -315,7 +316,7 @@ fn replay_journal_subroutine_restore() -> Result<(), Box<dyn std::error::Error>>
                 recovered_effects.push(recovered_engine.transition(&mut recovered_session, input));
             }
             JournalEntry::Oversized { .. } => {
-                std::process::abort();
+                return Err("oversized journal entry".into());
             }
         }
     }
@@ -390,7 +391,7 @@ fn replay_journal_epoch_mismatch() -> Result<(), Box<dyn std::error::Error>> {
                 recovered_effects.push(recovered_engine.transition(&mut recovered_session, input));
             }
             JournalEntry::Oversized { .. } => {
-                std::process::abort();
+                return Err("oversized journal entry".into());
             }
         }
     }
@@ -443,7 +444,7 @@ fn replay_journal_plugin_fault() -> Result<(), Box<dyn std::error::Error>> {
                 recovered_effects.push(recovered_engine.transition(&mut recovered_session, input));
             }
             JournalEntry::Oversized { .. } => {
-                std::process::abort();
+                return Err("oversized journal entry".into());
             }
         }
     }
@@ -526,7 +527,7 @@ fn replay_journal_wraparound() -> Result<(), Box<dyn std::error::Error>> {
                 recovered_effects.push(recovered_engine.transition(&mut recovered_session, input));
             }
             JournalEntry::Oversized { .. } => {
-                std::process::abort();
+                return Err("oversized journal entry".into());
             }
         }
     }
