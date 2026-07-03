@@ -49,7 +49,7 @@ pub struct SessionEntry {
     pub llm_rx: Option<broadcast::Receiver<LlmChunk>>,
 }
 
-/// Persistent metadata for a session.
+/// Session metadata persisted alongside each session.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -58,6 +58,11 @@ pub struct SessionMetadata {
     pub id: String,
     /// Creation timestamp in seconds since the UNIX epoch.
     pub created_at: u64,
+    /// Last activity timestamp in seconds since the UNIX epoch.
+    ///
+    /// Defaults to `created_at` for sessions saved before this field was added.
+    #[serde(default)]
+    pub updated_at: u64,
     /// Workspace / working directory associated with the session.
     pub workspace: String,
 }
@@ -73,9 +78,11 @@ impl SessionMetadata {
     /// # Panic / Safety
     /// Never panics. Timestamps before the UNIX epoch are clamped to 0.
     pub fn new(id: impl Into<String>, workspace: impl Into<String>) -> Self {
+        let now = system_time_secs();
         Self {
             id: id.into(),
-            created_at: system_time_secs(),
+            created_at: now,
+            updated_at: now,
             workspace: workspace.into(),
         }
     }
@@ -341,6 +348,14 @@ impl SessionManager {
         let data = std::fs::read_to_string(&path)
             .map_err(|e| format!("Failed to read session metadata: {e}"))?;
         serde_json::from_str::<BTreeMap<String, SessionMetadata>>(&data)
+            .map(|mut metadata| {
+                for meta in metadata.values_mut() {
+                    if meta.updated_at == 0 {
+                        meta.updated_at = meta.created_at;
+                    }
+                }
+                metadata
+            })
             .map_err(|e| format!("Failed to parse session metadata: {e}"))
     }
 
@@ -544,6 +559,9 @@ pub async fn persist_session(state: &DesktopState) -> Result<(), String> {
         .map_err(|e| format!("Failed to persist session {session_id}: {e}"))?;
 
     // Refresh metadata so the session remains discoverable after a crash.
+    // Also bump the activity timestamp so the sidebar can show recency.
+    let mut metadata = metadata;
+    metadata.updated_at = system_time_secs();
     let mut manager_guard = state.manager.write().await;
     if let Some(manager) = manager_guard.as_mut() {
         manager.insert_metadata(metadata)?;

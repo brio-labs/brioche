@@ -19,6 +19,7 @@ export interface SessionInfo {
 	id: string;
 	active: boolean;
 	created_at?: number;
+	updated_at?: number;
 	workspace?: string;
 }
 
@@ -223,10 +224,10 @@ export async function clearMessages(): Promise<void> {
 	return invoke("clear_messages");
 }
 
-/// Sort order for the session list.
+/// Sort order for sessions within a project folder.
 ///
 /// Refs: I-Ui-SessionSort
-export type SessionSort = "date" | "workspace" | "name";
+export type SessionSort = "date" | "name";
 
 /// Lists all sessions sorted by the given criterion.
 ///

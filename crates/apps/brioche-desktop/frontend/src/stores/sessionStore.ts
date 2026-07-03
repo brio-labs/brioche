@@ -9,6 +9,7 @@ export interface Session {
 	id: string;
 	active: boolean;
 	created_at?: number;
+	updated_at?: number;
 	workspace?: string;
 }
 

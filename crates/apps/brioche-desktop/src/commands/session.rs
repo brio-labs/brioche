@@ -435,6 +435,8 @@ pub struct SessionInfo {
     pub active: bool,
     /// Creation timestamp in seconds since the UNIX epoch.
     pub created_at: u64,
+    /// Last activity timestamp in seconds since the UNIX epoch.
+    pub updated_at: u64,
     /// Workspace / working directory associated with the session.
     pub workspace: String,
 }
@@ -496,6 +498,7 @@ pub async fn list_sessions(
                 None => SessionMetadata {
                     id: id.clone(),
                     created_at: 0,
+                    updated_at: 0,
                     workspace: String::new(),
                 },
             };
@@ -503,6 +506,7 @@ pub async fn list_sessions(
                 id: id.clone(),
                 active: id == &current,
                 created_at: meta.created_at,
+                updated_at: meta.updated_at,
                 workspace: meta.workspace.clone(),
             }
         })
