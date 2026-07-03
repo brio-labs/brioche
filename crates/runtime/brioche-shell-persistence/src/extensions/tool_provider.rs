@@ -424,13 +424,20 @@ impl SystemTool for UserDefinedTool {
 
 /// Interpolates `{key}` placeholders in `template` with values from `args`.
 ///
-/// Values are JSON-encoded; strings are inserted without quotes.
+/// Values are JSON-encoded; strings are inserted without quotes. Placeholder
+/// keys must match `^[a-zA-Z0-9_]+$` and all braces in the template must be
+/// balanced. Malformed placeholders are returned as
+/// [`ToolError::InvalidArgs`].
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
-fn interpolate(template: &str, args: &serde_json::Value) -> String {
+fn interpolate(template: &str, args: &serde_json::Value) -> Result<String, ToolError> {
     let mut result = template.to_string();
+
+    validate_template_placeholders(template)?;
+
     if let serde_json::Value::Object(map) = args {
         for (key, value) in map {
+            validate_placeholder_key(key)?;
             let placeholder = format!("{{{key}}}");
             let rendered = match value {
                 serde_json::Value::String(s) => s.clone(),
@@ -439,7 +446,62 @@ fn interpolate(template: &str, args: &serde_json::Value) -> String {
             result = result.replace(&placeholder, &rendered);
         }
     }
-    result
+    Ok(result)
+}
+
+/// Validates that all `{key}` placeholders in `template` are balanced and
+/// syntactically valid.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+fn validate_template_placeholders(template: &str) -> Result<(), ToolError> {
+    let mut chars = template.chars().enumerate();
+    while let Some((i, c)) = chars.next() {
+        if c == '{' {
+            let start = i;
+            let mut key = String::new();
+            let mut found_close = false;
+            for (j, c2) in chars.by_ref() {
+                if c2 == '}' {
+                    found_close = true;
+                    break;
+                }
+                if c2 == '{' {
+                    return Err(ToolError::InvalidArgs(format!(
+                        "nested opening brace at position {j} in placeholder starting at position {start}"
+                    )));
+                }
+                key.push(c2);
+            }
+            if !found_close {
+                return Err(ToolError::InvalidArgs(format!(
+                    "unclosed placeholder starting at position {start}"
+                )));
+            }
+            validate_placeholder_key(&key)?;
+        } else if c == '}' {
+            return Err(ToolError::InvalidArgs(format!(
+                "unbalanced closing brace at position {i}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Validates that `key` is a legal placeholder key.
+///
+/// Legal keys match the regex `^[a-zA-Z0-9_]+$`.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+fn validate_placeholder_key(key: &str) -> Result<(), ToolError> {
+    if key.is_empty() {
+        return Err(ToolError::InvalidArgs("empty placeholder key".into()));
+    }
+    if !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(ToolError::InvalidArgs(format!(
+            "invalid placeholder key: {key}"
+        )));
+    }
+    Ok(())
 }
 
 async fn execute_command(
@@ -449,17 +511,23 @@ async fn execute_command(
     args: serde_json::Value,
     cancel: CancellationToken,
 ) -> Result<String, ToolError> {
-    let command = interpolate(template, &args);
-
-    // Defensive: reject shell metacharacters even before delegating to the
-    // system tool, so injected commands like `ls; rm -rf /` are blocked.
-    validate_no_shell_metacharacters(&command)?;
-
-    let program = command
+    // Determine the allowed program from the trusted template, not from the
+    // interpolated command, so a placeholder cannot change which binary is run.
+    let program = template
         .split_whitespace()
         .next()
-        .ok_or_else(|| ToolError::InvalidArgs("command is empty".into()))?
+        .ok_or_else(|| ToolError::InvalidArgs("command template is empty".into()))?
         .to_string();
+
+    // Validate argument values before interpolation so placeholders cannot
+    // introduce shell metacharacters.
+    validate_interpolated_values(&args)?;
+
+    let command = interpolate(template, &args)?;
+
+    // Defensive: reject shell metacharacters in the final command so a
+    // malformed template cannot bypass the sandbox.
+    validate_no_shell_metacharacters(&command)?;
 
     let mut tool = ExecuteCommandTool::with_allow_list(AllowList::new().with_command(&program));
     if let Some(dir) = working_dir {
@@ -485,10 +553,52 @@ async fn execute_command(
     }
 }
 
+/// Validates that every argument value to be interpolated is free of shell
+/// metacharacters.
+///
+/// This check runs before interpolation so a placeholder value like
+/// `hello; rm -rf /` is rejected before it can be inserted into the command.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+fn validate_interpolated_values(args: &serde_json::Value) -> Result<(), ToolError> {
+    if let serde_json::Value::Object(map) = args {
+        for (key, value) in map {
+            let rendered = match value {
+                serde_json::Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            validate_value_no_shell_metacharacters(key, &rendered)?;
+        }
+    }
+    Ok(())
+}
+
+/// Rejects a single argument value if it contains shell metacharacters.
+///
+/// Mirrors the validation used by `ExecuteCommandTool` so user-defined tools
+/// cannot inject shell syntax through interpolated arguments.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+fn validate_value_no_shell_metacharacters(key: &str, value: &str) -> Result<(), ToolError> {
+    for c in value.chars() {
+        if matches!(
+            c,
+            ';' | '|' | '&' | '$' | '`' | '\n' | '\r' | '<' | '>' | '(' | ')' | '{' | '}'
+        ) {
+            return Err(ToolError::SandboxDenied(format!(
+                "argument '{key}' contains shell metacharacter: {c}"
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Rejects commands that contain shell metacharacters.
 ///
 /// Mirrors the validation used by `ExecuteCommandTool` so user-defined tools
 /// cannot inject shell syntax through interpolated arguments.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 fn validate_no_shell_metacharacters(command: &str) -> Result<(), ToolError> {
     for c in command.chars() {
         if matches!(
@@ -574,7 +684,7 @@ mod tests {
     async fn execute_command_rejects_shell_metacharacter_injection()
     -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // The semicolon would let an attacker chain a second command; the
-        // defense-in-depth validator must reject it before it reaches the shell.
+        // value validator must reject it before interpolation reaches the shell.
         let args: serde_json::Value = serde_json::from_str(r#"{"message":"hello; rm -rf /"}"#)?;
         let result = execute_command(
             "echo {message}",
@@ -589,8 +699,35 @@ mod tests {
             Ok(_) => return Err("expected injection to be rejected".into()),
         };
         assert!(
-            err.contains("shell metacharacter"),
-            "expected metacharacter error, got {err}"
+            err.contains("argument 'message' contains shell metacharacter"),
+            "expected argument-specific metacharacter error, got {err}"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn execute_command_honors_allow_list()
+    -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // The allowed program is derived from the trusted template, not from
+        // an interpolated value, so a placeholder in the first position is
+        // not a backdoor to run arbitrary binaries.
+        let args: serde_json::Value =
+            serde_json::from_str(r#"{"program":"cat","arg":"/etc/passwd"}"#)?;
+        let result = execute_command(
+            "{program} {arg}",
+            None,
+            Some(5_000),
+            args,
+            CancellationToken::new(),
+        )
+        .await;
+        let err = match result {
+            Err(e) => e.to_string(),
+            Ok(_) => return Err("expected allow-list denial".into()),
+        };
+        assert!(
+            err.contains("not in the allow-list"),
+            "expected allow-list error, got {err}"
         );
         Ok(())
     }
@@ -634,6 +771,104 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         validate_no_shell_metacharacters("echo hello world")?;
         validate_no_shell_metacharacters("ls -la /tmp")?;
+        Ok(())
+    }
+
+    #[test]
+    fn interpolate_replaces_valid_placeholders()
+    -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let args: serde_json::Value = serde_json::from_str(r#"{"message":"hello","count":42}"#)?;
+        let result = interpolate("echo {message} {count}", &args)?;
+        assert_eq!(result, "echo hello 42");
+        Ok(())
+    }
+
+    #[test]
+    fn interpolate_rejects_key_containing_closing_brace()
+    -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let args: serde_json::Value = serde_json::from_str(r#"{"bad}":"x"}"#)?;
+        let err = match interpolate("echo {bad}", &args) {
+            Ok(_) => return Err("expected interpolation error for key containing }".into()),
+            Err(e) => e,
+        };
+        assert!(
+            err.to_string().contains("invalid placeholder key"),
+            "expected invalid placeholder key error, got {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn interpolate_rejects_unbalanced_opening_brace()
+    -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let args: serde_json::Value = serde_json::from_str(r#"{"message":"hello"}"#)?;
+        let err = match interpolate("echo {message", &args) {
+            Ok(_) => return Err("expected interpolation error for unbalanced opening brace".into()),
+            Err(e) => e,
+        };
+        assert!(
+            err.to_string().contains("unclosed placeholder"),
+            "expected unclosed placeholder error, got {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn interpolate_rejects_unbalanced_closing_brace()
+    -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let args: serde_json::Value = serde_json::from_str(r#"{"message":"hello"}"#)?;
+        let err = match interpolate("echo message}", &args) {
+            Ok(_) => return Err("expected interpolation error for unbalanced closing brace".into()),
+            Err(e) => e,
+        };
+        assert!(
+            err.to_string().contains("unbalanced closing brace"),
+            "expected unbalanced closing brace error, got {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn interpolate_rejects_invalid_key_characters()
+    -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let args: serde_json::Value = serde_json::from_str(r#"{"bad-key":"x"}"#)?;
+        let err = match interpolate("echo {bad-key}", &args) {
+            Ok(_) => return Err("expected interpolation error for invalid key characters".into()),
+            Err(e) => e,
+        };
+        assert!(
+            err.to_string().contains("invalid placeholder key"),
+            "expected invalid placeholder key error, got {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn interpolate_rejects_nested_braces() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let args: serde_json::Value = serde_json::from_str(r#"{"message":"hello"}"#)?;
+        let err = match interpolate("echo {{message}}", &args) {
+            Ok(_) => return Err("expected interpolation error for nested braces".into()),
+            Err(e) => e,
+        };
+        assert!(
+            err.to_string().contains("nested opening brace"),
+            "expected nested brace error, got {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn interpolate_rejects_nested_placeholder()
+    -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let args: serde_json::Value = serde_json::from_str(r#"{"a":"x","b":"y"}"#)?;
+        let err = match interpolate("echo {a{b}}", &args) {
+            Ok(_) => return Err("expected interpolation error for nested placeholder".into()),
+            Err(e) => e,
+        };
+        assert!(
+            err.to_string().contains("nested opening brace"),
+            "expected nested brace error, got {err}"
+        );
         Ok(())
     }
 }

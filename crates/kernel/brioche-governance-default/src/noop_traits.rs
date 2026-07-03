@@ -96,9 +96,9 @@ impl CycleRollbackPolicy for NoopCycleRollbackPolicy {
 
 /// Permissive `HookEffectConstraint`.
 ///
-/// Refs: I-Gov-TraitAtomic
-/// Allows all standard and future effects on all hooks. Used by the
-/// `Permissive` profile for prototyping and migration.
+/// **Dev / prototyping only.** Allows all standard and future effects on
+/// all hooks. This disables the effect-safety layer and should never be
+/// used in production.
 ///
 /// Refs: I-Gov-TraitAtomic, I-Core-HookEffect-O1
 pub struct PermissiveHookEffectConstraint {
@@ -108,8 +108,16 @@ pub struct PermissiveHookEffectConstraint {
 impl PermissiveHookEffectConstraint {
     /// Creates a fully permissive constraint (all effects allowed).
     ///
+    /// # Warning
+    /// This disables all effect restrictions. It is intended for local
+    /// development and prototyping only.
+    ///
     /// Refs: I-Gov-TraitAtomic
     pub fn new() -> Self {
+        tracing::warn!(
+            "PermissiveHookEffectConstraint constructed: all effects are allowed. \
+             Use only for development / prototyping."
+        );
         Self {
             masks: [u64::MAX; 8],
         }
