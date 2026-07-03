@@ -189,6 +189,91 @@ pub async fn create_directory(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Renames a file or directory.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(1) filesystem rename.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if either path is invalid or the rename fails.
+#[tauri::command]
+pub async fn rename_path(source: String, destination: String) -> Result<(), String> {
+    let source = validate_path(&source)?;
+    let destination = validate_path(&destination)?;
+    tokio::fs::rename(&source, &destination)
+        .await
+        .map_err(|e| format!("Failed to rename path: {e}"))
+}
+
+/// Recursively copies a directory tree.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+async fn copy_dir_recursive(
+    source: &std::path::Path,
+    destination: &std::path::Path,
+) -> Result<(), String> {
+    let mut entries = tokio::fs::read_dir(source)
+        .await
+        .map_err(|e| format!("Failed to read directory: {e}"))?;
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|e| format!("Failed to read entry: {e}"))?
+    {
+        let src_path = entry.path();
+        let dst_path = destination.join(entry.file_name());
+        let file_type = entry
+            .file_type()
+            .await
+            .map_err(|e| format!("Failed to read file type: {e}"))?;
+        if file_type.is_dir() {
+            tokio::fs::create_dir_all(&dst_path)
+                .await
+                .map_err(|e| format!("Failed to create directory: {e}"))?;
+            Box::pin(copy_dir_recursive(&src_path, &dst_path)).await?;
+        } else if file_type.is_file() {
+            tokio::fs::copy(&src_path, &dst_path)
+                .await
+                .map_err(|e| format!("Failed to copy file: {e}"))?;
+        }
+    }
+    Ok(())
+}
+
+/// Copies a file or directory to a new location.
+///
+/// Files are copied shallowly with `tokio::fs::copy`. Directories are copied
+/// recursively. Preserves the source tree under the destination path.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+///
+/// # Complexity
+/// O(N) where N is the total size of files copied. Performs async file copies.
+///
+/// # Panic / Safety
+/// Never panics. Returns Err if either path is invalid or the copy fails.
+#[tauri::command]
+pub async fn copy_path(source: String, destination: String) -> Result<(), String> {
+    let source = validate_path(&source)?;
+    let destination = validate_path(&destination)?;
+    let metadata = tokio::fs::metadata(&source)
+        .await
+        .map_err(|e| format!("Failed to read metadata: {e}"))?;
+    if metadata.is_dir() {
+        tokio::fs::create_dir_all(&destination)
+            .await
+            .map_err(|e| format!("Failed to create destination directory: {e}"))?;
+        copy_dir_recursive(&source, &destination).await?;
+    } else {
+        tokio::fs::copy(&source, &destination)
+            .await
+            .map_err(|e| format!("Failed to copy file: {e}"))?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

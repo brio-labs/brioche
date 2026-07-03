@@ -32,6 +32,8 @@ fn run_app(state: DesktopState) {
             commands::delete_file,
             commands::create_file,
             commands::create_directory,
+            commands::rename_path,
+            commands::copy_path,
             // Memory commands
             commands::list_memories,
             commands::set_memory,
