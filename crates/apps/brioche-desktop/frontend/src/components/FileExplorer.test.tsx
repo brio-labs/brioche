@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import FileExplorer from "./FileExplorer";
 import { useFileStore } from "../stores/fileStore";
 import { useSettingsStore } from "../stores/settingsStore";
+import { readDirectory } from "../ipc";
 
 vi.mock("../ipc", () => ({
 	readDirectory: vi.fn(),
@@ -71,5 +72,91 @@ describe("FileExplorer", () => {
 		expect(
 			screen.getByText("Folder picker requires the Tauri desktop app."),
 		).toBeInTheDocument();
+	});
+
+	it("shows the file context menu on right-click", async () => {
+		vi.mocked(readDirectory).mockResolvedValue([
+			{ name: "file.txt", path: "/workspace/file.txt", is_dir: false },
+		]);
+		useSettingsStore.setState({
+			settings: { ui: { working_dir: "/workspace" } },
+		});
+		useFileStore.setState({
+			currentPath: "/workspace",
+			entries: [
+				{ name: "file.txt", path: "/workspace/file.txt", is_dir: false },
+			],
+		});
+
+		render(<FileExplorer />);
+
+		const row = await screen.findByText("file.txt");
+		fireEvent.contextMenu(row);
+
+		await waitFor(() => {
+			expect(screen.getByRole("menu")).toBeInTheDocument();
+		});
+		expect(screen.getByText("Rename")).toBeInTheDocument();
+		expect(screen.getByText("Copy")).toBeInTheDocument();
+		expect(screen.getByText("Cut")).toBeInTheDocument();
+		expect(screen.getByText("Delete")).toBeInTheDocument();
+		const paste = screen.getByText("Paste");
+		expect(paste).toBeInTheDocument();
+		expect(paste).toHaveAttribute("aria-disabled", "true");
+	});
+
+	it("shows the folder context menu on right-click", async () => {
+		vi.mocked(readDirectory).mockResolvedValue([
+			{ name: "folder", path: "/workspace/folder", is_dir: true },
+		]);
+		useSettingsStore.setState({
+			settings: { ui: { working_dir: "/workspace" } },
+		});
+		useFileStore.setState({
+			currentPath: "/workspace",
+			entries: [
+				{ name: "folder", path: "/workspace/folder", is_dir: true },
+			],
+		});
+
+		render(<FileExplorer />);
+
+		const row = await screen.findByText("folder");
+		fireEvent.contextMenu(row);
+
+		await waitFor(() => {
+			expect(screen.getByRole("menu")).toBeInTheDocument();
+		});
+		expect(screen.getByText("New File")).toBeInTheDocument();
+		expect(screen.getByText("New Folder")).toBeInTheDocument();
+		expect(screen.getByText("Rename")).toBeInTheDocument();
+		expect(screen.getByText("Copy")).toBeInTheDocument();
+		expect(screen.getByText("Cut")).toBeInTheDocument();
+		expect(screen.getByText("Delete")).toBeInTheDocument();
+		const paste = screen.getByText("Paste");
+		expect(paste).toBeInTheDocument();
+		expect(paste).toHaveAttribute("aria-disabled", "true");
+	});
+
+	it("shows the empty-area context menu on right-click", async () => {
+		vi.mocked(readDirectory).mockResolvedValue([]);
+		useSettingsStore.setState({
+			settings: { ui: { working_dir: "/workspace" } },
+		});
+		useFileStore.setState({
+			currentPath: "/workspace",
+			entries: [],
+		});
+
+		render(<FileExplorer />);
+
+		const empty = await screen.findByText("Empty");
+		fireEvent.contextMenu(empty);
+
+		await waitFor(() => {
+			expect(screen.getByRole("menu")).toBeInTheDocument();
+		});
+		expect(screen.getByText("New File")).toBeInTheDocument();
+		expect(screen.getByText("New Folder")).toBeInTheDocument();
 	});
 });
