@@ -19,7 +19,7 @@ use tokio::sync::{RwLock, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::CliConfig;
-use crate::shell_builder::build_shell;
+use crate::shell_builder::{ShellMode, build_shell};
 
 /// Dependencies needed to create new shells (shared between
 /// `run`, `handle_slash_command`, and `handle_session_command`).
@@ -178,6 +178,7 @@ async fn handle_session_command(
             let (new_shell, _new_llm, _new_rx, _history) = build_shell(
                 &new_id,
                 &factory.config,
+                ShellMode::Interactive,
                 factory.redb.clone(),
                 Arc::clone(&factory.store),
                 None,
@@ -239,6 +240,7 @@ async fn handle_session_command(
             let (new_shell, _new_llm, _new_rx, _history) = build_shell(
                 id,
                 &factory.config,
+                ShellMode::Interactive,
                 factory.redb.clone(),
                 Arc::clone(&factory.store),
                 Some(messages),

@@ -36,6 +36,8 @@ pub struct CliConfig {
     pub openai: OpenAiConfig,
     /// Tick interval in milliseconds.
     pub tick_interval_ms: u64,
+    /// Allow arbitrary shell execution without confirmation.
+    pub permissive_shell: bool,
 }
 
 /// User-provided configuration source (CLI args).
@@ -48,6 +50,8 @@ pub struct UserConfig {
     pub model: Option<String>,
     /// Base URL for the API endpoint.
     pub base_url: Option<String>,
+    /// Allow arbitrary shell execution without confirmation.
+    pub permissive_shell: bool,
 }
 
 impl CliConfig {
@@ -60,11 +64,16 @@ impl CliConfig {
     ///
     /// Refs: docs/SPECS.md §Book IV
     pub fn from_env_and_args(user: UserConfig) -> Self {
+        use std::env;
+
         let openai = assemble_openai_config_from_env(user.api_key, user.model, user.base_url);
+        let permissive_shell = user.permissive_shell
+            || env::var("BRIOCHE_TERMINAL_PERMISSIVE").is_ok_and(|s| s == "1");
 
         Self {
             openai,
             tick_interval_ms: 1000,
+            permissive_shell,
         }
     }
 }

@@ -12,7 +12,7 @@ use brioche_provider_openai::LlmChunk;
 use brioche_shell_persistence::{RedbStorage, SessionStore};
 
 use crate::CliConfig;
-use crate::shell_builder::build_shell;
+use crate::shell_builder::{ShellMode, build_shell};
 
 /// Print accumulated reasoning to stderr, or silently discard it.
 fn flush_reasoning(buffer: &mut String, show: bool) {
@@ -45,6 +45,7 @@ pub async fn run(
     let (shell, llm_client, _llm_rx, _history) = build_shell(
         "headless",
         &cli_config,
+        ShellMode::Headless,
         redb_storage,
         session_store,
         None,

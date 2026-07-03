@@ -26,6 +26,10 @@ struct Args {
     #[argh(option, short = 'b', long = "base-url")]
     base_url: Option<String>,
 
+    /// allow arbitrary shell execution without confirmation (dangerous).
+    #[argh(switch, long = "permissive-shell")]
+    permissive_shell: bool,
+
     /// run a single prompt in non-interactive mode.
     #[argh(option, short = 'o', long = "one-shot")]
     one_shot: Option<String>,
@@ -50,6 +54,7 @@ async fn main() {
         api_key: args.api_key,
         model: args.model,
         base_url: args.base_url,
+        permissive_shell: args.permissive_shell,
     };
     let cli_config = CliConfig::from_env_and_args(user_config);
 
