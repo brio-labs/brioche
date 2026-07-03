@@ -7,17 +7,13 @@
    - void:    #0a0808  deepest background
    - bg:      #1a1614  primary surface
    - foam:    #f5e6d3  primary text
-   - muted:   #eae0d5  muted text
    - clay:    #bd6532  accent
    - sand:    #ffddb3  accent highlight
 
    Tailwind v4 best practices:
    - Design tokens live in @theme and generate Tailwind utilities.
-   - Semantic aliases in :root expose tokens for arbitrary var() use.
-   - Reusable, token-based patterns are declared with @utility.
-   - Vanilla CSS is reserved for global base styles, animations, and
-     complex selectors (markdown, scrollbars) that utilities cannot express.
-   - Avoid @apply; prefer real components or @utility abstractions.
+   - Keyframes & animations are declared inside @theme to generate utilities.
+   - Reusable component-like styles compose Tailwind utility classes using @apply.
    ======================================================================== */
 
 @theme {
@@ -91,6 +87,49 @@
 	--radius: 8px;
 	--radius-lg: 12px;
 
+	/* ----- Animations ----- */
+	--animate-fadeIn: fadeIn 0.15s ease-out forwards;
+	--animate-slideDown: slideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+	--animate-slideUp: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+
+	@keyframes fadeIn {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
+	}
+	@keyframes slideDown {
+		from {
+			opacity: 0;
+			transform: translateY(-12px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+	@keyframes slideUp {
+		from {
+			opacity: 0;
+			transform: translateY(12px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+	@keyframes ambientPulse {
+		0%,
+		100% {
+			opacity: 0.4;
+		}
+		50% {
+			opacity: 0.8;
+		}
+	}
+
 	/* ----- Legacy aliases (deprecated; kept for backward compatibility) ----- */
 	--color-bg-0: var(--color-bg-base);
 	--color-bg-1: var(--color-bg-surface);
@@ -107,7 +146,7 @@
 	--color-text-dim: var(--color-fg-dim);
 }
 
-/* Expose semantic tokens as plain CSS variables for arbitrary var() usage. */
+/* Expose semantic tokens as CSS variables for backward compatibility and fallback usage. */
 :root {
 	--brio-void: var(--color-brio-void);
 	--brio-bg: var(--color-brio-bg);
@@ -168,7 +207,7 @@
 	--radius-md: 6px;
 	--radius-lg: 12px;
 
-	/* Legacy aliases (deprecated; kept for backward compatibility during transition). Prefer --bg-base, --bg-surface, --bg-elevated, --bg-highlight, --bg-subtle and --fg-primary, --fg-secondary, --fg-tertiary, --fg-muted, --fg-dim. */
+	/* Legacy aliases */
 	--bg-0: var(--color-bg-base);
 	--bg-1: var(--color-bg-surface);
 	--bg-2: var(--color-bg-elevated);
@@ -190,244 +229,68 @@
 		margin: 0;
 		padding: 0;
 	}
-}
 
-body {
-	font-family: var(--font-ui);
-	background: var(--bg-base);
-	color: var(--fg-primary);
-	height: 100vh;
-	overflow: hidden;
-	-webkit-font-smoothing: antialiased;
-	-moz-osx-font-smoothing: grayscale;
+	body {
+		@apply bg-bg-base text-fg-primary h-screen overflow-hidden antialiased;
+		font-family: var(--font-ui);
+	}
 }
 
 /* ========================================================================
-   Reusable utilities
+   Reusable composed Tailwind component classes / utilities
    ======================================================================== */
 
 @utility btn-icon {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	border-radius: var(--radius-md);
-	transition: all 200ms ease;
-	cursor: pointer;
-	color: var(--fg-muted);
-
-	&:hover {
-		color: var(--fg-secondary);
-		background: var(--bg-highlight);
-	}
-
-	&:active {
-		background: var(--bg-subtle);
-	}
-
-	&:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 1px var(--accent-glow);
-	}
+	@apply inline-flex items-center justify-center rounded-md transition-all duration-200 cursor-pointer text-fg-muted hover:text-fg-secondary hover:bg-bg-highlight active:bg-bg-subtle focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-glow;
 }
 
 @utility dock-button {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	width: 28px;
-	height: 28px;
-	border-radius: var(--radius-md);
-	border: 1px solid transparent;
-	transition: all 200ms ease;
-	cursor: pointer;
-	background: transparent;
-	color: var(--fg-muted);
-
-	&:hover {
-		color: var(--fg-secondary);
-		background: var(--bg-highlight);
-	}
-
-	&:active {
-		background: var(--bg-subtle);
-	}
-
-	&:focus-visible {
-		outline: none;
-		border-color: var(--border-accent);
-		box-shadow: 0 0 0 1px var(--accent-glow);
-	}
+	@apply inline-flex items-center justify-center w-7 h-7 rounded-md border border-transparent bg-transparent transition-all duration-200 cursor-pointer text-fg-muted hover:text-fg-secondary hover:bg-bg-highlight active:bg-bg-subtle focus-visible:outline-none focus-visible:border-border-accent focus-visible:ring-1 focus-visible:ring-accent-glow;
 }
 
 @utility dock-button-active {
-	color: var(--accent);
-
-	&:hover {
-		color: var(--accent-hover);
-	}
+	@apply text-accent hover:text-accent-hover;
 }
 
 @utility title-bar {
-	display: flex;
-	flex-direction: row;
-	align-items: center;
-	flex-shrink: 0;
-	height: 2.5rem;
-	border-bottom: 1px solid var(--border);
-	background: color-mix(in srgb, var(--bg-surface) 70%, transparent);
-	backdrop-filter: blur(12px);
-	user-select: none;
-	cursor: default;
+	@apply flex flex-row items-center shrink-0 h-10 border-b border-border select-none cursor-default bg-bg-surface/70 backdrop-blur-md;
 }
 
 @utility top-bar-button {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	width: 2.5rem;
-	height: 2.5rem;
-	padding: 0.5rem;
-	background: transparent;
-	color: var(--fg-muted);
-	border: 1px solid transparent;
-	border-radius: 0;
-	transition: all 200ms ease;
-	cursor: pointer;
-
-	&:hover {
-		color: var(--fg-primary);
-		background: var(--bg-highlight);
-		border-color: var(--border);
-	}
-
-	&:active {
-		background: var(--bg-subtle);
-	}
-
-	&:focus-visible {
-		outline: none;
-		background: var(--bg-highlight);
-		border-color: var(--border);
-		box-shadow: inset 0 0 0 1px var(--accent-glow);
-	}
+	@apply inline-flex items-center justify-center w-10 h-10 p-2 bg-transparent border border-transparent rounded-none transition-all duration-200 cursor-pointer text-fg-muted hover:text-fg-primary hover:bg-bg-highlight hover:border-border active:bg-bg-subtle focus-visible:outline-none focus-visible:bg-bg-highlight focus-visible:border-border focus-visible:ring-inset focus-visible:ring-1 focus-visible:ring-accent-glow;
 
 	&[data-close]:hover {
-		color: var(--error-text);
-		background: var(--error-bg);
-		border-color: var(--error-border);
+		@apply text-error-text bg-error-bg border-error-border;
 	}
 
 	&[data-close]:active {
-		background: var(--error-bg);
+		@apply bg-error-bg;
 	}
 }
 
 @utility panel {
-	background: var(--bg-surface);
-	border: 1px solid var(--border);
-	border-radius: var(--radius);
-	display: flex;
-	flex-direction: column;
-	overflow: hidden;
-	box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-	animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+	@apply bg-bg-surface border border-border rounded-lg flex flex-col overflow-hidden shadow-2xl animate-slideUp;
 }
 
 @utility panel-backdrop {
-	position: fixed;
-	inset: 0;
-	background: rgba(0, 0, 0, 0.7);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	z-index: 1000;
-	animation: fadeIn 0.15s ease-out forwards;
+	@apply fixed inset-0 bg-black/70 flex items-center justify-center z-[1000] animate-fadeIn;
 }
 
 @utility panel-header {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	padding: var(--space-4) var(--space-5);
-	border-bottom: 1px solid var(--border);
-	background: var(--bg-surface);
+	@apply flex items-center justify-between px-5 py-4 border-b border-border bg-bg-surface;
 }
 
 @utility input-field {
-	display: flex;
-	width: 100%;
-	border-radius: var(--radius-md);
-	border: 1px solid var(--border);
-	background: var(--bg-elevated);
-	padding: var(--space-2) var(--space-3);
-	font-size: 13px;
-	font-family: var(--font-mono);
-	color: var(--fg-primary);
-	outline: none;
-	transition: all 200ms ease;
-
-	&::placeholder {
-		color: var(--fg-muted);
-	}
-
-	&:hover {
-		border-color: var(--border-hover);
-	}
-
-	&:focus {
-		border-color: var(--accent-dim);
-		background: var(--bg-highlight);
-		box-shadow: 0 0 0 1px var(--accent-glow);
-	}
-
-	&:disabled {
-		cursor: not-allowed;
-		opacity: 0.5;
-	}
+	@apply flex w-full rounded-md border border-border bg-bg-elevated px-3 py-2 text-[13px] font-mono text-fg-primary outline-none transition-all duration-200 placeholder:text-fg-muted hover:border-border-hover focus:border-accent-dim focus:bg-bg-highlight focus:ring-1 focus:ring-accent-glow disabled:cursor-not-allowed disabled:opacity-50;
 }
 
 @utility textarea-field {
-	display: flex;
-	width: 100%;
-	border-radius: var(--radius-md);
-	border: 1px solid var(--border);
-	background: var(--bg-elevated);
-	padding: var(--space-2) var(--space-3);
-	font-family: var(--font-mono);
-	color: var(--fg-primary);
-	outline: none;
-	transition: all 200ms ease;
-	min-height: 80px;
-	resize: vertical;
-	font-size: 12px;
-
-	&::placeholder {
-		color: var(--fg-muted);
-	}
-
-	&:hover {
-		border-color: var(--border-hover);
-	}
-
-	&:focus {
-		border-color: var(--accent-dim);
-		background: var(--bg-highlight);
-		box-shadow: 0 0 0 1px var(--accent-glow);
-	}
-
-	&:disabled {
-		cursor: not-allowed;
-		opacity: 0.5;
-	}
+	@apply flex w-full rounded-md border border-border bg-bg-elevated px-3 py-2 font-mono text-[12px] text-fg-primary outline-none transition-all duration-200 min-h-[80px] resize-y placeholder:text-fg-muted hover:border-border-hover focus:border-accent-dim focus:bg-bg-highlight focus:ring-1 focus:ring-accent-glow disabled:cursor-not-allowed disabled:opacity-50;
 }
 
 /* ========================================================================
    App shell background
    ======================================================================== */
-
-/* The ambient glow uses literal RGBA stops so the gradient fades to transparent
-   without premultiplying the clay hue; color-mix with transparent would muddy
-   the warm accent. */
 
 .app {
 	background:
@@ -446,10 +309,7 @@ body {
 
 .app::before {
 	content: "";
-	position: absolute;
-	inset: 0;
-	pointer-events: none;
-	z-index: 0;
+	@apply absolute inset-0 pointer-events-none z-0;
 	background: radial-gradient(
 		ellipse at 50% 0%,
 		rgba(245, 230, 211, 0.03) 0%,
@@ -458,257 +318,111 @@ body {
 	animation: ambientPulse 8s ease-in-out infinite;
 }
 
-@keyframes ambientPulse {
-	0%,
-	100% {
-		opacity: 0.4;
-	}
-	50% {
-		opacity: 0.8;
-	}
-}
-
-/* ========================================================================
-   Animations
-   ======================================================================== */
-
-.animate-fadeIn {
-	animation: fadeIn 0.15s ease-out forwards;
-}
-
-.animate-slideDown {
-	animation: slideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-.animate-slideUp {
-	animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-@keyframes fadeIn {
-	from {
-		opacity: 0;
-	}
-	to {
-		opacity: 1;
-	}
-}
-
-@keyframes slideDown {
-	from {
-		opacity: 0;
-		transform: translateY(-12px);
-	}
-	to {
-		opacity: 1;
-		transform: translateY(0);
-	}
-}
-
-@keyframes slideUp {
-	from {
-		opacity: 0;
-		transform: translateY(12px);
-	}
-	to {
-		opacity: 1;
-		transform: translateY(0);
-	}
-}
-
 /* ========================================================================
    Scrollbars
    ======================================================================== */
 
 ::-webkit-scrollbar {
-	width: 6px;
-	height: 6px;
+	@apply w-1.5 h-1.5;
 }
 
 ::-webkit-scrollbar-track {
-	background: transparent;
+	@apply bg-transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-	background: var(--bg-subtle);
-	border-radius: 2px;
+	@apply bg-bg-subtle rounded-[2px];
 }
 
 ::-webkit-scrollbar-thumb:hover {
-	background: var(--fg-muted);
+	@apply bg-fg-muted;
 }
 
 /* ========================================================================
-   Markdown content
+   Markdown content styled with Tailwind @apply rules
    ======================================================================== */
 
-.message-content h1,
-.message-content h2,
-.message-content h3,
-.message-content h4 {
-	margin: var(--space-3) 0 var(--space-2);
-	font-weight: 600;
-	color: var(--fg-primary);
-}
+.message-content {
+	& h1, & h2, & h3, & h4 {
+		@apply font-semibold text-fg-primary mt-3 mb-2;
+	}
+	& h1 { @apply text-[18px]; }
+	& h2 { @apply text-[16px]; }
+	& h3 { @apply text-[14px]; }
+	& h4 { @apply text-[13px]; }
+	
+	& p { @apply my-2 leading-relaxed; }
+	& ul, & ol { @apply my-2 pl-4; }
+	& li { @apply my-1; }
+	
+	& code {
+		@apply font-mono text-[12px] bg-accent/10 px-1.5 py-0.5 rounded-sm text-accent-text;
+	}
 
-.message-content h1 {
-	font-size: 18px;
-}
+	& pre {
+		@apply bg-bg-surface border border-border rounded-lg p-3 my-2 overflow-x-auto relative;
+	}
 
-.message-content h2 {
-	font-size: 16px;
-}
+	& pre code {
+		@apply bg-transparent p-0 text-fg-secondary text-[12px] leading-relaxed;
+	}
 
-.message-content h3 {
-	font-size: 14px;
-}
+	& pre:has(+ .code-block-header),
+	& .code-block-header + pre {
+		@apply rounded-t-none;
+	}
 
-.message-content h4 {
-	font-size: 13px;
-}
+	& blockquote {
+		@apply border-l-3 border-accent my-2 px-3 py-2 bg-accent/5 rounded-r-sm text-fg-secondary;
+	}
 
-.message-content p {
-	margin: var(--space-2) 0;
-	line-height: 1.7;
-}
+	& a {
+		@apply text-accent no-underline border-b border-transparent transition-all duration-150 hover:border-accent;
+	}
 
-.message-content ul,
-.message-content ol {
-	margin: var(--space-2) 0;
-	padding-left: var(--space-4);
-}
+	& table {
+		@apply w-full border-collapse my-2 text-[13px];
+	}
 
-.message-content li {
-	margin: var(--space-1) 0;
-}
+	& th, & td {
+		@apply px-3 py-2 border border-border text-left;
+	}
 
-.message-content code {
-	font-family: var(--font-mono);
-	font-size: 12px;
-	background: rgba(189, 101, 50, 0.1);
-	padding: 2px 6px;
-	border-radius: var(--radius-sm);
-	color: var(--accent-text);
-}
+	& th {
+		@apply bg-bg-elevated font-semibold text-fg-primary;
+	}
 
-.message-content pre {
-	background: var(--bg-surface);
-	border: 1px solid var(--border);
-	border-radius: var(--radius);
-	padding: var(--space-3);
-	overflow-x: auto;
-	margin: var(--space-2) 0;
-	position: relative;
-}
+	& td {
+		@apply text-fg-secondary;
+	}
 
-.message-content pre code {
-	background: transparent;
-	padding: 0;
-	color: var(--fg-secondary);
-	font-size: 12px;
-	line-height: 1.6;
+	& hr {
+		@apply border-none border-t border-border my-3;
+	}
+
+	&.loading {
+		@apply min-h-[1.5em];
+	}
 }
 
 .code-block-header {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	padding: 6px 12px;
-	background: var(--bg-elevated);
-	border: 1px solid var(--border);
-	border-bottom: none;
-	border-radius: var(--radius) var(--radius) 0 0;
-	font-size: 11px;
-	font-family: var(--font-mono);
-	color: var(--fg-muted);
-}
+	@apply flex items-center justify-between px-3 py-1.5 bg-bg-elevated border border-border border-b-0 rounded-t-lg text-[11px] font-mono text-fg-muted;
 
-.code-block-header .lang-label {
-	text-transform: lowercase;
-}
+	& .lang-label {
+		@apply lowercase;
+	}
 
-.code-block-header .copy-btn {
-	background: transparent;
-	border: none;
-	color: var(--fg-muted);
-	cursor: pointer;
-	font-size: 11px;
-	padding: 2px 6px;
-	border-radius: var(--radius-sm);
-	transition: all 0.15s ease;
-}
-
-.code-block-header .copy-btn:hover {
-	background: var(--bg-highlight);
-	color: var(--fg-secondary);
-}
-
-.message-content pre:has(+ .code-block-header),
-.message-content .code-block-header + pre {
-	border-top-left-radius: 0;
-	border-top-right-radius: 0;
-}
-
-.message-content blockquote {
-	border-left: 3px solid var(--accent);
-	margin: var(--space-2) 0;
-	padding: var(--space-2) var(--space-3);
-	background: rgba(189, 101, 50, 0.05);
-	border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-	color: var(--fg-secondary);
-}
-
-.message-content a {
-	color: var(--accent);
-	text-decoration: none;
-	border-bottom: 1px solid transparent;
-	transition: border-color 0.15s ease;
-}
-
-.message-content a:hover {
-	border-bottom-color: var(--accent);
-}
-
-.message-content table {
-	width: 100%;
-	border-collapse: collapse;
-	margin: var(--space-2) 0;
-	font-size: 13px;
-}
-
-.message-content th,
-.message-content td {
-	padding: var(--space-2) var(--space-3);
-	border: 1px solid var(--border);
-	text-align: left;
-}
-
-.message-content th {
-	background: var(--bg-elevated);
-	font-weight: 600;
-	color: var(--fg-primary);
-}
-
-.message-content td {
-	color: var(--fg-secondary);
-}
-
-.message-content hr {
-	border: none;
-	border-top: 1px solid var(--border);
-	margin: var(--space-3) 0;
+	& .copy-btn {
+		@apply bg-transparent border-none text-fg-muted cursor-pointer text-[11px] px-2 py-0.5 rounded-sm transition-all duration-150 hover:bg-bg-highlight hover:text-fg-secondary;
+	}
 }
 
 /* ========================================================================
-   Streaming cursor & loading states
+   Streaming cursor & loading dots
    ======================================================================== */
 
 .streaming-cursor {
-	display: inline-block;
-	width: 2px;
-	height: 1em;
-	background: var(--accent);
-	margin-left: 2px;
-	vertical-align: middle;
+	@apply inline-block w-0.5 h-[1em] bg-accent ml-0.5 align-middle;
 	animation: cursorBlink 1s step-end infinite;
 }
 
@@ -720,10 +434,6 @@ body {
 	50% {
 		opacity: 0;
 	}
-}
-
-.message-content.loading {
-	min-height: 1.5em;
 }
 
 .loading-dots::after {
