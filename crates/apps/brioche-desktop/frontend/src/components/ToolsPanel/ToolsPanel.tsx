@@ -1,8 +1,9 @@
 import { useEffect } from "react";
-import { useToolsStore, isUserTool } from "../stores/panelStores";
-import type { ToolDescriptor } from "../ipc";
-import PanelOverlay from "./PanelOverlay";
-import { WrenchIcon, AlertTriangleIcon, TerminalIcon } from "./Icons";
+import { useToolsStore, isUserTool } from "../../stores/panelStores";
+import type { ToolDescriptor } from "../../ipc";
+import PanelOverlay from "../PanelOverlay";
+import { WrenchIcon, AlertTriangleIcon, TerminalIcon } from "../Icons";
+import ToolListItem from "./ToolListItem";
 
 /// Props for the tools management panel.
 ///
@@ -88,30 +89,11 @@ export default function ToolsPanel({ onClose = () => {} }: ToolsPanelProps) {
 					<h3>{category}</h3>
 					<div className="flex flex-col gap-1.5">
 						{items.map((tool) => (
-							<div
+							<ToolListItem
 								key={tool.id}
-								className="flex items-center justify-between gap-4 rounded-lg border border-border bg-bg-elevated/30 p-3 transition-all hover:border-border-hover"
-							>
-								<div className="flex min-w-0 flex-col gap-0.5">
-									<span className="font-mono text-xs font-semibold text-fg-primary">
-										{tool.name}
-									</span>
-									<span
-										className="truncate text-xs text-fg-secondary"
-										title={tool.description}
-									>
-										{tool.description}
-									</span>
-								</div>
-								<label className="flex shrink-0 items-center gap-2 py-1 text-xs text-fg-secondary select-none cursor-pointer [&_input]:rounded [&_input]:border-border [&_input]:bg-bg-elevated [&_input]:text-accent [&_input]:cursor-pointer [&_input]:focus:ring-accent-glow">
-									<input
-										type="checkbox"
-										checked={tool.enabled}
-										onChange={(e) => toggleTool(tool.id, e.target.checked)}
-									/>
-									<span>{tool.enabled ? "On" : "Off"}</span>
-								</label>
-							</div>
+								tool={tool}
+								onToggle={(enabled) => toggleTool(tool.id, enabled)}
+							/>
 						))}
 					</div>
 				</div>
