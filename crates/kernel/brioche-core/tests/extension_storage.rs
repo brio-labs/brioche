@@ -349,6 +349,35 @@ fn attach_rollback_policy_notifies_on_first_get_mut_mutation() {
     assert_eq!(counter.load(AtomicOrdering::SeqCst), 1);
 }
 
+#[test]
+fn attach_rollback_policy_clears_tracking_when_replacing_policy() {
+    let mut storage = ExtensionStorage::new();
+    let (policy_a, counter_a) = RecordingPolicy::new();
+    storage.insert(TestState {
+        counter: 0,
+        tags: BTreeMap::new(),
+    });
+    storage.attach_rollback_policy(Box::new(policy_a));
+
+    {
+        let state = storage.get_or_insert_default::<TestState>();
+        state.counter = 1;
+    }
+    assert_eq!(counter_a.load(AtomicOrdering::SeqCst), 1);
+
+    // Replacing the attached policy must clear the per-hook snapshot tracking
+    // so that the next mutation is recorded by the new policy.
+    let (policy_b, counter_b) = RecordingPolicy::new();
+    storage.attach_rollback_policy(Box::new(policy_b));
+
+    {
+        let state = storage.get_or_insert_default::<TestState>();
+        state.counter = 2;
+    }
+    assert_eq!(counter_a.load(AtomicOrdering::SeqCst), 1);
+    assert_eq!(counter_b.load(AtomicOrdering::SeqCst), 1);
+}
+
 proptest! {
     #[test]
     fn prop_insert_get_mut_roundtrip(counter: u64, key: String, val: u64) {

@@ -246,3 +246,206 @@ impl SubRoutineLifecycleGuard for SubRoutineCleanupGuard {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use brioche_core::{
+        AgentState, BriocheError, ChatMessage, Effect, EngineInput, PluginError, Session,
+        SubRoutineHandle,
+    };
+
+    use super::*;
+
+    fn to_plugin_err(e: BriocheError) -> PluginError {
+        PluginError::Fatal {
+            plugin_name: "subroutine_test".into(),
+            message: e.to_string(),
+        }
+    }
+
+    fn subroutine_parent() -> Result<Session, PluginError> {
+        let mut parent = Session::new("parent");
+        parent
+            .push_state(AgentState::Predicting { generation_id: 1 })
+            .map_err(to_plugin_err)?;
+        parent
+            .push_state(AgentState::SubRoutine(SubRoutineHandle::new("sub")))
+            .map_err(to_plugin_err)?;
+        Ok(parent)
+    }
+
+    #[test]
+    fn orchestrator_delegates_user_message() -> Result<(), PluginError> {
+        let orchestrator = SubRoutineOrchestrator::new();
+        let mut parent = subroutine_parent()?;
+        let mut child = Session::new("child");
+
+        let mut effects = Vec::new();
+        if let Some(e) = orchestrator.handle_subroutine(
+            &mut parent,
+            &mut child,
+            &EngineInput::UserMessage("hello".into()),
+        )? {
+            effects = e;
+        }
+
+        assert_eq!(child.history.len(), 1);
+        assert!(matches!(child.history[0], ChatMessage::User { .. }));
+        assert!(matches!(child.state, AgentState::Predicting { .. }));
+        assert!(effects.contains(&Effect::CallLlmNetwork));
+        assert!(effects.contains(&Effect::SaveSession));
+        Ok(())
+    }
+
+    #[test]
+    fn orchestrator_accumulates_stream_tools() -> Result<(), PluginError> {
+        let orchestrator = SubRoutineOrchestrator::new();
+        let mut parent = subroutine_parent()?;
+        let mut child = Session::new("child");
+        child
+            .push_state(AgentState::Predicting { generation_id: 1 })
+            .map_err(to_plugin_err)?;
+
+        let path = brioche_core::ExecutionPath::default();
+        let events = vec![
+            EngineInput::LlmStream(brioche_core::StreamEvent::ToolCallStart {
+                path: path.clone(),
+                id: "tc1".into(),
+                name: "calc".into(),
+            }),
+            EngineInput::LlmStream(brioche_core::StreamEvent::ToolArgumentChunk {
+                path: path.clone(),
+                id: "tc1".into(),
+                chunk: From::from(&b"{\"x\":1}"[..]),
+            }),
+            EngineInput::LlmStream(brioche_core::StreamEvent::ToolCallDone { path }),
+        ];
+
+        let mut effects = Vec::new();
+        for event in &events {
+            if let Some(e) = orchestrator.handle_subroutine(&mut parent, &mut child, event)? {
+                effects.extend(e);
+            }
+        }
+
+        assert!(matches!(child.state, AgentState::ExecutingTools { .. }));
+        assert_eq!(child.active_tools.len(), 1);
+        let active = child
+            .active_tools
+            .first()
+            .ok_or_else(|| PluginError::Fatal {
+                plugin_name: "subroutine_test".into(),
+                message: "expected active tool".into(),
+            })?;
+        assert_eq!(active.tool_id, "tc1");
+        assert_eq!(active.tool_name, "calc");
+        assert_eq!(active.timeout_ms, brioche_core::DEFAULT_TOOL_TIMEOUT_MS);
+        assert!(effects.iter().any(|e| matches!(e, Effect::ExecuteTools(_))));
+        assert!(effects.contains(&Effect::SaveSession));
+        Ok(())
+    }
+
+    #[test]
+    fn orchestrator_bubbles_up_on_idle() -> Result<(), PluginError> {
+        let orchestrator = SubRoutineOrchestrator::new();
+        let mut parent = subroutine_parent()?;
+        let mut child = Session::new("child");
+        child.history.push(ChatMessage::Assistant {
+            content: "sub-result".into(),
+            reasoning: None,
+            tool_calls: Vec::new(),
+        });
+        child.state = AgentState::Idle;
+
+        let effects = orchestrator
+            .handle_subroutine(
+                &mut parent,
+                &mut child,
+                &EngineInput::ToolCallsResult {
+                    generation_id: 1,
+                    results: Vec::new(),
+                },
+            )?
+            .ok_or_else(|| PluginError::Fatal {
+                plugin_name: "subroutine_test".into(),
+                message: "expected bubble-up effects".into(),
+            })?;
+
+        assert_eq!(parent.history.len(), 1);
+        let first = parent.history.first().ok_or_else(|| PluginError::Fatal {
+            plugin_name: "subroutine_test".into(),
+            message: "expected bubbled history entry".into(),
+        })?;
+        assert_eq!(
+            first,
+            &ChatMessage::Assistant {
+                content: "sub-result".into(),
+                reasoning: None,
+                tool_calls: Vec::new(),
+            }
+        );
+        assert!(matches!(
+            parent.state,
+            AgentState::Predicting { generation_id: 1 }
+        ));
+        assert!(effects.contains(&Effect::SaveSession));
+        assert!(effects.contains(&Effect::CallLlmNetwork));
+        Ok(())
+    }
+
+    #[test]
+    fn orchestrator_bubbles_up_on_failure() -> Result<(), PluginError> {
+        let orchestrator = SubRoutineOrchestrator::new();
+        let mut parent = subroutine_parent()?;
+        let mut child = Session::new("child");
+        child.state = AgentState::Failure;
+
+        let effects = orchestrator
+            .handle_subroutine(
+                &mut parent,
+                &mut child,
+                &EngineInput::ToolCallsResult {
+                    generation_id: 1,
+                    results: Vec::new(),
+                },
+            )?
+            .ok_or_else(|| PluginError::Fatal {
+                plugin_name: "subroutine_test".into(),
+                message: "expected bubble-up effects".into(),
+            })?;
+
+        assert_eq!(parent.history.len(), 1);
+        let first = parent.history.first().ok_or_else(|| PluginError::Fatal {
+            plugin_name: "subroutine_test".into(),
+            message: "expected bubbled history entry".into(),
+        })?;
+        assert_eq!(
+            first,
+            &ChatMessage::System {
+                content: "sub-routine failed".into(),
+            }
+        );
+        assert!(matches!(
+            parent.state,
+            AgentState::Predicting { generation_id: 1 }
+        ));
+        assert!(effects.contains(&Effect::SaveSession));
+        assert!(effects.contains(&Effect::CallLlmNetwork));
+        Ok(())
+    }
+
+    #[test]
+    fn cleanup_guard_removes_child_session() -> Result<(), PluginError> {
+        let guard = SubRoutineCleanupGuard::new();
+        let handle = SubRoutineHandle::new("sub");
+        let mut registry = SessionRegistry::new();
+        registry.insert(handle.clone(), Session::new("child"));
+        let mut parent = Session::new("parent");
+
+        let effects = guard.on_exit(handle, &mut parent, &mut registry)?;
+
+        assert!(!registry.contains(&SubRoutineHandle::new("sub")));
+        assert_eq!(effects, vec![Effect::SaveSession]);
+        Ok(())
+    }
+}
