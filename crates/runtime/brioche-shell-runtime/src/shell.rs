@@ -400,33 +400,52 @@ impl BriocheShell {
         shell
     }
 
-    /// Test-only constructor that exposes only the async-task result channel.
+    /// Test-only constructor that wires the engine-input and async-task-result
+    /// channels to the provided senders.
     ///
-    /// Used by unit tests in sibling modules that need a `BriocheShell`
-    /// handle without spinning up the full engine thread.
+    /// Used by integration tests that need to observe `EngineInput` loopback
+    /// messages (e.g. `ToolCallsResult`, `LlmStream`) and `AsyncTaskResult`
+    /// without spinning up the full engine thread. The remaining shell
+    /// channels (system signals, governance, rebuild) are wired to bounded
+    /// channels with their receivers dropped, so sends to those channels fail
+    /// cleanly.
     ///
     /// Refs: I-Shell-Drain-Atomic
-    #[cfg(test)]
-    pub(crate) fn test_with_async_channel(
-        tx: tokio::sync::mpsc::Sender<brioche_core::AsyncTaskResult>,
+    pub fn test_with_loopback_channels(
+        input_tx: mpsc::Sender<EngineInput>,
+        async_task_result_tx: mpsc::Sender<brioche_core::AsyncTaskResult>,
     ) -> Self {
-        let (_input_tx, _input_rx) = tokio::sync::mpsc::channel(1);
-        let (_system_tx, _system_rx) = tokio::sync::mpsc::channel(1);
-        let (_gov_tx, _gov_rx) = tokio::sync::mpsc::channel(1);
-        let (_rebuild_tx, _rebuild_rx) = tokio::sync::mpsc::channel(1);
+        let (_system_tx, _system_rx) = mpsc::channel(1);
+        let (_gov_tx, _gov_rx) = mpsc::channel(1);
+        let (_rebuild_tx, _rebuild_rx) = mpsc::channel(1);
 
         // Drop unused receivers so the senders do not block.
-        drop((_input_rx, _system_rx, _gov_rx, _rebuild_rx));
+        drop((_system_rx, _gov_rx, _rebuild_rx));
 
         Self {
-            input_tx: _input_tx,
+            input_tx,
             system_signal_tx: _system_tx,
             governance_tx: _gov_tx,
-            async_task_result_tx: tx,
+            async_task_result_tx,
             rebuild_tx: _rebuild_tx,
             rebuild_in_progress: Arc::new(AtomicBool::new(false)),
             task_tracker: TaskTracker::new(),
         }
+    }
+
+    /// Test-only constructor that exposes only the async-task result channel.
+    ///
+    /// Used by unit tests that need a `BriocheShell` handle without spinning up
+    /// the full engine thread. Sends to the engine-input channel will fail
+    /// cleanly because the test does not hold the receiver.
+    ///
+    /// Refs: I-Shell-Drain-Atomic
+    pub fn test_with_async_channel(
+        tx: tokio::sync::mpsc::Sender<brioche_core::AsyncTaskResult>,
+    ) -> Self {
+        let (_input_tx, _input_rx) = tokio::sync::mpsc::channel(1);
+        drop(_input_rx);
+        Self::test_with_loopback_channels(_input_tx, tx)
     }
 
     /// Send an `EngineInput` to the kernel.
