@@ -38,7 +38,7 @@ brioche-shell-builder = { workspace = true }
 brioche-provider-openai = { workspace = true }
 brioche-tools-system = { workspace = true }
 dirs = { workspace = true }
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
 lazy_static = { workspace = true }
 base64-simd = { workspace = true }
 
