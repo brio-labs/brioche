@@ -80,7 +80,7 @@ export default function SessionSidebar() {
 				</h2>
 				<button
 					type="button"
-					className="flex cursor-pointer items-center justify-center rounded-lg border border-border bg-bg-highlight/50 p-1.5 text-fg-secondary shadow-sm transition-all duration-200 hover:border-accent-dim/40 hover:bg-bg-highlight hover:text-fg-primary"
+					className="flex cursor-pointer items-center justify-center rounded-md border border-border bg-bg-highlight/50 p-1.5 text-fg-secondary shadow-sm transition-all duration-200 hover:border-accent-dim/40 hover:bg-bg-highlight hover:text-fg-primary"
 					onClick={handleNewSession}
 					title="New session"
 				>
@@ -119,10 +119,10 @@ export default function SessionSidebar() {
 			</div>
 
 			{/* Session list */}
-			<div className="flex flex-1 flex-col space-y-3 overflow-y-auto px-3 py-4">
+			<div className="flex flex-1 flex-col space-y-3 overflow-y-auto py-4">
 				{sessions.length > 0 ? (
 					Array.from(groupedSessions.entries()).map(([group, items]) => (
-						<div key={group} className="space-y-1.5">
+						<div key={group} className="space-y-0.5">
 							{/* Group header */}
 							<div className="mb-2 flex select-none items-center gap-2 px-4 text-xs font-bold uppercase tracking-widest text-fg-muted">
 								<span>{group}</span>
@@ -133,10 +133,10 @@ export default function SessionSidebar() {
 								<div
 									key={session.id}
 									className={cn(
-										"group relative flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-all duration-200",
+										"group relative flex cursor-pointer items-center justify-between p-3 transition-all duration-200",
 										session.active
-											? "border-accent-dim/40 bg-bg-highlight/60 shadow-sm shadow-accent/5"
-											: "border-transparent bg-transparent hover:border-border/60 hover:bg-bg-elevated/30",
+											? "bg-bg-highlight/60"
+											: "bg-transparent hover:bg-bg-elevated/30",
 									)}
 									onClick={() => switchToSession(session.id)}
 									title={session.workspace}
@@ -193,7 +193,7 @@ export default function SessionSidebar() {
 									{!session.active && (
 										<button
 											type="button"
-											className="ml-2 cursor-pointer rounded-md border border-transparent p-1 text-fg-muted opacity-0 transition-all duration-200 hover:border-border hover:bg-bg-subtle hover:text-error-text group-hover:opacity-100"
+											className="ml-2 cursor-pointer p-1 text-fg-muted opacity-0 transition-all duration-200 hover:bg-bg-subtle hover:text-error-text group-hover:opacity-100"
 											onClick={(e) => {
 												e.stopPropagation();
 												deleteSession(session.id);

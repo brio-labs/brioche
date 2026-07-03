@@ -30,7 +30,7 @@ export const SelectTrigger = React.forwardRef<
 		type="button"
 		className={cn(
 			"flex w-full items-center justify-between cursor-pointer",
-			"rounded border border-border bg-bg-elevated",
+			"rounded-md border border-border bg-bg-elevated",
 			"px-3 py-2 text-sm font-mono text-fg-primary",
 			"outline-none focus:border-accent-dim focus:bg-bg-highlight focus:ring-1 focus:ring-accent-glow",
 			"disabled:cursor-not-allowed disabled:opacity-50",
@@ -58,8 +58,8 @@ export const SelectContent = React.forwardRef<
 	<SelectPrimitive.Portal>
 		<SelectPrimitive.Content
 			ref={ref}
-			className={cn(
-				"relative z-50 overflow-hidden rounded border border-border bg-bg-surface shadow-md",
+	className={cn(
+			"relative z-50 overflow-hidden rounded-md border border-border bg-bg-surface shadow-md",
 				"max-h-96 min-w-32",
 				"text-fg-primary",
 				"animate-fadeIn",
@@ -94,7 +94,7 @@ export const SelectItem = React.forwardRef<
 	<SelectPrimitive.Item
 		ref={ref}
 		className={cn(
-			"relative flex w-full cursor-pointer select-none items-center rounded",
+			"relative flex w-full cursor-pointer select-none items-center rounded-md",
 			"py-1.5 pl-2 pr-8 text-sm text-fg-secondary",
 			"outline-none focus:bg-bg-elevated focus:text-fg-primary",
 			"hover:bg-bg-highlight hover:text-fg-primary",
@@ -181,7 +181,7 @@ export function MultiSelect({
 					type="button"
 					className={cn(
 						"flex w-full items-center justify-between cursor-pointer",
-						"rounded border border-border bg-bg-elevated",
+						"rounded-md border border-border bg-bg-elevated",
 						"px-3 py-2 text-sm font-mono",
 						"outline-none focus:border-accent-dim focus:bg-bg-highlight focus:ring-1 focus:ring-accent-glow",
 						"hover:border-border-hover hover:bg-bg-highlight",
@@ -200,7 +200,7 @@ export function MultiSelect({
 					align="start"
 					sideOffset={4}
 					className={cn(
-						"z-50 min-w-[var(--radix-popover-trigger-width)] rounded border border-border bg-bg-surface p-1 shadow-md",
+						"z-50 min-w-[var(--radix-popover-trigger-width)] rounded-md border border-border bg-bg-surface p-1 shadow-md",
 						"animate-fadeIn",
 					)}
 				>
@@ -209,7 +209,7 @@ export function MultiSelect({
 							<label
 								key={option.value}
 								className={cn(
-									"flex cursor-pointer items-center gap-2 rounded",
+									"flex cursor-pointer items-center gap-2 rounded-md",
 									"px-2 py-1.5 text-sm text-fg-secondary",
 									"hover:bg-bg-elevated hover:text-fg-primary",
 								)}

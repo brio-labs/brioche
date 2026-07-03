@@ -41,7 +41,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 				ref={ref}
 				type={asChild ? undefined : (type ?? "button")}
 				className={cn(
-					"inline-flex items-center justify-center rounded font-medium",
+					"inline-flex items-center justify-center rounded-md font-medium",
 					"px-3 py-2 text-xs tracking-wide",
 					"focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-glow focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface",
 					"disabled:pointer-events-none disabled:opacity-50 cursor-pointer",
@@ -135,7 +135,7 @@ export const Checkbox = React.forwardRef<
 	<CheckboxPrimitive.Root
 		ref={ref}
 		className={cn(
-			"peer h-4 w-4 shrink-0 rounded cursor-pointer",
+			"peer h-4 w-4 shrink-0 rounded-sm cursor-pointer",
 			"border border-border bg-bg-elevated",
 			"ring-offset-bg-surface focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-glow",
 			"disabled:cursor-not-allowed disabled:opacity-50",

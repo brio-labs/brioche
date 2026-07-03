@@ -131,7 +131,7 @@ export function SearchBar({
 				<button
 					type="button"
 					onClick={onSearch}
-					className="rounded bg-accent px-3 py-1 text-xs font-semibold text-accent-text transition-colors hover:bg-accent-hover active:bg-accent-dim focus-visible:ring-1 focus-visible:ring-accent-glow"
+					className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-accent-text transition-colors hover:bg-accent-hover active:bg-accent-dim focus-visible:ring-1 focus-visible:ring-accent-glow"
 				>
 					Search
 				</button>
@@ -170,7 +170,7 @@ export function CategoryFilter({
 			<button
 				type="button"
 				className={cn(
-					"rounded border px-3 py-1 text-xs font-medium transition-all",
+					"rounded-md border px-3 py-1 text-xs font-medium transition-all",
 					!activeCategory
 						? "border-accent/30 bg-accent/20 text-fg-primary"
 						: "border-border/50 bg-bg-elevated/50 text-fg-muted hover:text-fg-secondary",
@@ -187,7 +187,7 @@ export function CategoryFilter({
 						key={cat}
 						type="button"
 						className={cn(
-							"rounded border px-3 py-1 text-xs font-medium transition-all",
+							"rounded-md border px-3 py-1 text-xs font-medium transition-all",
 							isActive
 								? "border-accent/30 bg-accent/20 text-fg-primary"
 								: "border-border/50 bg-bg-elevated/50 text-fg-muted hover:text-fg-secondary",
