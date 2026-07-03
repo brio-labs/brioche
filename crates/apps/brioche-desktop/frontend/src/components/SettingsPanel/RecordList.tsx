@@ -78,7 +78,7 @@ export function RecordList({
 					value={String(value ?? "")}
 					onValueChange={(v) => onChangeField(v)}
 				>
-					<SelectTrigger className="flex-1 px-2.5 py-1.5 text-xs" />
+					<SelectTrigger className="flex-1 px-3 py-2 text-xs" />
 					<SelectContent>
 						{(field.options || []).map((opt) => (
 							<SelectItem key={opt.value} value={opt.value}>
@@ -120,7 +120,7 @@ export function RecordList({
 						onChangeField(n > 0 ? n : "");
 					}}
 					placeholder={field.placeholder}
-					className="flex-1 px-2.5 py-1.5 text-xs"
+					className="flex-1 px-3 py-2 text-xs"
 				/>
 			);
 		}
@@ -132,7 +132,7 @@ export function RecordList({
 				value={String(value ?? "")}
 				onChange={(e) => onChangeField(e.target.value)}
 				placeholder={field.placeholder}
-				className="flex-1 px-2.5 py-1.5 text-xs"
+				className="flex-1 px-3 py-2 text-xs"
 			/>
 		);
 	};
@@ -142,7 +142,7 @@ export function RecordList({
 			{items.map((item, index) => (
 				<div
 					key={index}
-					className="flex flex-col gap-2 rounded-lg border border-border bg-bg-elevated/30 p-3"
+					className="flex flex-col gap-2 rounded-none border border-border bg-bg-elevated p-3"
 				>
 					{rows.map((rowFields, rowIndex) => (
 						<div key={rowIndex} className="flex items-center gap-2">

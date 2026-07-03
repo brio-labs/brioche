@@ -23,12 +23,12 @@ export function SettingsSectionList({
   searchPlaceholder = "Search settings...",
 }: SettingsSectionListProps) {
   return (
-    <div className="flex flex-col w-60 min-w-60 border-r border-border bg-bg-base/20">
+    <div className="flex flex-col w-60 min-w-60 border-r border-border bg-bg-base">
       <SearchBar
         placeholder={searchPlaceholder}
         value={search}
         onChange={onSearchChange}
-        containerClassName="border-b border-border rounded-none bg-bg-base/30 px-5 py-4"
+        containerClassName="border-b border-border rounded-none bg-bg-base px-5 py-4"
       />
       <div className="flex flex-1 flex-col gap-1 overflow-y-auto p-4">
         {sections.map((section) => (
@@ -38,10 +38,10 @@ export function SettingsSectionList({
             variant="ghost"
             onClick={() => onSelectSection(section.id)}
             className={cn(
-              "w-full justify-start px-4 py-2.5 text-sm font-semibold transition-all duration-150",
+              "w-full justify-start px-4 py-2 text-sm font-semibold transition-all duration-150",
               selectedSectionId === section.id
-                ? "border-l-2 border-accent bg-accent/15 text-fg-primary"
-                : "text-fg-secondary hover:bg-bg-elevated/50 hover:text-fg-primary",
+                ? "border-l-2 border-accent bg-bg-highlight text-fg-primary"
+                : "text-fg-secondary hover:bg-bg-elevated hover:text-fg-primary",
             )}
           >
             {section.title}

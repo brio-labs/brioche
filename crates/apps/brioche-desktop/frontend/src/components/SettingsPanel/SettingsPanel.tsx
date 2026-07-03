@@ -50,7 +50,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
 
 				<div className="flex flex-1 flex-col gap-4 overflow-y-auto p-6">
 					{!isTauriAvailable && (
-						<div className="rounded-lg border border-error-border bg-error-bg p-4 text-xs text-error-text">
+						<div className="rounded-sm border border-error-border bg-error-bg p-4 text-xs text-error-text">
 							Settings preview mode: saving requires the Tauri desktop app.
 						</div>
 					)}
@@ -82,7 +82,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
 					)}
 					{saveError && (
 						<div className="mt-auto pt-5">
-							<div className="whitespace-pre-wrap rounded-lg border border-error-border bg-error-bg p-4 text-sm text-error-text">
+							<div className="whitespace-pre-wrap rounded-sm border border-error-border bg-error-bg p-4 text-sm text-error-text">
 								{saveError}
 							</div>
 						</div>
@@ -90,7 +90,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
 				</div>
 			</div>
 
-			<div className="flex shrink-0 justify-end gap-3 border-t border-border bg-bg-base/30 px-6 py-5">
+			<div className="flex shrink-0 justify-end gap-3 border-t border-border bg-bg-base px-6 py-4">
 				<Button type="button" variant="secondary" onClick={onClose}>
 					Cancel
 				</Button>

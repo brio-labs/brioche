@@ -1,5 +1,5 @@
 import type { SettingsField } from "../../ipc";
-import { AlertTriangleIcon, EditIcon } from "../Icons";
+import { AlertTriangle, Pencil } from "lucide-react";
 import {
 	Button,
 	Checkbox,
@@ -158,7 +158,7 @@ export function FieldEditor({
 			className={cn(
 				"flex flex-col gap-2",
 				field.protected &&
-					"rounded-lg border border-border/50 bg-bg-elevated/20 p-3.5",
+					"rounded-sm border border-border bg-bg-elevated p-4",
 			)}
 		>
 			{field.field_type !== "boolean" && (
@@ -166,7 +166,7 @@ export function FieldEditor({
 			)}
 			{field.protected && (
 				<div className="mt-0.5 flex items-start gap-2 text-xs text-warning-text">
-					<AlertTriangleIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+					<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
 					<div className="flex flex-wrap items-center gap-x-2 gap-y-1">
 						<span>
 							{isProtected
@@ -183,7 +183,7 @@ export function FieldEditor({
 								}
 								className="h-auto px-1 py-0.5 text-accent underline hover:text-accent-hover"
 							>
-								<EditIcon className="mr-1 h-3 w-3" />
+								<Pencil className="mr-1 h-3.5 w-3.5" />
 								Unlock to edit
 							</Button>
 						) : (
