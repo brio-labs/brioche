@@ -4,6 +4,7 @@ import type { Event } from "@tauri-apps/api/event";
 import { useChatStore } from "../store";
 import { useSessionStore } from "../stores/sessionStore";
 import { getMessages } from "../ipc";
+import { isTauri } from "../ipc";
 import type { ChatMessagePayload } from "../ipc";
 
 /// Subscribes to a named Tauri event and invokes the callback on every payload.
@@ -18,6 +19,8 @@ export function useTauriEvent<T>(
 	callbackRef.current = callback;
 
 	useEffect(() => {
+		if (!isTauri()) return;
+
 		let unlisten: (() => void) | undefined;
 		let cancelled = false;
 

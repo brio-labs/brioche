@@ -4,12 +4,12 @@ import { useSessionStore } from "../stores/sessionStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useFileStore } from "../stores/fileStore";
 import { open } from "@tauri-apps/plugin-dialog";
-import { sendMessage, attachReference, sendImage } from "../ipc";
+import { sendMessage, attachReference, sendImage, isTauri } from "../ipc";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import Footer from "./Footer";
 import Tooltip from "./Tooltip";
-import { SendIcon, PaperclipIcon, ImageIcon } from "./Icons";
+import { SendIcon, PaperclipIcon, ImageIcon, ClearIcon } from "./Icons";
 import SessionSidebar from "./SessionSidebar";
 import FileExplorer from "./FileExplorer";
 import ToolsPanel from "./ToolsPanel";
@@ -125,6 +125,7 @@ export default function App() {
   }, [messages, scrollToBottom]);
 
   useEffect(() => {
+    if (!isTauri()) return;
     loadSessions();
     loadSettings();
   }, [loadSessions, loadSettings]);
@@ -138,9 +139,8 @@ export default function App() {
   }, [workingDir]);
 
   useEffect(() => {
-    if (workingDir) {
-      loadDirectory(workingDir);
-    }
+    if (!isTauri() || !workingDir) return;
+    loadDirectory(workingDir);
   }, [workingDir, loadDirectory]);
 
   // Synchronize Tauri events with stores reactively

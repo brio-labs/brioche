@@ -236,6 +236,8 @@ export default function FileExplorer() {
 		const timeout = window.setTimeout(() => setNotice(null), 3000);
 		return () => window.clearTimeout(timeout);
 	}, [notice]);
+
+	// Load the workspace root when it changes.
 	useEffect(() => {
 		if (workspaceRoot) {
 			void loadDirectory(workspaceRoot);
