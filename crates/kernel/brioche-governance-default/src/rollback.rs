@@ -714,9 +714,23 @@ mod tests {
     }
 
     #[test]
-    fn historical_budget_policy_defaults_to_base() {
+    fn historical_budget_policy_defaults_to_reduced_with_empty_history() {
         let policy = HistoricalCowBudgetPolicy::new();
         assert_eq!(policy.success_rate(), 1.0);
+        // Empty history implies 100% success, so the policy reduces the budget.
+        assert_eq!(policy.adaptive_budget(), 65536_usize.saturating_mul(3) / 4);
+    }
+
+    #[test]
+    fn historical_budget_policy_returns_base_for_balanced_success_rate() {
+        let mut policy = HistoricalCowBudgetPolicy::with_params(65536, 16384, 262144, 4);
+        policy.record_frame("hook", true, 100);
+        policy.record_frame("hook", true, 100);
+        policy.record_frame("hook", false, 100);
+        policy.record_frame("hook", true, 100);
+
+        // 3 successes / 4 records = 0.75, which keeps the base budget.
+        assert_eq!(policy.success_rate(), 0.75);
         assert_eq!(policy.adaptive_budget(), 65536);
     }
 
@@ -734,7 +748,9 @@ mod tests {
 
     #[test]
     fn historical_budget_policy_increases_on_low_success() {
-        let mut policy = HistoricalCowBudgetPolicy::with_params(65536, 16384, 262144, 4);
+        // Use a max_budget between 4x and 5x base so the increase is visible
+        // after the pre-division clamp.
+        let mut policy = HistoricalCowBudgetPolicy::with_params(65536, 16384, 300000, 4);
         for _ in 0..3 {
             policy.record_frame("hook", false, 100);
         }
@@ -742,7 +758,7 @@ mod tests {
 
         let budget = policy.adaptive_budget();
         assert!(budget > 65536, "low success rate should increase budget");
-        assert!(budget <= 262144, "budget should be clamped to max");
+        assert!(budget <= 300000, "budget should be clamped to max");
     }
 
     #[test]
