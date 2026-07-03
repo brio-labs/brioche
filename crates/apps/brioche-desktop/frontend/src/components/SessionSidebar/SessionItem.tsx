@@ -1,17 +1,19 @@
 import { cn } from "../ui/lib";
-import { MessageIcon, TrashIcon } from "../Icons";
+import { TrashIcon } from "../Icons";
 import type { Session } from "../../stores/sessionStore";
 
-/// Formats a Unix timestamp as a localized, human-readable date string.
-function formatDate(timestamp: number): string {
+/// Formats a Unix timestamp as a short relative string.
+/// Examples: "now", "1m", "2h", "3d".
+function formatTimeSince(timestamp: number): string {
 	if (!timestamp) return "unknown";
-	const date = new Date(timestamp * 1000);
-	return date.toLocaleDateString(undefined, {
-		month: "short",
-		day: "numeric",
-		hour: "2-digit",
-		minute: "2-digit",
-	});
+	const seconds = Math.floor((Date.now() - timestamp * 1000) / 1000);
+	if (seconds < 60) return "now";
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) return `${minutes}m`;
+	const hours = Math.floor(minutes / 60);
+	if (hours < 24) return `${hours}h`;
+	const days = Math.floor(hours / 24);
+	return `${days}d`;
 }
 
 interface SessionItemProps {
@@ -21,8 +23,7 @@ interface SessionItemProps {
 }
 
 export function SessionItem({ session, switchToSession, deleteSession }: SessionItemProps) {
-	const workspace = session.workspace || "";
-	const workspaceDisplay = workspace.split("/").pop() || workspace;
+	const recency = session.updated_at ?? session.created_at ?? 0;
 
 	return (
 		<div
@@ -44,59 +45,40 @@ export function SessionItem({ session, switchToSession, deleteSession }: Session
 				)}
 			/>
 
-			<div className="flex flex-1 min-w-0 items-start gap-2.5 pl-1">
+			<div className="flex flex-1 min-w-0 items-center gap-2 pl-1">
 				<div
 					className={cn(
-						"mt-0.5 h-3.5 w-3.5 shrink-0 transition-colors",
+						"truncate text-xs font-semibold transition-colors",
 						session.active
-							? "text-accent"
-							: "text-fg-muted group-hover:text-fg-secondary",
+							? "text-fg-primary"
+							: "text-fg-secondary group-hover:text-fg-primary",
 					)}
 				>
-					<MessageIcon className="h-full w-full" />
-				</div>
-
-				<div className="flex flex-1 min-w-0 flex-col">
-					<div
-						className={cn(
-							"truncate text-xs font-semibold transition-colors",
-							session.active
-								? "text-fg-primary"
-								: "text-fg-secondary group-hover:text-fg-primary",
-						)}
-					>
-						{session.id}
-					</div>
-
-					<div className="mt-0.5 flex flex-col items-start gap-1">
-						<span className="font-mono text-xs leading-none text-fg-muted">
-							{formatDate(session.created_at ?? 0)}
-						</span>
-
-						{session.workspace && (
-							<span className="inline-flex max-w-full items-center truncate rounded border border-border bg-bg-subtle px-1.5 py-0.5 font-mono text-xs font-medium leading-none text-fg-tertiary select-none">
-								{workspaceDisplay}
-							</span>
-						)}
-					</div>
+					{session.id}
 				</div>
 			</div>
 
-			{!session.active && (
-				<button
-					type="button"
-					className="ml-2 cursor-pointer p-1 text-fg-muted opacity-0 transition-all duration-200 hover:bg-bg-subtle hover:text-error-text group-hover:opacity-100"
-					onClick={(e) => {
-						e.stopPropagation();
-						deleteSession(session.id);
-					}}
-					title="Delete session"
-				>
-					<span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-						<TrashIcon className="h-full w-full" />
-					</span>
-				</button>
-			)}
+			<div className="flex shrink-0 items-center gap-2">
+				<span className="font-mono text-[10px] leading-none text-fg-dim select-none">
+					{formatTimeSince(recency)}
+				</span>
+
+				{!session.active && (
+					<button
+						type="button"
+						className="cursor-pointer p-1 text-fg-muted opacity-0 transition-all duration-200 hover:bg-bg-subtle hover:text-error-text group-hover:opacity-100"
+						onClick={(e) => {
+							e.stopPropagation();
+							deleteSession(session.id);
+						}}
+						title="Delete session"
+					>
+						<span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+							<TrashIcon className="h-full w-full" />
+						</span>
+					</button>
+				)}
+			</div>
 		</div>
 	);
 }

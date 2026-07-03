@@ -1,3 +1,6 @@
+import { useState } from "react";
+import { ChevronRightIcon } from "../Icons";
+import { cn } from "../ui/lib";
 import { SessionItem } from "./SessionItem";
 import type { Session } from "../../stores/sessionStore";
 
@@ -8,22 +11,47 @@ interface SessionGroupProps {
 	deleteSession: (id: string) => Promise<void>;
 }
 
-export function SessionGroup({ title, sessions, switchToSession, deleteSession }: SessionGroupProps) {
-	return (
-		<div className="space-y-0.5">
-			<div className="mb-2 flex select-none items-center gap-2 px-4 text-xs font-bold uppercase tracking-widest text-fg-muted">
-				<span>{title}</span>
-				<div className="h-px flex-1 bg-border/30" />
-			</div>
+export function SessionGroup({
+	title,
+	sessions,
+	switchToSession,
+	deleteSession,
+}: SessionGroupProps) {
+	const [isOpen, setIsOpen] = useState(true);
 
-			{sessions.map((session) => (
-				<SessionItem
-					key={session.id}
-					session={session}
-					switchToSession={switchToSession}
-					deleteSession={deleteSession}
-				/>
-			))}
+	return (
+		<div className="flex flex-col">
+			<button
+				type="button"
+				onClick={() => setIsOpen((prev) => !prev)}
+				className="group flex w-full select-none items-center gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-fg-muted transition-colors hover:text-fg-secondary"
+			>
+				<span
+					className={cn(
+						"flex h-3.5 w-3.5 shrink-0 items-center justify-center transition-transform duration-200",
+						isOpen && "rotate-90",
+					)}
+				>
+					<ChevronRightIcon className="h-full w-full" />
+				</span>
+				<span className="truncate">{title}</span>
+				<span className="ml-auto text-[10px] font-medium text-fg-dim opacity-0 transition-opacity group-hover:opacity-100">
+					{sessions.length}
+				</span>
+			</button>
+
+			{isOpen && (
+				<div className="flex flex-col">
+					{sessions.map((session) => (
+						<SessionItem
+							key={session.id}
+							session={session}
+							switchToSession={switchToSession}
+							deleteSession={deleteSession}
+						/>
+					))}
+				</div>
+			)}
 		</div>
 	);
 }

@@ -22,13 +22,10 @@ export function SessionSortControls({ sortMode, setSortMode }: SessionSortContro
 					className="w-full cursor-pointer appearance-none rounded-md border border-border/80 bg-bg-elevated/40 px-2.5 py-1 text-xs font-medium text-fg-secondary shadow-sm outline-none transition-all duration-200 hover:bg-bg-elevated/80 hover:text-fg-primary focus:border-accent-dim/60 focus:ring-1 focus:ring-accent-dim/30"
 				>
 					<option value="date" className="bg-bg-surface text-fg-primary">
-						Date Created
-					</option>
-					<option value="workspace" className="bg-bg-surface text-fg-primary">
-						Workspace
+						Date
 					</option>
 					<option value="name" className="bg-bg-surface text-fg-primary">
-						Session Name
+						Name
 					</option>
 				</select>
 			</div>
