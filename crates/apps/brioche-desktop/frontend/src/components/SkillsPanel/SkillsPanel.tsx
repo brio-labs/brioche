@@ -1,9 +1,10 @@
 import { useEffect, useMemo } from "react";
 import { useSkillsStore } from "../../stores/panelStores";
 import type { Skill } from "../../ipc";
+import { BookOpen, Plus } from "lucide-react";
 import PanelOverlay, { SearchBar, CategoryFilter } from "../PanelOverlay";
-import { BookIcon, PlusIcon } from "../Icons";
 import { useSkillCreate } from "../../hooks/skills";
+import { EmptyState } from "../ui";
 import SkillListItem from "./SkillListItem";
 import SkillCreateForm from "./SkillCreateForm";
 import SkillDetails from "./SkillDetails";
@@ -86,36 +87,36 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 	return (
 		<PanelOverlay
 			title="Skills"
-			icon={<BookIcon className="h-4 w-4" />}
+			icon={<BookOpen className="h-4 w-4" />}
 			onClose={onClose}
 			size="lg"
 			padded={false}
 			headerActions={
 				<button
 					type="button"
-					className="mr-1.5 flex cursor-pointer items-center justify-center rounded-md bg-transparent p-1.5 text-fg-muted transition-all duration-150 hover:bg-bg-highlight hover:text-fg-secondary"
+					className="mr-2 flex cursor-pointer items-center justify-center rounded-md bg-transparent p-2 text-fg-muted transition-all duration-150 hover:bg-bg-highlight hover:text-fg-secondary"
 					onClick={() => setShowCreate(true)}
 					title="New skill"
 					aria-label="New skill"
 				>
-					<PlusIcon className="h-4 w-4" />
+					<Plus className="h-4 w-4" />
 				</button>
 			}
 		>
 			<div className="flex min-h-0 flex-1 flex-row overflow-hidden">
-				<div className="flex w-70 min-w-70 flex-col border-r border-border bg-bg-base/20">
+				<div className="flex w-70 min-w-70 flex-col border-r border-border bg-bg-base">
 					<SearchBar
 						placeholder="Search skills..."
 						value={searchQuery}
 						onChange={setSearchQuery}
-						containerClassName="shrink-0 border-b border-border rounded-none bg-bg-base/30 px-5 py-4"
+						containerClassName="shrink-0 border-b border-border rounded-none bg-bg-base px-4 py-4"
 					/>
 
 					<CategoryFilter
 						categories={categories}
 						activeCategory={categoryFilter}
 						onSelect={setCategoryFilter}
-						containerClassName="shrink-0 border-b border-border bg-bg-base/20 px-5 py-4"
+						containerClassName="shrink-0 border-b border-border bg-bg-base px-4 py-4"
 					/>
 
 					{error && (
@@ -131,9 +132,9 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 					)}
 					<div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
 						{isLoading ? (
-							<div className="empty-state">Loading skills...</div>
+							<EmptyState title="Loading skills..." description="Scanning local workspace definitions." />
 						) : filteredSkills.length === 0 ? (
-							<div className="empty-state">No skills found</div>
+							<EmptyState icon={BookOpen} title="No skills found" description="Create a skill to extend functionality." />
 						) : (
 							filteredSkills.map((skill) => (
 								<SkillListItem
@@ -149,7 +150,7 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 					</div>
 				</div>
 
-				<div className="flex flex-1 flex-col gap-4 overflow-y-auto bg-bg-base/10 p-5">
+				<div className="flex flex-1 flex-col gap-4 overflow-y-auto bg-bg-base p-5">
 					{showCreate ? (
 						<SkillCreateForm
 							newName={newName}
@@ -170,12 +171,7 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 							skillContent={skillContent}
 						/>
 					) : (
-						<div className="flex flex-col items-center justify-center gap-3 py-24 text-center text-fg-muted select-none">
-							<BookIcon className="h-12 w-12 stroke-[1.2] text-fg-dim" />
-							<p className="text-sm">
-								Select a skill to view its documentation
-							</p>
-						</div>
+						<EmptyState icon={BookOpen} title="Select a skill" description="Choose a skill from the sidebar to view details." />
 					)}
 				</div>
 			</div>

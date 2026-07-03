@@ -1,6 +1,6 @@
 import type { Skill } from "../../ipc";
 import { cn } from "../ui/lib";
-import { TrashIcon } from "../Icons";
+import { Trash2 } from "lucide-react";
 
 interface SkillListItemProps {
 	skill: Skill;
@@ -23,10 +23,10 @@ export default function SkillListItem({
 	return (
 		<div
 			className={cn(
-				"flex cursor-pointer flex-col gap-1.5 rounded-lg border p-3 transition-all duration-200",
+				"flex cursor-pointer flex-col gap-2 rounded-none border p-3 transition-all duration-200",
 				isSelected
-					? "border-accent-dim/40 bg-accent/10 shadow-sm"
-					: "border-transparent bg-transparent hover:border-border/60 hover:bg-bg-elevated/30",
+					? "border-accent-dim/40 bg-bg-highlight shadow-sm"
+					: "border-transparent bg-transparent hover:border-border hover:bg-bg-elevated",
 			)}
 		>
 			<div
@@ -37,7 +37,7 @@ export default function SkillListItem({
 					{skill.name}
 					<span
 						className={cn(
-							"rounded px-1.5 py-0.5 text-xs font-bold uppercase select-none",
+							"rounded-sm px-2 py-0.5 text-xs font-bold uppercase select-none",
 							skill.enabled
 								? "bg-success-bg border border-success-border text-success-text"
 								: "bg-bg-subtle border border-border text-fg-muted",
@@ -51,17 +51,17 @@ export default function SkillListItem({
 				</div>
 			</div>
 			<div className="mt-1 flex select-none items-center gap-2 text-xs text-fg-muted">
-				<span className="rounded border border-border bg-bg-subtle px-1.5 py-0.5 font-mono text-xs font-medium text-fg-tertiary">
+				<span className="rounded-sm border border-border bg-bg-subtle px-2 py-0.5 font-mono text-xs font-medium text-fg-tertiary">
 					{skill.category}
 				</span>
 				{skill.version && (
-					<span className="rounded border border-border bg-bg-subtle px-1.5 py-0.5 font-mono text-xs font-medium text-fg-tertiary">
+					<span className="rounded-sm border border-border bg-bg-subtle px-2 py-0.5 font-mono text-xs font-medium text-fg-tertiary">
 						v{skill.version}
 					</span>
 				)}
 				<button
 					type="button"
-					className="ml-auto cursor-pointer rounded border border-border bg-bg-highlight px-2.5 py-1 text-xs font-medium text-fg-secondary transition-all hover:border-accent-dim/45 hover:bg-bg-subtle hover:text-fg-primary"
+					className="ml-auto cursor-pointer rounded-md border border-border bg-bg-highlight px-3 py-1 text-xs font-medium text-fg-secondary transition-all hover:border-accent-dim hover:bg-bg-subtle hover:text-fg-primary"
 					onClick={() => onToggleEnabled(skill)}
 					title={skill.enabled ? "Disable" : "Enable"}
 				>
@@ -69,12 +69,12 @@ export default function SkillListItem({
 				</button>
 				<button
 					type="button"
-					className="flex shrink-0 cursor-pointer items-center justify-center rounded border border-transparent p-1.5 text-fg-muted transition-all hover:border-border hover:bg-bg-highlight hover:text-error-text"
+					className="flex shrink-0 cursor-pointer items-center justify-center rounded-md border border-transparent p-2 text-fg-muted transition-all hover:border-border hover:bg-bg-highlight hover:text-error-text"
 					onClick={() => onDelete(skill)}
 					title="Delete"
 					aria-label={`Delete skill ${skill.name}`}
 				>
-					<TrashIcon className="h-3.5 w-3.5" />
+					<Trash2 className="h-3.5 w-3.5" />
 				</button>
 			</div>
 		</div>

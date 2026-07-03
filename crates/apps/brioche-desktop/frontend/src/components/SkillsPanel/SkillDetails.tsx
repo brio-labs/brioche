@@ -1,4 +1,4 @@
-import { BookIcon, TagIcon, FolderIcon } from "../Icons";
+import { Tag, Folder } from "lucide-react";
 import type { Skill } from "../../ipc";
 
 interface SkillDetailsProps {
@@ -21,7 +21,7 @@ export default function SkillDetails({
 				</h3>
 				<div className="flex flex-wrap select-none items-center gap-3 text-xs text-fg-muted">
 					<span className="flex items-center gap-1 font-medium">
-						<FolderIcon className="h-3.5 w-3.5" />
+						<Folder className="h-3.5 w-3.5" />
 						{selectedSkill.category}
 					</span>
 					{selectedSkill.version && (
@@ -41,20 +41,20 @@ export default function SkillDetails({
 					)}
 				</div>
 				{selectedSkill.tags.length > 0 && (
-					<div className="mt-1 flex flex-wrap gap-1.5">
+					<div className="mt-1 flex flex-wrap gap-2">
 						{selectedSkill.tags.map((tag) => (
 							<span
 								key={tag}
-								className="inline-flex items-center gap-1 rounded border border-accent/15 bg-accent/5 px-2 py-0.5 font-mono text-xs font-medium text-accent-hover"
+								className="inline-flex items-center gap-1 rounded-sm border border-border bg-bg-elevated px-2 py-0.5 font-mono text-xs font-medium text-fg-secondary"
 							>
-								<TagIcon className="h-3 w-3" />
+								<Tag className="h-3.5 w-3.5" />
 								{tag}
 							</span>
 						))}
 					</div>
 				)}
 			</div>
-			<div className="flex-1 overflow-auto rounded-lg border border-border bg-bg-base p-4">
+			<div className="flex-1 overflow-auto rounded-none border border-border bg-bg-base p-4">
 				<pre className="font-mono text-xs leading-relaxed whitespace-pre-wrap text-fg-secondary">
 					{skillContent}
 				</pre>
