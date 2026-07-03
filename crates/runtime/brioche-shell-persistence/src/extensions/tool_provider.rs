@@ -511,17 +511,37 @@ async fn execute_command(
     args: serde_json::Value,
     cancel: CancellationToken,
 ) -> Result<String, ToolError> {
-    let command = interpolate(template, &args)?;
-
-    // Defensive: reject shell metacharacters even before delegating to the
-    // system tool, so injected commands like `ls; rm -rf /` are blocked.
-    validate_no_shell_metacharacters(&command)?;
-
-    let program = command
+    // Determine the allowed program from the trusted template, not from the
+    // interpolated command, so a placeholder cannot change which binary is run.
+    let program = template
         .split_whitespace()
         .next()
-        .ok_or_else(|| ToolError::InvalidArgs("command is empty".into()))?
+        .ok_or_else(|| ToolError::InvalidArgs("command template is empty".into()))?
         .to_string();
+
+    // Validate argument values before interpolation so placeholders cannot
+    // introduce shell metacharacters.
+    validate_interpolated_values(&args)?;
+
+    let command = interpolate(template, &args)?;
+
+    // Defensive: reject shell metacharacters in the final command so a
+    // malformed template cannot bypass the sandbox.
+    validate_no_shell_metacharacters(&command)?;
+        .split_whitespace()
+        .next()
+        .ok_or_else(|| ToolError::InvalidArgs("command template is empty".into()))?
+        .to_string();
+
+    // Validate argument values before interpolation so placeholders cannot
+    // introduce shell metacharacters.
+    validate_interpolated_values(&args)?;
+
+    let command = interpolate(template, &args);
+
+    // Defensive: reject shell metacharacters in the final command so a
+    // malformed template cannot bypass the sandbox.
+    validate_no_shell_metacharacters(&command)?;
 
     let mut tool = ExecuteCommandTool::with_allow_list(AllowList::new().with_command(&program));
     if let Some(dir) = working_dir {
@@ -547,10 +567,52 @@ async fn execute_command(
     }
 }
 
+/// Validates that every argument value to be interpolated is free of shell
+/// metacharacters.
+///
+/// This check runs before interpolation so a placeholder value like
+/// `hello; rm -rf /` is rejected before it can be inserted into the command.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+fn validate_interpolated_values(args: &serde_json::Value) -> Result<(), ToolError> {
+    if let serde_json::Value::Object(map) = args {
+        for (key, value) in map {
+            let rendered = match value {
+                serde_json::Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            validate_value_no_shell_metacharacters(key, &rendered)?;
+        }
+    }
+    Ok(())
+}
+
+/// Rejects a single argument value if it contains shell metacharacters.
+///
+/// Mirrors the validation used by `ExecuteCommandTool` so user-defined tools
+/// cannot inject shell syntax through interpolated arguments.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+fn validate_value_no_shell_metacharacters(key: &str, value: &str) -> Result<(), ToolError> {
+    for c in value.chars() {
+        if matches!(
+            c,
+            ';' | '|' | '&' | '$' | '`' | '\n' | '\r' | '<' | '>' | '(' | ')' | '{' | '}'
+        ) {
+            return Err(ToolError::SandboxDenied(format!(
+                "argument '{key}' contains shell metacharacter: {c}"
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Rejects commands that contain shell metacharacters.
 ///
 /// Mirrors the validation used by `ExecuteCommandTool` so user-defined tools
 /// cannot inject shell syntax through interpolated arguments.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 fn validate_no_shell_metacharacters(command: &str) -> Result<(), ToolError> {
     for c in command.chars() {
         if matches!(
@@ -636,7 +698,7 @@ mod tests {
     async fn execute_command_rejects_shell_metacharacter_injection()
     -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // The semicolon would let an attacker chain a second command; the
-        // defense-in-depth validator must reject it before it reaches the shell.
+        // value validator must reject it before interpolation reaches the shell.
         let args: serde_json::Value = serde_json::from_str(r#"{"message":"hello; rm -rf /"}"#)?;
         let result = execute_command(
             "echo {message}",
@@ -651,8 +713,35 @@ mod tests {
             Ok(_) => return Err("expected injection to be rejected".into()),
         };
         assert!(
-            err.contains("shell metacharacter"),
-            "expected metacharacter error, got {err}"
+            err.contains("argument 'message' contains shell metacharacter"),
+            "expected argument-specific metacharacter error, got {err}"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn execute_command_honors_allow_list()
+    -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // The allowed program is derived from the trusted template, not from
+        // an interpolated value, so a placeholder in the first position is
+        // not a backdoor to run arbitrary binaries.
+        let args: serde_json::Value =
+            serde_json::from_str(r#"{"program":"cat","arg":"/etc/passwd"}"#)?;
+        let result = execute_command(
+            "{program} {arg}",
+            None,
+            Some(5_000),
+            args,
+            CancellationToken::new(),
+        )
+        .await;
+        let err = match result {
+            Err(e) => e.to_string(),
+            Ok(_) => return Err("expected allow-list denial".into()),
+        };
+        assert!(
+            err.contains("not in the allow-list"),
+            "expected allow-list error, got {err}"
         );
         Ok(())
     }
