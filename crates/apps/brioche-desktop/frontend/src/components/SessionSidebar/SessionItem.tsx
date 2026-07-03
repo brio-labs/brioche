@@ -1,5 +1,5 @@
 import { cn } from "../ui/lib";
-import { TrashIcon } from "../Icons";
+import { Trash2 } from "lucide-react";
 import type { Session } from "../../stores/sessionStore";
 
 /// Formats a Unix timestamp as a short relative string.
@@ -30,8 +30,8 @@ export function SessionItem({ session, switchToSession, deleteSession }: Session
 			className={cn(
 				"group relative flex cursor-pointer items-center justify-between p-3 transition-all duration-200",
 				session.active
-					? "bg-bg-highlight/60"
-					: "bg-transparent hover:bg-bg-elevated/30",
+					? "bg-bg-highlight"
+					: "bg-transparent hover:bg-bg-elevated",
 			)}
 			onClick={() => switchToSession(session.id)}
 			title={session.workspace}
@@ -48,7 +48,7 @@ export function SessionItem({ session, switchToSession, deleteSession }: Session
 			<div className="flex flex-1 min-w-0 items-center gap-2 pl-1">
 				<div
 					className={cn(
-						"truncate text-xs font-semibold transition-colors",
+						"truncate font-mono text-xs transition-colors",
 						session.active
 							? "text-fg-primary"
 							: "text-fg-secondary group-hover:text-fg-primary",
@@ -74,7 +74,7 @@ export function SessionItem({ session, switchToSession, deleteSession }: Session
 						title="Delete session"
 					>
 						<span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-							<TrashIcon className="h-full w-full" />
+							<Trash2 className="h-full w-full" />
 						</span>
 					</button>
 				)}

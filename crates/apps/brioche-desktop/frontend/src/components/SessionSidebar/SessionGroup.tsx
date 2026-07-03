@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronRightIcon } from "../Icons";
+import { ChevronRight } from "lucide-react";
 import { cn } from "../ui/lib";
 import { SessionItem } from "./SessionItem";
 import type { Session } from "../../stores/sessionStore";
@@ -24,7 +24,7 @@ export function SessionGroup({
 			<button
 				type="button"
 				onClick={() => setIsOpen((prev) => !prev)}
-				className="group flex w-full select-none items-center gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-fg-muted transition-colors hover:text-fg-secondary"
+				className="group flex w-full select-none items-center gap-2 px-4 py-2 text-xs font-medium text-fg-muted transition-colors hover:text-fg-secondary"
 			>
 				<span
 					className={cn(
@@ -32,7 +32,7 @@ export function SessionGroup({
 						isOpen && "rotate-90",
 					)}
 				>
-					<ChevronRightIcon className="h-full w-full" />
+					<ChevronRight className="h-full w-full" />
 				</span>
 				<span className="truncate">{title}</span>
 				<span className="ml-auto text-[10px] font-medium text-fg-dim opacity-0 transition-opacity group-hover:opacity-100">

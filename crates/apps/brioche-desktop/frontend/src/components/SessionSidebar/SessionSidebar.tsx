@@ -1,9 +1,11 @@
 import { useCallback } from "react";
+import { MessageSquareDashed } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useSessionGrouping } from "../../hooks/sessionSidebar/useSessionGrouping";
 import { SessionHeader } from "./SessionHeader";
 import { SessionSortControls } from "./SessionSortControls";
 import { SessionGroup } from "./SessionGroup";
+import { EmptyState } from "../ui";
 
 /// Renders the session sidebar, listing sessions with grouping, sorting, and creation controls.
 ///
@@ -40,9 +42,11 @@ export default function SessionSidebar() {
 						/>
 					))
 				) : (
-					<div className="flex flex-1 flex-col items-center justify-center px-5 py-12 text-center text-fg-muted select-none">
-						<span className="text-xs">No sessions</span>
-					</div>
+					<EmptyState
+						icon={MessageSquareDashed}
+						title="No sessions"
+						description="Create a session to start a new conversation."
+					/>
 				)}
 			</div>
 		</div>
