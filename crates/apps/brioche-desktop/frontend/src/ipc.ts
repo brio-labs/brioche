@@ -314,6 +314,20 @@ export async function createDirectory(path: string): Promise<void> {
 	return invoke("create_directory", { path });
 }
 
+/// Renames a file or directory on the host filesystem.
+///
+/// Refs: I-Ui-Ipc-RenamePath
+export async function renamePath(source: string, destination: string): Promise<void> {
+	return invoke("rename_path", { source, destination });
+}
+
+/// Copies a file or directory to a new location on the host filesystem.
+///
+/// Refs: I-Ui-Ipc-CopyPath
+export async function copyPath(source: string, destination: string): Promise<void> {
+	return invoke("copy_path", { source, destination });
+}
+
 /// Lists memories, optionally filtered by category.
 ///
 /// Refs: I-Ui-Ipc-ListMemories

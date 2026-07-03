@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { readDirectory, createFile, deleteFile, writeFile, createDirectory } from '../ipc';
+import { readDirectory, createFile, deleteFile, writeFile, createDirectory, renamePath, copyPath } from '../ipc';
 import type { DirEntry } from '../ipc';
 import { useSettingsStore, getWorkingDir } from './settingsStore';
 
@@ -17,6 +17,8 @@ interface FileStore {
     createNewFolder: (path: string) => Promise<void>;
     deleteExistingFile: (path: string) => Promise<void>;
     writeExistingFile: (path: string, content: string) => Promise<void>;
+    renamePath: (source: string, destination: string) => Promise<void>;
+    copyPath: (source: string, destination: string) => Promise<void>;
 }
 
 /// Zustand store that owns the current directory path and its entries.
@@ -87,6 +89,26 @@ export const useFileStore = create<FileStore>((set, get) => ({
             await writeFile(path, content);
         } catch (err: unknown) {
             console.error('Failed to write file:', err);
+            throw err;
+        }
+    },
+
+    renamePath: async (source: string, destination: string) => {
+        try {
+            await renamePath(source, destination);
+            await get().loadDirectory(get().currentPath);
+        } catch (err: unknown) {
+            console.error('Failed to rename path:', err);
+            throw err;
+        }
+    },
+
+    copyPath: async (source: string, destination: string) => {
+        try {
+            await copyPath(source, destination);
+            await get().loadDirectory(get().currentPath);
+        } catch (err: unknown) {
+            console.error('Failed to copy path:', err);
             throw err;
         }
     },
