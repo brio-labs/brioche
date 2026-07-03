@@ -528,20 +528,6 @@ async fn execute_command(
     // Defensive: reject shell metacharacters in the final command so a
     // malformed template cannot bypass the sandbox.
     validate_no_shell_metacharacters(&command)?;
-        .split_whitespace()
-        .next()
-        .ok_or_else(|| ToolError::InvalidArgs("command template is empty".into()))?
-        .to_string();
-
-    // Validate argument values before interpolation so placeholders cannot
-    // introduce shell metacharacters.
-    validate_interpolated_values(&args)?;
-
-    let command = interpolate(template, &args);
-
-    // Defensive: reject shell metacharacters in the final command so a
-    // malformed template cannot bypass the sandbox.
-    validate_no_shell_metacharacters(&command)?;
 
     let mut tool = ExecuteCommandTool::with_allow_list(AllowList::new().with_command(&program));
     if let Some(dir) = working_dir {
