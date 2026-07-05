@@ -361,6 +361,7 @@ impl EngineWatchdogHandle {
 mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
     use tokio::time::{Duration, Instant};
 
     use super::{EngineWatchdog, EngineWatchdogHandle, RecoveryProcedure};
