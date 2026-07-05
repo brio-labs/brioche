@@ -526,9 +526,7 @@ mod tests {
             _ => None,
         });
         assert!(
-            system_prompt
-                .map(|c| c.contains("You are a helpful AI coding assistant"))
-                .unwrap_or(false),
+            system_prompt.is_some_and(|c| c.contains("You are a helpful AI coding assistant")),
             "default system prompt should be present after build_shell returns"
         );
         drop(history);
