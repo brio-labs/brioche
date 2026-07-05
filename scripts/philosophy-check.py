@@ -436,23 +436,11 @@ def check_determinism() -> CheckResult:
 # ---------------------------------------------------------------------------
 # 4c. Output conventions — println!/eprintln! are only allowed in app crates.
 #     PHILOSOPHY.md §10.4: println!/eprintln! are allowed only in app crates.
-#     Library crates (kernel, runtime, providers, tools, plugin-kit, std,
-#     reedline) must use `tracing` instead.
+#     Library source files (including those in non-app binary crates) must use
+#     `tracing` instead. Binary entry points (`src/main.rs` and `src/bin/*.rs`)
+#     are permitted to print because they are CLI dispatchers, not reusable
+#     library code.
 # ---------------------------------------------------------------------------
-
-PRINT_MACRO_CRATES = [
-    "crates/kernel/brioche-core/src",
-    "crates/kernel/brioche-governance-default/src",
-    "crates/kernel/brioche-macro/src",
-    "crates/runtime/brioche-shell-runtime/src",
-    "crates/runtime/brioche-shell-persistence/src",
-    "crates/runtime/brioche-shell-projection/src",
-    "crates/providers/brioche-provider-openai/src",
-    "crates/tools/brioche-tools-system/src",
-    "crates/ecosystem/brioche-plugin-kit/src",
-    "crates/ecosystem/brioche-std/src",
-    "crates/infra/brioche-reedline/src",
-]
 
 PRINT_MACRO_RE = re.compile(r"(?:^|[^\"'])\b(println!|eprintln!)\(")
 
@@ -460,15 +448,28 @@ PRINT_MACRO_RE = re.compile(r"(?:^|[^\"'])\b(println!|eprintln!)\(")
 def check_print_macros() -> CheckResult:
     result = CheckResult("Library print macros")
 
-    for rel in PRINT_MACRO_CRATES:
-        crate_src = PROJECT_ROOT / rel
-        if not crate_src.exists():
+    crates_dir = PROJECT_ROOT / "crates"
+    if not crates_dir.exists():
+        return result
+
+    for cargo_toml in crates_dir.rglob("Cargo.toml"):
+        crate_path = cargo_toml.parent
+        rel_parts = crate_path.relative_to(crates_dir).parts
+        if rel_parts and rel_parts[0] == "apps":
             continue
 
-        for path in crate_src.rglob("*.rs"):
-            if "tests" in path.parts or "benches" in path.parts:
+        src = crate_path / "src"
+        if not src.exists():
+            continue
+
+        for path in src.rglob("*.rs"):
+            if "tests" in path.parts or "benches" in path.parts or "examples" in path.parts:
                 continue
             if path.name.startswith("fail_") or path.name.startswith("pass_"):
+                continue
+            if path.name == "main.rs":
+                continue
+            if "bin" in path.parts:
                 continue
 
             content = path.read_text()

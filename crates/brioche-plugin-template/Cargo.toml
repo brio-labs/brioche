@@ -10,6 +10,7 @@ description = "A Brioche plugin generated from the official template"
 [dependencies]
 brioche-plugin-kit = "0.1"
 serde = { version = "1", features = ["derive"] }
+tracing = "0.1"
 
 [dev-dependencies]
 brioche-plugin-kit = { version = "0.1" }

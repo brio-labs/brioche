@@ -4,14 +4,14 @@
 
 use serde::Serialize;
 
-/// Print `value` as pretty JSON to stdout.
+/// Format `value` as pretty JSON.
 ///
-/// Falls back to printing `[]` if serialization fails.
+/// Falls back to `"[]"` if serialization fails.
 ///
 /// Refs: docs/SPECS.md §Book IV Ch 3 §3.4
-pub fn print_json<T: Serialize>(value: &T) {
+pub fn format_json<T: Serialize>(value: &T) -> String {
     match serde_json::to_string_pretty(value) {
-        Ok(json) => println!("{json}"),
-        Err(_) => println!("[]"),
+        Ok(json) => json,
+        Err(_) => "[]".to_string(),
     }
 }

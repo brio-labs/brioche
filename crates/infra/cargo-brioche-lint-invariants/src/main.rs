@@ -14,7 +14,7 @@
 use std::fs;
 
 use brioche_lint_core::cli::{FormatArgs, RootArgs};
-use brioche_lint_core::report::print_json;
+use brioche_lint_core::report::format_json;
 use brioche_lint_core::walk::source_files;
 use clap::{Parser, Subcommand};
 use regex::Regex;
@@ -128,7 +128,7 @@ fn main() {
                 }
             };
             if cli.format.format == "json" {
-                print_json(&results);
+                println!("{}", format_json(&results));
             } else {
                 print_text(&results);
             }
