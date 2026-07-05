@@ -20,7 +20,7 @@ use brioche_shell_persistence::extensions::context::{
 use brioche_shell_persistence::{
     ExtensionRegistry, MemoryProvider, RedbStorage, SessionStore, Settings, UserDefinedTool,
 };
-use brioche_shell_runtime::BriocheShell;
+use brioche_shell_runtime::{BriocheShell, ShellError};
 use brioche_tools_system::{
     AllowList, ExecuteCommandTool, FetchUrlTool, ListDirTool, ReadFileTool, SandboxPolicy,
     SystemToolExecutor, WriteFileTool,
@@ -311,18 +311,28 @@ impl brioche_tools_system::SystemTool for MemoryProviderTool {
 ///
 /// This is the desktop equivalent of `agent_terminal::shell_builder::build_shell`.
 ///
-/// **Critical:** This function must be called from within an async runtime
-/// context (e.g., inside a Tauri command) because it spawns background tasks
-/// via `tokio::spawn`. Calling it from a synchronous context will panic.
+/// This function is async and must be awaited from within a Tokio runtime
+/// context. It pushes the default system prompt and tool schemas into the LLM
+/// client before returning, so callers can rely on them being in place as soon
+/// as the returned handle is available.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
 ///
 /// # Complexity
-/// O(T) where T is the number of tools registered. Spawns asynchronous tasks in the background.
+/// O(T) where T is the number of tools registered. Performs a bounded amount
+/// of async initialization before returning.
+///
+/// # Cancel safety
+/// This future delegates to `ShellBuilder::build`. Dropping it before
+/// completion leaves the caller without a `ShellHandle`, but does not leave
+/// partial state in the LLM client.
 ///
 /// # Panic / Safety
-/// Panics if called outside of a Tokio runtime context since it spawns tokio tasks.
-pub fn build_shell(session_id: impl Into<String>, factory: &ShellFactory) -> ShellHandle {
+/// Never panics.
+pub async fn build_shell(
+    session_id: impl Into<String>,
+    factory: &ShellFactory,
+) -> Result<ShellHandle, ShellError> {
     let session_id = session_id.into();
     let workspace_path = factory.settings.working_dir();
     let workspace = if workspace_path.is_empty() {
@@ -408,14 +418,15 @@ pub fn build_shell(session_id: impl Into<String>, factory: &ShellFactory) -> She
         Arc::clone(&factory.last_context_note),
     )))
     .with_engine_factory(default_session_factory(session_id, factory.redb.clone()))
-    .build();
+    .build()
+    .await?;
 
-    ShellHandle {
+    Ok(ShellHandle {
         shell,
         llm,
         llm_rx,
         history,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -433,9 +444,9 @@ mod tests {
 
     /// Verifies that `build_shell` constructs a shell without panicking.
     ///
-    /// Note: This test runs inside a tokio runtime so `tokio::spawn` works.
-    /// It uses `tempfile::TempDir` so it never writes to a hard-coded `/tmp`
-    /// path.
+    /// This test runs inside a tokio runtime so async initialization is
+    /// awaited. It uses `tempfile::TempDir` so it never writes to a hard-coded
+    /// `/tmp` path.
     #[tokio::test]
     async fn build_shell_smoke() -> Result<(), String> {
         let config = DesktopConfig {
@@ -463,8 +474,75 @@ mod tests {
             settings: Settings::default(),
             last_context_note: Arc::new(Mutex::new(None)),
         };
-        let handle = build_shell("test-session", &factory);
+        let handle = build_shell("test-session", &factory)
+            .await
+            .map_err(|e| e.to_string())?;
         assert_eq!(handle.llm_rx.len(), 0);
+        Ok(())
+    }
+
+    /// Verifies that `build_shell` completes initialization before returning.
+    ///
+    /// The default system prompt must already be present in the shared history
+    /// and the LLM client must already know the tool schemas when the handle
+    /// is returned. This prevents the first user message from racing ahead of
+    /// the system prompt or tool registration.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    #[tokio::test]
+    async fn build_shell_initialization_is_complete() -> Result<(), String> {
+        let config = DesktopConfig {
+            openai: OpenAiConfig {
+                api_key: String::new(),
+                model: "gpt-4o-mini".into(),
+                base_url: "https://api.openai.com/v1".into(),
+                max_tokens: 4096,
+                timeout_ms: 120_000,
+                reasoning_effort: None,
+            },
+            tick_interval_ms: 1000,
+        };
+        let temp_dir =
+            tempfile::tempdir().map_err(|e| format!("Failed to create temp dir: {e}"))?;
+        let redb_path = temp_dir.path().join("test.redb");
+        let redb = RedbStorage::new(&redb_path, brioche_shell_persistence::new_session_store())
+            .map_err(|e| format!("Failed to create RedbStorage for test: {e}"))?;
+        let store = brioche_shell_persistence::new_session_store();
+        let factory = ShellFactory {
+            redb,
+            store,
+            config,
+            extensions: ExtensionRegistry::default_set(),
+            settings: Settings::default(),
+            last_context_note: Arc::new(Mutex::new(None)),
+        };
+        let handle = build_shell("test-session", &factory)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let history = handle.history.read().await;
+        let system_prompt = history.iter().find_map(|m| match m {
+            brioche_core::ChatMessage::System { content } => Some(content.as_str()),
+            _ => None,
+        });
+        assert!(
+            system_prompt
+                .map(|c| c.contains("You are a helpful AI coding assistant"))
+                .unwrap_or(false),
+            "default system prompt should be present after build_shell returns"
+        );
+        drop(history);
+
+        let tools = handle.llm.tools_schema().await;
+        assert!(
+            tools.iter().any(|s| s
+                .get("function")
+                .and_then(|f| f.get("name"))
+                .and_then(|n| n.as_str())
+                == Some("read_file")),
+            "read_file tool schema should be registered after build_shell returns"
+        );
+
         Ok(())
     }
 

@@ -355,8 +355,7 @@ impl SessionManager {
 /// thread-safe access.
 ///
 /// The session manager is initialized lazily on first access so that
-/// `build_shell` (which spawns Tokio tasks) runs inside an async
-/// runtime context.
+/// `build_shell` runs inside an async runtime context.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
 pub struct DesktopState {
@@ -450,7 +449,9 @@ impl DesktopState {
         let mut mgr = self.manager.write().await;
         if mgr.is_none() {
             let factory = self.factory.read().await.clone();
-            let handle = build_shell("desktop-session", &factory);
+            let handle = build_shell("desktop-session", &factory)
+                .await
+                .map_err(|e| e.to_string())?;
             let workspace = factory.settings.working_dir();
             Self::initialize_memory_providers(&factory, "desktop-session", &workspace)?;
             *mgr = Some(SessionManager::new(

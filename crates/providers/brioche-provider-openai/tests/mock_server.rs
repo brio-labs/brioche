@@ -23,13 +23,13 @@ use brioche_shell_runtime::{
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-fn test_shell() -> BriocheShell {
+fn test_shell() -> Result<BriocheShell, brioche_provider_openai::OpenAiError> {
     let executor = DefaultEffectExecutor::new(
         EchoToolExecutor,
-        OpenAiLlmClient::new(OpenAiConfig::default()).0,
+        OpenAiLlmClient::new(OpenAiConfig::default())?.0,
         NoopPersistence,
     );
-    BriocheShell::new(
+    Ok(BriocheShell::new(
         || {
             let engine = BriocheEngineBuilder::new()
                 .with_profile(GovernanceProfile::Permissive)
@@ -40,21 +40,21 @@ fn test_shell() -> BriocheShell {
         ShellConfig::default(),
         executor,
         None,
-    )
+    ))
 }
 
 #[tokio::test]
-async fn streams_text_chunks_to_kernel() {
+async fn streams_text_chunks_to_kernel() -> Result<(), Box<dyn std::error::Error>> {
     let mock_server = MockServer::start().await;
     let _body = r#"{
-        "model": "gpt-4o-mini",
-        "messages": [{"role": "user", "content": "hello"}],
-        "max_tokens": 4096,
-        "stream": true
-    }"#;
+    "model": "gpt-4o-mini",
+    "messages": [{"role": "user", "content": "hello"}],
+    "max_tokens": 4096,
+    "stream": true
+}"#;
     let sse = "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\n\
-               data: {\"choices\":[{\"delta\":{\"content\":\" there\"}}]}\n\n\
-               data: [DONE]\n\n";
+           data: {\"choices\":[{\"delta\":{\"content\":\" there\"}}]}\n\n\
+           data: [DONE]\n\n";
 
     Mock::given(method("POST"))
         .and(path("/chat/completions"))
@@ -68,27 +68,28 @@ async fn streams_text_chunks_to_kernel() {
         api_key: "test-key".into(),
         ..OpenAiConfig::default()
     };
-    let (client, _rx, _history) = OpenAiLlmClient::new(config);
+    let (client, _rx, _history) = OpenAiLlmClient::new(config)?;
     client
         .push_message(ChatMessage::User {
             content: "hello".into(),
         })
         .await;
 
-    let shell = test_shell();
+    let shell = test_shell()?;
     let result = client.call_llm(&shell).await;
 
     assert!(result.is_ok(), "call_llm should succeed: {result:?}");
     // Give the shell channel a moment to deliver.
     tokio::time::sleep(Duration::from_millis(50)).await;
+    Ok(())
 }
 
 #[tokio::test]
-async fn emits_tool_calls_to_kernel() {
+async fn emits_tool_calls_to_kernel() -> Result<(), Box<dyn std::error::Error>> {
     let mock_server = MockServer::start().await;
     let sse = "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\\\"/tmp/test.txt\\\"}\"}}]}}]}\n\n\
-               data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n\
-               data: [DONE]\n\n";
+           data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n\
+           data: [DONE]\n\n";
 
     Mock::given(method("POST"))
         .and(path("/chat/completions"))
@@ -101,22 +102,23 @@ async fn emits_tool_calls_to_kernel() {
         api_key: "test-key".into(),
         ..OpenAiConfig::default()
     };
-    let (client, _rx, _history) = OpenAiLlmClient::new(config);
+    let (client, _rx, _history) = OpenAiLlmClient::new(config)?;
     client
         .push_message(ChatMessage::User {
             content: "read a file".into(),
         })
         .await;
 
-    let shell = test_shell();
+    let shell = test_shell()?;
     let result = client.call_llm(&shell).await;
 
     assert!(result.is_ok(), "call_llm should succeed: {result:?}");
     tokio::time::sleep(Duration::from_millis(50)).await;
+    Ok(())
 }
 
 #[tokio::test]
-async fn network_failure_emits_system_signal() {
+async fn network_failure_emits_system_signal() -> Result<(), Box<dyn std::error::Error>> {
     let mock_server = MockServer::start().await;
 
     Mock::given(method("POST"))
@@ -130,23 +132,24 @@ async fn network_failure_emits_system_signal() {
         api_key: "test-key".into(),
         ..OpenAiConfig::default()
     };
-    let (client, _rx, _history) = OpenAiLlmClient::new(config);
+    let (client, _rx, _history) = OpenAiLlmClient::new(config)?;
     client
         .push_message(ChatMessage::User {
             content: "hello".into(),
         })
         .await;
 
-    let shell = test_shell();
+    let shell = test_shell()?;
     let result = client.call_llm(&shell).await;
 
     assert!(
         result.is_ok(),
         "call_llm should surface error and return Ok: {result:?}"
     );
+    Ok(())
 }
 #[tokio::test]
-async fn http_error_truncates_large_response_body() {
+async fn http_error_truncates_large_response_body() -> Result<(), Box<dyn std::error::Error>> {
     let mock_server = MockServer::start().await;
     let huge_body = "x".repeat(brioche_provider_openai::MAX_ERROR_BODY_BYTES + 1024);
 
@@ -161,24 +164,25 @@ async fn http_error_truncates_large_response_body() {
         api_key: "test-key".into(),
         ..OpenAiConfig::default()
     };
-    let (client, _rx, _history) = OpenAiLlmClient::new(config);
+    let (client, _rx, _history) = OpenAiLlmClient::new(config)?;
     client
         .push_message(ChatMessage::User {
             content: "hello".into(),
         })
         .await;
 
-    let shell = test_shell();
+    let shell = test_shell()?;
     let result = client.call_llm(&shell).await;
 
     assert!(
         result.is_ok(),
         "call_llm should surface error and return Ok: {result:?}"
     );
+    Ok(())
 }
 
 #[tokio::test]
-async fn http_error_body_limit_is_enforced() {
+async fn http_error_body_limit_is_enforced() -> Result<(), Box<dyn std::error::Error>> {
     let mock_server = MockServer::start().await;
     let prefix = "ERR:";
     let suffix = "TAIL_MARKER";
@@ -196,20 +200,21 @@ async fn http_error_body_limit_is_enforced() {
         api_key: "test-key".into(),
         ..OpenAiConfig::default()
     };
-    let (client, _rx, _history) = OpenAiLlmClient::new(config);
+    let (client, _rx, _history) = OpenAiLlmClient::new(config)?;
     client
         .push_message(ChatMessage::User {
             content: "hello".into(),
         })
         .await;
 
-    let shell = test_shell();
+    let shell = test_shell()?;
     let result = client.call_llm(&shell).await;
 
     assert!(
         result.is_ok(),
         "call_llm should surface error and return Ok: {result:?}"
     );
+    Ok(())
 }
 
 /// Malformed `data:` lines are skipped until the parser's threshold is hit.
@@ -220,14 +225,14 @@ async fn http_error_body_limit_is_enforced() {
 ///
 /// Refs: docs/SPECS.md §Book III-B, I-Shell-Network-Signal
 #[tokio::test]
-async fn malformed_sse_lines_abort_and_surface_error() {
+async fn malformed_sse_lines_abort_and_surface_error() -> Result<(), Box<dyn std::error::Error>> {
     let mock_server = MockServer::start().await;
     // The default parser threshold is 5 consecutive malformed lines.
     let sse = "data: not-json-1\n\
-               data: not-json-2\n\
-               data: not-json-3\n\
-               data: not-json-4\n\
-               data: not-json-5\n";
+           data: not-json-2\n\
+           data: not-json-3\n\
+           data: not-json-4\n\
+           data: not-json-5\n";
 
     Mock::given(method("POST"))
         .and(path("/chat/completions"))
@@ -240,20 +245,21 @@ async fn malformed_sse_lines_abort_and_surface_error() {
         api_key: "test-key".into(),
         ..OpenAiConfig::default()
     };
-    let (client, _rx, _history) = OpenAiLlmClient::new(config);
+    let (client, _rx, _history) = OpenAiLlmClient::new(config)?;
     client
         .push_message(ChatMessage::User {
             content: "hello".into(),
         })
         .await;
 
-    let shell = test_shell();
+    let shell = test_shell()?;
     let result = client.call_llm(&shell).await;
 
     assert!(
         result.is_ok(),
         "call_llm should surface parser error and return Ok: {result:?}"
     );
+    Ok(())
 }
 
 /// A trailing SSE fragment without a newline is buffered until stream end.
@@ -264,11 +270,12 @@ async fn malformed_sse_lines_abort_and_surface_error() {
 ///
 /// Refs: docs/SPECS.md §Book III-B
 #[tokio::test]
-async fn partial_sse_fragment_at_stream_end_is_buffered() {
+async fn partial_sse_fragment_at_stream_end_is_buffered() -> Result<(), Box<dyn std::error::Error>>
+{
     let mock_server = MockServer::start().await;
     let sse = "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\n\
-               data: {\"choices\":[{\"delta\":{\"content\":\" there\"}}]}\n\n\
-               data: {\"choices\":[{\"delta\":{\"content\":\"!\"}}]}"; // no trailing newline
+           data: {\"choices\":[{\"delta\":{\"content\":\" there\"}}]}\n\n\
+           data: {\"choices\":[{\"delta\":{\"content\":\"!\"}}]}"; // no trailing newline
 
     Mock::given(method("POST"))
         .and(path("/chat/completions"))
@@ -281,20 +288,21 @@ async fn partial_sse_fragment_at_stream_end_is_buffered() {
         api_key: "test-key".into(),
         ..OpenAiConfig::default()
     };
-    let (client, _rx, _history) = OpenAiLlmClient::new(config);
+    let (client, _rx, _history) = OpenAiLlmClient::new(config)?;
     client
         .push_message(ChatMessage::User {
             content: "hello".into(),
         })
         .await;
 
-    let shell = test_shell();
+    let shell = test_shell()?;
     let result = client.call_llm(&shell).await;
 
     assert!(
         result.is_ok(),
         "call_llm should handle trailing fragment gracefully: {result:?}"
     );
+    Ok(())
 }
 
 /// A request that exceeds the configured time-to-first-byte timeout fails fast.
@@ -305,7 +313,7 @@ async fn partial_sse_fragment_at_stream_end_is_buffered() {
 ///
 /// Refs: docs/SPECS.md §Book III-B, I-Shell-Network-Signal
 #[tokio::test]
-async fn http_timeout_is_surfaced_as_network_error() {
+async fn http_timeout_is_surfaced_as_network_error() -> Result<(), Box<dyn std::error::Error>> {
     let mock_server = MockServer::start().await;
     let sse = "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\n";
 
@@ -326,7 +334,7 @@ async fn http_timeout_is_surfaced_as_network_error() {
         timeout_ms: 100,
         ..OpenAiConfig::default()
     };
-    let (client, _rx, _history) = OpenAiLlmClient::new(config);
+    let (client, _rx, _history) = OpenAiLlmClient::new(config)?;
     let client = client.with_retry_policy(RetryConfig::none());
     client
         .push_message(ChatMessage::User {
@@ -334,13 +342,14 @@ async fn http_timeout_is_surfaced_as_network_error() {
         })
         .await;
 
-    let shell = test_shell();
+    let shell = test_shell()?;
     let result = client.call_llm(&shell).await;
 
     assert!(
         result.is_ok(),
         "call_llm should surface timeout and return Ok: {result:?}"
     );
+    Ok(())
 }
 
 /// Transient HTTP errors trigger retries and honour `Retry-After`.
@@ -351,10 +360,11 @@ async fn http_timeout_is_surfaced_as_network_error() {
 ///
 /// Refs: docs/SPECS.md §Book III-B, I-Shell-Network-Signal
 #[tokio::test]
-async fn transient_http_error_is_retried_with_retry_after() {
+async fn transient_http_error_is_retried_with_retry_after() -> Result<(), Box<dyn std::error::Error>>
+{
     let mock_server = MockServer::start().await;
     let sse = "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\n\
-               data: [DONE]\n\n";
+           data: [DONE]\n\n";
 
     Mock::given(method("POST"))
         .and(path("/chat/completions"))
@@ -380,7 +390,7 @@ async fn transient_http_error_is_retried_with_retry_after() {
         api_key: "test-key".into(),
         ..OpenAiConfig::default()
     };
-    let (client, _rx, _history) = OpenAiLlmClient::new(config);
+    let (client, _rx, _history) = OpenAiLlmClient::new(config)?;
     let client = client.with_retry_policy(RetryConfig {
         max_retries: 2,
         base_backoff_ms: 50,
@@ -392,7 +402,7 @@ async fn transient_http_error_is_retried_with_retry_after() {
         })
         .await;
 
-    let shell = test_shell();
+    let shell = test_shell()?;
     let result = client.call_llm(&shell).await;
 
     assert!(
@@ -400,4 +410,5 @@ async fn transient_http_error_is_retried_with_retry_after() {
         "call_llm should succeed after retry: {result:?}"
     );
     // Wiremock expectations are verified on MockServer drop.
+    Ok(())
 }

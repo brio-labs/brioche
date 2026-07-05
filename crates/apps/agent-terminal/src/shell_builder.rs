@@ -11,7 +11,7 @@ use brioche_core::ChatMessage;
 use brioche_provider_openai::{LlmChunk, OpenAiLlmClient, SharedHistory};
 use brioche_shell_builder::{ShellBuilder, session_factory_with_head};
 use brioche_shell_persistence::{RedbStorage, SessionHeadDTO, SessionStore};
-use brioche_shell_runtime::BriocheShell;
+use brioche_shell_runtime::{BriocheShell, ShellError};
 use brioche_tools_system::{
     AllowList, ExecuteCommandTool, FetchUrlTool, ListDirTool, ReadFileTool, SandboxPolicy,
     SystemToolExecutor, WriteFileTool,
@@ -51,9 +51,26 @@ pub fn sandbox_policy_for(cli_config: &CliConfig, _mode: ShellMode) -> SandboxPo
 /// Builds a complete `BriocheShell` with all its components.
 ///
 /// This function is reusable for creating multiple shells
-/// (multi-session) or a headless shell.
+/// (multi-session) or a headless shell. It is async and must be awaited
+/// from a Tokio runtime context.
+///
+/// # Errors
+/// Returns a `ShellError` if the LLM client fails to initialize.
+///
 /// Refs: docs/SPECS.md §Book IV
-pub fn build_shell(
+///
+/// # Complexity
+/// O(T) where T is the number of tools registered. Performs a bounded amount
+/// of async initialization before returning.
+///
+/// # Cancel safety
+/// This future delegates to `ShellBuilder::build`. Dropping it before
+/// completion leaves the caller without a shell, but does not leave partial
+/// state in the LLM client.
+///
+/// # Panic / Safety
+/// Never panics.
+pub async fn build_shell(
     session_id: impl Into<String>,
     cli_config: &CliConfig,
     mode: ShellMode,
@@ -61,12 +78,15 @@ pub fn build_shell(
     session_store: SessionStore,
     initial_history: Option<Vec<ChatMessage>>,
     initial_head: Option<SessionHeadDTO>,
-) -> (
-    BriocheShell,
-    OpenAiLlmClient,
-    broadcast::Receiver<LlmChunk>,
-    SharedHistory,
-) {
+) -> Result<
+    (
+        BriocheShell,
+        OpenAiLlmClient,
+        broadcast::Receiver<LlmChunk>,
+        SharedHistory,
+    ),
+    ShellError,
+> {
     let exec_tool = match sandbox_policy_for(cli_config, mode) {
         SandboxPolicy::Permissive => {
             tracing::warn!(
@@ -111,6 +131,7 @@ pub fn build_shell(
         initial_head,
     ))
     .build()
+    .await
 }
 
 /// Prompts the user to confirm execution of a shell command.

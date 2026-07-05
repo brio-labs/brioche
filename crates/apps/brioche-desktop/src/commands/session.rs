@@ -307,7 +307,9 @@ async fn rebuild_current_session(state: &DesktopState) -> Result<String, String>
     let manager = mgr.as_mut().ok_or("No active session")?;
     let current_id = manager.current_id().to_string();
     let factory = state.factory.read().await.clone();
-    let handle = crate::commands::shell::build_shell(&current_id, &factory);
+    let handle = crate::commands::shell::build_shell(&current_id, &factory)
+        .await
+        .map_err(|e| e.to_string())?;
     manager.insert(
         current_id.clone(),
         handle.shell,
@@ -582,7 +584,9 @@ async fn new_session_impl(state: &DesktopState) -> Result<String, String> {
     let new_id = format!("session-{}", system_time_secs());
     let factory = state.factory.read().await.clone();
     let workspace = factory.settings.working_dir();
-    let handle = crate::commands::shell::build_shell(&new_id, &factory);
+    let handle = crate::commands::shell::build_shell(&new_id, &factory)
+        .await
+        .map_err(|e| e.to_string())?;
     DesktopState::initialize_memory_providers(&factory, &new_id, &workspace)?;
     {
         let mut mgr = state.manager.write().await;
@@ -657,7 +661,9 @@ async fn load_session_impl(state: &DesktopState, id: &str) -> Result<Vec<ChatMes
         Err(err) => return Err(format!("Load messages error: {err}")),
     };
     let workspace = factory.settings.working_dir();
-    let handle = crate::commands::shell::build_shell(id, &factory);
+    let handle = crate::commands::shell::build_shell(id, &factory)
+        .await
+        .map_err(|e| e.to_string())?;
     DesktopState::initialize_memory_providers(&factory, id, &workspace)?;
     for msg in &messages {
         handle.llm.push_message(msg.clone()).await;

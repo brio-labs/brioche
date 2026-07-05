@@ -28,7 +28,7 @@ use crate::{CliConfig, bridge};
 pub async fn run(cli_config: CliConfig, redb_storage: RedbStorage, session_store: SessionStore) {
     print_banner();
 
-    let (shell, llm_client, llm_rx, _history) = build_shell(
+    let (shell, llm_client, llm_rx, _history) = match build_shell(
         "cli-session",
         &cli_config,
         ShellMode::Interactive,
@@ -36,7 +36,15 @@ pub async fn run(cli_config: CliConfig, redb_storage: RedbStorage, session_store
         Arc::clone(&session_store),
         None,
         None,
-    );
+    )
+    .await
+    {
+        Ok(tuple) => tuple,
+        Err(err) => {
+            eprintln!("Failed to build shell: {err}");
+            return;
+        }
+    };
 
     let manager = Arc::new(RwLock::new(SessionManager::new("cli-session", shell)));
 

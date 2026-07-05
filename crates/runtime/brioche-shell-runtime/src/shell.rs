@@ -139,7 +139,8 @@ struct RebuildCommand {
 /// Tracker for critical async tasks spawned by the shell.
 ///
 /// Ensures that background task `JoinHandle`s are not lost, enabling
-/// diagnostics in case of panic or premature termination.
+/// diagnostics in case of panic or premature termination. Finished tasks
+/// are pruned on `spawn` and `health_check` to prevent unbounded growth.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO, SCIFI — Connect
 #[derive(Clone)]
@@ -157,31 +158,38 @@ impl TaskTracker {
     }
 
     /// Spawns a task and retains its `JoinHandle`.
+    ///
+    /// Prunes any finished handles before pushing the new one so the
+    /// tracker does not grow unbounded.
     /// Refs: docs/SPECS.md §Book III-A
     pub fn spawn<F>(&self, future: F)
     where
-        F: std::future::Future<Output = ()> + Send + 'static,
+        F: Future<Output = ()> + Send + 'static,
     {
         let handle = tokio::spawn(future);
         if let Ok(mut handles) = self.handles.lock() {
+            handles.retain(|h| !h.is_finished());
             handles.push(handle);
         }
     }
 
-    /// Checks the state of tracked tasks.
+    /// Checks the state of tracked tasks and prunes finished ones.
     ///
-    /// Returns `true` if all tasks are still active.
-    /// For each finished task, emits a `tracing::error`.
+    /// Returns `true` if all remaining tasks are still active.
     /// Refs: docs/SPECS.md §Book III-A
     pub fn health_check(&self) -> bool {
         let mut all_healthy = true;
-        if let Ok(handles) = self.handles.lock() {
-            for h in handles.iter() {
+        if let Ok(mut handles) = self.handles.lock() {
+            handles.retain(|h| {
                 if h.is_finished() {
-                    tracing::error!("tracked background task finished unexpectedly");
                     all_healthy = false;
+                    false
+                } else {
+                    true
                 }
-            }
+            });
+        } else {
+            all_healthy = false;
         }
         all_healthy
     }
@@ -683,6 +691,10 @@ fn engine_thread_loop(
 ///
 /// Some effects spawn async tasks that eventually produce `EngineInput`
 /// loopback messages (e.g. `ToolCallsResult`, `LlmStream`).
+///
+/// After the output channel closes, the executor is shut down so any
+/// pending background work (e.g. async persistence) is awaited before
+/// the function returns.
 async fn effect_consumption_loop<E>(
     mut output_rx: mpsc::Receiver<(Vec<Effect>, StateSnapshot)>,
     shell: BriocheShell,
@@ -728,6 +740,10 @@ async fn effect_consumption_loop<E>(
             });
         }
     }
+
+    // Wait for any background work (e.g. async saves) to finish before
+    // the loop exits, so the runtime does not detach in-flight tasks.
+    executor.shutdown().await;
 }
 
 /// Execute a single effect.
@@ -946,6 +962,11 @@ pub trait ToolExecutor: Send + Sync {
     /// The `cancel` token is triggered by the shell on user cancellation
     /// or engine shutdown. Implementations should respect it at
     /// coarse-grained boundaries.
+    ///
+    /// # Cancel safety
+    /// The `cancel` token is the canonical cancellation signal. Dropping the
+    /// future detaches the tool task from the caller, but the task may continue
+    /// running until it observes the token or reaches its own timeout.
     async fn execute(
         &self,
         call: &brioche_core::ActiveToolCall,
@@ -1075,5 +1096,32 @@ impl BackpressureRegulator {
     /// Refs: docs/SPECS.md §Book III-A
     pub fn capacity(&self) -> usize {
         self.capacity
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn task_tracker_prunes_finished_handles() {
+        let tracker = TaskTracker::new();
+
+        // Spawn many tasks that complete immediately.
+        for _ in 0..100 {
+            tracker.spawn(async move {});
+        }
+
+        // Let the spawned tasks finish.
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // Spawning a new task should prune the finished ones so the
+        // tracker does not grow unbounded.
+        tracker.spawn(async move {});
+
+        assert!(
+            tracker.handles.lock().is_ok_and(|guard| guard.len() == 1),
+            "tracker should retain only the one still-live handle"
+        );
     }
 }
