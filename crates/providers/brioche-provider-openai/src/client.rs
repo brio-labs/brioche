@@ -1298,6 +1298,8 @@ impl LlmClient for OpenAiLlmClient {
     /// Builds the request, opens an SSE connection, and delegates the
     /// streaming loop to `read_sse_stream`.
     ///
+    /// Refs: I-Core-ChunkBudget
+    ///
     /// # Cancel safety
     /// This future delegates to `read_sse_stream` and may await network I/O.
     /// Dropping it before completion leaks the SSE connection until the
@@ -1360,6 +1362,8 @@ impl LlmClient for OpenAiLlmClient {
     ///
     /// Mirrors the `LlmClient::summarize` contract.
     ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
     /// # Cancel safety
     /// This future may await network I/O. Dropping it before completion
     /// discards the in-flight request; no mirror history is modified.
@@ -1398,6 +1402,8 @@ impl LlmClient for OpenAiLlmClient {
     /// Push tool execution results into the conversational history.
     ///
     /// Delegates to the inherent `OpenAiLlmClient::push_tool_results`.
+    ///
+    /// Refs: I-Shell-ToolResult-PassThrough
     ///
     /// # Cancel safety
     /// Mirrors the `LlmClient::push_tool_results` contract: this future may
