@@ -47,7 +47,7 @@ impl BriochePlugin for {{ProjectName}} {
 
         match input {
             EngineInput::UserMessage(msg) => {
-                println!("[{{project-name}}] received user message: {msg}");
+                tracing::info!("[{{project-name}}] received user message: {msg}");
             }
             _ => {}
         }

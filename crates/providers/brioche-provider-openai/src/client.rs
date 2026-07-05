@@ -130,6 +130,11 @@ fn parse_retry_after(
 /// Refs: docs/SPECS.md §Book III-B
 #[derive(Debug, thiserror::Error)]
 pub enum OpenAiError {
+    /// The HTTP client could not be constructed from the provided configuration.
+    ///
+    /// Refs: docs/SPECS.md §Book III-B
+    #[error("failed to build HTTP client: {0}")]
+    HttpClientBuilder(reqwest::Error),
     /// The HTTP request could not be sent or the connection failed.
     #[error("network request failed: {0}")]
     Network(String),
@@ -166,7 +171,7 @@ impl From<OpenAiError> for ShellError {
 ///
 /// # Usage
 /// ```ignore
-/// let (client, llm_rx) = OpenAiLlmClient::new(config);
+/// let (client, llm_rx, _history) = OpenAiLlmClient::new(config)?;
 /// client.set_tools_schema(schemas).await;
 /// // client is injected into DefaultEffectExecutor.
 /// ```
@@ -268,20 +273,23 @@ impl OpenAiLlmClient {
     /// The broadcast channel has capacity for 256 messages. Slow
     /// receivers may drop old messages.
     ///
+    /// # Errors
+    /// Returns `OpenAiError::HttpClientBuilder` if the underlying
+    /// `reqwest` client cannot be constructed.
+    ///
     /// # Panics
     /// Never panics. Empty `api_key` is accepted (some local endpoints
     /// like Ollama do not require a key).
     /// Refs: docs/SPECS.md §Book III-B
-    pub fn new(config: OpenAiConfig) -> (Self, broadcast::Receiver<LlmChunk>, SharedHistory) {
-        let http = match reqwest::Client::builder()
+    pub fn new(
+        config: OpenAiConfig,
+    ) -> Result<(Self, broadcast::Receiver<LlmChunk>, SharedHistory), OpenAiError> {
+        let http = reqwest::Client::builder()
             // No global request timeout — streaming generations can
             // take minutes (e.g. 80KB file writes). Idle detection
             // is handled by the per-chunk READ_TIMEOUT in call_llm().
             .build()
-        {
-            Ok(c) => c,
-            Err(_) => reqwest::Client::new(),
-        };
+            .map_err(OpenAiError::HttpClientBuilder)?;
 
         let (ui_tx, ui_rx) = broadcast::channel(256);
         let history: SharedHistory = Arc::new(RwLock::new(Vec::new()));
@@ -302,7 +310,7 @@ impl OpenAiLlmClient {
             error_detector,
         };
 
-        (client, ui_rx, history)
+        Ok((client, ui_rx, history))
     }
 
     /// Subscribe to the LLM chunk broadcast channel.
@@ -348,6 +356,23 @@ impl OpenAiLlmClient {
     pub async fn set_tools_schema(&self, schemas: Vec<serde_json::Value>) {
         let mut guard = self.tools_schema.write().await;
         *guard = schemas;
+    }
+
+    /// Returns the currently registered tool schemas.
+    ///
+    /// Exposed primarily for tests that need to verify the schema list
+    /// after initialization.
+    ///
+    /// Refs: docs/SPECS.md §Book III-B, I-Shell-Runtime-OnlyIO
+    ///
+    /// # Cancel safety
+    /// This future awaits an `RwLock` read lock. If it is dropped before the
+    /// lock is acquired, the caller receives nothing and no guard is held. Once
+    /// the lock is acquired, the guarded list is cloned in a single non-awaiting
+    /// statement and the guard is released before the future resolves, so the
+    /// returned value is always complete.
+    pub async fn tools_schema(&self) -> Vec<serde_json::Value> {
+        self.tools_schema.read().await.clone()
     }
 
     /// Set a transform applied to the history before each LLM request.
@@ -1268,6 +1293,17 @@ fn write_diag_request(turn: usize, body: &serde_json::Value) {
 
 #[async_trait::async_trait]
 impl LlmClient for OpenAiLlmClient {
+    /// Initiate an LLM call and stream fragments back via `shell.send_input`.
+    ///
+    /// Builds the request, opens an SSE connection, and delegates the
+    /// streaming loop to `read_sse_stream`.
+    ///
+    /// Refs: I-Core-ChunkBudget
+    ///
+    /// # Cancel safety
+    /// This future delegates to `read_sse_stream` and may await network I/O.
+    /// Dropping it before completion leaks the SSE connection until the
+    /// read-side idle timeout or the provider closes it.
     async fn call_llm(&self, shell: &BriocheShell) -> Result<(), ShellError> {
         if let Err(err) = self.config.validate() {
             let _ = self.ui_tx.send(LlmChunk::Error(err.to_string()));
@@ -1322,6 +1358,15 @@ impl LlmClient for OpenAiLlmClient {
         Ok(())
     }
 
+    /// Summarize a slice of chat history into a single compressed message.
+    ///
+    /// Mirrors the `LlmClient::summarize` contract.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Cancel safety
+    /// This future may await network I/O. Dropping it before completion
+    /// discards the in-flight request; no mirror history is modified.
     async fn summarize(
         &self,
         shell: &BriocheShell,
@@ -1354,6 +1399,16 @@ impl LlmClient for OpenAiLlmClient {
         }
     }
 
+    /// Push tool execution results into the conversational history.
+    ///
+    /// Delegates to the inherent `OpenAiLlmClient::push_tool_results`.
+    ///
+    /// Refs: I-Shell-ToolResult-PassThrough
+    ///
+    /// # Cancel safety
+    /// Mirrors the `LlmClient::push_tool_results` contract: this future may
+    /// leave the mirror history partially updated if dropped before completion
+    /// because each result is appended independently.
     async fn push_tool_results(&self, results: &[ToolResultDTO]) {
         OpenAiLlmClient::push_tool_results(self, results).await;
     }

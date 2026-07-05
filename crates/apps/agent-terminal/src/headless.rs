@@ -42,7 +42,7 @@ pub async fn run(
     redb_storage: RedbStorage,
     session_store: SessionStore,
 ) {
-    let (shell, llm_client, _llm_rx, _history) = build_shell(
+    let (shell, llm_client, _llm_rx, _history) = match build_shell(
         "headless",
         &cli_config,
         ShellMode::Headless,
@@ -50,7 +50,15 @@ pub async fn run(
         session_store,
         None,
         None,
-    );
+    )
+    .await
+    {
+        Ok(tuple) => tuple,
+        Err(err) => {
+            eprintln!("Failed to build shell: {err}");
+            std::process::exit(1);
+        }
+    };
 
     llm_client
         .push_message(ChatMessage::User {

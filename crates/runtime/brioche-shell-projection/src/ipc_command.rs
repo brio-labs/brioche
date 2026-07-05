@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use brioche_core::{EngineInput, SubRoutineHandle, SystemSignal};
-use brioche_shell_persistence::{RedbStorage, SubRoutineCache, load_subroutine};
+use brioche_shell_persistence::{RedbStorage, SubRoutineCache};
 use brioche_shell_runtime::{BriocheShell, ShellError};
 use tokio::sync::Mutex;
 
@@ -123,9 +123,10 @@ impl IpcCommandService {
     /// Never panics. Returns `Err` on all failure paths.
     ///
     /// # Cancel safety
-    /// This future holds an `Arc<Mutex<SubRoutineCache>>` guard across
-    /// await points. Dropping it releases the guard without modifying
-    /// cache state; callers should retry the load on recovery.
+    /// The cache lock is acquired only for short, non-awaiting cache reads
+    /// and updates; it is never held across `storage.load_session().await` or
+    /// other await points. Dropping this future before completion discards the
+    /// result; cache and storage remain unchanged.
     ///
     /// Refs: docs/SPECS.md §Book III-C Ch 5, I-Shell-Load-Batch
     pub async fn load_subroutine(&self, handle: SubRoutineHandle) -> Result<(), ShellError> {
@@ -137,23 +138,51 @@ impl IpcCommandService {
             .as_ref()
             .ok_or_else(|| ShellError::EffectExecution("load_subroutine requires cache".into()))?;
 
-        let mut cache_guard = cache.lock().await;
-        let dto = load_subroutine(storage, &mut cache_guard, handle.as_str())
-            .await
-            .map_err(|e| ShellError::EffectExecution(format!("persistence error: {}", e)))?
-            .ok_or_else(|| {
-                ShellError::EffectExecution(format!("sub-routine {} not found", handle.as_str()))
-            })?;
+        // Acquire the lock only for the cache read; clone a hit and release.
+        let cached = {
+            let cache_guard = cache.lock().await;
+            cache_guard.get(handle.as_str()).cloned()
+        };
 
-        // Serialize the DTO to MessagePack for the kernel.
+        let dto = match cached {
+            Some(dto) => dto,
+            None => {
+                // Load from Redb without holding the cache lock.
+                let loaded = storage
+                    .load_session(handle.as_str())
+                    .await
+                    .map_err(|e| ShellError::EffectExecution(format!("persistence error: {}", e)))?
+                    .ok_or_else(|| {
+                        ShellError::EffectExecution(format!(
+                            "sub-routine {} not found",
+                            handle.as_str()
+                        ))
+                    })?;
+
+                // Re-acquire the lock only for the cache update.
+                let mut cache_guard = cache.lock().await;
+                cache_guard.insert(handle.as_str().to_string(), loaded.clone());
+                loaded
+            }
+        };
+
+        // Serialize and send only after the lock has been released.
         let head_blob = rmp_serde::to_vec(&dto)
             .map_err(|e| ShellError::EffectExecution(format!("serialize error: {}", e)))?;
-
-        drop(cache_guard);
 
         self.shell
             .send_input(EngineInput::RestoreSubRoutine { handle, head_blob })
             .await
+    }
+}
+
+#[cfg(test)]
+impl IpcCommandService {
+    /// Expose the internal sub-routine cache for test assertions.
+    ///
+    /// Refs: I-Shell-Load-Batch
+    pub(crate) fn cache(&self) -> Option<Arc<Mutex<SubRoutineCache>>> {
+        self.cache.clone()
     }
 }
 
@@ -286,8 +315,13 @@ mod rate_limiter_tests {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
+
     use brioche_core::{BriocheEngineBuilder, Session};
     use brioche_governance_default::{BriocheEngineBuilderExt, GovernanceProfile};
+    use brioche_shell_persistence::{
+        RedbStorage, SessionHeadDTO, SubRoutineCache, new_session_store,
+    };
     use brioche_shell_runtime::{
         DefaultEffectExecutor, EchoToolExecutor, MockLlmClient, NoopPersistence, ShellConfig,
     };
@@ -339,5 +373,38 @@ mod tests {
             .load_subroutine(SubRoutineHandle::new("missing"))
             .await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn load_subroutine_populates_cache_from_redb() {
+        async fn run() -> Result<(), String> {
+            let tmp = tempfile::NamedTempFile::new().map_err(|e| e.to_string())?;
+            let store = new_session_store();
+            let storage = RedbStorage::new(tmp.path(), store).map_err(|e| e.to_string())?;
+            let cache = SubRoutineCache::new(NonZeroUsize::new(10).ok_or("cache capacity")?);
+
+            let session = Session::new("sub-1");
+            let dto = SessionHeadDTO::from_session(&session);
+            storage
+                .save_session_dto(&dto)
+                .await
+                .map_err(|e| e.to_string())?;
+
+            let shell = test_shell();
+            let service = IpcCommandService::new(shell).with_persistence(storage, cache);
+
+            service
+                .load_subroutine(SubRoutineHandle::new("sub-1"))
+                .await
+                .map_err(|e| e.to_string())?;
+
+            let cache_arc = service.cache().ok_or("missing cache")?;
+            let cache_guard = cache_arc.lock().await;
+            assert!(cache_guard.contains("sub-1"));
+
+            Ok(())
+        }
+
+        assert!(run().await.is_ok());
     }
 }

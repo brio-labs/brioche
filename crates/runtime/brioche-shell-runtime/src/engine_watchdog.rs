@@ -188,6 +188,15 @@ impl EngineWatchdog {
     ///
     /// This future runs until the pong channel is closed.
     ///
+    /// # Backoff
+    /// After a missed pong triggers recovery, the watchdog waits before
+    /// sending the next ping. The delay starts at 100 ms and doubles for
+    /// each consecutive recovery since the last successful pong. It is
+    /// capped at `max(max_response_delay_ms, heartbeat_interval_ms * 8)` so
+    /// that very long stalls do not lead to unbounded silence, but the rate
+    /// of recovery attempts is still bounded away from a tight loop.
+    /// The counter resets as soon as a pong is received again.
+    ///
     /// # Cancel safety
     /// This loop holds only local variables across await points. Dropping
     /// it stops heartbeat monitoring; the engine thread continues running.
@@ -196,7 +205,9 @@ impl EngineWatchdog {
         ping_tx: mpsc::Sender<WatchdogPing>,
         mut pong_rx: mpsc::Receiver<WatchdogPong>,
     ) {
-        let mut interval = tokio::time::interval(Duration::from_millis(self.heartbeat_interval_ms));
+        let heartbeat_interval = Duration::from_millis(self.heartbeat_interval_ms);
+        let mut interval = tokio::time::interval(heartbeat_interval);
+        let mut consecutive_recoveries: u32 = 0;
 
         loop {
             interval.tick().await;
@@ -210,6 +221,7 @@ impl EngineWatchdog {
             let timeout = Duration::from_millis(self.max_response_delay_ms);
             match tokio::time::timeout(timeout, pong_rx.recv()).await {
                 Ok(Some(pong)) => {
+                    consecutive_recoveries = 0;
                     let elapsed_ms = ping_time.elapsed().as_millis() as u64;
                     tracing::debug!(
                         last_epoch = pong.last_epoch,
@@ -223,14 +235,35 @@ impl EngineWatchdog {
                     break;
                 }
                 Err(_) => {
+                    consecutive_recoveries += 1;
                     tracing::error!(
                         max_response_delay_ms = self.max_response_delay_ms,
+                        consecutive_recoveries,
                         "watchdog: engine thread non-responsive — triggering recovery"
                     );
                     self.execute_recovery().await;
+
+                    let backoff = self.compute_backoff(consecutive_recoveries);
+                    tokio::time::sleep(backoff).await;
+
+                    // Missed ticks would otherwise fire immediately after the
+                    // backoff period, so we reset the interval to preserve the
+                    // heartbeat spacing for the next ping.
+                    interval = tokio::time::interval(heartbeat_interval);
                 }
             }
         }
+    }
+
+    fn compute_backoff(&self, consecutive_recoveries: u32) -> Duration {
+        const BASE_MS: u64 = 100;
+        let max_backoff_ms = self
+            .max_response_delay_ms
+            .max(self.heartbeat_interval_ms.saturating_mul(8));
+        let exponent = consecutive_recoveries.saturating_sub(1).min(63);
+        let factor = 1u64 << exponent;
+        let delay_ms = BASE_MS.saturating_mul(factor).min(max_backoff_ms);
+        Duration::from_millis(delay_ms)
     }
 
     async fn execute_recovery(&self) {
@@ -327,9 +360,11 @@ impl EngineWatchdogHandle {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-    use super::{EngineWatchdog, RecoveryProcedure};
+    use tokio::time::{Duration, Instant};
+
+    use super::{EngineWatchdog, EngineWatchdogHandle, RecoveryProcedure};
     use crate::telemetry::{TelemetryChannel, TelemetryLevel};
 
     #[tokio::test]
@@ -389,5 +424,80 @@ mod tests {
             rx.recv().await.is_ok(),
             "a telemetry event should be emitted even with no handler"
         );
+    }
+
+    #[tokio::test]
+    async fn repeated_non_responses_back_off_before_next_recovery() {
+        let pending = Arc::new(AtomicU64::new(0));
+        let (handle, ping_tx, pong_rx) = EngineWatchdogHandle::new(pending);
+
+        let recovery_times = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recovery_times_for_handler = Arc::clone(&recovery_times);
+
+        let watchdog = EngineWatchdog::new(50, 100, RecoveryProcedure::NotifyAndDegrade)
+            .with_notify_and_degrade_handler(move || {
+                if let Ok(mut guard) = recovery_times_for_handler.lock() {
+                    guard.push(Instant::now());
+                }
+            });
+
+        // Keep the engine handle alive but never respond to pings.
+        let _handle = handle;
+
+        let watchdog_task = tokio::spawn(watchdog.run(ping_tx, pong_rx));
+
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let count = if let Ok(guard) = recovery_times.lock() {
+                guard.len()
+            } else {
+                0
+            };
+            if count >= 4 {
+                break;
+            }
+            if Instant::now() > deadline {
+                break;
+            }
+        }
+
+        watchdog_task.abort();
+        let _ = watchdog_task.await;
+
+        let times = if let Ok(guard) = recovery_times.lock() {
+            guard.clone()
+        } else {
+            Vec::new()
+        };
+
+        assert!(
+            times.len() >= 4,
+            "expected at least 4 recoveries, got {}",
+            times.len()
+        );
+
+        // Minimum delays between consecutive recovery invocations. The first
+        // recovery has no prior backoff; each subsequent one must wait at least
+        // its exponential backoff (100ms * 2^(n-1)) before the next ping is
+        // attempted, plus the response timeout for that ping.
+        let expected_min_ms = [100, 200, 400];
+        for (i, (prev, next)) in times
+            .iter()
+            .zip(times.iter().skip(1))
+            .enumerate()
+            .take(expected_min_ms.len())
+        {
+            let delta = next.duration_since(*prev);
+            let expected = Duration::from_millis(expected_min_ms[i]);
+            assert!(
+                delta >= expected,
+                "recovery interval {} -> {} was too fast: {:?} < {:?}",
+                i,
+                i + 1,
+                delta,
+                expected
+            );
+        }
     }
 }

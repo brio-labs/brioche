@@ -18,7 +18,7 @@ use brioche_shell_persistence::{
     PersistenceSubRoutineHydrator, RedbStorage, SessionHeadDTO, SessionStore, SessionStoreEntry,
 };
 use brioche_shell_runtime::{
-    BriocheShell, DefaultEffectExecutor, PersistenceMode, SessionCallback, ShellConfig,
+    BriocheShell, DefaultEffectExecutor, PersistenceMode, SessionCallback, ShellConfig, ShellError,
 };
 use brioche_tools_system::SystemToolExecutor;
 use tokio::sync::broadcast;
@@ -55,12 +55,12 @@ type EngineFactory = Box<dyn FnOnce() -> (BriocheEngine, Session) + Send>;
 /// Refs: I-Shell-Runtime-OnlyIO
 ///
 /// # Complexity
-/// O(T) where T is the number of tools registered. Spawns asynchronous tasks
-/// in the background.
+/// O(T) where T is the number of tools registered. Performs a bounded amount
+/// of async initialization before returning.
 ///
 /// # Panic / Safety
-/// Panics if called outside of a Tokio runtime context because [`ShellBuilder::build`]
-/// spawns `tokio::spawn` tasks.
+/// Never panics. [`ShellBuilder::build`] is async and must be awaited from a
+/// Tokio runtime context.
 pub struct ShellBuilder {
     openai_config: OpenAiConfig,
     tick_interval_ms: u64,
@@ -135,39 +135,57 @@ impl ShellBuilder {
 
     /// Consumes the builder and constructs a fully wired shell.
     ///
-    /// This method must be called from within a Tokio runtime context because
-    /// it spawns background tasks for the system prompt and tools schema.
+    /// The default system prompt and tool schemas are pushed into the LLM
+    /// client before returning, so callers can rely on them being in place
+    /// as soon as the returned shell is available.
+    ///
+    /// # Errors
+    /// Returns `ShellError::EffectExecution` if the LLM client fails to
+    /// initialize (e.g., the HTTP client builder rejects the configuration).
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
-    pub fn build(
+    ///
+    /// # Complexity
+    /// O(T) where T is the number of tools registered. Performs a bounded amount
+    /// of async initialization before returning.
+    ///
+    /// # Cancel safety
+    /// This future holds `RwLock` write guards only across single non-awaiting
+    /// statements while pushing the system prompt and tool schemas. Dropping it
+    /// before completion leaves the LLM client history and tool list unchanged.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
+    pub async fn build(
         self,
-    ) -> (
-        BriocheShell,
-        OpenAiLlmClient,
-        broadcast::Receiver<LlmChunk>,
-        SharedHistory,
-    ) {
-        let (llm_client, llm_rx, history) = OpenAiLlmClient::new(self.openai_config);
+    ) -> Result<
+        (
+            BriocheShell,
+            OpenAiLlmClient,
+            broadcast::Receiver<LlmChunk>,
+            SharedHistory,
+        ),
+        ShellError,
+    > {
+        let (llm_client, llm_rx, history) = OpenAiLlmClient::new(self.openai_config)?;
 
         if let Some(transform) = self.history_transform {
             llm_client.set_history_transform(Some(transform));
         }
 
-        // Inject default system prompt into the LLM client's history mirror.
-        let llm_for_prompt = llm_client.clone();
-        let prompt = DEFAULT_SYSTEM_PROMPT.to_string();
-        tokio::spawn(async move {
-            llm_for_prompt
-                .push_message(ChatMessage::System { content: prompt })
-                .await;
-        });
+        // Inject the default system prompt into the LLM client's history mirror.
+        // This completes before returning so the first user message cannot race
+        // ahead of it.
+        llm_client
+            .push_message(ChatMessage::System {
+                content: DEFAULT_SYSTEM_PROMPT.to_string(),
+            })
+            .await;
 
-        // Push the tool schemas into the LLM client without blocking startup.
+        // Push the tool schemas into the LLM client before returning so the first
+        // LLM request sees the complete tool set.
         let schemas = self.tool_executor.schema_json();
-        let llm_for_schema = llm_client.clone();
-        tokio::spawn(async move {
-            llm_for_schema.set_tools_schema(schemas).await;
-        });
+        llm_client.set_tools_schema(schemas).await;
 
         let effect_executor =
             DefaultEffectExecutor::new(self.tool_executor, llm_client.clone(), self.redb_storage)
@@ -206,7 +224,7 @@ impl ShellBuilder {
             Some(session_callback),
         );
 
-        (shell, llm_client, llm_rx, history_clone)
+        Ok((shell, llm_client, llm_rx, history_clone))
     }
 }
 

@@ -175,7 +175,7 @@ async fn handle_session_command(
                     .map(|d| d.as_secs())
                     .map_or(0, |v| v)
             );
-            let (new_shell, _new_llm, _new_rx, _history) = build_shell(
+            match build_shell(
                 &new_id,
                 &factory.config,
                 ShellMode::Interactive,
@@ -183,13 +183,24 @@ async fn handle_session_command(
                 Arc::clone(&factory.store),
                 None,
                 None,
-            );
+            )
+            .await
             {
-                let mut mgr = manager.write().await;
-                mgr.insert(new_id.clone(), new_shell);
-                mgr.switch(&new_id);
+                Ok((new_shell, _new_llm, _new_rx, _history)) => {
+                    {
+                        let mut mgr = manager.write().await;
+                        mgr.insert(new_id.clone(), new_shell);
+                        mgr.switch(&new_id);
+                    }
+                    let _ = printer.print(format!("New session: {}", Color::Green.paint(&new_id)));
+                }
+                Err(err) => {
+                    let _ = printer.print(format!(
+                        "{} Failed to build session: {err}",
+                        Color::Red.paint("!")
+                    ));
+                }
             }
-            let _ = printer.print(format!("New session: {}", Color::Green.paint(&new_id)));
         }
         "list" => {
             let mgr = manager.read().await;
@@ -237,7 +248,7 @@ async fn handle_session_command(
                     return;
                 }
             };
-            let (new_shell, _new_llm, _new_rx, _history) = build_shell(
+            let (new_shell, _new_llm, _new_rx, _history) = match build_shell(
                 id,
                 &factory.config,
                 ShellMode::Interactive,
@@ -245,7 +256,18 @@ async fn handle_session_command(
                 Arc::clone(&factory.store),
                 Some(messages),
                 Some(head),
-            );
+            )
+            .await
+            {
+                Ok(tuple) => tuple,
+                Err(err) => {
+                    let _ = printer.print(format!(
+                        "{} Failed to load session: {err}",
+                        Color::Red.paint("!")
+                    ));
+                    return;
+                }
+            };
             {
                 let mut mgr = manager.write().await;
                 mgr.insert(id.to_string(), new_shell);
