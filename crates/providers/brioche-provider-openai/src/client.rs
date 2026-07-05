@@ -366,9 +366,11 @@ impl OpenAiLlmClient {
     /// Refs: docs/SPECS.md §Book III-B, I-Shell-Runtime-OnlyIO
     ///
     /// # Cancel safety
-    /// This future holds an `RwLock` read guard across a single non-awaiting
-    /// statement. Dropping it before await completion returns an empty or
-    /// partially observed list, but never leaves the lock poisoned.
+    /// This future awaits an `RwLock` read lock. If it is dropped before the
+    /// lock is acquired, the caller receives nothing and no guard is held. Once
+    /// the lock is acquired, the guarded list is cloned in a single non-awaiting
+    /// statement and the guard is released before the future resolves, so the
+    /// returned value is always complete.
     pub async fn tools_schema(&self) -> Vec<serde_json::Value> {
         self.tools_schema.read().await.clone()
     }

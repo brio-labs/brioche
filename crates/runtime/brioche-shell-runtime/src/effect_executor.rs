@@ -255,12 +255,16 @@ pub trait EffectExecutor: Clone + Send + Sync + 'static {
     /// Gracefully shut down the executor.
     ///
     /// Waits for any background work started by the executor to complete.
-    /// Implementations that do not spawn background work may leave this
-    /// as a no-op.
+    /// Implementations that do not spawn background work may leave this as a
+    /// no-op.
     ///
     /// # Cancel safety
-    /// This future awaits tracked background tasks. Dropping it before
-    /// completion leaves those tasks running.
+    /// The default implementation is a no-op and is therefore cancel-safe.
+    /// Implementations that await background tasks must document their own
+    /// contract; dropping such a future before completion may leave those tasks
+    /// running.
+    ///
+    /// Refs: I-Shell-Persistence-Mode
     async fn shutdown(&self) {}
 }
 
