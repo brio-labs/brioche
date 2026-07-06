@@ -1,8 +1,6 @@
 import Tooltip from "../Tooltip";
 import {
-  Trash2,
   Paperclip,
-  Image as ImageIcon,
   Send,
   FileText,
   FileSpreadsheet,
@@ -22,8 +20,6 @@ interface ChatInputProps {
   handleSubmit: (e?: React.FormEvent) => Promise<void> | void;
   handleKeyDown: (e: React.KeyboardEvent) => void;
   handleAttach: () => Promise<void> | void;
-  handleImage: () => Promise<void> | void;
-  handleClearChat: () => void;
   pendingAttachments: Attachment[];
   removeAttachment: (id: string) => void;
 }
@@ -76,34 +72,50 @@ export default function ChatInput({
   handleSubmit,
   handleKeyDown,
   handleAttach,
-  handleImage,
-  handleClearChat,
   pendingAttachments,
   removeAttachment,
 }: ChatInputProps) {
   return (
     <div className="flex flex-col bg-bg-surface border-t border-border shrink-0">
       {pendingAttachments.length > 0 && (
-        <div className="flex flex-wrap gap-2 px-4 py-2 border-b border-border bg-bg-base/20 max-h-36 overflow-y-auto animate-fadeIn">
+        <div className="flex flex-wrap gap-3 px-4 py-3 border-b border-border bg-bg-base/20 max-h-40 overflow-y-auto animate-fadeIn">
           {pendingAttachments.map((att) => (
             <div
               key={att.id}
-              className="flex items-center gap-2 rounded bg-bg-elevated border border-border px-2 py-1 text-xs"
+              className="flex items-center gap-2.5 rounded-[4px] bg-bg-elevated border border-border p-2 pr-3 max-w-64 min-w-44 relative group shadow-sm transition-all duration-200 hover:border-border-hover"
             >
-              {att.type === "image" && att.dataUrl ? (
-                <div className="h-6 w-6 rounded border border-border overflow-hidden bg-bg-surface shrink-0">
+              {/* Square preview container */}
+              <div className="h-10 w-10 rounded-[2px] bg-bg-highlight border border-border overflow-hidden shrink-0 flex items-center justify-center">
+                {att.type === "image" && att.dataUrl ? (
                   <img src={att.dataUrl} alt={att.name} className="h-full w-full object-cover" />
-                </div>
-              ) : (
-                getFileIcon(att.name.split(".").pop()?.toLowerCase() || "")
-              )}
-              <span className="truncate max-w-40 font-mono text-[11px] text-fg-primary" title={att.path}>
-                {att.name}
-              </span>
+                ) : (
+                  (() => {
+                    const ext = att.name.split(".").pop()?.toUpperCase() || "FILE";
+                    return (
+                      <div className="flex flex-col items-center justify-center h-full w-full p-1 bg-bg-surface/50">
+                        {getFileIcon(ext.toLowerCase())}
+                        <span className="text-[7.5px] font-bold text-accent mt-0.5 tracking-wider font-mono">{ext}</span>
+                      </div>
+                    );
+                  })()
+                )}
+              </div>
+
+              {/* Details */}
+              <div className="flex flex-col min-w-0 flex-1">
+                <span className="truncate text-xs font-semibold text-fg-primary leading-tight" title={att.path}>
+                  {att.name}
+                </span>
+                <span className="text-[9px] text-fg-muted font-mono uppercase tracking-wider mt-0.5">
+                  {att.type === "image" ? "Image" : att.name.split(".").pop() || "Document"}
+                </span>
+              </div>
+
+              {/* Floating Close Button */}
               <button
                 type="button"
                 onClick={() => removeAttachment(att.id)}
-                className="btn-icon h-4 w-4 rounded-full text-fg-muted hover:text-error-text"
+                className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full border border-border bg-bg-elevated text-fg-muted hover:text-error-text flex items-center justify-center shadow-md transition-colors cursor-pointer"
                 title="Remove attachment"
               >
                 <X className="h-3 w-3" />
@@ -118,34 +130,14 @@ export default function ChatInput({
         onSubmit={handleSubmit}
       >
         <div className="flex items-center gap-2">
-          <Tooltip label="Clear history">
-            <button
-              type="button"
-              className="btn-icon w-8 h-8 text-fg-secondary hover:text-fg-primary"
-              onClick={handleClearChat}
-              aria-label="Clear history"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </Tooltip>
-          <Tooltip label="Attach file/folder">
+          <Tooltip label="Attach file or image">
             <button
               type="button"
               className="btn-icon w-8 h-8 text-fg-secondary hover:text-fg-primary"
               onClick={handleAttach}
-              aria-label="Attach file/folder"
+              aria-label="Attach file or image"
             >
               <Paperclip className="w-4 h-4" />
-            </button>
-          </Tooltip>
-          <Tooltip label="Send image">
-            <button
-              type="button"
-              className="btn-icon w-8 h-8 text-fg-secondary hover:text-fg-primary"
-              onClick={handleImage}
-              aria-label="Send image"
-            >
-              <ImageIcon className="w-4 h-4" />
             </button>
           </Tooltip>
         </div>

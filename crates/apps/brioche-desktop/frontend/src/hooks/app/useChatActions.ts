@@ -20,7 +20,6 @@ export interface ChatActions {
   handleSubmit: (e?: React.FormEvent) => Promise<void>;
   handleKeyDown: (e: React.KeyboardEvent) => void;
   handleAttach: () => Promise<void>;
-  handleImage: () => Promise<void>;
   handleClearChat: () => void;
   handleExportChat: () => void;
   pendingAttachments: Attachment[];
@@ -115,42 +114,37 @@ export function useChatActions(): ChatActions {
       directory: false,
     });
     if (!path) return;
+    
     const name = path.split(/[/\\]/).pop() || "";
-    setPendingAttachments((prev) => [
-      ...prev,
-      {
-        id: Math.random().toString(),
-        path,
-        name,
-        type: "document",
-      },
-    ]);
-  }, []);
+    const extension = name.split(".").pop()?.toLowerCase() || "";
+    const isImage = ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(extension);
 
-  const handleImage = useCallback(async () => {
-    const path = await open({
-      multiple: false,
-      directory: false,
-      filters: [
-        { name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp"] },
-      ],
-    });
-    if (!path) return;
-    try {
-      const name = path.split(/[/\\]/).pop() || "";
-      const dataUrl = await sendImage(path);
+    if (isImage) {
+      try {
+        const dataUrl = await sendImage(path);
+        setPendingAttachments((prev) => [
+          ...prev,
+          {
+            id: Math.random().toString(),
+            path,
+            name,
+            type: "image",
+            dataUrl,
+          },
+        ]);
+      } catch (err) {
+        addMessage("error", String(err));
+      }
+    } else {
       setPendingAttachments((prev) => [
         ...prev,
         {
           id: Math.random().toString(),
           path,
           name,
-          type: "image",
-          dataUrl,
+          type: "document",
         },
       ]);
-    } catch (err) {
-      addMessage("error", String(err));
     }
   }, [addMessage]);
 
@@ -167,7 +161,6 @@ export function useChatActions(): ChatActions {
     handleSubmit,
     handleKeyDown,
     handleAttach,
-    handleImage,
     handleClearChat,
     handleExportChat,
     pendingAttachments,
