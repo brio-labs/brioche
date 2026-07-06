@@ -2,9 +2,8 @@ import { useCallback } from "react";
 import { MessageSquareDashed, Plus, ListFilter, Check } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useSessionGrouping } from "../../hooks/sessionSidebar/useSessionGrouping";
-import { SessionHeader } from "./SessionHeader";
 import { SessionGroup } from "./SessionGroup";
-import { EmptyState } from "../ui";
+import { EmptyState, SectionHeader, SectionHeaderTitle } from "../ui";
 import { cn } from "../ui/lib";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 
@@ -29,7 +28,11 @@ export default function SessionSidebar() {
 
   return (
     <div className="flex h-full w-full flex-col bg-transparent text-fg-primary">
-      <SessionHeader />
+      <SectionHeader>
+        <div className="flex items-center gap-2">
+          <SectionHeaderTitle>Sessions</SectionHeaderTitle>
+        </div>
+      </SectionHeader>
 
       <div className="p-3 pb-2">
         <button

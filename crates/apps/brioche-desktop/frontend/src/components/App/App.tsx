@@ -1,5 +1,6 @@
 import { AnimatePresence } from "framer-motion";
 import { Group, Panel, Separator } from "react-resizable-panels";
+import { Search, Brain, BookOpen, User, Wrench, Settings } from "lucide-react";
 import Footer from "../Footer";
 import SessionSidebar from "../SessionSidebar";
 import FileExplorer from "../FileExplorer";
@@ -10,11 +11,12 @@ import MemoryPanel from "../MemoryPanel";
 import ProfilesPanel from "../ProfilesPanel";
 import CommandPalette from "../CommandPalette";
 import MessageSearch from "../MessageSearch";
+import { TitleBar } from "../TitleBar";
 import { useAppState } from "../../hooks/app/useAppState";
 import { useChatActions } from "../../hooks/app/useChatActions";
 import { useCommandPaletteActions } from "../../hooks/app/useCommandPaletteActions";
-import ChatPanel from "./ChatPanel";
-import TitleBarWrapper from "./TitleBarWrapper";
+import MessageList from "./MessageList";
+import ChatInput from "./ChatInput";
 
 export default function App() {
   const {
@@ -71,23 +73,48 @@ export default function App() {
     handleExportChat,
   });
 
+  const overlayButtons = [
+    {
+      label: "Search messages (Ctrl+Shift+F)",
+      icon: Search,
+      active: showMessageSearch,
+      onClick: () => setShowMessageSearch(true),
+    },
+    {
+      label: "Memory",
+      icon: Brain,
+      active: showMemory,
+      onClick: () => setShowMemory(true),
+    },
+    {
+      label: "Skills",
+      icon: BookOpen,
+      active: showSkills,
+      onClick: () => setShowSkills(true),
+    },
+    {
+      label: "Profiles",
+      icon: User,
+      active: showProfiles,
+      onClick: () => setShowProfiles(true),
+    },
+    {
+      label: "Tools",
+      icon: Wrench,
+      active: showTools,
+      onClick: () => setShowTools(true),
+    },
+    {
+      label: "Settings",
+      icon: Settings,
+      active: showSettings,
+      onClick: () => setShowSettings(true),
+    },
+  ];
+
   return (
     <div className="app flex flex-col h-screen w-screen overflow-hidden relative text-fg-primary">
-      <TitleBarWrapper
-        projectName={projectName}
-        showMessageSearch={showMessageSearch}
-        setShowMessageSearch={setShowMessageSearch}
-        showMemory={showMemory}
-        setShowMemory={setShowMemory}
-        showSkills={showSkills}
-        setShowSkills={setShowSkills}
-        showProfiles={showProfiles}
-        setShowProfiles={setShowProfiles}
-        showTools={showTools}
-        setShowTools={setShowTools}
-        showSettings={showSettings}
-        setShowSettings={setShowSettings}
-      />
+      <TitleBar buttons={overlayButtons} projectName={projectName} />
 
       <Group orientation="horizontal" className="flex-1 overflow-hidden">
         <Panel
@@ -112,16 +139,19 @@ export default function App() {
           onResize={handleCenterResize}
           className="flex flex-col min-w-0 overflow-hidden bg-bg-base/10 backdrop-blur-[5px] relative z-10"
         >
-          <ChatPanel
+          <MessageList
             messages={messages}
             isLoading={isLoading}
+            messagesEndRef={messagesEndRef}
+          />
+          <ChatInput
             input={input}
             setInput={setInput}
+            isLoading={isLoading}
             handleSubmit={handleSubmit}
             handleKeyDown={handleKeyDown}
             handleAttach={handleAttach}
             handleStop={handleStop}
-            messagesEndRef={messagesEndRef}
             pendingAttachments={pendingAttachments}
             removeAttachment={removeAttachment}
           />
