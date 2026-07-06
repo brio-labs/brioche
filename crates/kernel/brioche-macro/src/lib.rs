@@ -848,6 +848,18 @@ impl Parse for PluginArgs {
                 input.parse::<Token![,]>()?;
             }
         }
+        for capability in &capabilities {
+            match capability.as_str() {
+                "ON_INPUT" | "BEFORE_PREDICTION" | "ON_STREAM_EVENT" | "AFTER_PREDICTION"
+                | "ON_TOOL_CALLS" | "ON_TOOL_RESULT" | "ON_ERROR" => {}
+                unknown => {
+                    return Err(syn::Error::new(
+                        input.span(),
+                        format!("unknown capability `{unknown}`"),
+                    ));
+                }
+            }
+        }
 
         let name = name.ok_or_else(|| {
             syn::Error::new(input.span(), "`name` is required in #[brioche_plugin(...)]")
@@ -861,37 +873,19 @@ impl Parse for PluginArgs {
     }
 }
 
-/// Convert a capability string (e.g. `"ON_INPUT"`) into a token stream
-/// referencing the corresponding `PluginCapabilities` constant.
-fn capability_to_tokens(cap: &str) -> proc_macro2::TokenStream {
-    match cap {
-        "NONE" => quote!(::brioche_core::PluginCapabilities::NONE),
-        "ON_INPUT" => quote!(::brioche_core::PluginCapabilities::ON_INPUT),
-        "BEFORE_PREDICTION" => quote!(::brioche_core::PluginCapabilities::BEFORE_PREDICTION),
-        "ON_STREAM_EVENT" => quote!(::brioche_core::PluginCapabilities::ON_STREAM_EVENT),
-        "AFTER_PREDICTION" => quote!(::brioche_core::PluginCapabilities::AFTER_PREDICTION),
-        "ON_TOOL_CALLS" => quote!(::brioche_core::PluginCapabilities::ON_TOOL_CALLS),
-        "ON_TOOL_RESULT" => quote!(::brioche_core::PluginCapabilities::ON_TOOL_RESULT),
-        "ON_ERROR" => quote!(::brioche_core::PluginCapabilities::ON_ERROR),
-        _ => {
-            let msg = format!("unknown capability `{}`", cap);
-            quote!(compile_error!(#msg))
-        }
-    }
-}
-
-/// `#[brioche_plugin(name = "...", capabilities = "ON_INPUT | BEFORE_PREDICTION")]`
+/// `#[brioche_plugin(name = "...", capabilities = "ON_INPUT")]`
 ///
-/// Attribute macro applied to an `impl BriochePlugin for MyPlugin` block.
-/// It injects `fn name()`, `fn capabilities()`, and optionally `fn priority()`
-/// into the impl. All other items are passed through unchanged.
+/// Attribute macro applied to an atomic capability impl block. It injects
+/// `fn name()` and optionally `fn priority()` into the impl. The capability
+/// argument is accepted for source compatibility and documentation, but route
+/// selection is now determined by the trait being implemented.
 ///
 /// Helper attributes `#[hook(...)]` on methods are stripped by this macro.
 ///
 /// # Example
 /// ```ignore
 /// #[brioche_plugin(name = "my_plugin", capabilities = "ON_INPUT")]
-/// impl BriochePlugin for MyPlugin {
+/// impl OnInput for MyPlugin {
 ///     #[hook(on_input)]
 ///     fn on_input(&self, input: &EngineInput, ext: &mut ExtensionStorage) -> PluginResult<PolicyDecision> {
 ///         Ok(PolicyDecision::Allow)
@@ -906,22 +900,7 @@ pub fn brioche_plugin(args: TokenStream, input: TokenStream) -> TokenStream {
 
     let name_lit = &args.name;
     let _name_str = name_lit.value();
-
-    // Build capabilities expression via BitOr chain.
-    let caps_expr = if args.capabilities.is_empty() {
-        quote!(::brioche_core::PluginCapabilities::NONE)
-    } else {
-        let first = capability_to_tokens(&args.capabilities[0]);
-        let rest: Vec<_> = args
-            .capabilities
-            .iter()
-            .skip(1)
-            .map(|s| capability_to_tokens(s.as_str()))
-            .collect();
-        quote! {
-            #first #(| #rest)*
-        }
-    };
+    let _capability_count = args.capabilities.len();
 
     let priority_expr = match args.priority {
         Some(p) => quote!(#p),
@@ -941,11 +920,6 @@ pub fn brioche_plugin(args: TokenStream, input: TokenStream) -> TokenStream {
             #name_lit
         }
     };
-    let injected_caps: syn::ImplItem = syn::parse_quote! {
-        fn capabilities(&self) -> ::brioche_core::PluginCapabilities {
-            #caps_expr
-        }
-    };
     let injected_priority: syn::ImplItem = syn::parse_quote! {
         fn priority(&self) -> i16 {
             #priority_expr
@@ -962,16 +936,12 @@ pub fn brioche_plugin(args: TokenStream, input: TokenStream) -> TokenStream {
     // Remove the dummy marker we just inserted (it was just to satisfy type check).
     item_impl.items.remove(0);
 
-    // We need to be careful: if the impl already contains `name()`, `capabilities()`,
-    // or `priority()`, we must not duplicate them. Check for existing.
+    // We need to be careful: if the impl already contains `name()` or
+    // `priority()`, we must not duplicate them. Check for existing.
     let has_name = item_impl
         .items
         .iter()
         .any(|item| matches!(item, ImplItem::Fn(f) if f.sig.ident == "name"));
-    let has_caps = item_impl
-        .items
-        .iter()
-        .any(|item| matches!(item, ImplItem::Fn(f) if f.sig.ident == "capabilities"));
     let has_priority = item_impl
         .items
         .iter()
@@ -980,9 +950,6 @@ pub fn brioche_plugin(args: TokenStream, input: TokenStream) -> TokenStream {
     let mut new_items = Vec::new();
     if !has_name {
         new_items.push(injected);
-    }
-    if !has_caps {
-        new_items.push(injected_caps);
     }
     if !has_priority {
         new_items.push(injected_priority);

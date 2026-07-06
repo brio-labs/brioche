@@ -257,47 +257,34 @@ Business types (e.g., `TokenTrackerState`) do not carry `critical_state` by defa
 
 ## Chapter 4: Plugin interface
 
-### 4.1 `BriochePlugin` trait and `PluginCapabilities`
+### 4.1 Atomic hook traits
 
-Plugins declare their hook subscriptions via a bitmask. At engine initialization, the `UnifiedRoutingTable` pre-computes routes for each capability, eliminating runtime mask checks in the hot path.
-
-```rust
-pub struct PluginCapabilities(pub u16);
-
-impl PluginCapabilities {
-    pub const NONE: Self = Self(0);
-    pub const ON_INPUT: Self = Self(1 << 0);
-    pub const BEFORE_PREDICTION: Self = Self(1 << 1);
-    pub const ON_STREAM_EVENT: Self = Self(1 << 2);
-    pub const AFTER_PREDICTION: Self = Self(1 << 3);
-    pub const ON_TOOL_CALLS: Self = Self(1 << 4);
-    pub const ON_TOOL_RESULT: Self = Self(1 << 5);
-    pub const ON_ERROR: Self = Self(1 << 6);
-}
-```
+Plugins declare hook subscriptions by implementing one atomic capability trait per lifecycle hook. At engine initialization, each capability is stored in its own vector and the `UnifiedRoutingTable` pre-computes routes for that vector, eliminating runtime mask checks in the hot path.
 
 ```rust
-pub trait BriochePlugin: Send + Sync {
+pub trait OnInput: Send + Sync {
     fn name(&self) -> &'static str;
-    fn capabilities(&self) -> PluginCapabilities;
     fn priority(&self) -> i16 { 0 }
     fn on_input(&self, input: &EngineInput, ext: &mut ExtensionStorage)
         -> PluginResult<PolicyDecision>;
+}
+
+pub trait BeforePrediction: Send + Sync {
+    fn name(&self) -> &'static str;
+    fn priority(&self) -> i16 { 0 }
     fn before_prediction(&self, history: &[ChatMessage], ext: &mut ExtensionStorage)
         -> PluginResult<PolicyDecision>;
+}
+
+pub trait OnStreamEvent: Send + Sync {
+    fn name(&self) -> &'static str;
+    fn priority(&self) -> i16 { 0 }
     fn on_stream_event(&self, event: &StreamEvent, ext: &mut ExtensionStorage)
         -> PluginResult<StreamAction>;
-    fn after_prediction(&self, ext: &mut ExtensionStorage) -> PluginResult<()>;
-    fn on_tool_calls(&self, calls: &mut Vec<ToolCallDescriptor>, ext: &mut ExtensionStorage)
-        -> PluginResult<()>;
-    fn on_tool_result(&self, results: &mut Vec<ToolResultDTO>, ext: &mut ExtensionStorage)
-        -> PluginResult<()>;
-    fn on_error(&self, error: &PluginError, ext: &mut ExtensionStorage)
-        -> PluginResult<PolicyDecision>;
 }
 ```
 
-All hooks have default implementations returning "allow/pass/ok", so a plugin only overrides the hooks it cares about.
+`AfterPrediction`, `OnToolCalls`, `OnToolResult`, and `OnError` follow the same shape: `name`, `priority`, and exactly one lifecycle hook.
 
 ### 4.2 Policy decisions
 
@@ -412,7 +399,7 @@ pub struct BriocheEngineBuilder { ... }
 
 impl BriocheEngineBuilder {
     pub fn new() -> Self;
-    pub fn with_plugin(self, plugin: Box<dyn BriochePlugin>) -> Self;
+    pub fn with_on_input(self, plugin: Box<dyn OnInput>) -> Self;
     /// Appends an interceptor to the ordered pre-delegation chain.
     pub fn with_epoch_interceptor(self, interceptor: Box<dyn EpochInterceptor>) -> Self;
     pub fn with_subroutine_handler(self, handler: Box<dyn SubRoutineHandler>) -> Self;

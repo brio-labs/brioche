@@ -8,10 +8,11 @@
 //! Refs: I-Core-NoPanic, I-Core-Pure
 
 use brioche_core::{
-    AgentState, BriocheEngineBuilder, BriochePlugin, ChatMessage, DecisionAggregator, Effect,
-    EngineInput, ExecutionPath, ExtensionStorage, MAX_STATE_STACK_DEPTH, PluginCapabilities,
-    PluginResult, PolicyDecision, Session, StreamAction, StreamEvent, SubRoutineHandle,
-    SubRoutineLifecycleGuard, ToolCallDescriptor, ToolResultDTO,
+    AfterPrediction, AgentState, BeforePrediction, BriocheEngineBuilder, ChatMessage,
+    DecisionAggregator, Effect, EngineInput, ExecutionPath, ExtensionStorage,
+    MAX_STATE_STACK_DEPTH, OnInput, OnStreamEvent, OnToolCalls, OnToolResult, PluginResult,
+    PolicyDecision, Session, StreamAction, StreamEvent, SubRoutineHandle, SubRoutineLifecycleGuard,
+    ToolCallDescriptor, ToolResultDTO,
 };
 use proptest::prelude::*;
 
@@ -21,6 +22,10 @@ use proptest::prelude::*;
 
 struct MockDecisionAggregator;
 impl DecisionAggregator for MockDecisionAggregator {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn aggregate_decisions(
         &self,
         _decisions: Vec<PolicyDecision>,
@@ -32,6 +37,12 @@ impl DecisionAggregator for MockDecisionAggregator {
 
 struct MockSubRoutineLifecycleGuard;
 impl SubRoutineLifecycleGuard for MockSubRoutineLifecycleGuard {
+    type Effect = Effect;
+    type PluginError = brioche_core::PluginError;
+    type Session = Session;
+    type SessionRegistry = brioche_core::SessionRegistry;
+    type SubRoutineHandle = SubRoutineHandle;
+
     fn on_exit(
         &self,
         _handle: brioche_core::SubRoutineHandle,
@@ -56,13 +67,11 @@ fn build_engine_with_plugins(a_first: bool) -> brioche_core::BriocheEngine {
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard));
 
     if a_first {
-        builder = builder
-            .with_plugin(Box::new(PurePluginA))
-            .with_plugin(Box::new(PurePluginB));
+        builder = register_pure_plugin_a(builder);
+        builder = register_pure_plugin_b(builder);
     } else {
-        builder = builder
-            .with_plugin(Box::new(PurePluginB))
-            .with_plugin(Box::new(PurePluginA));
+        builder = register_pure_plugin_b(builder);
+        builder = register_pure_plugin_a(builder);
     }
     builder.build()
 }
@@ -74,22 +83,14 @@ fn build_engine_with_plugins(a_first: bool) -> brioche_core::BriocheEngine {
 /// Pure plugin A — always Allow, no side effects.
 struct PurePluginA;
 
-impl BriochePlugin for PurePluginA {
+impl OnInput for PurePluginA {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         "pure_a"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
-            | PluginCapabilities::BEFORE_PREDICTION
-            | PluginCapabilities::ON_STREAM_EVENT
-            | PluginCapabilities::AFTER_PREDICTION
-            | PluginCapabilities::ON_TOOL_CALLS
-            | PluginCapabilities::ON_TOOL_RESULT
-    }
-
-    fn priority(&self) -> i16 {
-        0
     }
 
     fn on_input(
@@ -99,6 +100,17 @@ impl BriochePlugin for PurePluginA {
     ) -> PluginResult<PolicyDecision> {
         Ok(PolicyDecision::Allow)
     }
+}
+
+impl BeforePrediction for PurePluginA {
+    type ChatMessage = ChatMessage;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
+    fn name(&self) -> &'static str {
+        "pure_a"
+    }
 
     fn before_prediction(
         &self,
@@ -106,6 +118,17 @@ impl BriochePlugin for PurePluginA {
         _ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
         Ok(PolicyDecision::Allow)
+    }
+}
+
+impl OnStreamEvent for PurePluginA {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type StreamAction = StreamAction;
+    type StreamEvent = StreamEvent;
+
+    fn name(&self) -> &'static str {
+        "pure_a"
     }
 
     fn on_stream_event(
@@ -115,9 +138,28 @@ impl BriochePlugin for PurePluginA {
     ) -> PluginResult<StreamAction> {
         Ok(StreamAction::Pass)
     }
+}
+
+impl AfterPrediction for PurePluginA {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+
+    fn name(&self) -> &'static str {
+        "pure_a"
+    }
 
     fn after_prediction(&self, _ext: &mut ExtensionStorage) -> PluginResult<()> {
         Ok(())
+    }
+}
+
+impl OnToolCalls for PurePluginA {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type ToolCallDescriptor = ToolCallDescriptor;
+
+    fn name(&self) -> &'static str {
+        "pure_a"
     }
 
     fn on_tool_calls(
@@ -126,6 +168,16 @@ impl BriochePlugin for PurePluginA {
         _ext: &mut ExtensionStorage,
     ) -> PluginResult<()> {
         Ok(())
+    }
+}
+
+impl OnToolResult for PurePluginA {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type ToolResultDto = ToolResultDTO;
+
+    fn name(&self) -> &'static str {
+        "pure_a"
     }
 
     fn on_tool_result(
@@ -140,22 +192,14 @@ impl BriochePlugin for PurePluginA {
 /// Pure plugin B — always Allow, no side effects.
 struct PurePluginB;
 
-impl BriochePlugin for PurePluginB {
+impl OnInput for PurePluginB {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         "pure_b"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
-            | PluginCapabilities::BEFORE_PREDICTION
-            | PluginCapabilities::ON_STREAM_EVENT
-            | PluginCapabilities::AFTER_PREDICTION
-            | PluginCapabilities::ON_TOOL_CALLS
-            | PluginCapabilities::ON_TOOL_RESULT
-    }
-
-    fn priority(&self) -> i16 {
-        0
     }
 
     fn on_input(
@@ -165,6 +209,17 @@ impl BriochePlugin for PurePluginB {
     ) -> PluginResult<PolicyDecision> {
         Ok(PolicyDecision::Allow)
     }
+}
+
+impl BeforePrediction for PurePluginB {
+    type ChatMessage = ChatMessage;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
+    fn name(&self) -> &'static str {
+        "pure_b"
+    }
 
     fn before_prediction(
         &self,
@@ -172,6 +227,17 @@ impl BriochePlugin for PurePluginB {
         _ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
         Ok(PolicyDecision::Allow)
+    }
+}
+
+impl OnStreamEvent for PurePluginB {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type StreamAction = StreamAction;
+    type StreamEvent = StreamEvent;
+
+    fn name(&self) -> &'static str {
+        "pure_b"
     }
 
     fn on_stream_event(
@@ -181,9 +247,28 @@ impl BriochePlugin for PurePluginB {
     ) -> PluginResult<StreamAction> {
         Ok(StreamAction::Pass)
     }
+}
+
+impl AfterPrediction for PurePluginB {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+
+    fn name(&self) -> &'static str {
+        "pure_b"
+    }
 
     fn after_prediction(&self, _ext: &mut ExtensionStorage) -> PluginResult<()> {
         Ok(())
+    }
+}
+
+impl OnToolCalls for PurePluginB {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type ToolCallDescriptor = ToolCallDescriptor;
+
+    fn name(&self) -> &'static str {
+        "pure_b"
     }
 
     fn on_tool_calls(
@@ -193,6 +278,16 @@ impl BriochePlugin for PurePluginB {
     ) -> PluginResult<()> {
         Ok(())
     }
+}
+
+impl OnToolResult for PurePluginB {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type ToolResultDto = ToolResultDTO;
+
+    fn name(&self) -> &'static str {
+        "pure_b"
+    }
 
     fn on_tool_result(
         &self,
@@ -201,6 +296,30 @@ impl BriochePlugin for PurePluginB {
     ) -> PluginResult<()> {
         Ok(())
     }
+}
+
+fn register_pure_plugin_a<DA, LG>(
+    builder: BriocheEngineBuilder<DA, LG>,
+) -> BriocheEngineBuilder<DA, LG> {
+    builder
+        .with_on_input(Box::new(PurePluginA))
+        .with_before_prediction(Box::new(PurePluginA))
+        .with_on_stream_event(Box::new(PurePluginA))
+        .with_after_prediction(Box::new(PurePluginA))
+        .with_on_tool_calls(Box::new(PurePluginA))
+        .with_on_tool_result(Box::new(PurePluginA))
+}
+
+fn register_pure_plugin_b<DA, LG>(
+    builder: BriocheEngineBuilder<DA, LG>,
+) -> BriocheEngineBuilder<DA, LG> {
+    builder
+        .with_on_input(Box::new(PurePluginB))
+        .with_before_prediction(Box::new(PurePluginB))
+        .with_on_stream_event(Box::new(PurePluginB))
+        .with_after_prediction(Box::new(PurePluginB))
+        .with_on_tool_calls(Box::new(PurePluginB))
+        .with_on_tool_result(Box::new(PurePluginB))
 }
 
 // ---------------------------------------------------------------------------

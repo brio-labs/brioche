@@ -9,8 +9,8 @@
 use std::collections::BTreeMap;
 
 use brioche_core::{
-    AgentStateTag, BriochePlugin, Effect, EngineInput, ErrorCode, ErrorDetail, ExtensionStorage,
-    PluginCapabilities, PluginResult, PolicyDecision, SessionSnapshot, StreamAction, StreamEvent,
+    AgentStateTag, Effect, EngineInput, ErrorCode, ErrorDetail, ExtensionStorage, OnInput,
+    OnStreamEvent, PluginResult, PolicyDecision, SessionSnapshot, StreamAction, StreamEvent,
 };
 
 use crate::Priority;
@@ -80,13 +80,14 @@ pub fn calculate_depth(stack_depth: u64, current_state: AgentStateTag) -> u64 {
     }
 }
 
-impl BriochePlugin for DepthGuard {
+impl OnInput for DepthGuard {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         "depth_guard"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
     }
 
     fn priority(&self) -> i16 {
@@ -194,13 +195,14 @@ impl Default for JsonArgumentAccumulator {
     }
 }
 
-impl BriochePlugin for JsonArgumentAccumulator {
+impl OnStreamEvent for JsonArgumentAccumulator {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type StreamAction = StreamAction;
+    type StreamEvent = StreamEvent;
+
     fn name(&self) -> &'static str {
         "json_argument_accumulator"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_STREAM_EVENT
     }
 
     fn priority(&self) -> i16 {

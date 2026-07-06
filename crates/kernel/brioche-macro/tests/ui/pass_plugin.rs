@@ -1,6 +1,4 @@
-use brioche_core::{
-    BriochePlugin, EngineInput, ExtensionStorage, PluginCapabilities, PluginResult, PolicyDecision,
-};
+use brioche_core::{EngineInput, ExtensionStorage, OnInput, PluginResult, PolicyDecision};
 use brioche_macro::brioche_plugin;
 
 struct ExamplePlugin;
@@ -10,7 +8,12 @@ struct ExamplePlugin;
     capabilities = "ON_INPUT | BEFORE_PREDICTION",
     priority = 10
 )]
-impl BriochePlugin for ExamplePlugin {
+impl OnInput for ExamplePlugin {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PolicyDecision = PolicyDecision;
+    type PluginError = brioche_core::PluginError;
+
     fn on_input(
         &self,
         _input: &EngineInput,
@@ -23,9 +26,5 @@ impl BriochePlugin for ExamplePlugin {
 fn main() {
     let plugin = ExamplePlugin;
     assert_eq!(plugin.name(), "example_plugin");
-    assert!(plugin.capabilities().contains(PluginCapabilities::ON_INPUT));
-    assert!(plugin
-        .capabilities()
-        .contains(PluginCapabilities::BEFORE_PREDICTION));
     assert_eq!(plugin.priority(), 10);
 }

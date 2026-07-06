@@ -6,8 +6,8 @@
 //! Refs: I-Eco-ExtensionOverMod, I-Eco-OrderedCollections
 
 use brioche_core::{
-    AgentStateTag, AsyncTaskResult, BriocheExtensionType, BriochePlugin, ChatMessage, Effect,
-    ExtensionStorage, HistoryEdit, PluginCapabilities, PluginResult, PolicyDecision,
+    AfterPrediction, AgentStateTag, AsyncTaskResult, BeforePrediction, BriocheExtensionType,
+    ChatMessage, Effect, ExtensionStorage, HistoryEdit, PluginResult, PolicyDecision,
     SessionSnapshot, SignalBuffer,
 };
 
@@ -71,13 +71,12 @@ impl Default for GcPolicy {
     }
 }
 
-impl BriochePlugin for GcPolicy {
+impl AfterPrediction for GcPolicy {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+
     fn name(&self) -> &'static str {
         "gc_policy"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::BEFORE_PREDICTION | PluginCapabilities::AFTER_PREDICTION
     }
 
     fn priority(&self) -> i16 {
@@ -99,6 +98,21 @@ impl BriochePlugin for GcPolicy {
         state.only_when_idle = self.only_when_idle;
         state.cycles_since_gc += 1;
         Ok(())
+    }
+}
+
+impl BeforePrediction for GcPolicy {
+    type ChatMessage = ChatMessage;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
+    fn name(&self) -> &'static str {
+        "gc_policy"
+    }
+
+    fn priority(&self) -> i16 {
+        Priority::GC_OBSERVER
     }
 
     /// Requests `Effect::TriggerGc` when the cycle threshold is met and the
@@ -123,7 +137,7 @@ impl BriochePlugin for GcPolicy {
         let is_idle = {
             let Some(snapshot) = ext.get::<SessionSnapshot>() else {
                 return Err(brioche_core::PluginError::Fatal {
-                    plugin_name: self.name().into(),
+                    plugin_name: "gc_policy".into(),
                     message: "missing SessionSnapshot".into(),
                 });
             };
@@ -195,13 +209,14 @@ impl Default for ContextOptimizer {
     }
 }
 
-impl BriochePlugin for ContextOptimizer {
+impl BeforePrediction for ContextOptimizer {
+    type ChatMessage = ChatMessage;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         "context_optimizer"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::BEFORE_PREDICTION
     }
 
     fn priority(&self) -> i16 {

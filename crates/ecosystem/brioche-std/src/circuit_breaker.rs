@@ -8,8 +8,8 @@
 //! Refs: I-Eco-ExtensionOverMod, I-Eco-OrderedCollections
 
 use brioche_core::{
-    BriocheExtensionType, BriochePlugin, ChatMessage, ExtensionStorage, PluginCapabilities,
-    PluginResult, PolicyDecision,
+    BeforePrediction, BriocheExtensionType, ChatMessage, ExtensionStorage, PluginResult,
+    PolicyDecision,
 };
 
 use crate::Priority;
@@ -59,13 +59,14 @@ impl Default for CircuitBreaker {
     }
 }
 
-impl BriochePlugin for CircuitBreaker {
+impl BeforePrediction for CircuitBreaker {
+    type ChatMessage = ChatMessage;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         "circuit_breaker"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::BEFORE_PREDICTION
     }
 
     fn priority(&self) -> i16 {

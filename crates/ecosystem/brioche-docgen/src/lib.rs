@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 /// Refs: docs/SPECS.md §Book IV Ch 3 §3.3
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TraitNode {
-    /// Trait name (e.g. `BriochePlugin`).
+    /// Trait name (e.g. `OnInput`).
     pub name: String,
     /// Method names declared on the trait.
     pub methods: Vec<String>,
@@ -79,20 +79,22 @@ pub fn build_trait_graph() -> TraitGraph {
     let mut graph = TraitGraph::default();
 
     let traits = vec![
+        ("OnInput", vec!["name", "priority", "on_input"]),
         (
-            "BriochePlugin",
-            vec![
-                "name",
-                "capabilities",
-                "priority",
-                "on_input",
-                "before_prediction",
-                "on_stream_event",
-                "after_prediction",
-                "on_tool_calls",
-                "on_tool_result",
-                "on_error",
-            ],
+            "BeforePrediction",
+            vec!["name", "priority", "before_prediction"],
+        ),
+        ("OnStreamEvent", vec!["name", "priority", "on_stream_event"]),
+        (
+            "AfterPrediction",
+            vec!["name", "priority", "after_prediction"],
+        ),
+        ("OnToolCalls", vec!["name", "priority", "on_tool_calls"]),
+        ("OnToolResult", vec!["name", "priority", "on_tool_result"]),
+        ("OnError", vec!["name", "priority", "on_error"]),
+        (
+            "PluginPersistence",
+            vec!["owned_state_keys", "default_state_blob"],
         ),
         ("EpochInterceptor", vec!["intercept_epoch"]),
         ("SubRoutineHandler", vec!["handle_subroutine"]),
@@ -120,13 +122,7 @@ pub fn build_trait_graph() -> TraitGraph {
         });
     }
 
-    let edges = vec![
-        ("EpochInterceptor", "BriochePlugin"),
-        ("DecisionAggregator", "BriochePlugin"),
-        ("SubRoutineLifecycleGuard", "BriochePlugin"),
-        ("CycleRollbackPolicy", "HookEffectConstraint"),
-        ("CowBudgetPolicy", "CycleRollbackPolicy"),
-    ];
+    let edges = vec![("CowBudgetPolicy", "CycleRollbackPolicy")];
 
     for (from, to) in edges {
         graph.edges.push((from.to_string(), to.to_string()));
@@ -282,7 +278,7 @@ mod tests {
     fn trait_graph_contains_core_traits() {
         let graph = build_trait_graph();
         let names: Vec<_> = graph.nodes.iter().map(|n| n.name.as_str()).collect();
-        assert!(names.contains(&"BriochePlugin"));
+        assert!(names.contains(&"OnInput"));
         assert!(names.contains(&"DecisionAggregator"));
         assert!(names.contains(&"HookEffectConstraint"));
     }
@@ -311,8 +307,8 @@ mod tests {
         let graph = build_trait_graph();
         let md = graph_to_markdown(&graph);
         assert!(md.contains("```mermaid\ngraph TD\n"));
-        assert!(md.contains("BriochePlugin[BriochePlugin]"));
-        assert!(md.contains("EpochInterceptor --> BriochePlugin"));
+        assert!(md.contains("OnInput[OnInput]"));
+        assert!(md.contains("CowBudgetPolicy --> CycleRollbackPolicy"));
     }
 
     #[test]
@@ -320,7 +316,7 @@ mod tests {
         let graph = build_trait_graph();
         let html = graph_to_html(&graph);
         assert!(html.contains("<html>"));
-        assert!(html.contains("BriochePlugin"));
+        assert!(html.contains("OnInput"));
     }
 
     #[test]

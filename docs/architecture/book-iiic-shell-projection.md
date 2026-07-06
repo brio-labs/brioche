@@ -141,6 +141,6 @@ impl BriocheExtensionType for UiPerformanceState {
 
 - **No synchronous orchestration logic** : all transition decisions are in the kernel (Books I and II).
 - **No business policy** : circuit breaker, token tracking, etc. are in the ecosystem (Book IV).
-- **No modification of the extension contract** : `BriochePlugin`, `Effect`, `PolicyDecision` are fixed since Book I.
+- **No modification of the extension contract** : hook capability traits, `Effect`, `PolicyDecision` are fixed since Book I.
 - **No persistence** : persistence is in the Shell Persistence layer (Book III-B).
 - **No runtime** : the asynchronous runtime is in the Shell Runtime layer (Book III-A).

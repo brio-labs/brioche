@@ -8,11 +8,12 @@
 //! - I-Core-RetVecEffect: all side effects are returned as `Effect`.
 
 use brioche_core::{
-    ActiveToolCall, AgentState, BriocheEngineBuilder, BriocheExtensionType, BriochePlugin,
+    ActiveToolCall, AgentState, BeforePrediction, BriocheEngineBuilder, BriocheExtensionType,
     ChatMessage, ConsistencyVerifier, CycleRollbackPolicy, DecisionAggregator, Effect, EngineInput,
     EpochAction, EpochInterceptor, ErrorCode, ErrorDetail, ExecutionPath, ExtensionStorage,
-    HistoryEdit, PluginCapabilities, PluginResult, PolicyDecision, Session, SessionRegistry,
-    StreamEvent, SubRoutineHandle, SubRoutineLifecycleGuard, ToolCallDescriptor, ToolResultDTO,
+    HistoryEdit, OnError, OnInput, OnInputPlugin, OnStreamEvent, OnStreamEventPlugin, OnToolCalls,
+    OnToolResult, PluginResult, PolicyDecision, Session, SessionRegistry, StreamEvent,
+    SubRoutineHandle, SubRoutineLifecycleGuard, ToolCallDescriptor, ToolResultDTO,
     UnifiedRoutingTable,
 };
 
@@ -23,6 +24,10 @@ use brioche_core::{
 struct MockDecisionAggregator;
 
 impl DecisionAggregator for MockDecisionAggregator {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn aggregate_decisions(
         &self,
         decisions: Vec<PolicyDecision>,
@@ -59,6 +64,12 @@ impl DecisionAggregator for MockDecisionAggregator {
 struct MockSubRoutineLifecycleGuard;
 
 impl SubRoutineLifecycleGuard for MockSubRoutineLifecycleGuard {
+    type Effect = Effect;
+    type PluginError = brioche_core::PluginError;
+    type Session = Session;
+    type SessionRegistry = SessionRegistry;
+    type SubRoutineHandle = SubRoutineHandle;
+
     fn on_exit(
         &self,
         _handle: SubRoutineHandle,
@@ -367,44 +378,72 @@ fn transition_restore_subroutine_registers_in_registry() {
 struct PriorityTestPlugin {
     name: &'static str,
     priority: i16,
-    cap: PluginCapabilities,
 }
 
-impl BriochePlugin for PriorityTestPlugin {
+impl OnInput for PriorityTestPlugin {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         self.name
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        self.cap
     }
 
     fn priority(&self) -> i16 {
         self.priority
     }
+
+    fn on_input(
+        &self,
+        _input: &EngineInput,
+        _ext: &mut ExtensionStorage,
+    ) -> PluginResult<PolicyDecision> {
+        Ok(PolicyDecision::Allow)
+    }
+}
+
+impl OnStreamEvent for PriorityTestPlugin {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type StreamAction = brioche_core::StreamAction;
+    type StreamEvent = StreamEvent;
+
+    fn name(&self) -> &'static str {
+        self.name
+    }
+
+    fn priority(&self) -> i16 {
+        self.priority
+    }
+
+    fn on_stream_event(
+        &self,
+        _event: &StreamEvent,
+        _ext: &mut ExtensionStorage,
+    ) -> PluginResult<brioche_core::StreamAction> {
+        Ok(brioche_core::StreamAction::Pass)
+    }
 }
 
 #[test]
 fn routing_table_orders_by_priority_then_name() {
-    let plugins: Vec<Box<dyn BriochePlugin>> = vec![
+    let on_input: Vec<Box<OnInputPlugin>> = vec![
         Box::new(PriorityTestPlugin {
             name: "beta",
             priority: 0,
-            cap: PluginCapabilities::ON_INPUT,
         }),
         Box::new(PriorityTestPlugin {
             name: "alpha",
             priority: 0,
-            cap: PluginCapabilities::ON_INPUT,
         }),
         Box::new(PriorityTestPlugin {
             name: "gamma",
             priority: -1,
-            cap: PluginCapabilities::ON_INPUT,
         }),
     ];
 
-    let table = UnifiedRoutingTable::from_plugins(&plugins);
+    let table = UnifiedRoutingTable::from_hooks(&on_input, &[], &[], &[], &[], &[], &[]);
 
     // Expected order: gamma (-1), alpha (0, "alpha" < "beta"), beta (0).
     assert_eq!(table.route_on_input, vec![2, 1, 0]);
@@ -412,23 +451,20 @@ fn routing_table_orders_by_priority_then_name() {
 
 #[test]
 fn routing_table_filters_by_capability() {
-    let plugins: Vec<Box<dyn BriochePlugin>> = vec![
-        Box::new(PriorityTestPlugin {
-            name: "input_only",
-            priority: 0,
-            cap: PluginCapabilities::ON_INPUT,
-        }),
-        Box::new(PriorityTestPlugin {
-            name: "stream_only",
-            priority: 0,
-            cap: PluginCapabilities::ON_STREAM_EVENT,
-        }),
-    ];
+    let on_input: Vec<Box<OnInputPlugin>> = vec![Box::new(PriorityTestPlugin {
+        name: "input_only",
+        priority: 0,
+    })];
+    let on_stream_event: Vec<Box<OnStreamEventPlugin>> = vec![Box::new(PriorityTestPlugin {
+        name: "stream_only",
+        priority: 0,
+    })];
 
-    let table = UnifiedRoutingTable::from_plugins(&plugins);
+    let table =
+        UnifiedRoutingTable::from_hooks(&on_input, &[], &on_stream_event, &[], &[], &[], &[]);
 
     assert_eq!(table.route_on_input, vec![0]);
-    assert_eq!(table.route_on_stream_event, vec![1]);
+    assert_eq!(table.route_on_stream_event, vec![0]);
     assert!(table.route_before_prediction.is_empty());
 }
 
@@ -438,13 +474,14 @@ fn routing_table_filters_by_capability() {
 
 struct OverrideInputPlugin;
 
-impl BriochePlugin for OverrideInputPlugin {
+impl OnInput for OverrideInputPlugin {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         "override_input"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
     }
 
     fn on_input(
@@ -463,7 +500,7 @@ impl BriochePlugin for OverrideInputPlugin {
 #[test]
 fn transition_override_input_short_circuits() {
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(OverrideInputPlugin))
+        .with_on_input(Box::new(OverrideInputPlugin))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
         .build();
@@ -483,13 +520,14 @@ fn transition_override_input_short_circuits() {
 
 struct BlockInputPlugin;
 
-impl BriochePlugin for BlockInputPlugin {
+impl OnInput for BlockInputPlugin {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         "block_input"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
     }
 
     fn on_input(
@@ -506,7 +544,7 @@ impl BriochePlugin for BlockInputPlugin {
 #[test]
 fn transition_block_input_returns_error_and_idle() {
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(BlockInputPlugin))
+        .with_on_input(Box::new(BlockInputPlugin))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
         .build();
@@ -537,6 +575,11 @@ fn transition_block_input_returns_error_and_idle() {
 struct BlockEpochInterceptor;
 
 impl EpochInterceptor for BlockEpochInterceptor {
+    type EngineInput = EngineInput;
+    type EpochAction = EpochAction;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+
     fn intercept_epoch(
         &self,
         _input: &EngineInput,
@@ -609,6 +652,12 @@ fn transition_is_deterministic() {
 fn transition_exits_subroutine_triggers_lifecycle_guard() {
     struct CountingLifecycleGuard;
     impl SubRoutineLifecycleGuard for CountingLifecycleGuard {
+        type Effect = Effect;
+        type PluginError = brioche_core::PluginError;
+        type Session = Session;
+        type SessionRegistry = SessionRegistry;
+        type SubRoutineHandle = SubRoutineHandle;
+
         fn on_exit(
             &self,
             _handle: SubRoutineHandle,
@@ -657,6 +706,10 @@ fn transition_exits_subroutine_triggers_lifecycle_guard() {
 fn transition_consistency_verifier_effects_appended() {
     struct ForcingVerifier;
     impl ConsistencyVerifier for ForcingVerifier {
+        type PluginError = brioche_core::PluginError;
+        type PolicyDecision = PolicyDecision;
+        type Session = Session;
+
         fn verify_consistency(&self, _session: &Session) -> PluginResult<Option<PolicyDecision>> {
             Ok(Some(PolicyDecision::RequestEffect(Effect::SystemIdle)))
         }
@@ -691,6 +744,10 @@ fn transition_consistency_verifier_effects_appended() {
 fn transition_consistency_override_transition_applies_recovery() {
     struct RecoveryVerifier;
     impl ConsistencyVerifier for RecoveryVerifier {
+        type PluginError = brioche_core::PluginError;
+        type PolicyDecision = PolicyDecision;
+        type Session = Session;
+
         fn verify_consistency(&self, _session: &Session) -> PluginResult<Option<PolicyDecision>> {
             Ok(Some(PolicyDecision::OverrideTransition(vec![
                 Effect::SystemIdle,
@@ -728,13 +785,14 @@ fn transition_consistency_override_transition_applies_recovery() {
 #[test]
 fn transition_rebuildroutes_is_last() {
     struct RebuildPlugin;
-    impl BriochePlugin for RebuildPlugin {
+    impl OnInput for RebuildPlugin {
+        type EngineInput = EngineInput;
+        type ExtensionStorage = ExtensionStorage;
+        type PluginError = brioche_core::PluginError;
+        type PolicyDecision = PolicyDecision;
+
         fn name(&self) -> &'static str {
             "rebuild"
-        }
-
-        fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::ON_INPUT
         }
 
         fn on_input(
@@ -750,7 +808,7 @@ fn transition_rebuildroutes_is_last() {
     }
 
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(RebuildPlugin))
+        .with_on_input(Box::new(RebuildPlugin))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
         .build();
@@ -779,13 +837,14 @@ fn transition_rebuildroutes_is_last() {
 #[test]
 fn transition_history_edit_insert_and_truncate() {
     struct EditPlugin;
-    impl BriochePlugin for EditPlugin {
+    impl BeforePrediction for EditPlugin {
+        type ChatMessage = ChatMessage;
+        type ExtensionStorage = ExtensionStorage;
+        type PluginError = brioche_core::PluginError;
+        type PolicyDecision = PolicyDecision;
+
         fn name(&self) -> &'static str {
             "edit"
-        }
-
-        fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::BEFORE_PREDICTION
         }
 
         fn before_prediction(
@@ -803,7 +862,7 @@ fn transition_history_edit_insert_and_truncate() {
     }
 
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(EditPlugin))
+        .with_before_prediction(Box::new(EditPlugin))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
         .build();
@@ -953,13 +1012,13 @@ fn transition_llm_stream_missing_timeout_applies_default() {
 #[test]
 fn transition_llm_stream_on_tool_calls_mutates_timeout() {
     struct TimeoutMutatorPlugin;
-    impl BriochePlugin for TimeoutMutatorPlugin {
+    impl OnToolCalls for TimeoutMutatorPlugin {
+        type ExtensionStorage = ExtensionStorage;
+        type PluginError = brioche_core::PluginError;
+        type ToolCallDescriptor = ToolCallDescriptor;
+
         fn name(&self) -> &'static str {
             "timeout_mutator"
-        }
-
-        fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::ON_TOOL_CALLS
         }
 
         fn on_tool_calls(
@@ -975,7 +1034,7 @@ fn transition_llm_stream_on_tool_calls_mutates_timeout() {
     }
 
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(TimeoutMutatorPlugin))
+        .with_on_tool_calls(Box::new(TimeoutMutatorPlugin))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
         .with_default_tool_timeout_ms(1000)
@@ -1264,13 +1323,14 @@ fn transition_with_fast_hook_effect_constraint_blocks_disallowed_effect() {
     use brioche_governance_default::FastHookEffectConstraint;
 
     struct LlmRequestingPlugin;
-    impl BriochePlugin for LlmRequestingPlugin {
+    impl OnInput for LlmRequestingPlugin {
+        type EngineInput = EngineInput;
+        type ExtensionStorage = ExtensionStorage;
+        type PluginError = brioche_core::PluginError;
+        type PolicyDecision = PolicyDecision;
+
         fn name(&self) -> &'static str {
             "llm_requester"
-        }
-
-        fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::ON_INPUT
         }
 
         fn priority(&self) -> i16 {
@@ -1291,7 +1351,7 @@ fn transition_with_fast_hook_effect_constraint_blocks_disallowed_effect() {
     let constraint = FastHookEffectConstraint::new(masks);
 
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(LlmRequestingPlugin))
+        .with_on_input(Box::new(LlmRequestingPlugin))
         .with_hook_effect_constraint(Box::new(constraint))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
@@ -1322,13 +1382,14 @@ fn transition_with_system_failover_guard_replaces_fault() {
     use brioche_governance_default::SystemFailoverGuard;
 
     struct FaultyPlugin;
-    impl BriochePlugin for FaultyPlugin {
+    impl OnInput for FaultyPlugin {
+        type EngineInput = EngineInput;
+        type ExtensionStorage = ExtensionStorage;
+        type PluginError = brioche_core::PluginError;
+        type PolicyDecision = PolicyDecision;
+
         fn name(&self) -> &'static str {
             "faulty"
-        }
-
-        fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::ON_INPUT
         }
 
         fn on_input(
@@ -1344,7 +1405,7 @@ fn transition_with_system_failover_guard_replaces_fault() {
     }
 
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(FaultyPlugin))
+        .with_on_input(Box::new(FaultyPlugin))
         .with_governance_failover_handler(Box::new(SystemFailoverGuard::new()))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
@@ -1380,6 +1441,10 @@ fn governance_failover_preserves_non_fault_effects() {
     struct WrapFaultHandler;
 
     impl GovernanceFailoverHandler for WrapFaultHandler {
+        type Effect = Effect;
+        type PluginError = brioche_core::PluginError;
+        type Session = Session;
+
         fn handle_failure(
             &self,
             _session: &mut Session,
@@ -1394,13 +1459,14 @@ fn governance_failover_preserves_non_fault_effects() {
     }
 
     struct FaultyPlugin;
-    impl BriochePlugin for FaultyPlugin {
+    impl OnInput for FaultyPlugin {
+        type EngineInput = EngineInput;
+        type ExtensionStorage = ExtensionStorage;
+        type PluginError = brioche_core::PluginError;
+        type PolicyDecision = PolicyDecision;
+
         fn name(&self) -> &'static str {
             "faulty"
-        }
-
-        fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::ON_INPUT
         }
 
         fn on_input(
@@ -1416,7 +1482,7 @@ fn governance_failover_preserves_non_fault_effects() {
     }
 
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(FaultyPlugin))
+        .with_on_input(Box::new(FaultyPlugin))
         .with_governance_failover_handler(Box::new(WrapFaultHandler))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
@@ -1545,13 +1611,14 @@ struct RollbackTypeB {
 }
 struct MutatingPlugin;
 
-impl BriochePlugin for MutatingPlugin {
+impl OnInput for MutatingPlugin {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         "mutating"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
     }
 
     fn priority(&self) -> i16 {
@@ -1586,7 +1653,7 @@ fn engine_rolls_back_extensions_when_cow_budget_exceeded() {
     let guard = brioche_governance_default::UndoFrameGuard::with_max_cow_bytes(weight_a + weight_b);
 
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(MutatingPlugin))
+        .with_on_input(Box::new(MutatingPlugin))
         .with_cycle_rollback_policy(Box::new(guard))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
@@ -1616,13 +1683,14 @@ fn engine_rolls_back_extensions_when_cow_budget_exceeded() {
 }
 struct FaultingPlugin;
 
-impl BriochePlugin for FaultingPlugin {
+impl OnInput for FaultingPlugin {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         "faulting"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
     }
 
     fn priority(&self) -> i16 {
@@ -1643,13 +1711,13 @@ impl BriochePlugin for FaultingPlugin {
 
 struct ErrorRecorderPlugin;
 
-impl BriochePlugin for ErrorRecorderPlugin {
+impl OnError for ErrorRecorderPlugin {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         "recorder"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_ERROR
     }
 
     fn priority(&self) -> i16 {
@@ -1673,8 +1741,8 @@ impl BriochePlugin for ErrorRecorderPlugin {
 #[test]
 fn engine_invokes_on_error_hook_for_plugin_faults() {
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(FaultingPlugin))
-        .with_plugin(Box::new(ErrorRecorderPlugin))
+        .with_on_input(Box::new(FaultingPlugin))
+        .with_on_error(Box::new(ErrorRecorderPlugin))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
         .build();
@@ -1763,13 +1831,14 @@ fn engine_with_adaptive_undo_frame_guard_instruments_hooks() {
     use brioche_governance_default::AdaptiveUndoFrameGuard;
 
     struct MutatingPlugin;
-    impl BriochePlugin for MutatingPlugin {
+    impl OnInput for MutatingPlugin {
+        type EngineInput = EngineInput;
+        type ExtensionStorage = ExtensionStorage;
+        type PluginError = brioche_core::PluginError;
+        type PolicyDecision = PolicyDecision;
+
         fn name(&self) -> &'static str {
             "mutating"
-        }
-
-        fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::ON_INPUT
         }
 
         fn on_input(
@@ -1784,7 +1853,7 @@ fn engine_with_adaptive_undo_frame_guard_instruments_hooks() {
     }
 
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(MutatingPlugin))
+        .with_on_input(Box::new(MutatingPlugin))
         .with_cycle_rollback_policy(Box::new(AdaptiveUndoFrameGuard::new()))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
@@ -1823,20 +1892,56 @@ fn engine_with_adaptive_undo_frame_guard_instruments_hooks() {
 struct RebuildRoutesPlugin {
     name: &'static str,
     priority: i16,
-    cap: PluginCapabilities,
 }
 
-impl BriochePlugin for RebuildRoutesPlugin {
+impl OnInput for RebuildRoutesPlugin {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         self.name
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        self.cap
+    fn priority(&self) -> i16 {
+        self.priority
+    }
+
+    fn on_input(
+        &self,
+        _input: &EngineInput,
+        _ext: &mut ExtensionStorage,
+    ) -> PluginResult<PolicyDecision> {
+        Ok(PolicyDecision::Allow)
+    }
+}
+
+struct RebuildRoutesBeforePredictionPlugin {
+    name: &'static str,
+    priority: i16,
+}
+
+impl BeforePrediction for RebuildRoutesBeforePredictionPlugin {
+    type ChatMessage = ChatMessage;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
+    fn name(&self) -> &'static str {
+        self.name
     }
 
     fn priority(&self) -> i16 {
         self.priority
+    }
+
+    fn before_prediction(
+        &self,
+        _history: &[ChatMessage],
+        _ext: &mut ExtensionStorage,
+    ) -> PluginResult<PolicyDecision> {
+        Ok(PolicyDecision::Allow)
     }
 }
 
@@ -1845,41 +1950,38 @@ fn rebuild_routes_filters_and_reorders_active_plugins() {
     let mut engine = BriocheEngineBuilder::new()
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
-        .with_plugin(Box::new(RebuildRoutesPlugin {
+        .with_on_input(Box::new(RebuildRoutesPlugin {
             name: "alpha",
             priority: 0,
-            cap: PluginCapabilities::ON_INPUT,
         }))
-        .with_plugin(Box::new(RebuildRoutesPlugin {
+        .with_on_input(Box::new(RebuildRoutesPlugin {
             name: "beta",
             priority: 1,
-            cap: PluginCapabilities::ON_INPUT,
         }))
-        .with_plugin(Box::new(RebuildRoutesPlugin {
+        .with_before_prediction(Box::new(RebuildRoutesBeforePredictionPlugin {
             name: "gamma",
             priority: 0,
-            cap: PluginCapabilities::BEFORE_PREDICTION,
         }))
         .build();
 
     assert_eq!(engine.routing_table().route_on_input, vec![0, 1]);
-    assert_eq!(engine.routing_table().route_before_prediction, vec![2]);
+    assert_eq!(engine.routing_table().route_before_prediction, vec![0]);
 
     // Disable plugin alpha (index 0); beta and gamma remain active.
     engine.rebuild_routes(&[false, true, true]);
 
     assert_eq!(engine.routing_table().route_on_input, vec![1]);
-    assert_eq!(engine.routing_table().route_before_prediction, vec![2]);
+    assert_eq!(engine.routing_table().route_before_prediction, vec![0]);
 
     // Re-enable all, then omit later mask entries; missing entries default
     // to active so the full route is restored.
     engine.rebuild_routes(&[true, true, true]);
     assert_eq!(engine.routing_table().route_on_input, vec![0, 1]);
-    assert_eq!(engine.routing_table().route_before_prediction, vec![2]);
+    assert_eq!(engine.routing_table().route_before_prediction, vec![0]);
 
     engine.rebuild_routes(&[false]);
     assert_eq!(engine.routing_table().route_on_input, vec![1]);
-    assert_eq!(engine.routing_table().route_before_prediction, vec![2]);
+    assert_eq!(engine.routing_table().route_before_prediction, vec![0]);
 }
 
 #[test]

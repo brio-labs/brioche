@@ -10,7 +10,7 @@
 use std::any::{Any, TypeId};
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{BriocheError, CycleRollbackPolicy};
+use crate::{BriocheError, CycleRollbackPolicyPlugin};
 
 /// Snapshot strategy for COW rollback.
 ///
@@ -268,7 +268,7 @@ pub struct ExtensionStorage {
     /// Owned `CycleRollbackPolicy` temporarily attached during a monitored hook.
     /// The engine moves the policy into storage before each hook and retrieves
     /// it afterward. No raw pointers, no `unsafe`.
-    rollback_policy: Option<Box<dyn CycleRollbackPolicy>>,
+    rollback_policy: Option<Box<CycleRollbackPolicyPlugin>>,
     /// Types already snapshotted in the current hook. Prevents duplicate COW
     /// clones when a plugin calls `get_mut` multiple times for the same type.
     snapshotted_this_hook: BTreeSet<TypeId>,
@@ -519,7 +519,7 @@ impl ExtensionStorage {
     /// Never panics.
     ///
     /// Refs: I-Gov-Rollback-BestEffort
-    pub fn attach_rollback_policy(&mut self, policy: Box<dyn CycleRollbackPolicy>) {
+    pub fn attach_rollback_policy(&mut self, policy: Box<CycleRollbackPolicyPlugin>) {
         self.rollback_policy = Some(policy);
         self.snapshotted_this_hook.clear();
     }
@@ -531,7 +531,7 @@ impl ExtensionStorage {
     /// Never panics.
     ///
     /// Refs: I-Gov-Rollback-BestEffort
-    pub fn detach_rollback_policy(&mut self) -> Option<Box<dyn CycleRollbackPolicy>> {
+    pub fn detach_rollback_policy(&mut self) -> Option<Box<CycleRollbackPolicyPlugin>> {
         self.snapshotted_this_hook.clear();
         self.rollback_policy.take()
     }

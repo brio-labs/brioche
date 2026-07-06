@@ -27,6 +27,10 @@ use brioche_core::{
 pub struct NoopGovernanceFailoverHandler;
 
 impl GovernanceFailoverHandler for NoopGovernanceFailoverHandler {
+    type Effect = Effect;
+    type PluginError = brioche_core::PluginError;
+    type Session = Session;
+
     fn handle_failure(
         &self,
         _session: &mut Session,
@@ -79,6 +83,10 @@ impl CowBudgetPolicy for NoopCowBudgetPolicy {
 pub struct NoopCycleRollbackPolicy;
 
 impl CycleRollbackPolicy for NoopCycleRollbackPolicy {
+    type CowBudgetPolicy = dyn CowBudgetPolicy;
+    type ExtVTable = brioche_core::ExtVTable;
+    type ExtensionStorage = ExtensionStorage;
+
     fn begin_hook(&mut self, _hook_name: &'static str) {}
 
     fn on_mutation(

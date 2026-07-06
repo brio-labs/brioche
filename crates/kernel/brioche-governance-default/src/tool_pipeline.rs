@@ -10,8 +10,8 @@
 use std::collections::BTreeMap;
 
 use brioche_core::{
-    BriochePlugin, ExtensionStorage, PluginCapabilities, PluginError, PluginResult,
-    ToolCallDescriptor, ToolOutcome, ToolResultDTO, TruncatedToolResult, tool_outcome_to_string,
+    ExtensionStorage, OnToolCalls, OnToolResult, PluginError, PluginResult, ToolCallDescriptor,
+    ToolOutcome, ToolResultDTO, TruncatedToolResult, tool_outcome_to_string,
 };
 
 use crate::Priority;
@@ -81,13 +81,13 @@ impl Default for ToolResultFormatter {
     }
 }
 
-impl BriochePlugin for ToolResultFormatter {
+impl OnToolResult for ToolResultFormatter {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = PluginError;
+    type ToolResultDto = ToolResultDTO;
+
     fn name(&self) -> &'static str {
         "tool_result_formatter"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_TOOL_RESULT
     }
 
     fn priority(&self) -> i16 {
@@ -182,13 +182,13 @@ impl Default for ToolExecutionTracker {
     }
 }
 
-impl BriochePlugin for ToolExecutionTracker {
+impl OnToolCalls for ToolExecutionTracker {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = PluginError;
+    type ToolCallDescriptor = ToolCallDescriptor;
+
     fn name(&self) -> &'static str {
         "tool_execution_tracker"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_TOOL_CALLS | PluginCapabilities::ON_TOOL_RESULT
     }
 
     /// Records start timestamps for each call.
@@ -206,6 +206,20 @@ impl BriochePlugin for ToolExecutionTracker {
             state.start_timestamps.insert(call.tool_id.clone(), now);
         }
         Ok(())
+    }
+}
+
+impl OnToolResult for ToolExecutionTracker {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = PluginError;
+    type ToolResultDto = ToolResultDTO;
+
+    fn name(&self) -> &'static str {
+        "tool_execution_tracker"
+    }
+
+    fn priority(&self) -> i16 {
+        Priority::TOOL_TIMEOUT
     }
 
     fn on_tool_result(
