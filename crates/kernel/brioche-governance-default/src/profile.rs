@@ -218,6 +218,9 @@ impl GovernanceProfile {
     ) -> BriocheEngineBuilder<Present, Present> {
         builder
             .with_epoch_interceptor(Box::new(EpochGuard))
+            .with_epoch_interceptor(Box::new(SubRoutineTimeoutPolicy::with_default_timeout(
+                300000,
+            )))
             .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
             .with_subroutine_lifecycle_guard(Box::new(SubRoutineCleanupGuard::new()))
             .with_subroutine_handler(Box::new(SubRoutineOrchestrator::new()))
@@ -231,9 +234,6 @@ impl GovernanceProfile {
             .with_plugin(Box::new(TelemetryPlugin::new()))
             .with_plugin(Box::new(ToolResultFormatter::new()))
             .with_plugin(Box::new(ToolTimeoutPolicy::with_default_timeout(30000)))
-            .with_plugin(Box::new(SubRoutineTimeoutPolicy::with_default_timeout(
-                300000,
-            )))
     }
 
     fn apply_strict(
@@ -241,6 +241,9 @@ impl GovernanceProfile {
     ) -> BriocheEngineBuilder<Present, Present> {
         builder
             .with_epoch_interceptor(Box::new(EpochGuard))
+            .with_epoch_interceptor(Box::new(SubRoutineTimeoutPolicy::with_default_timeout(
+                60000,
+            )))
             .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
             .with_subroutine_lifecycle_guard(Box::new(SubRoutineCleanupGuard::new()))
             .with_subroutine_handler(Box::new(SubRoutineOrchestrator::new()))
@@ -254,9 +257,6 @@ impl GovernanceProfile {
             .with_plugin(Box::new(TelemetryPlugin::new()))
             .with_plugin(Box::new(ToolResultFormatter::new()))
             .with_plugin(Box::new(ToolTimeoutPolicy::with_default_timeout(10000)))
-            .with_plugin(Box::new(SubRoutineTimeoutPolicy::with_default_timeout(
-                60000,
-            )))
     }
 }
 

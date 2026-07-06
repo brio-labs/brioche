@@ -52,7 +52,7 @@ pub struct Present;
 /// Refs: I-Core-BuilderTypeState, I-Gov-Decision-Required, I-Gov-SubRoutineLifecycle-Guard
 pub struct BriocheEngineBuilder<DA = Missing, LG = Missing> {
     plugins: Vec<Box<dyn BriochePlugin>>,
-    epoch_interceptor: Option<Box<dyn EpochInterceptor>>,
+    epoch_interceptors: Vec<Box<dyn EpochInterceptor>>,
     subroutine_handler: Option<Box<dyn SubRoutineHandler>>,
     subroutine_hydrator: Option<Box<dyn SubRoutineHydrator>>,
     consistency_verifier: Option<Box<dyn ConsistencyVerifier>>,
@@ -94,7 +94,7 @@ impl BriocheEngineBuilder<Missing, Missing> {
     pub fn new() -> Self {
         Self {
             plugins: Vec::new(),
-            epoch_interceptor: None,
+            epoch_interceptors: Vec::new(),
             subroutine_handler: None,
             subroutine_hydrator: None,
             consistency_verifier: None,
@@ -114,7 +114,7 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
     fn change_type<NewDA, NewLG>(self) -> BriocheEngineBuilder<NewDA, NewLG> {
         BriocheEngineBuilder {
             plugins: self.plugins,
-            epoch_interceptor: self.epoch_interceptor,
+            epoch_interceptors: self.epoch_interceptors,
             subroutine_handler: self.subroutine_handler,
             subroutine_hydrator: self.subroutine_hydrator,
             consistency_verifier: self.consistency_verifier,
@@ -147,17 +147,20 @@ impl<DA, LG> BriocheEngineBuilder<DA, LG> {
         self
     }
 
-    /// Inject an `EpochInterceptor`.
+    /// Add an `EpochInterceptor`.
+    ///
+    /// Interceptors are evaluated in registration order before sub-routine
+    /// delegation. The first `Block` short-circuits the transition.
     ///
     /// # Complexity
-    /// O(1). One `Option` assignment.
+    /// O(1). One `Vec` push.
     ///
     /// # Panics
     /// Never panics.
     ///
     /// Refs: I-Comp-Epoch-First
     pub fn with_epoch_interceptor(mut self, interceptor: Box<dyn EpochInterceptor>) -> Self {
-        self.epoch_interceptor = Some(interceptor);
+        self.epoch_interceptors.push(interceptor);
         self
     }
 
@@ -396,7 +399,7 @@ impl BriocheEngineBuilder<Present, Present> {
                 routing_table,
             },
             governance: crate::engine::GovernanceKernel {
-                epoch_interceptor: self.epoch_interceptor,
+                epoch_interceptors: self.epoch_interceptors,
                 subroutine_handler: self.subroutine_handler,
                 subroutine_hydrator: self.subroutine_hydrator,
                 consistency_verifier: self.consistency_verifier,

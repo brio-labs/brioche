@@ -8,8 +8,8 @@
 use std::collections::BTreeMap;
 
 use brioche_core::{
-    AgentStateTag, BriochePlugin, EngineInput, ExtensionStorage, PluginCapabilities, PluginResult,
-    PolicyDecision, SessionSnapshot, ToolCallDescriptor,
+    AgentStateTag, BriochePlugin, EngineInput, EpochAction, EpochInterceptor, ExtensionStorage,
+    PluginCapabilities, PluginResult, PolicyDecision, SessionSnapshot, ToolCallDescriptor,
 };
 
 use crate::Priority;
@@ -127,9 +127,10 @@ pub struct SubRoutineTimerState {
 
 /// Sub-routine timeout policy.
 ///
-/// On `on_input`, verifies if any active sub-routine has exceeded its
-/// timeout limit stored in `SubRoutineTimerState`.
-/// Refs: I-Gov-TraitAtomic
+/// Checks run through `EpochInterceptor`, which is evaluated before
+/// sub-routine delegation. The `on_input` implementation remains for
+/// compatibility with engines that do not short-circuit through a child
+/// session.
 ///
 /// Refs: I-Gov-SubRoutineLifecycle-Guard, I-Comp-Pure-Logic
 pub struct SubRoutineTimeoutPolicy;
@@ -148,26 +149,6 @@ impl SubRoutineTimeoutPolicy {
     pub fn with_default_timeout(_default_timeout_ms: u64) -> Self {
         Self::new()
     }
-}
-
-impl Default for SubRoutineTimeoutPolicy {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl BriochePlugin for SubRoutineTimeoutPolicy {
-    fn name(&self) -> &'static str {
-        "subroutine_timeout_policy"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
-    }
-
-    fn priority(&self) -> i16 {
-        Priority::SUBROUTINE_TIMEOUT
-    }
 
     /// Checks active sub-routine timers for expiry.
     ///
@@ -176,15 +157,11 @@ impl BriochePlugin for SubRoutineTimeoutPolicy {
     ///
     /// # Complexity
     /// O(n) where n = number of tracked timers. Linear scan.
-    fn on_input(
-        &self,
-        _input: &EngineInput,
-        ext: &mut ExtensionStorage,
-    ) -> PluginResult<PolicyDecision> {
+    fn evaluate(&self, ext: &mut ExtensionStorage) -> PluginResult<PolicyDecision> {
         let is_subroutine = {
             let Some(snapshot) = ext.get::<SessionSnapshot>() else {
                 return Err(brioche_core::PluginError::Fatal {
-                    plugin_name: self.name().into(),
+                    plugin_name: "subroutine_timeout_policy".into(),
                     message: "missing SessionSnapshot".into(),
                 });
             };
@@ -232,6 +209,52 @@ impl BriochePlugin for SubRoutineTimeoutPolicy {
         }
 
         Ok(PolicyDecision::Allow)
+    }
+}
+
+impl EpochInterceptor for SubRoutineTimeoutPolicy {
+    fn intercept_epoch(
+        &self,
+        _input: &EngineInput,
+        ext: &mut ExtensionStorage,
+    ) -> PluginResult<EpochAction> {
+        match self.evaluate(ext)? {
+            PolicyDecision::Allow => Ok(EpochAction::Proceed),
+            PolicyDecision::Block { reason } => Ok(EpochAction::Block { reason }),
+            _ => Ok(EpochAction::Proceed),
+        }
+    }
+}
+
+impl Default for SubRoutineTimeoutPolicy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl BriochePlugin for SubRoutineTimeoutPolicy {
+    fn name(&self) -> &'static str {
+        "subroutine_timeout_policy"
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::ON_INPUT
+    }
+
+    fn priority(&self) -> i16 {
+        Priority::SUBROUTINE_TIMEOUT
+    }
+
+    /// Compatibility path for engines that run `on_input` on the parent.
+    ///
+    /// Active sub-routine transitions use [`EpochInterceptor`] instead because
+    /// child delegation short-circuits this hook.
+    fn on_input(
+        &self,
+        _input: &EngineInput,
+        ext: &mut ExtensionStorage,
+    ) -> PluginResult<PolicyDecision> {
+        self.evaluate(ext)
     }
 }
 

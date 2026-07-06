@@ -164,7 +164,7 @@ pub trait CowBudgetPolicy: Send + Sync {
 The order is invariant and hard-coded in `BriocheEngine::transition()`:
 
 1. **Inject `SessionSnapshot`** into `ExtensionStorage`.
-2. **`EpochInterceptor`** — if `Block`, immediate return.
+2. **`EpochInterceptor` chain** — run registered interceptors in order; first `Block` returns immediately.
 3. **`SubRoutineHandler`** — if in `SubRoutine` and `Some(effects)`, short-circuit.
 4. **`on_input` hook** — pre-computed route.
 5. **Main dispatch** (`UserMessage`, `LlmStream`, `ToolCallsResult`, `RestoreSubRoutine`).
@@ -191,6 +191,7 @@ The `brioche-governance-default` crate provides the reference implementations:
 | Trait | Implementation | File |
 |-------|----------------|------|
 | `EpochInterceptor` | `EpochGuard` | `guards.rs` |
+| `EpochInterceptor` | `SubRoutineTimeoutPolicy` | `timeouts.rs` |
 | `DecisionAggregator` | `LexicographicDecisionAggregator` | `aggregators.rs` |
 | `SubRoutineLifecycleGuard` | `SubRoutineCleanupGuard` | `subroutines.rs` |
 | `ConsistencyVerifier` | `StateConsistencyGuard` | `guards.rs` |
