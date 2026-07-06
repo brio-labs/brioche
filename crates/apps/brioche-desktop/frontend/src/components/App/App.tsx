@@ -1,3 +1,4 @@
+import { AnimatePresence } from "framer-motion";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import Footer from "../Footer";
 import SessionSidebar from "../SessionSidebar";
@@ -97,7 +98,7 @@ export default function App() {
           collapsible
           collapsedSize="0%"
           onResize={handleLeftResize}
-          className="flex flex-col bg-bg-surface border-r border-border overflow-hidden z-10"
+          className="flex flex-col bg-bg-surface border-r border-border overflow-hidden z-10 panel-transition"
         >
           <SessionSidebar />
         </Panel>
@@ -133,7 +134,7 @@ export default function App() {
           collapsible
           collapsedSize="0%"
           onResize={handleRightResize}
-          className="flex flex-col bg-bg-surface border-l border-border overflow-hidden z-10"
+          className="flex flex-col bg-bg-surface border-l border-border overflow-hidden z-10 panel-transition"
         >
           <FileExplorer />
         </Panel>
@@ -147,11 +148,13 @@ export default function App() {
         onToggleChat={toggleCenterPanel}
       />
 
-      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
-      {showSkills && <SkillsPanel onClose={() => setShowSkills(false)} />}
-      {showProfiles && <ProfilesPanel onClose={() => setShowProfiles(false)} />}
-      {showMemory && <MemoryPanel onClose={() => setShowMemory(false)} />}
-      {showTools && <ToolsPanel onClose={() => setShowTools(false)} />}
+      <AnimatePresence>
+        {showSettings && <SettingsPanel key="settings" onClose={() => setShowSettings(false)} />}
+        {showSkills && <SkillsPanel key="skills" onClose={() => setShowSkills(false)} />}
+        {showProfiles && <ProfilesPanel key="profiles" onClose={() => setShowProfiles(false)} />}
+        {showMemory && <MemoryPanel key="memory" onClose={() => setShowMemory(false)} />}
+        {showTools && <ToolsPanel key="tools" onClose={() => setShowTools(false)} />}
+      </AnimatePresence>
 
       <CommandPalette
         isOpen={showPalette}

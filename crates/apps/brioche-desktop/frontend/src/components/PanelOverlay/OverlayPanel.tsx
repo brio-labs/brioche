@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
+import { motion } from "framer-motion";
 import { cn } from "../ui/lib";
 
 /**
@@ -40,13 +41,24 @@ export default function OverlayPanel({
 	padded = true,
 }: OverlayPanelProps) {
 	return (
-		<div className="panel-backdrop" onClick={onClose}>
-			<div
+		<motion.div
+			className="panel-backdrop"
+			initial={{ opacity: 0 }}
+			animate={{ opacity: 1 }}
+			exit={{ opacity: 0 }}
+			transition={{ duration: 0.15 }}
+			onClick={onClose}
+		>
+			<motion.div
 				className={cn(
 					"panel",
 					sizeClasses[size],
 					"max-w-[95vw] max-h-[85vh] z-1001",
 				)}
+				initial={{ opacity: 0, scale: 0.95, y: 12 }}
+				animate={{ opacity: 1, scale: 1, y: 0 }}
+				exit={{ opacity: 0, scale: 0.95, y: 12 }}
+				transition={{ type: "spring", duration: 0.25, bounce: 0.1 }}
 				onClick={(e) => e.stopPropagation()}
 			>
 				<div className="panel-header">
@@ -77,7 +89,7 @@ export default function OverlayPanel({
 				) : (
 					children
 				)}
-			</div>
-		</div>
+			</motion.div>
+		</motion.div>
 	);
 }

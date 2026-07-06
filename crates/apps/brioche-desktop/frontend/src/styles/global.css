@@ -272,6 +272,10 @@
 	@apply bg-bg-surface border border-border rounded-lg flex flex-col overflow-hidden shadow-2xl animate-slideUp;
 }
 
+@utility panel-transition {
+	transition: flex 250ms cubic-bezier(0.16, 1, 0.3, 1), width 250ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 @utility panel-backdrop {
 	@apply fixed inset-0 bg-black/70 flex items-center justify-center z-[1000] animate-fadeIn;
 }
