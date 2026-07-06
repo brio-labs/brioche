@@ -491,13 +491,12 @@ where
         shell: &BriocheShell,
     ) -> Result<(), ShellError> {
         use brioche_core::{EngineInput, ToolOutcome};
-        use tokio_util::sync::CancellationToken;
 
         let mut handles = Vec::with_capacity(calls.len());
 
         for call in calls {
             let tool_executor = Arc::clone(&self.tool_executor);
-            let cancel = CancellationToken::new();
+            let cancel = shell.child_cancellation_token();
             // ActiveToolCall.timeout_ms is the mechanical source of truth.
             // The kernel's seal() already materializes this from the descriptor
             // with default_tool_timeout_ms as fallback (docs/SPECS.md §Book III-A Ch 1).
@@ -507,10 +506,18 @@ where
                 let result = tokio::select! {
                     biased;
                     _ = tokio::time::sleep(tokio::time::Duration::from_millis(timeout_ms)) => {
+                        cancel.cancel();
                         ToolResultDTO {
                             tool_id: call.tool_id.clone(),
                             tool_name: call.tool_name.clone(),
                             outcome: ToolOutcome::TimeoutWithPartialData { partial_output: None },
+                        }
+                    }
+                    _ = cancel.cancelled() => {
+                        ToolResultDTO {
+                            tool_id: call.tool_id.clone(),
+                            tool_name: call.tool_name.clone(),
+                            outcome: ToolOutcome::SystemError("tool execution cancelled".into()),
                         }
                     }
                     r = tool_executor.execute(&call, cancel.clone()) => r,
@@ -534,7 +541,7 @@ where
         }
 
         shell
-            .send_input(EngineInput::ToolCallsResult {
+            .send_terminal_input(EngineInput::ToolCallsResult {
                 generation_id,
                 results,
             })

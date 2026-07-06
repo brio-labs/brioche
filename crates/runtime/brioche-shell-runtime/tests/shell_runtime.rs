@@ -14,17 +14,19 @@ use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
 use brioche_core::{
-    ActiveToolCall, AgentState, BriocheEngineBuilder, ChatMessage, EngineInput, Session,
+    ActiveToolCall, AgentState, BriocheEngineBuilder, ChatMessage, Effect, EngineInput,
+    ExtensionStorage, OnInput, PluginError, PluginResult, PolicyDecision, Session,
     SignalDrainOrder, SystemSignal, ToolResultDTO,
 };
 use brioche_governance_default::{LexicographicDecisionAggregator, SubRoutineCleanupGuard};
 use brioche_shell_runtime::{
     AsyncTaskResultAdapter, BackpressureRegulator, BriocheShell, DefaultEffectExecutor, DropPolicy,
     EchoToolExecutor, EngineWatchdog, EngineWatchdogHandle, GovernanceNotificationAdapter,
-    MockLlmClient, NoopPersistence, RecoveryProcedure, SessionCallback, ShellConfig,
-    SignalMultiplexer, SystemSignalAdapter, TelemetryChannel, TickEmitter, ToolExecutor,
-    UnifiedEventBus,
+    MockLlmClient, NoopPersistence, Persistence, RecoveryProcedure, SessionCallback, ShellConfig,
+    ShellError, SignalMultiplexer, SystemSignalAdapter, TelemetryChannel, TickEmitter,
+    ToolExecutor, UnifiedEventBus,
 };
+use tokio::sync::{Notify, oneshot};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -122,6 +124,75 @@ fn build_shell_with_recorder() -> (BriocheShell, Arc<std::sync::Mutex<Vec<Sessio
         Some(callback),
     );
     (shell, views)
+}
+
+struct SaveSessionOnInput;
+
+impl OnInput for SaveSessionOnInput {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = PluginError;
+    type PolicyDecision = PolicyDecision;
+
+    fn name(&self) -> &'static str {
+        "save_session_on_input"
+    }
+
+    fn priority(&self) -> i16 {
+        0
+    }
+
+    fn on_input(
+        &self,
+        input: &EngineInput,
+        _ext: &mut ExtensionStorage,
+    ) -> PluginResult<PolicyDecision> {
+        if matches!(input, EngineInput::UserMessage(_)) {
+            Ok(PolicyDecision::RequestEffect(Effect::SaveSession))
+        } else {
+            Ok(PolicyDecision::Allow)
+        }
+    }
+}
+
+#[derive(Clone)]
+struct BlockingSavePersistence {
+    started: Arc<std::sync::Mutex<Option<oneshot::Sender<()>>>>,
+    release: Arc<Notify>,
+}
+
+impl BlockingSavePersistence {
+    fn new(started: oneshot::Sender<()>) -> Self {
+        Self {
+            started: Arc::new(std::sync::Mutex::new(Some(started))),
+            release: Arc::new(Notify::new()),
+        }
+    }
+
+    fn release(&self) {
+        self.release.notify_waiters();
+    }
+}
+
+#[async_trait::async_trait]
+impl Persistence for BlockingSavePersistence {
+    async fn save_session(&self, _session_id: &str) -> Result<(), ShellError> {
+        if let Ok(mut guard) = self.started.lock()
+            && let Some(started) = guard.take()
+        {
+            let _ = started.send(());
+        }
+        self.release.notified().await;
+        Ok(())
+    }
+
+    async fn save_plugin_blob(&self, _plugin_id: &str, _data: Vec<u8>) -> Result<(), ShellError> {
+        Ok(())
+    }
+
+    async fn gc(&self, _session_id: &str) -> Result<u64, ShellError> {
+        Ok(0)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -489,16 +560,78 @@ async fn shell_graceful_shutdown() {
         "shell should be healthy before shutdown"
     );
 
-    shell.shutdown();
+    shell.shutdown().await;
 
-    // Shutdown is currently a no-op, so the shell should remain operational.
     assert!(
-        shell.ready().await.is_ok(),
-        "shell should still be ready after shutdown"
+        shell.ready().await.is_err(),
+        "shell should reject input readiness after shutdown"
     );
     assert!(
         shell.health_check(),
-        "shell should still be healthy after shutdown"
+        "shutdown should leave no unhealthy tracked task handles"
+    );
+}
+
+#[tokio::test]
+async fn shell_shutdown_awaits_in_flight_effect_tasks_and_rejects_later_inputs() {
+    let (started_tx, started_rx) = oneshot::channel();
+    let persistence = BlockingSavePersistence::new(started_tx);
+    let executor = DefaultEffectExecutor::new(
+        EchoToolExecutor,
+        MockLlmClient::default(),
+        persistence.clone(),
+    );
+    let shell = BriocheShell::new(
+        || {
+            let engine = BriocheEngineBuilder::new()
+                .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
+                .with_subroutine_lifecycle_guard(Box::new(SubRoutineCleanupGuard))
+                .with_on_input(Box::new(SaveSessionOnInput))
+                .build();
+            (engine, Session::new("shutdown-awaits-effects"))
+        },
+        ShellConfig::default(),
+        executor,
+        None,
+    );
+
+    assert!(
+        shell
+            .send_input(EngineInput::UserMessage("persist before shutdown".into()))
+            .await
+            .is_ok()
+    );
+    let save_started = tokio::time::timeout(Duration::from_millis(500), started_rx).await;
+    assert!(
+        matches!(save_started, Ok(Ok(()))),
+        "SaveSession effect should start before shutdown"
+    );
+
+    let shell_for_shutdown = shell.clone();
+    let mut shutdown = tokio::spawn(async move {
+        shell_for_shutdown.shutdown().await;
+    });
+
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), &mut shutdown)
+            .await
+            .is_err(),
+        "shutdown must wait for the shell-owned save task"
+    );
+
+    persistence.release();
+
+    let shutdown_result = tokio::time::timeout(Duration::from_millis(500), shutdown).await;
+    assert!(
+        matches!(shutdown_result, Ok(Ok(()))),
+        "shutdown should complete after the in-flight effect task completes"
+    );
+    assert!(
+        shell
+            .send_input(EngineInput::UserMessage("after shutdown".into()))
+            .await
+            .is_err(),
+        "shutdown should make the shell reject later inputs"
     );
 }
 

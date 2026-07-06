@@ -1334,13 +1334,25 @@ impl LlmClient for OpenAiLlmClient {
 
         let response = match self.send_request(shell, &body, &url).await {
             Ok(r) => r,
-            Err(_) => return Ok(()), // Error already surfaced to shell.
+            Err(_) => {
+                shell
+                    .send_input(EngineInput::LlmStream(StreamEvent::Done))
+                    .await?;
+                let _ = self.ui_tx.send(LlmChunk::Done);
+                return Ok(());
+            }
         };
 
         let stream = response.bytes_stream();
         let outcome = match self.read_sse_stream(shell, stream, turn).await {
             Ok(o) => o,
-            Err(_) => return Ok(()), // Error already surfaced to shell.
+            Err(_) => {
+                shell
+                    .send_input(EngineInput::LlmStream(StreamEvent::Done))
+                    .await?;
+                let _ = self.ui_tx.send(LlmChunk::Done);
+                return Ok(());
+            }
         };
 
         if outcome.finish_reason.as_deref() == Some("tool_calls")

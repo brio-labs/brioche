@@ -5,19 +5,21 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use brioche_core::{
     ActiveToolCall, AsyncTaskResult, ChatMessage, EngineInput, ErrorCode, ErrorDetail, StreamEvent,
-    SubRoutineHandle, ToolOutcome, UiWidget,
+    SubRoutineHandle, ToolOutcome, ToolResultDTO, UiWidget,
 };
 use brioche_shell_runtime::effect_executor::CpuTaskRegistry;
 use brioche_shell_runtime::{
     BriocheShell, DefaultEffectExecutor, EchoToolExecutor, EffectExecutor, MockLlmClient,
-    NoopPersistence, Persistence, PersistenceMode, ShellError,
+    NoopPersistence, Persistence, PersistenceMode, ShellError, ToolExecutor,
 };
 use bytes::Bytes;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
+use tokio_util::sync::CancellationToken;
 
 // ---------------------------------------------------------------------------
 // Local counting persistence
@@ -138,6 +140,125 @@ async fn effect_execute_tools_returns_tool_calls_result() -> Result<(), ShellErr
         ),
         "echo executor should return arguments as success"
     );
+    Ok(())
+}
+
+#[derive(Clone)]
+struct ShutdownAwareToolExecutor {
+    started: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    captured_token: Arc<Mutex<Option<CancellationToken>>>,
+}
+
+impl ShutdownAwareToolExecutor {
+    fn new(started: oneshot::Sender<()>) -> Self {
+        Self {
+            started: Arc::new(Mutex::new(Some(started))),
+            captured_token: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    fn captured_token(&self) -> Option<CancellationToken> {
+        match self.captured_token.lock() {
+            Ok(guard) => guard.clone(),
+            Err(_) => None,
+        }
+    }
+}
+
+#[async_trait]
+impl ToolExecutor for ShutdownAwareToolExecutor {
+    async fn execute(&self, call: &ActiveToolCall, cancel: CancellationToken) -> ToolResultDTO {
+        if let Ok(mut guard) = self.captured_token.lock() {
+            *guard = Some(cancel.clone());
+        }
+        if let Ok(mut guard) = self.started.lock()
+            && let Some(started) = guard.take()
+        {
+            let _ = started.send(());
+        }
+
+        cancel.cancelled().await;
+        ToolResultDTO {
+            tool_id: call.tool_id.clone(),
+            tool_name: call.tool_name.clone(),
+            outcome: ToolOutcome::SystemError("tool observed cancellation".into()),
+        }
+    }
+}
+
+#[tokio::test]
+async fn effect_execute_tools_emits_terminal_cancel_result_on_shutdown() -> Result<(), ShellError> {
+    let (input_tx, mut input_rx) = mpsc::channel(16);
+    let (async_tx, _async_rx) = mpsc::channel(1);
+    let shell = BriocheShell::test_with_loopback_channels(input_tx, async_tx);
+    let (started_tx, started_rx) = oneshot::channel();
+    let tool_executor = ShutdownAwareToolExecutor::new(started_tx);
+    let token_probe = tool_executor.clone();
+    let executor =
+        DefaultEffectExecutor::new(tool_executor, MockLlmClient::default(), NoopPersistence);
+    let calls = vec![ActiveToolCall {
+        tool_id: "tc-shutdown".into(),
+        tool_name: "blocking".into(),
+        arguments: "{}".into(),
+        timeout_ms: 5_000,
+    }];
+    let shell_for_execute = shell.clone();
+
+    let execute_handle =
+        tokio::spawn(async move { executor.execute_tools(calls, 64, &shell_for_execute).await });
+
+    tokio::time::timeout(Duration::from_millis(100), started_rx)
+        .await
+        .map_err(|_| ShellError::EffectExecution("tool did not start".into()))?
+        .map_err(|_| ShellError::EffectExecution("tool start signal dropped".into()))?;
+
+    shell.shutdown().await;
+
+    let execute_result = tokio::time::timeout(Duration::from_millis(250), execute_handle)
+        .await
+        .map_err(|_| ShellError::EffectExecution("execute_tools did not finish".into()))?;
+    match execute_result {
+        Ok(Ok(())) => {}
+        Ok(Err(err)) => return Err(err),
+        Err(err) => {
+            return Err(ShellError::EffectExecution(format!(
+                "execute_tools join failed: {err}"
+            )));
+        }
+    }
+
+    let result = tokio::time::timeout(Duration::from_millis(100), input_rx.recv())
+        .await
+        .map_err(|_| ShellError::EffectExecution("terminal ToolCallsResult missing".into()))?
+        .ok_or_else(|| ShellError::EffectExecution("engine input channel closed".into()))?;
+    let EngineInput::ToolCallsResult {
+        generation_id,
+        results,
+    } = result
+    else {
+        return Err(ShellError::EffectExecution(format!(
+            "expected ToolCallsResult, got {:?}",
+            result
+        )));
+    };
+
+    assert_eq!(generation_id, 64);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].tool_id, "tc-shutdown");
+    assert!(
+        matches!(
+            &results[0].outcome,
+            ToolOutcome::SystemError(message) if message.contains("cancelled")
+        ),
+        "shutdown should return a terminal cancellation outcome"
+    );
+    assert!(
+        token_probe
+            .captured_token()
+            .is_some_and(|token| token.is_cancelled()),
+        "shell shutdown should cancel the token passed into the tool"
+    );
+
     Ok(())
 }
 
