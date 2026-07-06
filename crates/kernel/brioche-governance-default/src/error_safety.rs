@@ -217,7 +217,12 @@ impl BriochePlugin for RecoveryPolicy {
         input: &EngineInput,
         ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
-        let snapshot = ext.get_or_insert_default::<SessionSnapshot>();
+        let Some(snapshot) = ext.get::<SessionSnapshot>() else {
+            return Err(PluginError::Fatal {
+                plugin_name: self.name().into(),
+                message: "missing SessionSnapshot".into(),
+            });
+        };
         let is_failure = snapshot.current_state == AgentStateTag::Failure;
         let was_failure = {
             let state = ext.get_or_insert_default::<RecoveryState>();

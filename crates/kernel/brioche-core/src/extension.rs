@@ -362,6 +362,23 @@ impl ExtensionStorage {
         }
     }
 
+    /// Get a read-only reference to a typed extension.
+    ///
+    /// Complexity: O(log n). One `BTreeMap` lookup plus `downcast_ref`.
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Core-ExtO1
+    pub fn get<T>(&self) -> Option<&T>
+    where
+        T: BriocheExtensionType + 'static,
+    {
+        let type_id = TypeId::of::<T>();
+        self.hot_map
+            .get(&type_id)
+            .and_then(|any| any.downcast_ref::<T>())
+    }
+
     /// Get a mutable reference to a typed extension, if present.
     ///
     /// Complexity: O(log n). One `BTreeMap` lookup plus `downcast_mut`.
