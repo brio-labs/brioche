@@ -110,7 +110,7 @@ pub struct SessionHeadDTO {
     /// Extension cold snapshots: `ext_id` -> binary blob.
     pub extensions: BTreeMap<String, Vec<u8>>,
     /// Number of messages already persisted (delta protocol watermark).
-    pub persisted_msg_count: usize,
+    pub persisted_msg_count: u64,
     /// Opportunistic GC watermark (Sprint 13).
     pub compaction_index: u32,
     /// CRC32 checksum of the serialized DTO (excluding this field).

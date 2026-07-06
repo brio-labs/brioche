@@ -294,10 +294,14 @@ mod extension {
         bencher
             .with_inputs(|| {
                 let mut storage = ExtensionStorage::new();
-                storage.insert(BenchState {
-                    value: 42,
-                    map: BTreeMap::new(),
-                });
+                assert!(
+                    storage
+                        .insert(BenchState {
+                            value: 42,
+                            map: BTreeMap::new(),
+                        })
+                        .is_ok()
+                );
                 storage
             })
             .bench_local_refs(|storage| {
@@ -316,10 +320,14 @@ mod extension {
         bencher
             .with_inputs(|| {
                 let mut storage = ExtensionStorage::new();
-                storage.insert(BenchState {
-                    value: 42,
-                    map: BTreeMap::new(),
-                });
+                assert!(
+                    storage
+                        .insert(BenchState {
+                            value: 42,
+                            map: BTreeMap::new(),
+                        })
+                        .is_ok()
+                );
                 storage
             })
             .bench_local_refs(|storage| {
@@ -338,10 +346,14 @@ mod extension {
         bencher
             .with_inputs(|| {
                 let mut storage = ExtensionStorage::new();
-                storage.insert(BenchState {
-                    value: 42,
-                    map: BTreeMap::new(),
-                });
+                assert!(
+                    storage
+                        .insert(BenchState {
+                            value: 42,
+                            map: BTreeMap::new(),
+                        })
+                        .is_ok()
+                );
                 storage.evict_from_hot::<BenchState>();
                 storage
             })
@@ -368,7 +380,7 @@ mod extension {
         bencher
             .with_inputs(ExtensionStorage::new)
             .bench_local_refs(|storage| {
-                storage.insert(state.clone());
+                assert!(storage.insert(state.clone()).is_ok());
             });
     }
     /// Benchmark: `extension_insert_no_snapshot` — skip cold serialization.
@@ -388,7 +400,7 @@ mod extension {
         bencher
             .with_inputs(ExtensionStorage::new)
             .bench_local_refs(|storage| {
-                storage.insert(state.clone());
+                assert!(storage.insert(state.clone()).is_ok());
             });
     }
 
@@ -444,9 +456,12 @@ mod governance {
             .with_inputs(|| {
                 let guard = AdaptiveUndoFrameGuard::new();
                 let mut ext = ExtensionStorage::new();
-                ext.insert(brioche_core::EpochState {
-                    current_generation: 42,
-                });
+                assert!(
+                    ext.insert(brioche_core::EpochState {
+                        current_generation: 42,
+                    })
+                    .is_ok()
+                );
                 (guard, ext)
             })
             .bench_local_refs(|(guard, ext)| {
@@ -477,9 +492,12 @@ mod governance {
             .with_inputs(|| {
                 let guard = TieredUndoFrameGuard::new();
                 let mut ext = ExtensionStorage::new();
-                ext.insert(brioche_core::EpochState {
-                    current_generation: 7,
-                });
+                assert!(
+                    ext.insert(brioche_core::EpochState {
+                        current_generation: 7,
+                    })
+                    .is_ok()
+                );
                 (guard, ext)
             })
             .bench_local_refs(|(guard, ext)| {

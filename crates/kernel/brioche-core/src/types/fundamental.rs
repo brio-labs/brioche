@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::BriocheExtensionType;
+
 // ---------------------------------------------------------------------------
 // Sub-routine handle
 // ---------------------------------------------------------------------------
@@ -12,7 +14,10 @@ use serde::{Deserialize, Serialize};
 /// Opaque handle identifying a sub-routine session in the `SessionRegistry`.
 ///
 /// `SubRoutineHandle` is `Ord` so it can be used as a `BTreeMap` key,
-/// guaranteeing deterministic ordering.
+/// Handle for a running sub-routine.
+///
+/// ## Snapshot strategy
+/// COW: full clone. Lightweight newtype wrapping a single `String` (~24 bytes).
 ///
 /// Refs: I-Core-PluginOrder
 ///
@@ -21,7 +26,19 @@ use serde::{Deserialize, Serialize};
 /// O(1). No heap allocation.
 /// # Panics
 /// Never panics.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    BriocheExtensionType,
+)]
 pub struct SubRoutineHandle(String);
 
 impl SubRoutineHandle {
@@ -56,7 +73,7 @@ impl SubRoutineHandle {
 /// Never panics.
 ///
 /// Refs: I-Core-PluginOrder
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 pub struct PluginSource(pub String);
 
 impl PluginSource {
@@ -92,7 +109,7 @@ impl From<String> for PluginSource {
 /// Never panics.
 ///
 /// Refs: I-Core-RetVecEffect
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 pub struct TaskId(pub String);
 
 impl From<&str> for TaskId {
@@ -121,7 +138,9 @@ impl From<String> for TaskId {
 /// O(1). No heap allocation.
 /// # Panics
 /// Never panics.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, thiserror::Error, BriocheExtensionType,
+)]
 #[non_exhaustive]
 pub enum PluginError {
     #[error("soft error in plugin {plugin_name}: {message}")]
@@ -140,6 +159,15 @@ pub enum PluginError {
         /// Human-readable error message.
         message: String,
     },
+}
+
+impl Default for PluginError {
+    fn default() -> Self {
+        Self::Soft {
+            plugin_name: String::new(),
+            message: String::new(),
+        }
+    }
 }
 
 /// System error — internal monolith failure.
@@ -162,9 +190,9 @@ pub enum BriocheError {
         /// Which operation failed.
         operation: crate::types::effect::HistoryOperation,
         /// The index that was out of bounds.
-        index: usize,
+        index: u64,
         /// Current history length.
-        len: usize,
+        len: u64,
     },
     #[error("storage access failed: {0}")]
     /// ExtensionStorage lookup or mutation failed.

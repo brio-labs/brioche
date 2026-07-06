@@ -72,11 +72,11 @@ impl Default for DepthGuard {
 ///
 /// Refs: I-Gov-TraitAtomic
 /// Refs: I-Comp-Pure-Logic
-pub fn calculate_depth(stack_depth: usize, current_state: AgentStateTag) -> u64 {
+pub fn calculate_depth(stack_depth: u64, current_state: AgentStateTag) -> u64 {
     if current_state == AgentStateTag::SubRoutine {
-        stack_depth as u64 + 1
+        stack_depth + 1
     } else {
-        stack_depth as u64
+        stack_depth
     }
 }
 

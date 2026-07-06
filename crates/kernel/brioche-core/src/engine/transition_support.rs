@@ -273,7 +273,9 @@ impl BriocheEngine {
             pos,
             Effect::Error {
                 code: ErrorCode::StateInconsistency,
-                detail: ErrorDetail::EffectsDroppedAfterRebuildRoutes { count: dropped },
+                detail: ErrorDetail::EffectsDroppedAfterRebuildRoutes {
+                    count: dropped as u64,
+                },
             },
         );
         effects.truncate(pos + 2);

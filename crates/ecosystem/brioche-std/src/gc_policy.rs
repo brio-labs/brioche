@@ -154,7 +154,7 @@ impl BriochePlugin for GcPolicy {
 )]
 pub struct ContextOptimizerState {
     /// Maximum desired messages before summarization.
-    pub max_messages: usize,
+    pub max_messages: u64,
     /// Threshold percentage (0–100) at which to trigger summarization.
     pub threshold_percent: u8,
     /// Number of times summarization has been triggered.
@@ -168,7 +168,7 @@ pub struct ContextOptimizerState {
 ///
 /// Refs: I-Eco-ExtensionOverMod
 pub struct ContextOptimizer {
-    max_messages: usize,
+    max_messages: u64,
     threshold_percent: u8,
 }
 
@@ -176,7 +176,7 @@ impl ContextOptimizer {
     /// Creates an optimizer with a message limit and threshold.
     ///
     /// Refs: I-Eco-ExtensionOverMod
-    pub fn with_threshold(max_messages: usize, threshold_percent: u8) -> Self {
+    pub fn with_threshold(max_messages: u64, threshold_percent: u8) -> Self {
         Self {
             max_messages,
             threshold_percent: threshold_percent.min(100),
@@ -226,7 +226,7 @@ impl BriochePlugin for ContextOptimizer {
         }) {
             let (summary, watermark) = result;
             let watermark = (watermark as usize).min(history.len());
-            let keep_last = history.len() - watermark;
+            let keep_last = (history.len() - watermark) as u64;
             return Ok(PolicyDecision::MutateHistory(vec![
                 HistoryEdit::Truncate { keep_last },
                 HistoryEdit::Insert {
@@ -236,8 +236,8 @@ impl BriochePlugin for ContextOptimizer {
             ]));
         }
 
-        let threshold = (self.max_messages * self.threshold_percent as usize) / 100;
-        if threshold > 0 && history.len() >= threshold {
+        let threshold = (self.max_messages * self.threshold_percent as u64) / 100;
+        if threshold > 0 && history.len() >= threshold as usize {
             let state = ext.get_or_insert_default::<ContextOptimizerState>();
             state.summarizations_triggered += 1;
             return Ok(PolicyDecision::RequestEffect(Effect::TriggerSummarization));

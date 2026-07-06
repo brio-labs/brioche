@@ -62,7 +62,7 @@ pub enum AgentState {
 /// O(1) for construction and field/variant access.
 /// # Panics
 /// Never panics.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 #[non_exhaustive]
 pub enum ChatMessage {
     /// System prompt or instruction. Fixed at session start.
@@ -96,6 +96,7 @@ pub enum ChatMessage {
         ///
         /// Refs: I-Shell-Runtime-OnlyIO
         #[serde(default)]
+        #[brioche(deterministic_order)]
         tool_calls: Vec<ToolCallDescriptor>,
     },
     /// Tool call requested by the assistant.
@@ -114,6 +115,14 @@ pub enum ChatMessage {
         /// Message text content.
         content: String,
     },
+}
+
+impl Default for ChatMessage {
+    fn default() -> Self {
+        Self::System {
+            content: String::new(),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -146,7 +155,7 @@ pub struct Session {
     /// Chronological message history (user, assistant, tool results).
     pub history: Vec<ChatMessage>,
     /// Disk synchronization index for the Delta protocol (Redb).
-    pub persisted_msg_count: usize,
+    pub persisted_msg_count: u64,
     /// Current mechanical state of the hierarchical automaton.
     pub state: AgentState,
     /// Stack of previous states, restored on `pop_state()`.
@@ -277,7 +286,7 @@ impl Session {
     pub fn snapshot(&self) -> SessionSnapshot {
         SessionSnapshot {
             current_state: AgentStateTag::from(&self.state),
-            state_stack_depth: self.state_stack.len(),
+            state_stack_depth: self.state_stack.len() as u64,
         }
     }
 
@@ -320,30 +329,32 @@ impl Session {
         for edit in edits {
             match edit {
                 HistoryEdit::Insert { index, message } => {
-                    if *index > self.history.len() {
+                    let idx = *index as usize;
+                    if idx > self.history.len() {
                         return Err(BriocheError::HistoryIndexOutOfBounds {
                             operation: HistoryOperation::Insert,
-                            index: *index,
-                            len: self.history.len(),
+                            index: idx as u64,
+                            len: self.history.len() as u64,
                         });
                     }
-                    self.history.insert(*index, message.clone());
+                    self.history.insert(idx, message.clone());
                 }
                 HistoryEdit::Replace { index, message } => {
-                    if *index >= self.history.len() {
+                    let idx = *index as usize;
+                    if idx >= self.history.len() {
                         return Err(BriocheError::HistoryIndexOutOfBounds {
                             operation: HistoryOperation::Replace,
-                            index: *index,
-                            len: self.history.len(),
+                            index: idx as u64,
+                            len: self.history.len() as u64,
                         });
                     }
                     // Invariant: index validated above.
-                    if let Some(slot) = self.history.get_mut(*index) {
+                    if let Some(slot) = self.history.get_mut(idx) {
                         *slot = message.clone();
                     }
                 }
                 HistoryEdit::Truncate { keep_last } => {
-                    let keep = (*keep_last).min(self.history.len());
+                    let keep = ((*keep_last) as usize).min(self.history.len());
                     let drain_count = self.history.len() - keep;
                     self.history.drain(..drain_count);
                 }
@@ -498,7 +509,9 @@ impl Default for SessionRegistry {
 /// # Panics
 /// Never panics.
 /// Refs: I-Core-AgentState
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType,
+)]
 pub enum AgentStateTag {
     #[default]
     /// No active prediction or tool execution.
@@ -564,5 +577,5 @@ pub struct SessionSnapshot {
     /// Mechanical state tag (no internal data exposed to plugins).
     pub current_state: AgentStateTag,
     /// Depth of the state stack (used by depth guards).
-    pub state_stack_depth: usize,
+    pub state_stack_depth: u64,
 }

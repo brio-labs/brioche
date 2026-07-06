@@ -158,7 +158,8 @@ pub struct StreamToolAccumulator {
 /// # Panics
 /// Never panics.
 /// Refs: docs/SPECS.md §1.4, I-Shell-Network-Signal
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
+#[non_exhaustive]
 pub enum SystemSignal {
     /// Transport failure detected by the shell.
     NetworkUnavailable {
@@ -166,6 +167,7 @@ pub enum SystemSignal {
         reason: String,
     },
     /// User requested cancellation of the current operation.
+    #[default]
     OperationCancelled,
     /// Periodic heartbeat for timeout monitoring.
     Tick {
@@ -188,7 +190,7 @@ pub enum SystemSignal {
 /// # Panics
 /// Never panics.
 /// Refs: docs/SPECS.md §1.4
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 pub enum AsyncTaskResult {
     /// Background summarization completed.
     SummarizationDone {
@@ -202,6 +204,7 @@ pub enum AsyncTaskResult {
         /// Identifier matching the original `Effect::ExecuteCpuTask`.
         task_id: String,
         /// Serialized output of the CPU task.
+        #[brioche(deterministic_order)]
         result: Vec<u8>,
     },
     /// Status update for a pending tool task.
@@ -213,6 +216,15 @@ pub enum AsyncTaskResult {
     },
 }
 
+impl Default for AsyncTaskResult {
+    fn default() -> Self {
+        Self::CpuTaskDone {
+            task_id: String::new(),
+            result: Vec::new(),
+        }
+    }
+}
+
 /// Status of a pending tool task.
 ///
 /// # Complexity
@@ -220,9 +232,11 @@ pub enum AsyncTaskResult {
 /// # Panics
 /// Never panics.
 /// Refs: docs/SPECS.md §1.4
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
+#[non_exhaustive]
 pub enum ToolStatus {
     /// Tool is still executing.
+    #[default]
     Running,
     /// Tool finished (success or failure in `ToolOutcome`).
     Completed(ToolOutcome),
@@ -238,7 +252,7 @@ pub enum ToolStatus {
 /// # Panics
 /// Never panics.
 /// Refs: docs/SPECS.md §1.4
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 pub enum GovernanceNotification {
     /// A plugin emitted a fatal error. The shell notifies governance
     /// so that `QuarantineManager` can decide on follow-up.
@@ -248,6 +262,15 @@ pub enum GovernanceNotification {
         /// The fatal error that triggered this notification.
         error: PluginError,
     },
+}
+
+impl Default for GovernanceNotification {
+    fn default() -> Self {
+        Self::PluginFaulted {
+            plugin_name: String::new(),
+            error: PluginError::default(),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

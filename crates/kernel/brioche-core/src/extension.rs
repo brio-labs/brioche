@@ -10,7 +10,7 @@
 use std::any::{Any, TypeId};
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::CycleRollbackPolicy;
+use crate::{BriocheError, CycleRollbackPolicy};
 
 /// Snapshot strategy for COW rollback.
 ///
@@ -38,12 +38,15 @@ pub enum SnapshotStrategy {
 /// # Complexity
 /// O(serialization cost). Deterministic for `BriocheExtensionType`s.
 ///
+/// # Errors
+/// Returns `Err` if the instance cannot be serialized. Persisting an
+/// empty blob on failure is forbidden; callers must surface the error.
+///
 /// # Panics
-/// Never panics. Implementations must return an empty blob or map
-/// errors rather than panic.
+/// Never panics. Implementations must return `Err` rather than panic.
 ///
 /// Refs: I-Core-VTableClone
-pub type SerializeFn = fn(&dyn Any) -> Vec<u8>;
+pub type SerializeFn = fn(&dyn Any) -> Result<Vec<u8>, String>;
 
 /// Deserialize a binary blob into a type-erased instance.
 ///
@@ -325,11 +328,15 @@ impl ExtensionStorage {
     ///
     /// Complexity: O(serialization cost) for snapshot types; O(log n) for
     /// `NoSnapshot` types. Two `BTreeMap` insertions in the worst case.
+    /// # Errors
+    /// Returns `BriocheError::Serialization` if the value cannot be
+    /// serialized to the cold snapshot. On error, `hot_map` is not
+    /// updated, preserving the previous persisted state.
     /// # Panics
     /// Never panics.
     ///
     /// Refs: I-Core-Pure
-    pub fn insert<T>(&mut self, value: T)
+    pub fn insert<T>(&mut self, value: T) -> Result<(), BriocheError>
     where
         T: BriocheExtensionType + 'static,
     {
@@ -339,13 +346,20 @@ impl ExtensionStorage {
         }
         if let Some(vtable) = self.registry.get(&type_id) {
             if vtable.snapshot_strategy != SnapshotStrategy::NoSnapshot {
-                let blob = (vtable.serialize)(&value);
+                let blob = (vtable.serialize)(&value).map_err(BriocheError::Serialization)?;
                 self.cold_snapshot.insert(vtable.ext_id.to_string(), blob);
             }
             self.hot_map.insert(type_id, Box::new(value));
+            Ok(())
+        } else {
+            // Defensive: vtable should have been registered just above.
+            // If it is missing, report a storage access error rather than
+            // silently dropping the value.
+            Err(BriocheError::StorageAccess(format!(
+                "missing vtable for {}",
+                T::EXT_ID
+            )))
         }
-        // Defensive: if vtable is missing, value is silently dropped.
-        // This should never happen because register was called above.
     }
 
     /// Get a mutable reference to a typed extension, if present.

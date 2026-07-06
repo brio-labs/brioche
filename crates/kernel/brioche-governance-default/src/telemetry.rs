@@ -186,7 +186,7 @@ impl BriochePlugin for TelemetryPlugin {
             if event.was_rollback {
                 if event.budget_exceeded {
                     state.abandoned_count += 1;
-                    state.abandoned_weight_total += event.frame_weight as u64;
+                    state.abandoned_weight_total += event.frame_weight;
                 } else {
                     state.restored_count += 1;
                 }
