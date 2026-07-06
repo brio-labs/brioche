@@ -24,6 +24,10 @@ use brioche_core::{
 pub struct LexicographicDecisionAggregator;
 
 impl DecisionAggregator for LexicographicDecisionAggregator {
+    type PolicyDecision = PolicyDecision;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+
     fn aggregate_decisions(
         &self,
         decisions: Vec<PolicyDecision>,

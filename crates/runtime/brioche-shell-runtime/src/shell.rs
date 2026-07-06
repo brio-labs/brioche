@@ -609,7 +609,7 @@ fn engine_thread_loop(
     mut session: Session,
     mut input_rx: mpsc::Receiver<EngineInput>,
     output_tx: mpsc::Sender<(Vec<Effect>, StateSnapshot)>,
-    signal_drain: impl SignalDrainOrder,
+    signal_drain: impl SignalDrainOrder<SignalDrainBatch = brioche_core::SignalDrainBatch>,
     mut watchdog_handle: EngineWatchdogHandle,
     pending_inputs_counter: Arc<AtomicU64>,
     mut rebuild_rx: mpsc::Receiver<RebuildCommand>,

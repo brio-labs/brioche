@@ -29,9 +29,15 @@ pub use extension::{
     ExtensionStorage, SerializeFn, SnapshotStrategy, WeightFn,
 };
 pub use plugin::{
-    BriochePlugin, ConsistencyVerifier, CowBudgetPolicy, CycleRollbackPolicy, DecisionAggregator,
-    EpochInterceptor, GovernanceFailoverHandler, HookEffectConstraint, PluginCapabilities,
-    SignalDrainOrder, SubRoutineHandler, SubRoutineHydrator, SubRoutineLifecycleGuard,
+    AfterPrediction, AfterPredictionPlugin, BeforePrediction, BeforePredictionPlugin,
+    ConsistencyVerifier, ConsistencyVerifierPlugin, CowBudgetPolicy, CowBudgetPolicyPlugin,
+    CycleRollbackPolicy, CycleRollbackPolicyPlugin, DecisionAggregator, DecisionAggregatorPlugin,
+    EpochInterceptor, EpochInterceptorPlugin, GovernanceFailoverHandler,
+    GovernanceFailoverHandlerPlugin, HookEffectConstraint, OnError, OnErrorPlugin, OnInput,
+    OnInputPlugin, OnStreamEvent, OnStreamEventPlugin, OnToolCalls, OnToolCallsPlugin,
+    OnToolResult, OnToolResultPlugin, PluginPersistence, SignalDrainOrder, SignalDrainOrderPlugin,
+    SubRoutineHandler, SubRoutineHandlerPlugin, SubRoutineHydrator, SubRoutineHydratorPlugin,
+    SubRoutineLifecycleGuard, SubRoutineLifecycleGuardPlugin,
 };
 // Re-export dependencies so that proc-macro generated code and users
 // can reference them through brioche_core without adding them to

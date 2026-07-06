@@ -158,7 +158,7 @@ Brioche is a secure monolithic SDK for language model orchestration. It resolves
 
 * **Extension over Modification:** Policy complexity (safeguards, quarantine, failure recovery, depth limits, timeout bounds, volume management, cycle budget, cycle rollback, hook effect constraint, sub-routine timeout, sub-routine lifecycle) never modifies simple mechanical components. It is added through composition of new plugins or extension crates that register onto the hooks, events, or public interfaces of the simple component. In particular, no policy state (quarantine, degradation) may appear in the fundamental `AgentState` enum; any degradation is materialized by a governance plugin that forces the automaton toward a proper mechanical state (typically `Idle`) via `OverrideTransition`.
 
-* **Materialized governance hierarchy:** Fundamental governance plugins (`EpochInterceptor`, `SubRoutineHandler`, `ConsistencyVerifier`, `DecisionAggregator`, `HookEffectConstraint`, `CycleRollbackPolicy`, `SubRoutineLifecycleGuard`) are dedicated traits, called sequentially by the kernel outside the generic pre-routing system. This separation materializes governance semantic layers without modifying the `BriochePlugin` interface or injecting magic priorities into routing vectors.
+* **Materialized governance hierarchy:** Fundamental governance plugins (`EpochInterceptor`, `SubRoutineHandler`, `ConsistencyVerifier`, `DecisionAggregator`, `HookEffectConstraint`, `CycleRollbackPolicy`, `SubRoutineLifecycleGuard`) are dedicated traits, called sequentially by the kernel outside the generic pre-routing system. Atomic hook traits (`OnInput`, `BeforePrediction`, `OnStreamEvent`, `AfterPrediction`, `OnToolCalls`, `OnToolResult`, `OnError`) are routed through capability-specific vectors, so no taxonomy trait or magic priorities are required.
 
 * **Strict determinism:** Two kernel executions from the same initial state and same event sequence produce the same effect sequence and the same final state. Plugin evaluation order is guaranteed by a declared total order (`priority` + `name`). No source of randomness is tolerated in effects emitted by the core. Plugin state types and data structures passing through hooks use ordered collections (`BTreeMap`, `BTreeSet`, `IndexMap`). Persisted `Vec`s must be fed deterministically (insertion controlled by hooks, not by unordered async results). The use of `HashMap` or `HashSet` in persisted states or hooks is prohibited by the SDK. This prohibition is mechanized by a derived proc-macro `BriocheExtensionType` that raises a compilation error if a persisted field contains these types. Plugins may use `HashMap` in purely transient and non-persisted caches (internal memory not exposed via `ExtensionStorage`).
 
@@ -265,7 +265,7 @@ A transition can never panic. Any invalid behavior produces a transition to an i
 
 **O(1) index pre-routing:**
 
-The `on_stream_event` hook runs on the engine's synchronous thread. Plugins declare their needs via a bitmask (`PluginCapabilities`). At initialization, the engine pre-routes them into a `UnifiedRoutingTable`. The streaming loop contains no conditional branching for mask verification and filters subscribers in constant time. Routes can be recalculated dynamically on demand (`RebuildRoutes`) without restarting the engine.
+The `on_stream_event` hook runs on the engine's synchronous thread. Plugins expose atomic capability traits, and initialization stores each capability in its own vector before building a `UnifiedRoutingTable`. The streaming loop contains no conditional branching for capability checks and filters subscribers in constant time. Routes can be recalculated dynamically on demand (`RebuildRoutes`) without restarting the engine.
 
 <br>
 
@@ -295,7 +295,7 @@ The kernel exposes an optional governance trait `CycleRollbackPolicy`. Before ea
 
 **Hook effect constraint (`HookEffectConstraint` trait):**
 
-The kernel exposes a governance trait `HookEffectConstraint` called after decision aggregation and before effect execution. This trait returns, for each hook, the set of allowed `Effect`s in response to a `PolicyDecision::RequestEffect`. The `HookEffectConstraint` trait offers a fast bitmask validation interface (`is_allowed_fast`) for the hot path: a `u64` mask per indexed hook, enabling O(1) validation by lookup. A fallback by name (`is_allowed_fallback`) is available for non-standard effects or future extensions. If a plugin requires an effect not allowed on a given hook, the kernel replaces the required effect with `Effect::Error { code: StateInconsistency, message: "Effect not allowed on this hook" }`. This governance extension closes the Mechanism/Policy separation gap without modifying the `PolicyDecision` enum or the `BriochePlugin` interface. The fundamental mechanism remains simple; the constraint is an injected policy.
+The kernel exposes a governance trait `HookEffectConstraint` called after decision aggregation and before effect execution. This trait returns, for each hook, the set of allowed `Effect`s in response to a `PolicyDecision::RequestEffect`. The `HookEffectConstraint` trait offers a fast bitmask validation interface (`is_allowed_fast`) for the hot path: a `u64` mask per indexed hook, enabling O(1) validation by lookup. A fallback by name (`is_allowed_fallback`) is available for non-standard effects or future extensions. If a plugin requires an effect not allowed on a given hook, the kernel replaces the required effect with `Effect::Error { code: StateInconsistency, message: "Effect not allowed on this hook" }`. This governance extension closes the Mechanism/Policy separation gap without modifying the `PolicyDecision` enum or atomic hook interfaces. The fundamental mechanism remains simple; the constraint is an injected policy.
 
 <br>
 
@@ -990,57 +990,54 @@ pub enum EffectBit {
 
 ---
 
-## Chapter 4: Plugin interface
+## Chapter 4: Plugin interfaces
 
 ---
 
-### 4.1 Capabilities and routing
+### 4.1 Atomic capabilities and routing
 
 ```rust
-pub trait BriochePlugin: Send + Sync {
+pub trait PluginPersistence: Send + Sync {
+    /// Reserved keys in ExtensionStorage. Format: "plugin_name::state_name"
+    fn owned_state_keys(&self) -> &'static [&'static str] { &[] }
+
+    /// Serializes the default state into a binary blob for resilient storage.
+    fn default_state_blob(&self) -> Vec<u8> { vec![] }
+
+    /// Attempts to deserialize a blob.
+    fn deserialize_state(&self, raw: &[u8]) -> Result<Box<dyn Any + Send + Sync>, String> {
+        Err("not implemented".into())
+    }
+}
+
+pub trait OnInput: Send + Sync {
     fn name(&self) -> &'static str;
-    fn capabilities(&self) -> PluginCapabilities;
 
     /// Deterministic evaluation order. Low priority = evaluated first.
     fn priority(&self) -> i16 { 0 }
 
-    /// Reserved keys in ExtensionStorage. Format: "plugin_name::state_name"
-    fn owned_state_keys(&self) -> &'static [&'static str] { &[] }
-
-    /// Serializes the default state into binary blob for resilient storage.
-    fn default_state_blob(&self) -> Vec<u8> { vec![] }
-
-    /// Attempts to deserialize a blob. On failure, the engine calls default_state_blob.
-    fn deserialize_state(&self, raw: &[u8]) -> Result<Box<dyn BriocheExtension>, String> {
-        Err("Not implemented".into())
-    }
-
     /// Input interceptor hook. Allows a governance plugin to entirely replace
     /// the standard dispatch (OverrideTransition) without modifying the kernel.
-    fn on_input(&self, _input: &EngineInput, _ext: &mut ExtensionStorage)
-        -> PluginResult<PolicyDecision> { Ok(PolicyDecision::Allow) }
-
-    fn before_prediction(&self, _history: &[ChatMessage], _ext: &mut ExtensionStorage)
-        -> PluginResult<PolicyDecision> { Ok(PolicyDecision::Allow) }
-
-    fn on_stream_event(&self, _event: &StreamEvent, _ext: &mut ExtensionStorage)
-        -> PluginResult<StreamAction> { Ok(StreamAction::Pass) }
-
-    fn after_prediction(&self, _ext: &mut ExtensionStorage)
-        -> PluginResult<()> { Ok(()) }
-
-    /// Hook called before emission of the ExecuteTools effect.
-    fn on_tool_calls(&self, _calls: &mut Vec<ToolCallDescriptor>, _ext: &mut ExtensionStorage)
-        -> PluginResult<()> { Ok(()) }
-
-    /// Hook called before persistence of tool results in history.
-    fn on_tool_result(&self, _results: &mut Vec<ToolResultDTO>, _ext: &mut ExtensionStorage)
-        -> PluginResult<()> { Ok(()) }
-
-    /// Hook called by the core when a plugin error is intercepted.
-    fn on_error(&self, _error: &PluginError, _ext: &mut ExtensionStorage)
-        -> PluginResult<PolicyDecision> { Ok(PolicyDecision::Allow) }
+    fn on_input(&self, input: &EngineInput, ext: &mut ExtensionStorage)
+        -> PluginResult<PolicyDecision>;
 }
+
+pub trait BeforePrediction: Send + Sync {
+    fn name(&self) -> &'static str;
+    fn priority(&self) -> i16 { 0 }
+    fn before_prediction(&self, history: &[ChatMessage], ext: &mut ExtensionStorage)
+        -> PluginResult<PolicyDecision>;
+}
+
+pub trait OnStreamEvent: Send + Sync {
+    fn name(&self) -> &'static str;
+    fn priority(&self) -> i16 { 0 }
+    fn on_stream_event(&self, event: &StreamEvent, ext: &mut ExtensionStorage)
+        -> PluginResult<StreamAction>;
+}
+
+// AfterPrediction, OnToolCalls, OnToolResult, and OnError follow the same
+// capability shape: name, priority, and exactly one lifecycle hook.
 ```
 
 <br>
@@ -1267,7 +1264,7 @@ If a `CycleRollbackPolicy` is injected, call `commit_hook(ext)` if the budget is
 
 ### 5.3 Path of an input through the engine
 
-The kernel maintains a `UnifiedRoutingTable` that unifies addressing of fundamental traits (fixed sequential call) and pre-routed hooks (dynamic routing by capabilities). This table is internal to the kernel; public interfaces (`BriochePlugin`, governance traits) are not modified.
+The kernel maintains a `UnifiedRoutingTable` for pre-routed hooks. Fundamental governance traits have fixed sequential call sites; hook traits are stored in capability-specific vectors. This table is internal to the kernel; public interfaces stay atomic and composable.
 
 For a `UserMessage`, the complete path is:
 
@@ -1405,7 +1402,7 @@ Policy complexity (quarantine, recovery, safeguards, timeout, volume, epoch, sta
 
 ### 1.3 Materialized governance hierarchy
 
-Fundamental governance plugins are dedicated traits, called sequentially by the kernel outside the generic pre-routing system. This separation materializes semantic layers without modifying the `BriochePlugin` interface.
+Fundamental governance plugins are dedicated traits, called sequentially by the kernel outside the generic pre-routing system. Hook plugins implement atomic capability traits, so no taxonomy interface is modified to add lifecycle hooks.
 
 <br>
 
@@ -2716,15 +2713,14 @@ pub struct HistoricalCowState {
 
 ```rust
 pub struct BriocheEngine {
-    plugins: Vec<Box<dyn BriochePlugin>>,
-    // Fundamental governance traits - fixed order, outside routing
-    epoch_guard: Box<dyn EpochInterceptor>,
-    subroutine_handler: Box<dyn SubRoutineHandler>,
-    consistency_verifier: Box<dyn ConsistencyVerifier>,
+    router: PluginRouter,
+    // Fundamental governance traits - fixed order, outside hook routing
+    epoch_interceptors: Vec<Box<dyn EpochInterceptor>>,
+    subroutine_handler: Option<Box<dyn SubRoutineHandler>>,
+    consistency_verifier: Option<Box<dyn ConsistencyVerifier>>,
     subroutine_lifecycle_guard: Box<dyn SubRoutineLifecycleGuard>,
     // Governance trait for decision aggregation (mandatory, no fallback)
     decision_aggregator: Box<dyn DecisionAggregator>,
-    // Governance trait for cycle budget (optional)
     // Governance trait for per-hook effect constraint (optional)
     hook_effect_constraint: Option<Box<dyn HookEffectConstraint>>,
     // Governance trait for granular COW rollback (optional)
@@ -2737,17 +2733,6 @@ pub struct BriocheEngine {
     session_registry: SessionRegistry,
     // Default mechanical timeout if a policy plugin omits bounding a tool
     default_tool_timeout_ms: u64,
-    // Unified routing table (fundamental traits + pre-routed hooks)
-    routing_table: UnifiedRoutingTable,
-    // Standard routes for ordinary plugins (derived from routing_table)
-    route_on_input: Vec<usize>,
-    route_before_prediction: Vec<usize>,
-    route_on_text_stream: Vec<usize>,
-    route_on_tool_stream: Vec<usize>,
-    route_after_prediction: Vec<usize>,
-    route_on_error: Vec<usize>,
-    route_on_tool_calls: Vec<usize>,
-    route_on_tool_result: Vec<usize>,
 }
 ```
 
@@ -2758,10 +2743,9 @@ pub struct BriocheEngine {
 1. Mandatory injection of fundamental traits (`EpochInterceptor`, `SubRoutineHandler`, `ConsistencyVerifier`, `DecisionAggregator`, `SubRoutineLifecycleGuard`).
 2. Optional injection of `HookEffectConstraint`, `CycleRollbackPolicy`, `GovernanceFailoverHandler`, `CowBudgetPolicy`.
 3. Mandatory injection of `SignalDrainOrder` for separate channel drainage.
-4. Fail-fast anti-collision validation: verification that state keys declared by each plugin (`owned_state_keys`) are unique across the set. In case of collision, the engine refuses to start to prevent silent memory overwrite.
-5. Construction of `UnifiedRoutingTable`: fundamental traits are registered with their fixed order, standard plugins with their capability and `PluginCapabilities`.
-6. Construction of the 8 routing vectors by filtering plugins according to their `PluginCapabilities`.
-7. Stable sort by `priority` then by `name` to guarantee deterministic total order.
+4. Construction of `UnifiedRoutingTable`: hooks are already separated by atomic capability vector.
+5. Construction of the 7 routing vectors by sorting each capability vector.
+6. Stable sort by `priority` then by `name` to guarantee deterministic total order.
 
 <br>
 
@@ -2774,7 +2758,7 @@ The shell can call `engine.rebuild_routes(&active_mask)` at any time. The mask (
 **Performance invariant:** The `handle_stream_event` loop contains no heap allocation between entry and exit of the hot path for plugins in `Pass` or `Hold` mode. Mutations pass through `Bytes` (ref-counted clone) or through `OffloadTask` (delegation outside the hot path). `HookEffectConstraint` validation is O(1) by bitmask in the hot path.
 
 **Composability trade-off:**
-`BriocheEngine` declares governance traits as individual fields (`epoch_guard`, `subroutine_handler`, etc.) rather than a single `Vec<Box<dyn GovernanceStage>>`. This structural rigidity guarantees compile-time trait safety and zero-cost dispatch at the expense of requiring kernel modifications when new fundamental trait categories are introduced. This is a deliberate choice: fundamental traits are rare and their fixed ordering is a correctness invariant (I-Gov-Traits-Order). Standard plugins remain fully composable via `BriochePlugin` + `UnifiedRoutingTable`.
+`BriocheEngine` declares governance traits as individual fields (`epoch_interceptors`, `subroutine_handler`, etc.) rather than a single `Vec<Box<dyn GovernanceStage>>`. This structural rigidity guarantees compile-time trait safety and zero-cost dispatch at the expense of requiring kernel modifications when new fundamental trait categories are introduced. This is a deliberate choice: fundamental traits are rare and their fixed ordering is a correctness invariant (I-Gov-Traits-Order). Hook plugins remain fully composable via atomic capability traits + `UnifiedRoutingTable`.
 
 <br>
 
@@ -2925,7 +2909,7 @@ The Governance layer never modifies:
 
 * The `EngineInput` enum (no new policy variants).
 * The `AgentState` enum (no `Quarantined` or `Degraded` state).
-* The `BriochePlugin` interface (no additional hooks).
+* The hook capability interfaces (no taxonomy trait or monolithic hook surface).
 * The O(1) pre-routing algorithm.
 * The `PolicyDecision` enum (no restriction of variants).
 * The `Vec<Effect>` return type of `transition()`.
@@ -3012,7 +2996,7 @@ pub enum GovernanceProfile {
 | `HistoricalCowBudgetPolicy` | `CowBudgetPolicy` | Adaptive per-hook budget based on sliding history of observed weights. Capped at 512 KB. |
 | `NegotiationBroker` | `DecisionAggregator` | Multi-turn negotiation via `ExtensionStorage`. Max 3 phases, configurable fallback. |
 | `TreeDecisionAggregator` | `DecisionAggregator` | Conditional decision tree serialized in `ExtensionStorage`. |
-| `RollbackTelemetryEmitter` | `BriochePlugin` (`on_error` hook) | Emits telemetry when a COW rollback is abandoned. Passive observer. |
+| `RollbackTelemetryEmitter` | `OnError` | Emits telemetry when a COW rollback is abandoned. Passive observer. |
 | `DefaultCompatibilityMatrix` | — | Compatibility matrix with default values of I-Comp invariants. |
 
 <br>
@@ -3436,7 +3420,7 @@ If the `pong` indicates `pending_inputs > 0` at the time of blocking, the watchd
 
 * **No synchronous orchestration logic** : all transition decisions are in the kernel (Books I and II).
 * **No business policy** : circuit breaker, token tracking, etc. are in the ecosystem (Book IV).
-* **No modification of the extension contract** : `BriochePlugin`, `Effect`, `PolicyDecision` are fixed since Book I.
+* **No modification of the extension contract** : hook capability traits, `Effect`, `PolicyDecision` are fixed since Book I.
 * **No persistence** : persistence is handled by the Shell Persistence layer (Book III-B).
 * **No UI rendering** : UI projection is handled by the Shell Projection layer (Book III-C).
 
@@ -3840,7 +3824,7 @@ impl BriocheExtensionType for UiPerformanceState {
 
 * **No synchronous orchestration logic** : all transition decisions are in the kernel (Books I and II).
 * **No business policy** : circuit breaker, token tracking, etc. are in the ecosystem (Book IV).
-* **No modification of the extension contract** : `BriochePlugin`, `Effect`, `PolicyDecision` are fixed since Book I.
+* **No modification of the extension contract** : hook capability traits, `Effect`, `PolicyDecision` are fixed since Book I.
 * **No persistence** : persistence is in the Shell Persistence layer (Book III-B).
 * **No runtime** : the asynchronous runtime is in the Shell Runtime layer (Book III-A).
 
@@ -4131,21 +4115,20 @@ impl BriocheExtensionType for AuditState {
 
 To create a third-party plugin:
 
-1. Implement `BriochePlugin`.
-2. Define `PluginCapabilities` via the bitmask.
-3. Reserve state keys with `owned_state_keys`.
-4. Provide `default_state_blob` and `deserialize_state` for resilience.
-5. Derive `BriocheExtensionType` via the SDK proc-macro to guarantee the absence of persisted `HashMap`/`HashSet` and determinism of `Vec`s.
-6. Never mutate `session.history` directly; use `PolicyDecision`.
-7. Never access `session.state` directly; use `SessionSnapshot` from `ExtensionStorage`.
-8. Never mutate `session.active_tools` directly; it is internal mechanical state of the kernel.
-9. Use `priority` to control evaluation order if the effect order is semantic.
-10. Use ordered collections (`BTreeMap`, `BTreeSet`, `IndexMap`) in extension states and data structures passing through hooks. The use of `HashMap` or `HashSet` in persisted states or hooks is prohibited by the SDK to preserve determinism. Plugins can use `HashMap` in purely transient and non-exposed caches.
-11. For execution safeguards (timeout, volume), register on `on_tool_calls` and `on_tool_result` rather than modifying the shell. Mutate `ToolCallDescriptor.timeout_ms` in place for timeouts.
-12. For system/asynchronous event management, consume separate channels (`SystemSignal`, `AsyncTaskResult`, `GovernanceNotification`) via dedicated adapters rather than waiting for variants in `EngineInput`.
-14. For effects requested via `RequestEffect`, verify that the target effect is allowed on the current hook. The kernel validates via `HookEffectConstraint` if injected; in the absence of constraint, the effect is allowed by default.
-15. Use the `brioche-plugin-kit` crate to automatically generate safe boilerplate (`EXT_ID`, ordered collections, `SessionSnapshot` accessors, hook registration). The kit preserves invariants without the developer having to memorize them.
-16. If two plugins need to negotiate a complex decision, merge them into a single plugin with internal negotiation state, or use `NegotiationBroker` as a `DecisionAggregator` implementation. `DecisionAggregator` aggregates independent decisions; it does not support direct inter-plugin communication.
+1. Implement the atomic hook trait for the lifecycle capability you need.
+2. Optionally implement `PluginPersistence` to reserve state keys and provide default/deserialize blobs.
+3. Register the plugin through the matching `BriocheEngineBuilder::with_*` method.
+4. Derive `BriocheExtensionType` via the SDK proc-macro to guarantee the absence of persisted `HashMap`/`HashSet` and determinism of `Vec`s.
+5. Never mutate `session.history` directly; use `PolicyDecision`.
+6. Never access `session.state` directly; use `SessionSnapshot` from `ExtensionStorage`.
+7. Never mutate `session.active_tools` directly; it is internal mechanical state of the kernel.
+8. Use `priority` to control evaluation order if the effect order is semantic.
+9. Use ordered collections (`BTreeMap`, `BTreeSet`, `IndexMap`) in extension states and data structures passing through hooks. The use of `HashMap` or `HashSet` in persisted states or hooks is prohibited by the SDK to preserve determinism. Plugins can use `HashMap` in purely transient and non-exposed caches.
+10. For execution safeguards (timeout, volume), register on `on_tool_calls` and `on_tool_result` rather than modifying the shell. Mutate `ToolCallDescriptor.timeout_ms` in place for timeouts.
+11. For system/asynchronous event management, consume separate channels (`SystemSignal`, `AsyncTaskResult`, `GovernanceNotification`) via dedicated adapters rather than waiting for variants in `EngineInput`.
+12. For effects requested via `RequestEffect`, verify that the target effect is allowed on the current hook. The kernel validates via `HookEffectConstraint` if injected; in the absence of constraint, the effect is allowed by default.
+13. Use the `brioche-plugin-kit` crate to automatically generate safe boilerplate (`EXT_ID`, ordered collections, `SessionSnapshot` accessors, hook registration). The kit preserves invariants without the developer having to memorize them.
+14. If two plugins need to negotiate a complex decision, merge them into a single plugin with internal negotiation state, or use `NegotiationBroker` as a `DecisionAggregator` implementation. `DecisionAggregator` aggregates independent decisions; it does not support direct inter-plugin communication.
 
 <br>
 

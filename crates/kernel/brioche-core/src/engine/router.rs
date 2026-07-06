@@ -2,25 +2,26 @@
 //!
 //! Refs: I-Core-StreamNoBranch, I-Core-PluginOrder
 
-use crate::{BriochePlugin, PluginCapabilities};
+use crate::{
+    AfterPredictionPlugin, BeforePredictionPlugin, OnErrorPlugin, OnInputPlugin,
+    OnStreamEventPlugin, OnToolCallsPlugin, OnToolResultPlugin,
+};
 
 /// Pre-computed routing table that eliminates runtime capability checks.
 ///
-/// At engine initialization, plugins are sorted by `(priority, name)` and
-/// their indices are collected into per-capability vectors. The streaming
-/// loop iterates over these vectors directly — no branching on bitmasks.
+/// At engine initialization, each hook vector is sorted by `(priority, name)`
+/// and converted into an index route. The streaming loop iterates over these
+/// vectors directly — no branching on bitmasks.
 ///
 /// # Data Layout
-/// Seven `Vec<usize>` fields (~56 bytes + route contents). Each route
-/// stores plugin indices, not trait objects, so iteration is cache-friendly
-/// and branch-free after the initial sort.
+/// Seven `Vec<usize>` fields (~56 bytes + route contents). Each route stores
+/// indices into its matching capability vector.
 ///
 /// # Complexity
 /// Construction: O(p log p). Route iteration: O(route length).
-/// No allocation after engine build.
 ///
 /// # Panics
-/// Never panics. All route accesses are bounds-checked by construction.
+/// Never panics. Routes are built from enumerated indices.
 ///
 /// Refs: I-Core-StreamNoBranch, I-Core-PluginOrder
 pub struct UnifiedRoutingTable {
@@ -41,100 +42,210 @@ pub struct UnifiedRoutingTable {
 }
 
 impl UnifiedRoutingTable {
-    /// Build a routing table from all plugins.
-    ///
-    /// Convenience wrapper over `from_plugins_filtered` with all indices active.
+    /// Build a routing table from already capability-separated hooks.
     ///
     /// # Complexity
-    /// O(p log p) where p = number of plugins.
+    /// O(p log p) where p = total registered hook implementations.
     ///
-    /// Refs: I-Core-Pure
     /// # Panics
-    /// Never panics.
-    pub fn from_plugins(plugins: &[Box<dyn BriochePlugin>]) -> Self {
-        let all_indices: Vec<usize> = (0..plugins.len()).collect();
-        Self::from_plugins_filtered(plugins, &all_indices)
-    }
-
-    /// Build a routing table from a subset of plugins.
+    /// Never panics. Sorting uses total scalar/string order.
     ///
-    /// `active_indices` contains indices into `plugins` that should be
-    /// included in the routing table. Used by `rebuild_routes` during
-    /// quarantine events.
-    ///
-    /// # Complexity
-    /// O(p log p) where p = number of active plugins.
-    ///
-    /// Refs: I-Gov-Rebuild-Barrier
-    /// # Panics
-    /// Panics only if an index is out of bounds; callers must validate lengths.
-    pub fn from_plugins_filtered(
-        plugins: &[Box<dyn BriochePlugin>],
-        active_indices: &[usize],
+    /// Refs: I-Core-StreamNoBranch, I-Gov-TraitAtomic
+    pub fn from_hooks(
+        on_input: &[Box<OnInputPlugin>],
+        before_prediction: &[Box<BeforePredictionPlugin>],
+        on_stream_event: &[Box<OnStreamEventPlugin>],
+        after_prediction: &[Box<AfterPredictionPlugin>],
+        on_tool_calls: &[Box<OnToolCallsPlugin>],
+        on_tool_result: &[Box<OnToolResultPlugin>],
+        on_error: &[Box<OnErrorPlugin>],
     ) -> Self {
-        let mut indexed: Vec<(usize, i16, &'static str)> = active_indices
-            .iter()
-            .filter_map(|&i| plugins.get(i).map(|p| (i, p.priority(), p.name())))
-            .collect();
-        // Total order: priority ascending, then name lexicographically.
-        indexed.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.2.cmp(b.2)));
-
         Self {
-            route_on_input: Self::collect_route(&indexed, plugins, |c| {
-                c.contains(PluginCapabilities::ON_INPUT)
-            }),
-            route_before_prediction: Self::collect_route(&indexed, plugins, |c| {
-                c.contains(PluginCapabilities::BEFORE_PREDICTION)
-            }),
-            route_on_stream_event: Self::collect_route(&indexed, plugins, |c| {
-                c.contains(PluginCapabilities::ON_STREAM_EVENT)
-            }),
-            route_after_prediction: Self::collect_route(&indexed, plugins, |c| {
-                c.contains(PluginCapabilities::AFTER_PREDICTION)
-            }),
-            route_on_tool_calls: Self::collect_route(&indexed, plugins, |c| {
-                c.contains(PluginCapabilities::ON_TOOL_CALLS)
-            }),
-            route_on_tool_result: Self::collect_route(&indexed, plugins, |c| {
-                c.contains(PluginCapabilities::ON_TOOL_RESULT)
-            }),
-            route_on_error: Self::collect_route(&indexed, plugins, |c| {
-                c.contains(PluginCapabilities::ON_ERROR)
-            }),
+            route_on_input: Self::collect_route(on_input),
+            route_before_prediction: Self::collect_route(before_prediction),
+            route_on_stream_event: Self::collect_route(on_stream_event),
+            route_after_prediction: Self::collect_route(after_prediction),
+            route_on_tool_calls: Self::collect_route(on_tool_calls),
+            route_on_tool_result: Self::collect_route(on_tool_result),
+            route_on_error: Self::collect_route(on_error),
         }
     }
 
-    fn collect_route(
-        sorted: &[(usize, i16, &'static str)],
-        plugins: &[Box<dyn BriochePlugin>],
-        has_cap: impl Fn(PluginCapabilities) -> bool,
-    ) -> Vec<usize> {
-        sorted
+    fn collect_route<T>(plugins: &[Box<T>]) -> Vec<usize>
+    where
+        T: OrderedHook + ?Sized,
+    {
+        let mut indexed: Vec<(usize, i16, &'static str)> = plugins
             .iter()
-            .filter(|(i, _, _)| plugins.get(*i).is_some_and(|p| has_cap(p.capabilities())))
-            .map(|(i, _, _)| *i)
-            .collect()
+            .enumerate()
+            .map(|(index, plugin)| (index, plugin.priority(), plugin.name()))
+            .collect();
+        indexed.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.2.cmp(b.2)));
+        indexed.into_iter().map(|(index, _, _)| index).collect()
     }
 }
 
-/// Routing component: owns plugins and the pre-computed dispatch table.
-///
-/// All plugin iteration happens through this component. The engine
-/// delegates routing queries but never mutates the plugin vector directly.
-///
-/// # Data Layout
-/// `Vec<Box<dyn BriochePlugin>>` (heap, one per plugin) plus an owned
-/// `UnifiedRoutingTable`. Plugins are heterogeneous concrete types; the
-/// vtable indirection is required to store them in a single vector.
+trait OrderedHook {
+    fn name(&self) -> &'static str;
+    fn priority(&self) -> i16;
+}
+
+impl OrderedHook for OnInputPlugin {
+    fn name(&self) -> &'static str {
+        OnInputPlugin::name(self)
+    }
+
+    fn priority(&self) -> i16 {
+        OnInputPlugin::priority(self)
+    }
+}
+
+impl OrderedHook for BeforePredictionPlugin {
+    fn name(&self) -> &'static str {
+        BeforePredictionPlugin::name(self)
+    }
+
+    fn priority(&self) -> i16 {
+        BeforePredictionPlugin::priority(self)
+    }
+}
+
+impl OrderedHook for OnStreamEventPlugin {
+    fn name(&self) -> &'static str {
+        OnStreamEventPlugin::name(self)
+    }
+
+    fn priority(&self) -> i16 {
+        OnStreamEventPlugin::priority(self)
+    }
+}
+
+impl OrderedHook for AfterPredictionPlugin {
+    fn name(&self) -> &'static str {
+        AfterPredictionPlugin::name(self)
+    }
+
+    fn priority(&self) -> i16 {
+        AfterPredictionPlugin::priority(self)
+    }
+}
+
+impl OrderedHook for OnToolCallsPlugin {
+    fn name(&self) -> &'static str {
+        OnToolCallsPlugin::name(self)
+    }
+
+    fn priority(&self) -> i16 {
+        OnToolCallsPlugin::priority(self)
+    }
+}
+
+impl OrderedHook for OnToolResultPlugin {
+    fn name(&self) -> &'static str {
+        OnToolResultPlugin::name(self)
+    }
+
+    fn priority(&self) -> i16 {
+        OnToolResultPlugin::priority(self)
+    }
+}
+
+impl OrderedHook for OnErrorPlugin {
+    fn name(&self) -> &'static str {
+        OnErrorPlugin::name(self)
+    }
+
+    fn priority(&self) -> i16 {
+        OnErrorPlugin::priority(self)
+    }
+}
+
+/// Routing component: owns capability-separated hooks and pre-computed routes.
 ///
 /// # Complexity
 /// Plugin lookup by pre-routed index: O(1). Route rebuild: O(p log p).
 ///
 /// # Panics
-/// Never panics. Index-based access uses pre-validated route vectors.
+/// Never panics. All vectors own valid trait objects.
 ///
 /// Refs: I-Core-StreamNoBranch, I-Core-PluginOrder
 pub struct PluginRouter {
-    pub(crate) plugins: Vec<Box<dyn BriochePlugin>>,
+    pub(crate) on_input_plugins: Vec<Box<OnInputPlugin>>,
+    pub(crate) before_prediction_plugins: Vec<Box<BeforePredictionPlugin>>,
+    pub(crate) on_stream_event_plugins: Vec<Box<OnStreamEventPlugin>>,
+    pub(crate) after_prediction_plugins: Vec<Box<AfterPredictionPlugin>>,
+    pub(crate) on_tool_calls_plugins: Vec<Box<OnToolCallsPlugin>>,
+    pub(crate) on_tool_result_plugins: Vec<Box<OnToolResultPlugin>>,
+    pub(crate) on_error_plugins: Vec<Box<OnErrorPlugin>>,
     pub(crate) routing_table: UnifiedRoutingTable,
+}
+
+impl PluginRouter {
+    /// Rebuild routes from a flattened active mask.
+    ///
+    /// The mask is consumed in hook-vector order. Missing mask entries default
+    /// to active so stale shell commands cannot accidentally disable new hooks.
+    ///
+    /// # Complexity
+    /// O(p log p) where p = total active hooks.
+    ///
+    /// # Panics
+    /// Never panics. Missing mask entries default to active.
+    ///
+    /// Refs: I-Gov-Rebuild-Barrier
+    pub(crate) fn rebuild_routes_by_mask(&mut self, active_mask: &[bool]) {
+        let mut offset = 0;
+        self.routing_table = UnifiedRoutingTable {
+            route_on_input: collect_active_mask(&self.on_input_plugins, active_mask, &mut offset),
+            route_before_prediction: collect_active_mask(
+                &self.before_prediction_plugins,
+                active_mask,
+                &mut offset,
+            ),
+            route_on_stream_event: collect_active_mask(
+                &self.on_stream_event_plugins,
+                active_mask,
+                &mut offset,
+            ),
+            route_after_prediction: collect_active_mask(
+                &self.after_prediction_plugins,
+                active_mask,
+                &mut offset,
+            ),
+            route_on_tool_calls: collect_active_mask(
+                &self.on_tool_calls_plugins,
+                active_mask,
+                &mut offset,
+            ),
+            route_on_tool_result: collect_active_mask(
+                &self.on_tool_result_plugins,
+                active_mask,
+                &mut offset,
+            ),
+            route_on_error: collect_active_mask(&self.on_error_plugins, active_mask, &mut offset),
+        };
+    }
+}
+
+fn collect_active_mask<T>(
+    plugins: &[Box<T>],
+    active_mask: &[bool],
+    offset: &mut usize,
+) -> Vec<usize>
+where
+    T: OrderedHook + ?Sized,
+{
+    let start = *offset;
+    *offset += plugins.len();
+    let mut indexed: Vec<(usize, i16, &'static str)> = plugins
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| match active_mask.get(start + *index) {
+            Some(is_active) => *is_active,
+            None => true,
+        })
+        .map(|(index, plugin)| (index, plugin.priority(), plugin.name()))
+        .collect();
+    indexed.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.2.cmp(b.2)));
+    indexed.into_iter().map(|(index, _, _)| index).collect()
 }

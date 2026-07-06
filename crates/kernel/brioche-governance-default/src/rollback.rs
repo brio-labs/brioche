@@ -81,6 +81,10 @@ impl Default for UndoFrameGuard {
 }
 
 impl CycleRollbackPolicy for UndoFrameGuard {
+    type ExtensionStorage = ExtensionStorage;
+    type ExtVTable = ExtVTable;
+    type CowBudgetPolicy = dyn CowBudgetPolicy;
+
     fn begin_hook(&mut self, _hook_name: &'static str) {
         self.active_frame = Some(Vec::new());
         self.current_frame_weight = 0;
@@ -221,6 +225,10 @@ impl Default for TieredUndoFrameGuard {
 }
 
 impl CycleRollbackPolicy for TieredUndoFrameGuard {
+    type ExtensionStorage = ExtensionStorage;
+    type ExtVTable = ExtVTable;
+    type CowBudgetPolicy = dyn CowBudgetPolicy;
+
     fn begin_hook(&mut self, _hook_name: &'static str) {
         self.active_frame = Some(Vec::new());
         self.current_standard_weight = 0;
@@ -389,6 +397,10 @@ impl Default for AdaptiveUndoFrameGuard {
 }
 
 impl CycleRollbackPolicy for AdaptiveUndoFrameGuard {
+    type ExtensionStorage = ExtensionStorage;
+    type ExtVTable = ExtVTable;
+    type CowBudgetPolicy = dyn CowBudgetPolicy;
+
     fn begin_hook(&mut self, hook_name: &'static str) {
         self.active_frame = Some(Vec::new());
         self.current_frame_weight = 0;

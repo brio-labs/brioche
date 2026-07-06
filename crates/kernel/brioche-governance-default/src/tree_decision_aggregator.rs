@@ -112,6 +112,10 @@ impl Default for TreeDecisionAggregator {
 }
 
 impl DecisionAggregator for TreeDecisionAggregator {
+    type PolicyDecision = PolicyDecision;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+
     fn aggregate_decisions(
         &self,
         decisions: Vec<PolicyDecision>,

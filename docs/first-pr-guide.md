@@ -56,8 +56,8 @@ Create `crates/brioche-governance-default/src/ping_plugin.rs`:
 //! - I-Eco-ExtensionOverMod: Ping logic is policy, not mechanism.
 
 use brioche_core::{
-    BriocheExtensionType, BriochePlugin, ExtensionStorage, PluginCapabilities, PluginResult,
-    PolicyDecision,
+    BriocheExtensionType, EngineInput, ExtensionStorage, OnInput, PluginPersistence, PluginResult,
+    PolicyDecision, SystemSignal,
 };
 use brioche_macro::BriocheExtensionType;
 
@@ -76,22 +76,25 @@ pub struct PingState {
 /// - I-Eco-ExtensionOverMod: This is policy, not mechanism.
 pub struct PingPlugin;
 
-impl BriochePlugin for PingPlugin {
+impl PluginPersistence for PingPlugin {
+    fn owned_state_keys(&self) -> &'static [&'static str] {
+        &["ping::state"]
+    }
+}
+
+impl OnInput for PingPlugin {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PolicyDecision = PolicyDecision;
+    type PluginError = brioche_core::PluginError;
+
     fn name(&self) -> &'static str {
         "ping"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
     }
 
     fn priority(&self) -> i16 {
         // Low priority — runs after critical interceptors.
         10
-    }
-
-    fn owned_state_keys(&self) -> &'static [&'static str] {
-        &["ping::state"]
     }
 
     /// Handles incoming engine input.

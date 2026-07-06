@@ -75,6 +75,9 @@ impl PersistenceSubRoutineHydrator {
 }
 
 impl brioche_core::SubRoutineHydrator for PersistenceSubRoutineHydrator {
+    type Session = brioche_core::Session;
+    type BriocheError = brioche_core::BriocheError;
+
     fn hydrate(
         &self,
         head_blob: &[u8],

@@ -26,8 +26,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use brioche_core::{
-    BriocheEngineBuilder, BriochePlugin, Effect, EngineInput, ExtensionStorage, PluginCapabilities,
-    PluginResult, PolicyDecision, Session, UiWidget,
+    BriocheEngineBuilder, Effect, EngineInput, ExtensionStorage, OnInput, PluginResult,
+    PolicyDecision, Session, UiWidget,
 };
 use brioche_governance_default::{BriocheEngineBuilderExt, GovernanceProfile};
 use brioche_shell_runtime::{
@@ -46,15 +46,15 @@ struct EffectPumpPlugin {
     effects_per_input: usize,
 }
 
-impl BriochePlugin for EffectPumpPlugin {
+impl OnInput for EffectPumpPlugin {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PolicyDecision = PolicyDecision;
+    type PluginError = brioche_core::PluginError;
+
     fn name(&self) -> &'static str {
         "effect-pump"
     }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
-    }
-
     fn priority(&self) -> i16 {
         // Run before any standard plugin so the override always wins.
         i16::MIN
@@ -96,7 +96,7 @@ where
         move || {
             let engine = BriocheEngineBuilder::new()
                 .with_profile(GovernanceProfile::Permissive)
-                .with_plugin(Box::new(EffectPumpPlugin { effects_per_input }))
+                .with_on_input(Box::new(EffectPumpPlugin { effects_per_input }))
                 .with_default_tool_timeout_ms(1_000)
                 .build();
             let session = Session::new("bench");

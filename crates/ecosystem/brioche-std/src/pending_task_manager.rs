@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 
 use brioche_core::{
-    AsyncTaskResult, BriocheExtensionType, BriochePlugin, ExtensionStorage, PluginCapabilities,
+    AsyncTaskResult, BriocheExtensionType, EngineInput, ExtensionStorage, OnInput, OnToolResult,
     PluginResult, PolicyDecision, SignalBuffer, ToolResultDTO,
 };
 
@@ -98,13 +98,13 @@ impl Default for PendingTaskManager {
     }
 }
 
-impl BriochePlugin for PendingTaskManager {
+impl OnToolResult for PendingTaskManager {
+    type ToolResultDto = ToolResultDTO;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+
     fn name(&self) -> &'static str {
         "pending_task_manager"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_TOOL_RESULT | PluginCapabilities::ON_INPUT
     }
 
     fn priority(&self) -> i16 {
@@ -143,6 +143,21 @@ impl BriochePlugin for PendingTaskManager {
 
         Ok(())
     }
+}
+
+impl OnInput for PendingTaskManager {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PolicyDecision = PolicyDecision;
+    type PluginError = brioche_core::PluginError;
+
+    fn name(&self) -> &'static str {
+        "pending_task_manager"
+    }
+
+    fn priority(&self) -> i16 {
+        Priority::PENDING_TASK
+    }
 
     /// Consumes async task results from the `SignalBuffer`.
     ///
@@ -155,7 +170,7 @@ impl BriochePlugin for PendingTaskManager {
     /// Refs: I-Eco-ExtensionOverMod
     fn on_input(
         &self,
-        _input: &brioche_core::EngineInput,
+        _input: &EngineInput,
         ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
         let buffer = ext.get_or_insert_default::<SignalBuffer>();

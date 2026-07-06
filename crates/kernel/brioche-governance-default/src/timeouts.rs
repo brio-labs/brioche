@@ -8,8 +8,8 @@
 use std::collections::BTreeMap;
 
 use brioche_core::{
-    AgentStateTag, BriochePlugin, EngineInput, EpochAction, EpochInterceptor, ExtensionStorage,
-    PluginCapabilities, PluginResult, PolicyDecision, SessionSnapshot, ToolCallDescriptor,
+    AgentStateTag, EngineInput, EpochAction, EpochInterceptor, ExtensionStorage, OnInput,
+    OnToolCalls, PluginResult, PolicyDecision, SessionSnapshot, ToolCallDescriptor,
 };
 
 use crate::Priority;
@@ -59,13 +59,13 @@ impl Default for ToolTimeoutPolicy {
     }
 }
 
-impl BriochePlugin for ToolTimeoutPolicy {
+impl OnToolCalls for ToolTimeoutPolicy {
+    type ToolCallDescriptor = ToolCallDescriptor;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+
     fn name(&self) -> &'static str {
         "tool_timeout_policy"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_TOOL_CALLS
     }
 
     fn priority(&self) -> i16 {
@@ -213,6 +213,11 @@ impl SubRoutineTimeoutPolicy {
 }
 
 impl EpochInterceptor for SubRoutineTimeoutPolicy {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type EpochAction = EpochAction;
+    type PluginError = brioche_core::PluginError;
+
     fn intercept_epoch(
         &self,
         _input: &EngineInput,
@@ -232,13 +237,14 @@ impl Default for SubRoutineTimeoutPolicy {
     }
 }
 
-impl BriochePlugin for SubRoutineTimeoutPolicy {
+impl OnInput for SubRoutineTimeoutPolicy {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PolicyDecision = PolicyDecision;
+    type PluginError = brioche_core::PluginError;
+
     fn name(&self) -> &'static str {
         "subroutine_timeout_policy"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
     }
 
     fn priority(&self) -> i16 {

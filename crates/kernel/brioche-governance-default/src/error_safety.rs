@@ -9,8 +9,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use brioche_core::{
-    AgentStateTag, BriochePlugin, Effect, EngineInput, ExtensionStorage, PluginCapabilities,
-    PluginError, PluginResult, PolicyDecision, SessionSnapshot,
+    AgentStateTag, Effect, EngineInput, ExtensionStorage, OnError, OnInput, PluginError,
+    PluginResult, PolicyDecision, SessionSnapshot,
 };
 
 use crate::Priority;
@@ -80,13 +80,13 @@ impl Default for QuarantineManager {
     }
 }
 
-impl BriochePlugin for QuarantineManager {
+impl OnError for QuarantineManager {
+    type ExtensionStorage = ExtensionStorage;
+    type PolicyDecision = PolicyDecision;
+    type PluginError = PluginError;
+
     fn name(&self) -> &'static str {
         "quarantine_manager"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_ERROR
     }
 
     fn priority(&self) -> i16 {
@@ -195,13 +195,14 @@ impl Default for RecoveryPolicy {
     }
 }
 
-impl BriochePlugin for RecoveryPolicy {
+impl OnInput for RecoveryPolicy {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PolicyDecision = PolicyDecision;
+    type PluginError = PluginError;
+
     fn name(&self) -> &'static str {
         "recovery_policy"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
     }
 
     fn priority(&self) -> i16 {

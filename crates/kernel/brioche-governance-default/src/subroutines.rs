@@ -66,6 +66,11 @@ fn detect_subroutine_termination(
 }
 
 impl SubRoutineHandler for SubRoutineOrchestrator {
+    type Session = Session;
+    type EngineInput = EngineInput;
+    type Effect = Effect;
+    type PluginError = brioche_core::PluginError;
+
     fn handle_subroutine(
         &self,
         parent: &mut Session,
@@ -137,6 +142,12 @@ impl Default for SubRoutineCleanupGuard {
 }
 
 impl SubRoutineLifecycleGuard for SubRoutineCleanupGuard {
+    type SubRoutineHandle = SubRoutineHandle;
+    type Session = Session;
+    type SessionRegistry = SessionRegistry;
+    type Effect = Effect;
+    type PluginError = brioche_core::PluginError;
+
     fn on_exit(
         &self,
         handle: SubRoutineHandle,

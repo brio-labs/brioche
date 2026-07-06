@@ -80,7 +80,7 @@ impl BriocheEngine {
         // before_prediction hook: collect decisions.
         let mut decisions = Vec::new();
         let faults = {
-            let plugins = &self.router.plugins;
+            let plugins = &self.router.before_prediction_plugins;
             let route = &self.router.routing_table.route_before_prediction;
             let rollback_policy = &mut self.governance.cycle_rollback_policy;
             BriocheEngine::eval_route(
@@ -175,7 +175,7 @@ impl BriocheEngine {
         // Evaluate stream event hooks.
         let mut stream_effects = Vec::new();
         let faults = {
-            let plugins = &self.router.plugins;
+            let plugins = &self.router.on_stream_event_plugins;
             let route = &self.router.routing_table.route_on_stream_event;
             let rollback_policy = &mut self.governance.cycle_rollback_policy;
             BriocheEngine::eval_route(
@@ -250,7 +250,7 @@ impl BriocheEngine {
         // on_tool_result hook: in-place mutation.
         let mut mutable_results = results.to_vec();
         let faults = {
-            let plugins = &self.router.plugins;
+            let plugins = &self.router.on_tool_result_plugins;
             let route = &self.router.routing_table.route_on_tool_result;
             let rollback_policy = &mut self.governance.cycle_rollback_policy;
             BriocheEngine::eval_route(
@@ -447,6 +447,10 @@ mod subroutine_hydrator_tests {
     struct MockDecisionAggregator;
 
     impl DecisionAggregator for MockDecisionAggregator {
+        type PolicyDecision = PolicyDecision;
+        type ExtensionStorage = crate::ExtensionStorage;
+        type PluginError = crate::PluginError;
+
         fn aggregate_decisions(
             &self,
             _decisions: Vec<PolicyDecision>,
@@ -459,6 +463,12 @@ mod subroutine_hydrator_tests {
     struct MockSubRoutineLifecycleGuard;
 
     impl SubRoutineLifecycleGuard for MockSubRoutineLifecycleGuard {
+        type SubRoutineHandle = crate::SubRoutineHandle;
+        type Session = Session;
+        type SessionRegistry = crate::SessionRegistry;
+        type Effect = Effect;
+        type PluginError = crate::PluginError;
+
         fn on_exit(
             &self,
             _handle: crate::SubRoutineHandle,
@@ -475,6 +485,9 @@ mod subroutine_hydrator_tests {
     }
 
     impl SubRoutineHydrator for FixedIdHydrator {
+        type Session = Session;
+        type BriocheError = BriocheError;
+
         fn hydrate(&self, _head_blob: &[u8]) -> Result<Session, BriocheError> {
             if self.fail {
                 Err(BriocheError::Serialization("bad blob".to_string()))

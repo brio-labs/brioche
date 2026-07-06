@@ -8,7 +8,7 @@ Accepted
 
 Issue #257 identified a cross-book failure between Book I (Core transition
 ordering) and Book II (Governance timeout policy): `SubRoutineTimeoutPolicy`
-ran only as a `BriochePlugin::on_input` hook on the parent session.
+ran only as an `OnInput` hook on the parent session.
 
 `BriocheEngine::transition()` evaluates sub-routine delegation before parent
 `on_input`. While a parent is in `AgentState::SubRoutine`, successful child

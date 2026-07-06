@@ -12,7 +12,7 @@ use brioche_std::AuditLogger;
 /// Build an engine with the AuditLogger installed.
 fn build_recording_engine() -> brioche_core::BriocheEngine {
     BriocheEngineBuilder::new()
-        .with_plugin(Box::new(AuditLogger::with_batch_size(1000)))
+        .with_on_input(Box::new(AuditLogger::with_batch_size(1000)))
         .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(SubRoutineCleanupGuard::new()))
         .build()

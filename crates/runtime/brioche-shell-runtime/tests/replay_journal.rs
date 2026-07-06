@@ -8,9 +8,9 @@
 //! docs/SPECS.md §Book V Ch 12
 
 use brioche_core::{
-    AgentState, BriocheEngine, BriocheEngineBuilder, BriocheError, BriochePlugin, Effect,
-    EngineInput, ExtensionStorage, PluginCapabilities, PluginError, PluginResult, PolicyDecision,
-    Session, StreamEvent, SubRoutineHandle, SubRoutineHydrator, ToolOutcome, ToolResultDTO,
+    AgentState, BriocheEngine, BriocheEngineBuilder, BriocheError, Effect, EngineInput,
+    ExtensionStorage, OnInput, PluginError, PluginResult, PolicyDecision, Session, StreamEvent,
+    SubRoutineHandle, SubRoutineHydrator, ToolOutcome, ToolResultDTO,
 };
 use brioche_governance_default::{
     BriocheEngineBuilderExt, GovernanceProfile, LexicographicDecisionAggregator,
@@ -46,13 +46,16 @@ fn build_engine_with_fault_plugin() -> BriocheEngine {
         .with_profile(GovernanceProfile::Standard)
         .with_governance_failover_handler(Box::new(NoopGovernanceFailoverHandler))
         .with_hook_effect_constraint(Box::new(PermissiveHookEffectConstraint::new()))
-        .with_plugin(Box::new(FaultPlugin { trigger: "boom" }))
+        .with_on_input(Box::new(FaultPlugin { trigger: "boom" }))
         .build()
 }
 
 struct PersistenceBackedHydrator;
 
 impl SubRoutineHydrator for PersistenceBackedHydrator {
+    type Session = Session;
+    type BriocheError = BriocheError;
+
     fn hydrate(&self, head_blob: &[u8]) -> Result<Session, BriocheError> {
         let dto = brioche_shell_persistence::deserialize_head(head_blob)
             .map_err(|err| BriocheError::Serialization(err.to_string()))?;
@@ -64,15 +67,15 @@ struct FaultPlugin {
     trigger: &'static str,
 }
 
-impl BriochePlugin for FaultPlugin {
+impl OnInput for FaultPlugin {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PolicyDecision = PolicyDecision;
+    type PluginError = PluginError;
+
     fn name(&self) -> &'static str {
         "fault_plugin"
     }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
-    }
-
     fn on_input(
         &self,
         input: &EngineInput,

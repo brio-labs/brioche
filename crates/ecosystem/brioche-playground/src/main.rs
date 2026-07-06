@@ -11,9 +11,10 @@
 //! Refs: docs/SPECS.md §Book IV Ch 3 §3.1
 
 use brioche_core::{
-    ChatMessage, EngineInput, PluginCapabilities, PluginError, PluginResult, PolicyDecision,
+    AfterPrediction, BeforePrediction, ChatMessage, EngineInput, ExtensionStorage, OnError,
+    OnInput, OnToolCalls, OnToolResult, PluginError, PluginResult, PolicyDecision,
 };
-use brioche_plugin_kit::{BriochePlugin, PluginBuilder};
+use brioche_plugin_kit::PluginBuilder;
 
 /// A mock plugin that intercepts `CallLlmNetwork` and injects a fake
 /// assistant response, enabling end-to-end testing without a real LLM.
@@ -21,16 +22,15 @@ use brioche_plugin_kit::{BriochePlugin, PluginBuilder};
 /// Refs: I-Eco-ExtensionOverMod
 pub struct MockLlmBackend;
 
-impl BriochePlugin for MockLlmBackend {
+impl AfterPrediction for MockLlmBackend {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = PluginError;
+
     fn name(&self) -> &'static str {
         "mock_llm_backend"
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::AFTER_PREDICTION
-    }
-
-    fn after_prediction(&self, _ext: &mut brioche_core::ExtensionStorage) -> PluginResult<()> {
+    fn after_prediction(&self, _ext: &mut ExtensionStorage) -> PluginResult<()> {
         Ok(())
     }
 }
@@ -40,65 +40,111 @@ impl BriochePlugin for MockLlmBackend {
 /// Refs: I-Eco-ExtensionOverMod
 pub struct EffectLogger;
 
-impl BriochePlugin for EffectLogger {
+impl OnInput for EffectLogger {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PolicyDecision = PolicyDecision;
+    type PluginError = PluginError;
+
     fn name(&self) -> &'static str {
         "effect_logger"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
-            | PluginCapabilities::BEFORE_PREDICTION
-            | PluginCapabilities::AFTER_PREDICTION
-            | PluginCapabilities::ON_TOOL_CALLS
-            | PluginCapabilities::ON_TOOL_RESULT
-            | PluginCapabilities::ON_ERROR
     }
 
     fn on_input(
         &self,
         input: &EngineInput,
-        _ext: &mut brioche_core::ExtensionStorage,
+        _ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
         println!("[effect_logger] on_input: {input:?}");
         Ok(PolicyDecision::Allow)
+    }
+}
+
+impl BeforePrediction for EffectLogger {
+    type ChatMessage = ChatMessage;
+    type ExtensionStorage = ExtensionStorage;
+    type PolicyDecision = PolicyDecision;
+    type PluginError = PluginError;
+
+    fn name(&self) -> &'static str {
+        "effect_logger"
     }
 
     fn before_prediction(
         &self,
         _history: &[ChatMessage],
-        _ext: &mut brioche_core::ExtensionStorage,
+        _ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
         println!("[effect_logger] before_prediction");
         Ok(PolicyDecision::Allow)
     }
+}
 
-    fn after_prediction(&self, _ext: &mut brioche_core::ExtensionStorage) -> PluginResult<()> {
+impl AfterPrediction for EffectLogger {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = PluginError;
+
+    fn name(&self) -> &'static str {
+        "effect_logger"
+    }
+
+    fn after_prediction(&self, _ext: &mut ExtensionStorage) -> PluginResult<()> {
         println!("[effect_logger] after_prediction");
         Ok(())
+    }
+}
+
+impl OnToolCalls for EffectLogger {
+    type ToolCallDescriptor = brioche_core::ToolCallDescriptor;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = PluginError;
+
+    fn name(&self) -> &'static str {
+        "effect_logger"
     }
 
     fn on_tool_calls(
         &self,
         calls: &mut Vec<brioche_core::ToolCallDescriptor>,
-        _ext: &mut brioche_core::ExtensionStorage,
+        _ext: &mut ExtensionStorage,
     ) -> PluginResult<()> {
         println!("[effect_logger] on_tool_calls: {calls:?}");
         Ok(())
+    }
+}
+
+impl OnToolResult for EffectLogger {
+    type ToolResultDto = brioche_core::ToolResultDTO;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = PluginError;
+
+    fn name(&self) -> &'static str {
+        "effect_logger"
     }
 
     fn on_tool_result(
         &self,
         results: &mut Vec<brioche_core::ToolResultDTO>,
-        _ext: &mut brioche_core::ExtensionStorage,
+        _ext: &mut ExtensionStorage,
     ) -> PluginResult<()> {
         println!("[effect_logger] on_tool_result: {results:?}");
         Ok(())
+    }
+}
+
+impl OnError for EffectLogger {
+    type ExtensionStorage = ExtensionStorage;
+    type PolicyDecision = PolicyDecision;
+    type PluginError = PluginError;
+
+    fn name(&self) -> &'static str {
+        "effect_logger"
     }
 
     fn on_error(
         &self,
         error: &PluginError,
-        _ext: &mut brioche_core::ExtensionStorage,
+        _ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
         println!("[effect_logger] on_error: {error:?}");
         Ok(PolicyDecision::Allow)
@@ -114,8 +160,13 @@ async fn main() {
     println!();
 
     let (mut engine, mut session) = PluginBuilder::permissive()
-        .with_plugin(Box::new(EffectLogger))
-        .with_plugin(Box::new(MockLlmBackend))
+        .with_on_input(Box::new(EffectLogger))
+        .with_before_prediction(Box::new(EffectLogger))
+        .with_after_prediction(Box::new(EffectLogger))
+        .with_on_tool_calls(Box::new(EffectLogger))
+        .with_on_tool_result(Box::new(EffectLogger))
+        .with_on_error(Box::new(EffectLogger))
+        .with_after_prediction(Box::new(MockLlmBackend))
         .build_with_session("playground");
 
     println!("Engine ready. Session id = {}", session.id);
