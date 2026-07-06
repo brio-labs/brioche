@@ -136,6 +136,32 @@ struct RebuildCommand {
     done: oneshot::Sender<()>,
 }
 
+#[derive(Clone)]
+struct RebuildFlagGuard {
+    flag: Arc<AtomicBool>,
+    active: bool,
+}
+
+impl RebuildFlagGuard {
+    fn new(flag: Arc<AtomicBool>) -> Self {
+        flag.store(true, Ordering::Release);
+        Self { flag, active: true }
+    }
+
+    fn clear(mut self) {
+        self.flag.store(false, Ordering::Release);
+        self.active = false;
+    }
+}
+
+impl Drop for RebuildFlagGuard {
+    fn drop(&mut self) {
+        if self.active {
+            self.flag.store(false, Ordering::Release);
+        }
+    }
+}
+
 /// Tracker for critical async tasks spawned by the shell.
 ///
 /// Ensures that background task `JoinHandle`s are not lost, enabling
@@ -170,6 +196,31 @@ impl TaskTracker {
         if let Ok(mut handles) = self.handles.lock() {
             handles.retain(|h| !h.is_finished());
             handles.push(handle);
+        }
+    }
+
+    /// Drains and awaits all tracked tasks.
+    ///
+    /// Shutdown cancels the shared shell token before calling this method, so
+    /// tracked loops should exit cooperatively and their handles should resolve.
+    ///
+    /// # Cancel safety
+    /// Dropping this future before completion leaves any not-yet-awaited
+    /// handles in the drained local set detached. Callers must await it during
+    /// shutdown; it is not cancel-safe.
+    ///
+    /// Refs: I-Shell-Session-NoSend
+    pub async fn wait_all(&self) {
+        let handles = {
+            if let Ok(mut handles) = self.handles.lock() {
+                std::mem::take(&mut *handles)
+            } else {
+                Vec::new()
+            }
+        };
+
+        for handle in handles {
+            let _ = handle.await;
         }
     }
 
@@ -262,6 +313,10 @@ pub struct BriocheShell {
     ///
     /// Refs: SCIFI — Connect
     task_tracker: TaskTracker,
+    /// Shared cancellation root for shell-owned async work and child tool calls.
+    shutdown_token: CancellationToken,
+    /// Join handle for the dedicated engine thread.
+    engine_thread: Arc<std::sync::Mutex<Option<std::thread::JoinHandle<()>>>>,
 }
 
 impl BriocheShell {
@@ -325,9 +380,14 @@ impl BriocheShell {
         let transition_journal = Arc::new(TransitionJournal::new());
         let journal_for_engine = Arc::clone(&transition_journal);
         let journal_for_watchdog = Arc::clone(&transition_journal);
+        let shutdown_token = CancellationToken::new();
+        let shutdown_token_for_engine = shutdown_token.clone();
+        let shutdown_token_for_effects = shutdown_token.clone();
+        let shutdown_token_for_tick = shutdown_token.clone();
+        let shutdown_token_for_watchdog = shutdown_token.clone();
+        let transition_journal_enabled = config.transition_journal_enabled;
 
-        // Spawn the synchronous engine thread.
-        std::thread::spawn(move || {
+        let engine_thread = std::thread::spawn(move || {
             let (engine, session) = engine_factory();
             engine_thread_loop(
                 engine,
@@ -339,8 +399,9 @@ impl BriocheShell {
                 pending_inputs,
                 rebuild_rx,
                 journal_for_engine,
-                config.transition_journal_enabled,
+                transition_journal_enabled,
                 session_callback,
+                shutdown_token_for_engine,
             );
         });
 
@@ -355,10 +416,13 @@ impl BriocheShell {
             rebuild_tx,
             rebuild_in_progress: Arc::clone(&rebuild_in_progress),
             task_tracker: task_tracker.clone(),
+            shutdown_token: shutdown_token.clone(),
+            engine_thread: Arc::new(std::sync::Mutex::new(Some(engine_thread))),
         };
 
         // Spawn the async effect consumption loop.
         let shell_clone = shell.clone();
+        let task_tracker_for_effects = task_tracker.clone();
         task_tracker.spawn(async move {
             effect_consumption_loop(
                 output_rx,
@@ -366,13 +430,20 @@ impl BriocheShell {
                 executor,
                 config_arc,
                 rebuild_in_progress,
+                task_tracker_for_effects,
+                shutdown_token_for_effects,
             )
             .await;
         });
 
         // Step 8: launch the periodic tick emitter.
         let tick_emitter = TickEmitter::new(system_signal_tx, config.tick_interval_ms);
-        task_tracker.spawn(tick_emitter.run());
+        task_tracker.spawn(async move {
+            tokio::select! {
+                _ = shutdown_token_for_tick.cancelled() => {}
+                _ = tick_emitter.run() => {}
+            }
+        });
 
         // Step 4: install default telemetry subscriber.
         let telemetry = TelemetryChannel::new(256);
@@ -404,7 +475,12 @@ impl BriocheShell {
                         .await;
                 });
             });
-        task_tracker.spawn(watchdog.run(ping_tx, pong_rx));
+        task_tracker.spawn(async move {
+            tokio::select! {
+                _ = shutdown_token_for_watchdog.cancelled() => {}
+                _ = watchdog.run(ping_tx, pong_rx) => {}
+            }
+        });
         shell
     }
 
@@ -438,6 +514,8 @@ impl BriocheShell {
             rebuild_tx: _rebuild_tx,
             rebuild_in_progress: Arc::new(AtomicBool::new(false)),
             task_tracker: TaskTracker::new(),
+            shutdown_token: CancellationToken::new(),
+            engine_thread: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -467,8 +545,32 @@ impl BriocheShell {
     ///
     /// Refs: I-Shell-Backpressure-NoOverflow, I-Gov-Rebuild-Barrier
     pub async fn send_input(&self, input: EngineInput) -> Result<(), ShellError> {
+        if self.shutdown_token.is_cancelled() {
+            return Err(ShellError::EngineDisconnected);
+        }
         if self.rebuild_in_progress.load(Ordering::Acquire) {
             return Err(ShellError::RebuildInProgress);
+        }
+        self.input_tx
+            .send(input)
+            .await
+            .map_err(|_| ShellError::ChannelSend)
+    }
+
+    /// Send an effect-owned terminal input to the kernel.
+    ///
+    /// This bypasses the front-door shutdown and rebuild barriers because the
+    /// effect was already admitted before either barrier was raised. It is used
+    /// only for terminal async results that let the kernel close an in-flight
+    /// generation instead of silently losing the outcome.
+    ///
+    /// Refs: I-Shell-ToolResult-PassThrough
+    pub(crate) async fn send_terminal_input(&self, input: EngineInput) -> Result<(), ShellError> {
+        if self.shutdown_token.is_cancelled() {
+            return self
+                .input_tx
+                .try_send(input)
+                .map_err(|_| ShellError::ChannelSend);
         }
         self.input_tx
             .send(input)
@@ -563,7 +665,7 @@ impl BriocheShell {
     ///
     /// Refs: I-Shell-Backpressure-NoOverflow
     pub async fn ready(&self) -> Result<(), ShellError> {
-        if self.input_tx.is_closed() {
+        if self.shutdown_token.is_cancelled() || self.input_tx.is_closed() {
             return Err(ShellError::EngineDisconnected);
         }
         Ok(())
@@ -581,13 +683,36 @@ impl BriocheShell {
 
     /// Gracefully shut down the shell.
     ///
-    /// Drops the input sender, causing the engine thread to exit
-    /// after processing pending inputs.
+    /// Cancels shell-owned async loops, cancels child tool tokens, waits for
+    /// tracked tasks to finish, and joins the dedicated engine thread.
+    ///
+    /// # Cancel safety
+    /// This future is not cancel-safe. Dropping it after cancellation but
+    /// before `wait_all` and engine-thread join complete can leave background
+    /// work detached. Shutdown callers must await it to completion.
     ///
     /// Refs: I-Shell-Session-NoSend
-    pub fn shutdown(&self) {
-        // Dropping all senders causes receivers to return `None`.
-        // The engine thread and effect loop will terminate naturally.
+    pub async fn shutdown(&self) {
+        self.shutdown_token.cancel();
+        self.task_tracker.wait_all().await;
+
+        let engine_thread = {
+            if let Ok(mut guard) = self.engine_thread.lock() {
+                guard.take()
+            } else {
+                None
+            }
+        };
+        if let Some(handle) = engine_thread {
+            let _ = tokio::task::spawn_blocking(move || handle.join()).await;
+        }
+    }
+
+    /// Returns a child cancellation token for work owned by this shell.
+    ///
+    /// Refs: I-Shell-Session-NoSend
+    pub(crate) fn child_cancellation_token(&self) -> CancellationToken {
+        self.shutdown_token.child_token()
     }
 }
 
@@ -616,6 +741,7 @@ fn engine_thread_loop(
     journal: Arc<TransitionJournal>,
     journal_enabled: bool,
     session_callback: Option<SessionCallback>,
+    shutdown_token: CancellationToken,
 ) {
     loop {
         // Check for rebuild commands before processing the next input.
@@ -628,8 +754,17 @@ fn engine_thread_loop(
             let _ = command.done.send(());
         }
 
-        let Some(input) = input_rx.blocking_recv() else {
+        if shutdown_token.is_cancelled() {
             break;
+        }
+
+        let input = match input_rx.try_recv() {
+            Ok(input) => input,
+            Err(mpsc::error::TryRecvError::Empty) => {
+                std::thread::sleep(Duration::from_millis(10));
+                continue;
+            }
+            Err(mpsc::error::TryRecvError::Disconnected) => break,
         };
 
         // Persist the input to the TransitionJournal before executing
@@ -703,41 +838,59 @@ async fn effect_consumption_loop<E>(
     executor: E,
     config: Arc<ShellConfig>,
     rebuild_in_progress: Arc<AtomicBool>,
+    task_tracker: TaskTracker,
+    shutdown_token: CancellationToken,
 ) where
     E: EffectExecutor,
 {
     // Semaphore to limit concurrent effects.
     let semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_concurrent_effects));
 
-    while let Some((effects, snapshot)) = output_rx.recv().await {
-        for effect in effects {
-            // RebuildRoutes is a transactional barrier: set the flag
-            // before sending the command and clear it after completion.
-            let is_rebuild = matches!(effect, Effect::RebuildRoutes);
-            if is_rebuild {
-                rebuild_in_progress.store(true, Ordering::Release);
-            }
+    loop {
+        let next_effects = tokio::select! {
+            _ = shutdown_token.cancelled() => break,
+            received = output_rx.recv() => received,
+        };
+        let Some((effects, snapshot)) = next_effects else {
+            break;
+        };
 
-            let permit = match semaphore.clone().acquire_owned().await {
-                Ok(p) => p,
-                Err(_) => break,
+        for effect in effects {
+            let permit = tokio::select! {
+                _ = shutdown_token.cancelled() => break,
+                permit = semaphore.clone().acquire_owned() => match permit {
+                    Ok(permit) => permit,
+                    Err(_) => break,
+                },
             };
             let shell = shell.clone();
             let executor = executor.clone();
             let snapshot = snapshot.clone();
             let rebuild_flag = Arc::clone(&rebuild_in_progress);
+            let shutdown_token = shutdown_token.clone();
+            let is_rebuild = matches!(effect, Effect::RebuildRoutes);
+            let is_execute_tools = matches!(effect, Effect::ExecuteTools(_));
 
-            tokio::spawn(async move {
-                let _permit = permit; // held until future completes
-                let result = execute_effect(effect, &shell, &executor, &snapshot).await;
+            task_tracker.spawn(async move {
+                let _permit = permit;
+                let rebuild_guard = if is_rebuild {
+                    Some(RebuildFlagGuard::new(rebuild_flag))
+                } else {
+                    None
+                };
+                let result = if is_execute_tools {
+                    execute_effect(effect, &shell, &executor, &snapshot).await
+                } else {
+                    tokio::select! {
+                        _ = shutdown_token.cancelled() => Ok(()),
+                        result = execute_effect(effect, &shell, &executor, &snapshot) => result,
+                    }
+                };
                 if let Err(e) = result {
                     tracing::error!(error = %e, "effect execution failed");
                 }
-                // Clear the rebuild barrier after the effect completes.
-                // For RebuildRoutes this happens after the engine thread
-                // has finished recalculating routes.
-                if is_rebuild {
-                    rebuild_flag.store(false, Ordering::Release);
+                if let Some(guard) = rebuild_guard {
+                    guard.clear();
                 }
             });
         }
@@ -1125,5 +1278,73 @@ mod tests {
             tracker.handles.lock().is_ok_and(|guard| guard.len() == 1),
             "tracker should retain only the one still-live handle"
         );
+    }
+
+    #[tokio::test]
+    async fn cancelled_rebuild_routes_effect_clears_barrier_flag() -> Result<(), ShellError> {
+        let (input_tx, _input_rx) = mpsc::channel(1);
+        let (system_signal_tx, _system_signal_rx) = mpsc::channel(1);
+        let (governance_tx, _governance_rx) = mpsc::channel(1);
+        let (async_task_result_tx, _async_task_result_rx) = mpsc::channel(1);
+        let (rebuild_tx, mut rebuild_rx) = mpsc::channel(1);
+        let (output_tx, output_rx) = mpsc::channel(1);
+        let rebuild_flag = Arc::new(AtomicBool::new(false));
+        let task_tracker = TaskTracker::new();
+        let shutdown_token = CancellationToken::new();
+        let shell = BriocheShell {
+            input_tx,
+            system_signal_tx,
+            governance_tx,
+            async_task_result_tx,
+            rebuild_tx,
+            rebuild_in_progress: Arc::clone(&rebuild_flag),
+            task_tracker: task_tracker.clone(),
+            shutdown_token: shutdown_token.clone(),
+            engine_thread: Arc::new(std::sync::Mutex::new(None)),
+        };
+        let executor = crate::DefaultEffectExecutor::new(
+            crate::EchoToolExecutor,
+            crate::MockLlmClient::default(),
+            crate::NoopPersistence,
+        );
+        let loop_handle = tokio::spawn(effect_consumption_loop(
+            output_rx,
+            shell,
+            executor,
+            Arc::new(ShellConfig {
+                max_concurrent_effects: 1,
+                ..ShellConfig::default()
+            }),
+            Arc::clone(&rebuild_flag),
+            task_tracker.clone(),
+            shutdown_token.clone(),
+        ));
+
+        output_tx
+            .send((vec![Effect::RebuildRoutes], StateSnapshot::default()))
+            .await
+            .map_err(|_| ShellError::ChannelSend)?;
+        let command = tokio::time::timeout(Duration::from_millis(100), rebuild_rx.recv())
+            .await
+            .map_err(|_| ShellError::EffectExecution("rebuild command was not sent".into()))?
+            .ok_or(ShellError::EngineDisconnected)?;
+        assert!(
+            rebuild_flag.load(Ordering::Acquire),
+            "RebuildRoutes should raise the input barrier while waiting for the engine"
+        );
+
+        shutdown_token.cancel();
+        task_tracker.wait_all().await;
+        assert!(
+            !rebuild_flag.load(Ordering::Acquire),
+            "cancelling an in-flight RebuildRoutes effect must clear the input barrier"
+        );
+
+        drop(command);
+        drop(output_tx);
+        loop_handle.await.map_err(|err| {
+            ShellError::EffectExecution(format!("effect loop join failed: {err}"))
+        })?;
+        Ok(())
     }
 }

@@ -14,12 +14,14 @@
 
 use std::time::Duration;
 
-use brioche_core::{BriocheEngineBuilder, ChatMessage, Session};
+use brioche_core::{BriocheEngineBuilder, ChatMessage, EngineInput, Session, StreamEvent};
 use brioche_governance_default::{BriocheEngineBuilderExt, GovernanceProfile};
 use brioche_provider_openai::{OpenAiConfig, OpenAiLlmClient, RetryConfig};
 use brioche_shell_runtime::{
-    BriocheShell, DefaultEffectExecutor, EchoToolExecutor, LlmClient, NoopPersistence, ShellConfig,
+    BriocheShell, DefaultEffectExecutor, EchoToolExecutor, LlmChunk, LlmClient, NoopPersistence,
+    ShellConfig,
 };
+use tokio::sync::mpsc;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -41,6 +43,72 @@ fn test_shell() -> Result<BriocheShell, brioche_provider_openai::OpenAiError> {
         executor,
         None,
     ))
+}
+
+fn loopback_shell() -> (BriocheShell, mpsc::Receiver<EngineInput>) {
+    let (input_tx, input_rx) = mpsc::channel(16);
+    let (async_tx, _async_rx) = mpsc::channel(1);
+    (
+        BriocheShell::test_with_loopback_channels(input_tx, async_tx),
+        input_rx,
+    )
+}
+
+async fn expect_terminal_done(
+    input_rx: &mut mpsc::Receiver<EngineInput>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut seen = Vec::new();
+    loop {
+        let input = tokio::time::timeout(Duration::from_secs(1), input_rx.recv())
+            .await
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    format!("timed out waiting for LlmStream(Done); saw {seen:?}"),
+                )
+            })?
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    format!("loopback closed before LlmStream(Done); saw {seen:?}"),
+                )
+            })?;
+
+        match input {
+            EngineInput::LlmStream(StreamEvent::Done) => return Ok(()),
+            other => seen.push(format!("{other:?}")),
+        }
+    }
+}
+
+async fn expect_provider_error(
+    ui_rx: &mut tokio::sync::broadcast::Receiver<LlmChunk>,
+    expected: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut seen = Vec::new();
+    loop {
+        let chunk = tokio::time::timeout(Duration::from_secs(1), ui_rx.recv())
+            .await
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    format!(
+                        "timed out waiting for provider error containing {expected:?}; saw {seen:?}"
+                    ),
+                )
+            })?
+            .map_err(|err| {
+                std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    format!("provider event channel closed before expected error: {err}"),
+                )
+            })?;
+
+        match chunk {
+            LlmChunk::Error(message) if message.contains(expected) => return Ok(()),
+            other => seen.push(format!("{other:?}")),
+        }
+    }
 }
 
 #[tokio::test]
@@ -118,7 +186,7 @@ async fn emits_tool_calls_to_kernel() -> Result<(), Box<dyn std::error::Error>> 
 }
 
 #[tokio::test]
-async fn network_failure_emits_system_signal() -> Result<(), Box<dyn std::error::Error>> {
+async fn http_error_before_sse_emits_terminal_done() -> Result<(), Box<dyn std::error::Error>> {
     let mock_server = MockServer::start().await;
 
     Mock::given(method("POST"))
@@ -132,20 +200,23 @@ async fn network_failure_emits_system_signal() -> Result<(), Box<dyn std::error:
         api_key: "test-key".into(),
         ..OpenAiConfig::default()
     };
-    let (client, _rx, _history) = OpenAiLlmClient::new(config)?;
+    let (client, mut ui_rx, _history) = OpenAiLlmClient::new(config)?;
+    let client = client.with_retry_policy(RetryConfig::none());
     client
         .push_message(ChatMessage::User {
             content: "hello".into(),
         })
         .await;
 
-    let shell = test_shell()?;
+    let (shell, mut input_rx) = loopback_shell();
     let result = client.call_llm(&shell).await;
 
     assert!(
         result.is_ok(),
         "call_llm should surface error and return Ok: {result:?}"
     );
+    expect_provider_error(&mut ui_rx, "HTTP 503").await?;
+    expect_terminal_done(&mut input_rx).await?;
     Ok(())
 }
 #[tokio::test]
@@ -219,13 +290,13 @@ async fn http_error_body_limit_is_enforced() -> Result<(), Box<dyn std::error::E
 
 /// Malformed `data:` lines are skipped until the parser's threshold is hit.
 ///
-/// Once the threshold is exceeded the stream aborts and the provider error
-/// is surfaced via `SystemSignal::NetworkUnavailable` so the kernel can
-/// recover.
+/// Once the threshold is exceeded the stream aborts. The provider still emits
+/// a terminal `StreamEvent::Done` so the kernel cannot remain in a streaming
+/// state after a transport/parser failure.
 ///
 /// Refs: docs/SPECS.md §Book III-B, I-Shell-Network-Signal
 #[tokio::test]
-async fn malformed_sse_lines_abort_and_surface_error() -> Result<(), Box<dyn std::error::Error>> {
+async fn malformed_sse_abort_emits_terminal_done() -> Result<(), Box<dyn std::error::Error>> {
     let mock_server = MockServer::start().await;
     // The default parser threshold is 5 consecutive malformed lines.
     let sse = "data: not-json-1\n\
@@ -245,20 +316,22 @@ async fn malformed_sse_lines_abort_and_surface_error() -> Result<(), Box<dyn std
         api_key: "test-key".into(),
         ..OpenAiConfig::default()
     };
-    let (client, _rx, _history) = OpenAiLlmClient::new(config)?;
+    let (client, mut ui_rx, _history) = OpenAiLlmClient::new(config)?;
     client
         .push_message(ChatMessage::User {
             content: "hello".into(),
         })
         .await;
 
-    let shell = test_shell()?;
+    let (shell, mut input_rx) = loopback_shell();
     let result = client.call_llm(&shell).await;
 
     assert!(
         result.is_ok(),
         "call_llm should surface parser error and return Ok: {result:?}"
     );
+    expect_provider_error(&mut ui_rx, "SSE parser error").await?;
+    expect_terminal_done(&mut input_rx).await?;
     Ok(())
 }
 
