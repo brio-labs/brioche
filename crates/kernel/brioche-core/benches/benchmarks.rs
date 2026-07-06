@@ -74,7 +74,7 @@ impl EpochInterceptor for MockEpochInterceptor {
 
 struct MockConsistencyVerifier;
 impl ConsistencyVerifier for MockConsistencyVerifier {
-    fn verify_consistency(&self, _session: &mut Session) -> PluginResult<Option<Vec<Effect>>> {
+    fn verify_consistency(&self, _session: &Session) -> PluginResult<Option<PolicyDecision>> {
         Ok(None)
     }
 }

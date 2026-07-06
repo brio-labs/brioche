@@ -11,7 +11,9 @@
 //! Refs: docs/SPECS.md §4.4
 
 use super::{BriocheEngine, PreTransitionState};
-use crate::{Effect, ErrorCode, ErrorDetail, Session, effect_to_bitmask};
+use crate::{
+    AgentState, Effect, ErrorCode, ErrorDetail, PolicyDecision, Session, effect_to_bitmask,
+};
 
 impl BriocheEngine {
     /// Finalize a transition: apply lifecycle guards, consistency checks,
@@ -128,7 +130,12 @@ impl BriocheEngine {
     /// because the routing table change may intentionally leave transient
     /// inconsistent states.
     ///
-    /// Refs: I-Gov-Rebuild-Barrier
+    /// If the verifier returns `PolicyDecision::OverrideTransition`, the
+    /// kernel applies the standard recovery (transition to `Idle`, clear
+    /// state stack, clear active tools) before appending the returned
+    /// effects.
+    ///
+    /// Refs: I-Gov-Rebuild-Barrier, I-Gov-NoCoreMutation
     fn apply_consistency_check(&self, session: &mut Session, effects: &mut Vec<Effect>) {
         let Some(ref verifier) = self.governance.consistency_verifier else {
             return;
@@ -138,10 +145,38 @@ impl BriocheEngine {
             return;
         }
 
-        match verifier.verify_consistency(session) {
-            Ok(Some(verifier_effects)) => {
-                effects.extend(verifier_effects);
-            }
+        match verifier.verify_consistency(&*session) {
+            Ok(Some(decision)) => match decision {
+                PolicyDecision::OverrideTransition(verifier_effects) => {
+                    session.state = AgentState::Idle;
+                    session.state_stack.clear();
+                    session.active_tools.clear();
+                    effects.extend(verifier_effects);
+                }
+                PolicyDecision::RequestEffect(effect) => {
+                    effects.push(effect);
+                }
+                PolicyDecision::MutateHistory(edits) => {
+                    if let Err(err) = session.apply_history_edits(&edits) {
+                        effects.push(Effect::Error {
+                            code: ErrorCode::StateInconsistency,
+                            detail: ErrorDetail::HookConstraintFailed {
+                                reason: err.to_string(),
+                            },
+                        });
+                    }
+                }
+                PolicyDecision::Block { reason } => {
+                    effects.push(Effect::Error {
+                        code: ErrorCode::StateInconsistency,
+                        detail: ErrorDetail::HookConstraintFailed {
+                            reason: reason.clone(),
+                        },
+                    });
+                    effects.push(Effect::SystemIdle);
+                }
+                PolicyDecision::Allow => {}
+            },
             Ok(None) => {}
             Err(err) => {
                 effects.push(Self::plugin_fault("consistency_verifier", err));

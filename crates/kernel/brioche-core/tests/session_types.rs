@@ -122,17 +122,6 @@ fn registry_remove_unknown_returns_none() {
 }
 
 #[test]
-fn registry_exit_count_increments() {
-    let mut registry = SessionRegistry::new();
-    let handle = SubRoutineHandle::new("sub-4");
-    assert_eq!(registry.get_exit_count(&handle), 0);
-    registry.increment_exit_count(&handle);
-    assert_eq!(registry.get_exit_count(&handle), 1);
-    registry.increment_exit_count(&handle);
-    assert_eq!(registry.get_exit_count(&handle), 2);
-}
-
-#[test]
 fn registry_handles_iterates_keys() {
     let mut registry = SessionRegistry::new();
     let h1 = SubRoutineHandle::new("a");

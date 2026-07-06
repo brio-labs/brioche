@@ -444,9 +444,11 @@ pub trait SubRoutineHydrator: Send + Sync {
 pub trait ConsistencyVerifier: Send + Sync {
     /// Verify mechanical consistency of `session` after a transition.
     ///
-    /// Implementations may mutate `session` to repair inconsistency,
-    /// returning effects (typically `OverrideTransition`) that communicate
-    /// the repair to the shell.
+    /// Implementations must **not** mutate `session`. If the state is
+    /// inconsistent, return `PolicyDecision::OverrideTransition(effects)`
+    /// and the kernel will apply the standard recovery (transition to
+    /// `Idle`, clear the state stack, and clear active tools) before
+    /// appending the returned effects.
     ///
     /// # Complexity
     /// O(1) for the trait call. Implementations must document their own
@@ -456,8 +458,8 @@ pub trait ConsistencyVerifier: Send + Sync {
     /// Never panics. Implementations must return `PluginError` rather
     /// than panic.
     ///
-    /// Refs: I-Core-NoPanic
-    fn verify_consistency(&self, session: &mut Session) -> PluginResult<Option<Vec<Effect>>>;
+    /// Refs: I-Core-NoPanic, I-Gov-NoCoreMutation
+    fn verify_consistency(&self, session: &Session) -> PluginResult<Option<PolicyDecision>>;
 }
 
 /// Mandatory. Aggregates `before_prediction` decisions from multiple plugins.

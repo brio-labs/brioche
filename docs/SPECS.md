@@ -481,9 +481,6 @@ The kernel maintains a `SessionRegistry` on the synchronous thread, strictly `!S
 ```rust
 pub struct SessionRegistry {
     sessions: BTreeMap<SubRoutineHandle, Session>,
-    /// Outgoing transition counters per handle.
-    /// Used by SubRoutineCleanupGuard for defensive cleanup.
-    exit_counts: BTreeMap<SubRoutineHandle, u64>,
 }
 impl !Send for SessionRegistry {}
 impl !Sync for SessionRegistry {}
@@ -1195,7 +1192,7 @@ Call `on_input` on plugins of the `route_on_input` route in priority order.
 
 **7. Sub-routine outgoing transition (`SubRoutineLifecycleGuard` trait):**
 
-If the previous state before step 6 was `SubRoutine(handle)` and the current state is no longer `SubRoutine` (following `pop_state`, `OverrideTransition`, or any other dispatch), call `subroutine_lifecycle_guard.on_exit(handle, session, &mut session_registry)`. The trait may return additional effects (typically `SaveSession` and registry cleanup). The `SubRoutineCleanupGuard` implementation removes the child from the `SessionRegistry`, updates `exit_counts`, and emits `SaveSession`.
+If the previous state before step 6 was `SubRoutine(handle)` and the current state is no longer `SubRoutine` (following `pop_state`, `OverrideTransition`, or any other dispatch), call `subroutine_lifecycle_guard.on_exit(handle, session, &mut session_registry)`. The trait may return additional effects (typically `SaveSession` and registry cleanup). The `SubRoutineCleanupGuard` implementation removes the child from the `SessionRegistry`, increments the per-handle counter in its governance-owned `SubRoutineExitState` extension, and emits `SaveSession`.
 
 <br>
 
@@ -1306,8 +1303,9 @@ For a `UserMessage`, the complete path is:
 
 10. [MECHANISM] RebuildRoutes last position guarantee
 
-11. [FIXED TRAIT] ConsistencyVerifier::verify_consistency
-    → If Some(effects) and no RebuildRoutes : returns these effects
+11. [FIXED TRAIT] `ConsistencyVerifier::verify_consistency`
+    → If `Some(PolicyDecision::OverrideTransition(effects))` and no `RebuildRoutes` : kernel applies recovery (Idle, clear stack/tools) and appends effects.
+    → Other `PolicyDecision` variants are applied by the kernel's decision machinery.
 
 12. [FIXED TRAIT] GovernanceFailoverHandler::handle_failure (optional)
     → If PluginFault on governance and no RebuildRoutes
@@ -1491,12 +1489,12 @@ Called if `session.state` is `SubRoutine`. Resolves the child via `SessionRegist
 
 ```rust
 pub trait ConsistencyVerifier: Send + Sync {
-    fn verify_consistency(&self, session: &mut Session)
-        -> Result<Option<Vec<Effect>>, PluginError>;
+    fn verify_consistency(&self, session: &Session)
+        -> Result<Option<PolicyDecision>, PluginError>;
 }
 ```
 
-Called last. If `Some(effects)`, mechanical forcing (typically `OverrideTransition` to `Idle`). If the accumulated effects vector already contains `RebuildRoutes`, the `ConsistencyVerifier` effects are ignored and traced in `SupersededTransitionTraceLog` with reason `ConsistencyBypassedByRebuild` (I-Comp-Rebuild-Overrides-Consistency).
+Called last. Implementations must not mutate `session`. If the verifier returns `Some(PolicyDecision::OverrideTransition(effects))`, the kernel applies the standard recovery (transition to `Idle`, clear `state_stack`, clear `active_tools`) and appends the returned effects. Other `PolicyDecision` variants are handled by the kernel's decision machinery. If the accumulated effects vector already contains `RebuildRoutes`, the `ConsistencyVerifier` decision is ignored and traced in `SupersededTransitionTraceLog` with reason `ConsistencyBypassedByRebuild` (I-Comp-Rebuild-Overrides-Consistency).
 
 <br>
 
@@ -1674,16 +1672,12 @@ pub trait CowBudgetPolicy: Send + Sync {
 ```rust
 pub struct SessionRegistry {
     sessions: BTreeMap<SubRoutineHandle, Session>,
-    /// Outgoing transition counters per handle.
-    /// Incremented at each outgoing transition from SubRoutine.
-    /// Used by SubRoutineCleanupGuard for defensive cleanup.
-    exit_counts: BTreeMap<SubRoutineHandle, u64>,
 }
 impl !Send for SessionRegistry {}
 impl !Sync for SessionRegistry {}
 ```
 
-The kernel maintains this registry on the synchronous thread. The shell and persistence manipulate only flattened `SessionHeadDTO`s. The `exit_counts` field is maintained by the kernel; it is incremented at each call to `SubRoutineLifecycleGuard::on_exit`, allowing implementations to detect duplicates and orphans.
+The kernel maintains this registry on the synchronous thread. The shell and persistence manipulate only flattened `SessionHeadDTO`s. `SessionRegistry` is a plain handle→session map; any per-handle lifecycle metadata (e.g. outgoing transition counters) is owned by the injected `SubRoutineLifecycleGuard` implementation in its `ExtensionStorage` state.
 
 <br>
 
@@ -1808,9 +1802,10 @@ pub struct EpochState {
 
 **`verify_consistency` algorithm:**
 
-1. Read `SessionSnapshot` from `ExtensionStorage`.
-2. Verify consistency: if the state is `Predicting` or `ExecutingTools` without justification (empty stack, no tools in progress according to `session.active_tools`), return `Some(vec![Effect::OverrideTransition(...)])` with: forcing `Idle`, clearing `state_stack`, epoch increment, `SaveSession`.
-3. Otherwise, return `None`.
+1. Read `session.state` and `session.state_stack` (the verifier receives an immutable `&Session`).
+2. Verify consistency: if the state is `Predicting` or `ExecutingTools` and `session.state_stack` is empty, return `Some(PolicyDecision::OverrideTransition(effects))` with effects: `Effect::Error(StateInconsistency)`, `Effect::SaveSession`, `Effect::SystemIdle`.
+3. The kernel applies the standard recovery: set `session.state` to `Idle`, clear `session.state_stack`, and clear `session.active_tools`.
+4. Otherwise, return `None`.
 
 <br>
 
@@ -2235,13 +2230,14 @@ pub struct UndoFrameState {
 
 **`on_exit` algorithm:**
 
-1. Increment `registry.exit_counts[handle]`.
-2. Remove the child `Session` from `SessionRegistry` via `registry.sessions.remove(handle)`.
-3. If removal succeeds, return `vec![Effect::SaveSession]`.
-4. If the handle no longer exists (already cleaned) :
+1. Retrieve `SubRoutineExitState` from `parent.extensions` (insert default if absent).
+2. Increment `state.exit_counts[handle]`.
+3. Remove the child `Session` from `SessionRegistry` via `registry.sessions.remove(handle)`.
+4. If removal succeeds, return `vec![Effect::SaveSession]`.
+5. If the handle no longer exists (already cleaned) :
    * Push a trace in `SupersededTransitionTraceLog` with reason `DuplicateCleanup`.
    * Return `vec![]`.
-5. **Orphan defensive cleanup** : iterate over `registry.exit_counts`. If a handle has a counter > 0 (confirmed outgoing transition) but is still in `registry.sessions`, remove it immediately.
+6. **Orphan defensive cleanup** : iterate over `state.exit_counts`. If a handle has a counter > 0 (confirmed outgoing transition) but is still in `registry.sessions`, remove it immediately.
 
 <br>
 
@@ -2795,7 +2791,7 @@ The shell can call `engine.rebuild_routes(&active_mask)` at any time. The mask (
 7. **SubRoutineLifecycleGuard** : if outgoing transition from `SubRoutine(handle)`, call `on_exit()`. This trait is mandatory.
 8. **HookEffectConstraint** : validate `RequestEffect`s via `is_allowed_fast(hook_index, effect_mask)` in O(1). Fallback by name for extended effects. Replace unauthorized ones with `Error(StateInconsistency)`.
 9. **RebuildRoutes guarantee** : if present, guarantee final position; truncate following effects.
-10. **ConsistencyVerifier** : `verify_consistency`. If `Some(effects)` AND `RebuildRoutes` is not present → return. If `RebuildRoutes` is present, the verifier's effects are ignored (I-Comp-Rebuild-Overrides-Consistency).
+10. **ConsistencyVerifier** : `verify_consistency`. If `Some(PolicyDecision::OverrideTransition(effects))` AND `RebuildRoutes` is not present, the kernel applies recovery (Idle, clear stack/tools) and appends the effects. Other `PolicyDecision` variants are applied by the kernel's decision machinery. If `RebuildRoutes` is present, the verifier's decision is ignored (I-Comp-Rebuild-Overrides-Consistency).
 10.5. **GovernanceFailoverHandler** (optional) : If the vector contains `PluginFault` targeting a `GovernanceCategory` and no `RebuildRoutes` is present, call `handle_failure`. If `Some(effects)`, replace the raw `PluginFault` (I-Gov-Failover-LastResort).
 11. **CycleRollbackPolicy** : if injected, call `commit_hook(ext)` or `rollback_hook(ext)` according to budget, limited by `max_cow_bytes_per_hook` (or by `CowBudgetPolicy` if `AdaptiveUndoFrameGuard` or `TieredUndoFrameGuard` is injected, I-Gov-CowBudget-Adaptative).
 12. Return the accumulated effects.
@@ -4413,7 +4409,7 @@ Composition invariants define the interaction rules between governance traits an
 | **I-Comp-Override-Rebuild** | An `OverrideTransition` can never cancel a `RebuildRoutes` already emitted in the same cycle. The kernel guarantees the `RebuildRoutes` order in last position (I-Gov-Rebuild-Last) and ignores any subsequent `OverrideTransition` if `RebuildRoutes` is already present. |
 | **I-Comp-Epoch-First** | `EpochInterceptor` is always evaluated before any other governance trait. The epoch is the fundamental temporal barrier; no policy decision can override an epoch barrier. |
 | **I-Comp-Epoch-Subroutine** | `SubRoutineHandler` short-circuits standard dispatch but **does not short-circuit** `EpochInterceptor` . An obsolete sub-routine (past epoch) is rejected before `SubRoutineHandler` is invoked. |
-| **I-Comp-Rebuild-Overrides-Consistency** | `ConsistencyVerifier` can never overwrite a `RebuildRoutes`. If `ConsistencyVerifier` returns `Some(effects)` and the accumulated vector already contains `RebuildRoutes`, the verifier's effects are ignored and traced in `SupersededTransitionTraceLog` (reason: `ConsistencyBypassedByRebuild`). |
+| **I-Comp-Rebuild-Overrides-Consistency** | `ConsistencyVerifier` can never overwrite a `RebuildRoutes`. If `ConsistencyVerifier` returns `Some(PolicyDecision::OverrideTransition(effects))` and the accumulated vector already contains `RebuildRoutes`, the verifier's decision is ignored and traced in `SupersededTransitionTraceLog` (reason: `ConsistencyBypassedByRebuild`). |
 | **I-Comp-Rollback-Excludes-Governance** | A `CycleRollbackPolicy` never rolls back mutations performed by fundamental governance traits (`EpochInterceptor`, `SubRoutineHandler`, `ConsistencyVerifier`, `DecisionAggregator`). Only pre-routed hooks of ordinary plugins are monitored. |
 | **I-Comp-Failover-NoOverride** | The `GovernanceFailoverHandler` trait intervenes only if `QuarantineManager` has not processed a governance fault (absence of `RebuildRoutes` with `PluginFault` targeting a `Governance` category). It does not short-circuit fundamental traits nor standard dispatch. |
 | **I-Comp-Atomic-Concern** | Each plugin implements exactly one observable policy concern. A plugin that checks depth limits does not construct UI effects; a plugin that counts tool calls does not format results. Concern separation is enforced by code review. |
@@ -4837,7 +4833,7 @@ The following configurations are the only officially supported and CI-tested pro
 | 29 | I-Shell-Watchdog-NoKill | The `EngineWatchdog` on the shell side monitors the engine thread's reactivity and triggers emergency serialization in case of prolonged blocking, without panic propagation to the kernel. |
 | 30 | I-Shell-Tick | The shell emits `SystemSignal::Tick { elapsed_ms }` periodically for temporal governance plugins, without modifying the `EngineInput` enum. |
 | 31 | I-Gov-Rollback-BestEffort | The `CycleRollbackPolicy` trait is optional. Without injection, the kernel performs no snapshot or rollback of `ExtensionStorage`. With injection, only actually mutated extensions are cloned via `clone_box` from the VTable (granular COW, O(k)), and rollback is abandoned if `max_cow_bytes_per_hook` is exceeded (best-effort, I-Gov-Rollback-Critical). The `CowBudgetPolicy` trait allows configuring this threshold per hook; without injection, the default value is 65536 bytes (I-Gov-CowBudget-Adaptative). |
-| 32 | I-Gov-SubRoutineLifecycle-Guard | The `SubRoutineLifecycleGuard` trait is **mandatory**. The kernel refuses to start without an injected implementation. The `SubRoutineCleanupGuard` implementation removes the child from `SessionRegistry` on outgoing transition from `SubRoutine` and maintains `exit_counts` for defense in depth. |
+| **I-Gov-SubRoutineLifecycle-Guard** | The `SubRoutineLifecycleGuard` trait is **mandatory**. The kernel refuses to start without an injected implementation. The `SubRoutineCleanupGuard` implementation removes the child from `SessionRegistry` on outgoing transition from `SubRoutine` and tracks per-handle exit counters in its governance-owned `SubRoutineExitState` extension for defense in depth. |
 | 33 | I-Gov-Profile-Agnostic | The `brioche-governance-default` crate provides reference implementations and predefined profiles (`Permissive`, `Standard`, `Strict`) for all governance traits, including `SubRoutineCleanupGuard` as the mandatory `SubRoutineLifecycleGuard` implementation. It strictly respects I-Gov-Decision-Required (mandatory injection, no fallback in the kernel). The kernel remains agnostic of the profile notion. |
 | 34 | I-Comp-Override-Rebuild | The `GovernanceCompatibilityMatrix` defines composition invariants between traits (`epoch_overrides_subroutine`, `rebuildroutes_overrides_consistency`, `rollback_excludes_governance_traits`). It is injected at initialization with default values guaranteeing invariants I-Comp-Override-Rebuild to I-Comp-Failover-NoOverride. |
 | 35 | I-Shell-Backpressure-NoOverflow | The `BackpressureRegulator` guarantees that the channel to the engine never exceeds its capacity (I-Shell-Backpressure-NoOverflow). Intermediate SSE chunks can be dropped in `Conservative` mode without losing structural events. |

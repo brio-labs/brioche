@@ -7,10 +7,12 @@
 //! Refs: I-Comp-Epoch-Subroutine, I-Gov-SubRoutineLifecycle-Guard
 
 use brioche_core::{
-    ActiveToolCall, AgentState, ChatMessage, Effect, EngineInput, PluginResult, Session,
-    SessionRegistry, StreamEvent, SubRoutineHandle, SubRoutineHandler, SubRoutineLifecycleGuard,
-    ToolResultDTO,
+    ActiveToolCall, AgentState, BriocheExtensionType, ChatMessage, Effect, EngineInput,
+    PluginResult, Session, SessionRegistry, StreamEvent, SubRoutineHandle, SubRoutineHandler,
+    SubRoutineLifecycleGuard, ToolResultDTO,
 };
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 // ---------------------------------------------------------------------------
 // SubRoutineOrchestrator
@@ -206,6 +208,34 @@ impl SubRoutineHandler for SubRoutineOrchestrator {
 // SubRoutineCleanupGuard
 // ---------------------------------------------------------------------------
 
+/// Outgoing sub-routine transition counters stored as governance state.
+///
+/// `SubRoutineCleanupGuard` uses this state to track how many times each
+/// sub-routine handle has exited, without polluting the mechanism-only
+/// `SessionRegistry`.
+///
+/// ## Snapshot strategy
+/// No snapshot: `SubRoutineExitState` is reconstructed each transition
+/// cycle. The exit counters are transient governance metadata; they are
+/// not persisted across engine restarts.
+///
+/// # Invariants
+/// - I-Eco-OrderedCollections: Uses `BTreeMap` for deterministic iteration.
+/// - I-Gov-SubRoutineLifecycle-Guard: Governance owns per-handle lifecycle metadata.
+///
+/// # Complexity
+/// O(log n) per handle lookup/insertion.
+///
+/// # Panics
+/// Never panics.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
+#[brioche(no_snapshot)]
+pub struct SubRoutineExitState {
+    /// Map sub-routine handle -> number of outgoing transitions observed.
+    /// BTreeMap preserves deterministic iteration order.
+    pub exit_counts: BTreeMap<SubRoutineHandle, u64>,
+}
+
 /// Sub-routine cleanup guard.
 ///
 /// Cleans up the `SessionRegistry` on every outgoing transition from
@@ -234,10 +264,13 @@ impl SubRoutineLifecycleGuard for SubRoutineCleanupGuard {
     fn on_exit(
         &self,
         handle: SubRoutineHandle,
-        _parent: &mut Session,
+        parent: &mut Session,
         registry: &mut SessionRegistry,
     ) -> PluginResult<Vec<Effect>> {
-        registry.increment_exit_count(&handle);
+        let state = parent
+            .extensions
+            .get_or_insert_default::<SubRoutineExitState>();
+        *state.exit_counts.entry(handle.clone()).or_insert(0) += 1;
 
         if registry.remove(&handle).is_some() {
             Ok(vec![Effect::SaveSession])
@@ -435,17 +468,22 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_guard_removes_child_session() -> Result<(), PluginError> {
+    fn cleanup_guard_tracks_exit_count_in_extension_state() -> Result<(), PluginError> {
         let guard = SubRoutineCleanupGuard::new();
         let handle = SubRoutineHandle::new("sub");
         let mut registry = SessionRegistry::new();
         registry.insert(handle.clone(), Session::new("child"));
         let mut parent = Session::new("parent");
 
-        let effects = guard.on_exit(handle, &mut parent, &mut registry)?;
+        let effects = guard.on_exit(handle.clone(), &mut parent, &mut registry)?;
 
-        assert!(!registry.contains(&SubRoutineHandle::new("sub")));
+        assert!(!registry.contains(&handle));
         assert_eq!(effects, vec![Effect::SaveSession]);
+
+        let state = parent
+            .extensions
+            .get_or_insert_default::<SubRoutineExitState>();
+        assert_eq!(state.exit_counts.get(&handle), Some(&1));
         Ok(())
     }
 }
