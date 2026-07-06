@@ -1,0 +1,17 @@
+[package]
+name = "brioche-governance"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Book II governance trait contracts"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+[lints.rust]
+missing_docs = "deny"

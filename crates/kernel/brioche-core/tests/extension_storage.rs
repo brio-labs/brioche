@@ -231,6 +231,10 @@ impl RecordingPolicy {
 }
 
 impl CycleRollbackPolicy for RecordingPolicy {
+    type CowBudgetPolicy = dyn brioche_core::CowBudgetPolicy;
+    type ExtVTable = ExtVTable;
+    type ExtensionStorage = ExtensionStorage;
+
     fn begin_hook(&mut self, _hook_name: &'static str) {}
 
     fn on_mutation(&mut self, _type_id: TypeId, _vtable: &ExtVTable, _current: &dyn Any) {

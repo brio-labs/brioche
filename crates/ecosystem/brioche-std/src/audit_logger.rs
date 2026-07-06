@@ -7,8 +7,8 @@
 //! Refs: I-Eco-ExtensionOverMod, I-Eco-OrderedCollections
 
 use brioche_core::{
-    BriocheExtensionType, BriochePlugin, Effect, EngineInput, ExtensionStorage, PluginCapabilities,
-    PluginResult, PolicyDecision,
+    BriocheExtensionType, Effect, EngineInput, ExtensionStorage, OnInput, PluginResult,
+    PolicyDecision,
 };
 
 use crate::Priority;
@@ -79,13 +79,14 @@ impl Default for AuditLogger {
     }
 }
 
-impl BriochePlugin for AuditLogger {
+impl OnInput for AuditLogger {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         "audit_logger"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
     }
 
     fn priority(&self) -> i16 {

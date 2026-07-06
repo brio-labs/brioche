@@ -67,6 +67,10 @@ impl Default for NegotiationBroker {
 }
 
 impl DecisionAggregator for NegotiationBroker {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn aggregate_decisions(
         &self,
         decisions: Vec<PolicyDecision>,

@@ -31,8 +31,8 @@ pub mod util;
 
 // Re-export channel types from core so consumers need only one import.
 pub use brioche_core::{
-    AsyncTaskResult, BriocheEngine, BriocheEngineBuilder, BriochePlugin, ChatMessage, Effect,
-    EngineInput, GovernanceNotification, Session, SystemSignal,
+    AsyncTaskResult, BriocheEngine, BriocheEngineBuilder, ChatMessage, Effect, EngineInput,
+    GovernanceNotification, Session, SystemSignal,
 };
 pub use effect_executor::{DefaultEffectExecutor, EffectExecutor, NoopPersistence, Persistence};
 pub use engine_watchdog::{

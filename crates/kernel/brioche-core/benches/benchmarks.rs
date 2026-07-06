@@ -22,9 +22,9 @@ use std::collections::BTreeMap;
 
 use brioche_core::{
     ActiveToolCall, AgentState, BriocheEngine, BriocheEngineBuilder, BriocheExtensionType,
-    BriochePlugin, ConsistencyVerifier, CycleRollbackPolicy, DecisionAggregator, Effect, EffectBit,
-    EngineInput, EpochAction, EpochInterceptor, ExecutionPath, ExtVTable, ExtensionStorage,
-    GovernanceFailoverHandler, HookEffectConstraint, PluginCapabilities, PluginError, PluginResult,
+    ConsistencyVerifier, CycleRollbackPolicy, DecisionAggregator, Effect, EffectBit, EngineInput,
+    EpochAction, EpochInterceptor, ExecutionPath, ExtVTable, ExtensionStorage,
+    GovernanceFailoverHandler, HookEffectConstraint, OnInput, PluginError, PluginResult,
     PolicyDecision, Session, SessionRegistry, StreamEvent, SubRoutineHandle,
     SubRoutineLifecycleGuard,
 };
@@ -40,6 +40,10 @@ use serde::{Deserialize, Serialize};
 
 struct MockDecisionAggregator;
 impl DecisionAggregator for MockDecisionAggregator {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn aggregate_decisions(
         &self,
         _decisions: Vec<PolicyDecision>,
@@ -51,6 +55,12 @@ impl DecisionAggregator for MockDecisionAggregator {
 
 struct MockSubRoutineLifecycleGuard;
 impl SubRoutineLifecycleGuard for MockSubRoutineLifecycleGuard {
+    type Effect = Effect;
+    type PluginError = PluginError;
+    type Session = Session;
+    type SessionRegistry = SessionRegistry;
+    type SubRoutineHandle = SubRoutineHandle;
+
     fn on_exit(
         &self,
         _handle: SubRoutineHandle,
@@ -63,6 +73,11 @@ impl SubRoutineLifecycleGuard for MockSubRoutineLifecycleGuard {
 
 struct MockEpochInterceptor;
 impl EpochInterceptor for MockEpochInterceptor {
+    type EngineInput = EngineInput;
+    type EpochAction = EpochAction;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = PluginError;
+
     fn intercept_epoch(
         &self,
         _input: &EngineInput,
@@ -74,6 +89,10 @@ impl EpochInterceptor for MockEpochInterceptor {
 
 struct MockConsistencyVerifier;
 impl ConsistencyVerifier for MockConsistencyVerifier {
+    type PluginError = PluginError;
+    type PolicyDecision = PolicyDecision;
+    type Session = Session;
+
     fn verify_consistency(&self, _session: &Session) -> PluginResult<Option<PolicyDecision>> {
         Ok(None)
     }
@@ -81,6 +100,10 @@ impl ConsistencyVerifier for MockConsistencyVerifier {
 
 struct MockCycleRollbackPolicy;
 impl CycleRollbackPolicy for MockCycleRollbackPolicy {
+    type CowBudgetPolicy = dyn brioche_core::CowBudgetPolicy;
+    type ExtVTable = ExtVTable;
+    type ExtensionStorage = ExtensionStorage;
+
     fn begin_hook(&mut self, _hook_name: &'static str) {}
 
     fn on_mutation(
@@ -539,13 +562,14 @@ mod governance {
     /// Plugin that always returns a fatal error, producing `Effect::PluginFault`.
     struct FaultyPlugin;
 
-    impl BriochePlugin for FaultyPlugin {
+    impl OnInput for FaultyPlugin {
+        type EngineInput = EngineInput;
+        type ExtensionStorage = ExtensionStorage;
+        type PluginError = PluginError;
+        type PolicyDecision = PolicyDecision;
+
         fn name(&self) -> &'static str {
             "faulty"
-        }
-
-        fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::ON_INPUT
         }
 
         fn on_input(
@@ -564,6 +588,10 @@ mod governance {
     struct NoopFailoverHandler;
 
     impl GovernanceFailoverHandler for NoopFailoverHandler {
+        type Effect = Effect;
+        type PluginError = PluginError;
+        type Session = Session;
+
         fn handle_failure(
             &self,
             _session: &mut Session,
@@ -584,7 +612,7 @@ mod governance {
     #[divan::bench]
     fn failover_replacement(bencher: divan::Bencher) {
         let mut engine = BriocheEngineBuilder::new()
-            .with_plugin(Box::new(FaultyPlugin))
+            .with_on_input(Box::new(FaultyPlugin))
             .with_governance_failover_handler(Box::new(NoopFailoverHandler))
             .with_decision_aggregator(Box::new(MockDecisionAggregator))
             .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))

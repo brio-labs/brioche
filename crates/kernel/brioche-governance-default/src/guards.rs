@@ -30,6 +30,11 @@ use brioche_core::{
 pub struct EpochGuard;
 
 impl EpochInterceptor for EpochGuard {
+    type EngineInput = EngineInput;
+    type EpochAction = EpochAction;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+
     fn intercept_epoch(
         &self,
         input: &EngineInput,
@@ -83,6 +88,10 @@ impl Default for StateConsistencyGuard {
 }
 
 impl ConsistencyVerifier for StateConsistencyGuard {
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+    type Session = Session;
+
     fn verify_consistency(&self, session: &Session) -> PluginResult<Option<PolicyDecision>> {
         let tag = AgentStateTag::from(&session.state);
 
@@ -141,6 +150,10 @@ impl Default for SystemFailoverGuard {
 }
 
 impl GovernanceFailoverHandler for SystemFailoverGuard {
+    type Effect = Effect;
+    type PluginError = brioche_core::PluginError;
+    type Session = Session;
+
     fn handle_failure(
         &self,
         _session: &mut Session,

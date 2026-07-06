@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 
 use brioche_core::{
-    BriocheExtensionType, BriochePlugin, ChatMessage, ExtensionStorage, PluginCapabilities,
+    AfterPrediction, BeforePrediction, BriocheExtensionType, ChatMessage, ExtensionStorage,
     PluginResult,
 };
 
@@ -85,13 +85,14 @@ impl Default for TokenTracker {
     }
 }
 
-impl BriochePlugin for TokenTracker {
+impl BeforePrediction for TokenTracker {
+    type ChatMessage = ChatMessage;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = brioche_core::PolicyDecision;
+
     fn name(&self) -> &'static str {
         "token_tracker"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::BEFORE_PREDICTION | PluginCapabilities::AFTER_PREDICTION
     }
 
     fn priority(&self) -> i16 {
@@ -133,6 +134,19 @@ impl BriochePlugin for TokenTracker {
         }
 
         Ok(brioche_core::PolicyDecision::Allow)
+    }
+}
+
+impl AfterPrediction for TokenTracker {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+
+    fn name(&self) -> &'static str {
+        "token_tracker"
+    }
+
+    fn priority(&self) -> i16 {
+        Priority::TOKEN_TRACKER
     }
 
     /// Finalizes cycle count after prediction completes.

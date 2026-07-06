@@ -473,6 +473,7 @@ dependencies = [
 name = "brioche-core"
 version = "0.1.0"
 dependencies = [
+ "brioche-governance",
  "brioche-governance-default",
  "brioche-macro",
  "bytes",
@@ -520,6 +521,10 @@ dependencies = [
  "serde_json",
  "tempfile",
 ]
+
+[[package]]
+name = "brioche-governance"
+version = "0.1.0"
 
 [[package]]
 name = "brioche-governance-default"

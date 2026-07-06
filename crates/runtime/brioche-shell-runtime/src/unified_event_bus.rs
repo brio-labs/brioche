@@ -132,6 +132,8 @@ impl UnifiedEventBus {
 }
 
 impl SignalDrainOrder for UnifiedEventBus {
+    type SignalDrainBatch = SignalDrainBatch;
+
     /// Drain with fast-path bypass.
     ///
     /// If the internal unified channel has pending batches, they are

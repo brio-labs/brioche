@@ -11,8 +11,8 @@
 
 use super::{BriocheEngine, PreTransitionState};
 use crate::{
-    ActiveToolCall, AgentState, CycleRollbackPolicy, Effect, EngineInput, EpochAction, ErrorCode,
-    ErrorDetail, PluginError, PluginSource, Session,
+    ActiveToolCall, AgentState, CycleRollbackPolicyPlugin, Effect, EngineInput, EpochAction,
+    ErrorCode, ErrorDetail, PluginError, PluginSource, Session,
 };
 
 impl BriocheEngine {
@@ -158,7 +158,7 @@ impl BriocheEngine {
     /// # Panics
     /// Never panics.
     pub(crate) fn with_rollback<R>(
-        rollback_policy: &mut Option<Box<dyn CycleRollbackPolicy>>,
+        rollback_policy: &mut Option<Box<CycleRollbackPolicyPlugin>>,
         session: &mut Session,
         hook_name: &'static str,
         f: impl FnOnce(&mut Session) -> R,

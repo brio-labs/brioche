@@ -10,6 +10,7 @@ description = "Synchronous kernel and pure mechanisms"
 
 [dependencies]
 brioche-macro = { workspace = true }
+brioche-governance = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { workspace = true }
 postcard = { version = "1", default-features = false, features = ["use-std"] }

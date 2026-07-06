@@ -210,7 +210,8 @@ impl GovernanceProfile {
             .with_hook_effect_constraint(Box::new(PermissiveHookEffectConstraint::new()))
             .with_cycle_rollback_policy(Box::new(NoopCycleRollbackPolicy))
             .with_governance_failover_handler(Box::new(NoopGovernanceFailoverHandler))
-            .with_plugin(Box::new(TelemetryPlugin::new()))
+            .with_on_stream_event(Box::new(TelemetryPlugin::new()))
+            .with_after_prediction(Box::new(TelemetryPlugin::new()))
     }
 
     fn apply_standard(
@@ -228,12 +229,13 @@ impl GovernanceProfile {
             .with_hook_effect_constraint(Box::new(FastHookEffectConstraint::standard()))
             .with_cycle_rollback_policy(Box::new(AdaptiveUndoFrameGuard::new()))
             .with_governance_failover_handler(Box::new(SystemFailoverGuard::new()))
-            .with_plugin(Box::new(QuarantineManager::new()))
-            .with_plugin(Box::new(RecoveryPolicy::new()))
-            .with_plugin(Box::new(DepthGuard::with_max_depth(10)))
-            .with_plugin(Box::new(TelemetryPlugin::new()))
-            .with_plugin(Box::new(ToolResultFormatter::new()))
-            .with_plugin(Box::new(ToolTimeoutPolicy::with_default_timeout(30000)))
+            .with_on_error(Box::new(QuarantineManager::new()))
+            .with_on_input(Box::new(RecoveryPolicy::new()))
+            .with_on_input(Box::new(DepthGuard::with_max_depth(10)))
+            .with_on_stream_event(Box::new(TelemetryPlugin::new()))
+            .with_after_prediction(Box::new(TelemetryPlugin::new()))
+            .with_on_tool_result(Box::new(ToolResultFormatter::new()))
+            .with_on_tool_calls(Box::new(ToolTimeoutPolicy::with_default_timeout(30000)))
     }
 
     fn apply_strict(
@@ -251,12 +253,13 @@ impl GovernanceProfile {
             .with_hook_effect_constraint(Box::new(FastHookEffectConstraint::standard()))
             .with_cycle_rollback_policy(Box::new(TieredUndoFrameGuard::new()))
             .with_governance_failover_handler(Box::new(SystemFailoverGuard::new()))
-            .with_plugin(Box::new(QuarantineManager::new()))
-            .with_plugin(Box::new(RecoveryPolicy::new()))
-            .with_plugin(Box::new(DepthGuard::with_max_depth(5)))
-            .with_plugin(Box::new(TelemetryPlugin::new()))
-            .with_plugin(Box::new(ToolResultFormatter::new()))
-            .with_plugin(Box::new(ToolTimeoutPolicy::with_default_timeout(10000)))
+            .with_on_error(Box::new(QuarantineManager::new()))
+            .with_on_input(Box::new(RecoveryPolicy::new()))
+            .with_on_input(Box::new(DepthGuard::with_max_depth(5)))
+            .with_on_stream_event(Box::new(TelemetryPlugin::new()))
+            .with_after_prediction(Box::new(TelemetryPlugin::new()))
+            .with_on_tool_result(Box::new(ToolResultFormatter::new()))
+            .with_on_tool_calls(Box::new(ToolTimeoutPolicy::with_default_timeout(10000)))
     }
 }
 

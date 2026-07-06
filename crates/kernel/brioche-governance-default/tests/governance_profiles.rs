@@ -8,9 +8,10 @@
 //! - I-Gov-Tiered-Rollback: TieredUndoFrameGuard respects critical types.
 
 use brioche_core::{
-    AgentState, BriocheEngineBuilder, BriocheExtensionType, BriochePlugin, CycleRollbackPolicy,
-    DecisionAggregator, Effect, EngineInput, ErrorCode, ExtensionStorage, PluginError,
-    PolicyDecision, Session, StreamEvent, SubRoutineHandle, ToolCallDescriptor,
+    AfterPrediction, AgentState, BriocheEngineBuilder, BriocheExtensionType, CycleRollbackPolicy,
+    DecisionAggregator, Effect, EngineInput, ErrorCode, ExtensionStorage, OnError, OnStreamEvent,
+    OnToolCalls, PluginError, PolicyDecision, Session, StreamEvent, SubRoutineHandle,
+    ToolCallDescriptor,
 };
 use brioche_governance_default::{
     AdaptiveUndoFrameGuard, BriocheEngineBuilderExt, GovernanceCompatibilityMatrix,
