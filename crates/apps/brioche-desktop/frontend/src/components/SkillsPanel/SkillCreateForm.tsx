@@ -55,7 +55,7 @@ export default function SkillCreateForm({
 				value={newContent}
 				onChange={(e) => setNewContent(e.target.value)}
 			/>
-			<div className="flex justify-end gap-2 [&_button]:cursor-pointer [&_button]:rounded [&_button]:px-3.5 [&_button]:py-1.5 [&_button]:text-xs [&_button]:font-medium [&_button:first-child]:bg-accent [&_button:first-child]:text-white [&_button:first-child]:hover:bg-accent-hover [&_button:first-child]:disabled:cursor-not-allowed [&_button:first-child]:disabled:opacity-50 [&_button:last-child]:border [&_button:last-child]:border-border [&_button:last-child]:bg-transparent [&_button:last-child]:text-fg-secondary [&_button:last-child]:hover:bg-bg-elevated">
+			<div className="flex justify-end gap-2 [&_button]:cursor-pointer [&_button]:rounded [&_button]:px-3.5 [&_button]:py-1.5 [&_button]:text-xs [&_button]:font-medium [&_button:first-child]:border [&_button:first-child]:border-fg-primary/18 [&_button:first-child]:bg-fg-primary/14 [&_button:first-child]:text-fg-primary [&_button:first-child]:hover:bg-fg-primary/22 [&_button:first-child]:disabled:cursor-not-allowed [&_button:first-child]:disabled:opacity-50 [&_button:last-child]:border [&_button:last-child]:border-border [&_button:last-child]:bg-transparent [&_button:last-child]:text-fg-secondary [&_button:last-child]:hover:bg-bg-elevated">
 				<button type="button" onClick={handleCreate} disabled={!canCreate}>
 					Create
 				</button>

@@ -72,7 +72,7 @@ export default function App() {
   });
 
   return (
-    <div className="app flex flex-col h-screen w-screen overflow-hidden relative text-text-primary">
+    <div className="app flex flex-col h-screen w-screen overflow-hidden relative text-fg-primary">
       <TitleBarWrapper
         projectName={projectName}
         showMessageSearch={showMessageSearch}
@@ -98,11 +98,11 @@ export default function App() {
           collapsible
           collapsedSize="0%"
           onResize={handleLeftResize}
-          className="flex flex-col bg-bg-surface border-r border-border overflow-hidden z-10 panel-transition"
+          className="flex flex-col bg-bg-surface/20 backdrop-blur-lg border-r border-border/45 overflow-hidden z-10 panel-transition"
         >
           <SessionSidebar />
         </Panel>
-        <Separator className="w-1 bg-transparent hover:bg-accent/30 active:bg-accent/50 transition-colors data-[resize-handle-state=drag]:bg-accent/50" />
+        <Separator className="w-px bg-border/45 hover:bg-accent/40 active:bg-accent/60 transition-colors data-[resize-handle-state=drag]:bg-accent/60" />
         <Panel
           panelRef={centerPanelRef}
           defaultSize="60%"
@@ -110,7 +110,7 @@ export default function App() {
           collapsible
           collapsedSize="0%"
           onResize={handleCenterResize}
-          className="flex flex-col min-w-0 overflow-hidden bg-transparent relative z-10"
+          className="flex flex-col min-w-0 overflow-hidden bg-bg-base/10 backdrop-blur-[5px] relative z-10"
         >
           <ChatPanel
             messages={messages}
@@ -126,7 +126,7 @@ export default function App() {
             removeAttachment={removeAttachment}
           />
         </Panel>
-        <Separator className="w-1 bg-transparent hover:bg-accent/30 active:bg-accent/50 transition-colors data-[resize-handle-state=drag]:bg-accent/50" />
+        <Separator className="w-px bg-border/45 hover:bg-accent/40 active:bg-accent/60 transition-colors data-[resize-handle-state=drag]:bg-accent/60" />
         <Panel
           panelRef={rightPanelRef}
           defaultSize="20%"
@@ -135,7 +135,7 @@ export default function App() {
           collapsible
           collapsedSize="0%"
           onResize={handleRightResize}
-          className="flex flex-col bg-bg-surface border-l border-border overflow-hidden z-10 panel-transition"
+          className="flex flex-col bg-bg-surface/20 backdrop-blur-lg border-l border-border/45 overflow-hidden z-10 panel-transition"
         >
           <FileExplorer />
         </Panel>

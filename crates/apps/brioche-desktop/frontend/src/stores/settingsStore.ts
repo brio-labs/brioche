@@ -1,11 +1,40 @@
 import { create } from 'zustand';
 import { getSettings, setSettings, listSettingsSections } from '../ipc';
 import type { Settings, SettingsSection, SettingsField } from '../ipc';
+import { THEMES } from './themeStore';
+
+/// Theme section is frontend-owned because the palette must apply before any
+/// backend settings are available.
+export const APPEARANCE_SETTINGS_SECTION: SettingsSection = {
+    id: 'appearance',
+    module_id: 'ui',
+    title: 'Appearance',
+    order: 5,
+    keywords: ['theme', 'color', 'palette'],
+    fields: [
+        {
+            key: 'ui.theme',
+            label: 'Color theme',
+            field_type: 'select' as const,
+            description:
+                'Switch the desktop color palette. Applies immediately and is saved locally.',
+            placeholder: null,
+            options: THEMES.map((theme) => ({
+                value: theme.id,
+                label: theme.label,
+            })),
+            default_value: 'brio',
+            protected: false,
+            keywords: ['theme', 'appearance'],
+        },
+    ],
+};
 
 /// Default settings sections shown when the backend returns no sections.
 ///
 /// Refs: I-Ui-SettingsFallback
 export const FALLBACK_SECTIONS: SettingsSection[] = [
+    APPEARANCE_SETTINGS_SECTION,
     {
         id: 'chat-model',
         module_id: 'chat',

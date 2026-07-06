@@ -27,7 +27,7 @@ export function ModalOverlay({
 		<div
 			className={cn(
 				"fixed inset-0 z-2000 flex items-start justify-center",
-				"bg-black/60 pt-[15vh]",
+				"bg-bg-base/70 pt-[15vh]",
 				"animate-fadeIn",
 			)}
 			onClick={onClose}

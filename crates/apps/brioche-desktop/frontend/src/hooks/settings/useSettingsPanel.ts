@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSettingsStore, FALLBACK_SECTIONS } from "../../stores/settingsStore";
+import {
+  APPEARANCE_SETTINGS_SECTION,
+  FALLBACK_SECTIONS,
+  useSettingsStore,
+} from "../../stores/settingsStore";
 import { setSettings, isTauri } from "../../ipc";
 import type { SettingsField, SettingsSection } from "../../ipc";
 import { getFieldValue } from "../../components/SettingsPanel/settingsUtils";
+import { initializeTheme, setThemePreference } from "../../stores/themeStore";
 
 export interface UseSettingsPanelResult {
   search: string;
@@ -31,6 +36,7 @@ export function useSettingsPanel(
 ): UseSettingsPanelResult {
   const { settings, loadSettings, updateSetting, sections, loadSections } =
     useSettingsStore();
+  const [theme, setThemeState] = useState(initializeTheme);
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(
     null,
   );
@@ -47,16 +53,42 @@ export function useSettingsPanel(
     loadSections();
   }, [loadSettings, loadSections, isTauriAvailable]);
 
+  useEffect(() => {
+    const configuredTheme = getFieldValue(settings, "ui.theme");
+    if (
+      (configuredTheme === "brio" || configuredTheme === "catppuccin-mocha") &&
+      configuredTheme !== theme
+    ) {
+      setThemePreference(configuredTheme);
+      setThemeState(configuredTheme);
+    }
+  }, [settings, theme]);
+
+  const effectiveSettings = useMemo(() => {
+    if (getFieldValue(settings, "ui.theme") !== undefined) return settings;
+    return {
+      ...settings,
+      ui: {
+        ...((settings.ui as Record<string, unknown> | undefined) ?? {}),
+        theme,
+      },
+    };
+  }, [settings, theme]);
+
   const endpoints = useMemo(() => {
-    const value = getFieldValue(settings, "memory.endpoints");
+    const value = getFieldValue(effectiveSettings, "memory.endpoints");
     if (Array.isArray(value)) {
       return value as Record<string, unknown>[];
     }
     return [];
-  }, [settings]);
+  }, [effectiveSettings]);
 
   const activeSections = useMemo(() => {
-    const base = sections.length > 0 ? sections : FALLBACK_SECTIONS;
+    const backendSections =
+      sections.length > 0
+        ? sections.filter((section) => section.id !== "appearance")
+        : FALLBACK_SECTIONS.filter((section) => section.id !== "appearance");
+    const base = [APPEARANCE_SETTINGS_SECTION, ...backendSections];
     return base.map((section) => {
       if (section.id !== "memory-providers") return section;
       return {
@@ -97,18 +129,25 @@ export function useSettingsPanel(
   const handleSave = useCallback(async () => {
     setSaveError(null);
     try {
-      await setSettings(settings);
+      await setSettings(effectiveSettings);
       onClose();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setSaveError(message);
     }
-  }, [settings, onClose]);
+  }, [effectiveSettings, onClose]);
 
   const handleFieldChange = useCallback(
     (key: string, value: unknown) => {
       if (saveError) setSaveError(null);
       updateSetting(key, value);
+      if (
+        key === "ui.theme" &&
+        (value === "brio" || value === "catppuccin-mocha")
+      ) {
+        setThemePreference(value);
+        setThemeState(value);
+      }
     },
     [updateSetting, saveError],
   );
@@ -116,6 +155,14 @@ export function useSettingsPanel(
   const handleReset = useCallback(
     (field: SettingsField) => {
       updateSetting(field.key, field.default_value);
+      if (
+        field.key === "ui.theme" &&
+        (field.default_value === "brio" ||
+          field.default_value === "catppuccin-mocha")
+      ) {
+        setThemePreference(field.default_value);
+        setThemeState(field.default_value);
+      }
     },
     [updateSetting],
   );
@@ -136,6 +183,6 @@ export function useSettingsPanel(
     selectedSection,
     endpoints,
     isTauriAvailable,
-    settings,
+    settings: effectiveSettings,
   };
 }

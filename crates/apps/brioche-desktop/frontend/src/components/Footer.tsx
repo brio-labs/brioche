@@ -33,7 +33,7 @@ export default function Footer({
   useTauriEvent("chat-message", () => {});
 
   return (
-    <footer className="flex items-center h-10 bg-bg-base border-t border-border text-fg-muted shrink-0 select-none z-10">
+    <footer className="flex items-center h-10 bg-bg-base/80 backdrop-blur-md border-t border-border text-fg-muted shrink-0 select-none z-10">
       <Tooltip label="Sessions">
         <button
           type="button"

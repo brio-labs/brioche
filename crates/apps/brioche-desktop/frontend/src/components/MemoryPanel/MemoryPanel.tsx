@@ -104,7 +104,7 @@ export default function MemoryPanel({ onClose }: MemoryPanelProps) {
 				) : (
 					<button
 						type="button"
-						className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-accent py-2 text-xs font-semibold text-white shadow-sm shadow-accent-glow/10 transition-colors hover:bg-accent-hover"
+						className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-fg-primary/18 bg-fg-primary/14 py-2 text-xs font-semibold text-fg-primary shadow-sm transition-colors hover:bg-fg-primary/22"
 						onClick={() => setIsAdding(true)}
 					>
 						<Plus className="h-4 w-4" />

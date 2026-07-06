@@ -3,6 +3,7 @@ import PanelOverlay from "../PanelOverlay";
 import { SettingsSectionList } from "./SettingsSectionList";
 import { getFieldValue } from "./settingsUtils";
 import { useSettingsPanel } from "../../hooks/settings/useSettingsPanel";
+import { Button } from "../ui";
 
 /// Props for the settings management panel.
 ///

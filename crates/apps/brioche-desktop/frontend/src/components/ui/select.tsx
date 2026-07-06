@@ -58,8 +58,8 @@ export const SelectContent = React.forwardRef<
 	<SelectPrimitive.Portal>
 		<SelectPrimitive.Content
 			ref={ref}
-	className={cn(
-			"relative z-50 overflow-hidden rounded-[8px] border border-border bg-bg-surface shadow-md",
+			className={cn(
+				"relative z-[3000] overflow-hidden rounded-[8px] border border-border bg-bg-surface shadow-md",
 				"max-h-96 min-w-32",
 				"text-fg-primary",
 				"animate-fadeIn",
@@ -200,7 +200,7 @@ export function MultiSelect({
 					align="start"
 					sideOffset={4}
 					className={cn(
-						"z-50 min-w-[var(--radix-popover-trigger-width)] rounded-[8px] border border-border bg-bg-surface p-1 shadow-md",
+						"z-[3000] min-w-[var(--radix-popover-trigger-width)] rounded-[8px] border border-border bg-bg-surface p-1 shadow-md",
 						"animate-fadeIn",
 					)}
 				>

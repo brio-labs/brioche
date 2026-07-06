@@ -5,7 +5,10 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { TooltipProvider } from '@radix-ui/react-tooltip';
 import App from './components/App';
+import { initializeTheme } from './stores/themeStore';
 import './styles/global.css';
+
+initializeTheme();
 
 const container: HTMLElement | null = document.getElementById('root');
 if (!container) {

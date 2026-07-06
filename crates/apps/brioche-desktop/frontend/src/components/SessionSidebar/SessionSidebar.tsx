@@ -35,14 +35,14 @@ export default function SessionSidebar() {
         <button
           type="button"
           onClick={handleNewSession}
-          className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-full bg-white/20 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-white/40 active:bg-accent-dim"
+          className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-full border border-fg-primary/18 bg-fg-primary/14 px-3 py-2 text-xs font-semibold text-fg-primary shadow-sm transition-colors hover:bg-fg-primary/22 active:bg-fg-primary/28"
         >
           <Plus className="h-4 w-4" />
           New conversation
         </button>
       </div>
 
-      <div className="flex items-center justify-between border-b border-border bg-bg-surface px-4 py-2">
+      <div className="flex items-center justify-between border-b border-border px-4 py-2">
         <span className="text-xs font-semibold text-fg-secondary">
           Projects
         </span>
@@ -60,7 +60,7 @@ export default function SessionSidebar() {
             <PopoverPrimitive.Content
               align="end"
               sideOffset={4}
-              className="z-50 min-w-40 rounded-[8px] border border-border bg-bg-surface p-1.5 shadow-md animate-fadeIn"
+              className="z-[3000] min-w-40 rounded-[8px] border border-border bg-bg-surface p-1.5 shadow-md animate-fadeIn"
             >
               <div className="flex flex-col gap-0.5">
                 <span className="px-2 py-1 text-[10px] font-semibold text-fg-muted uppercase tracking-wider">

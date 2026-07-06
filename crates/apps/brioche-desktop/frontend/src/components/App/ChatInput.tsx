@@ -94,7 +94,7 @@ export default function ChatInput({
     (input.trim().length > 0 || pendingAttachments.length > 0) && !isLoading;
 
   return (
-    <div className="shrink-0 px-6 py-4 bg-bg-surface border-t border-border">
+    <div className="shrink-0 px-6 py-4 bg-transparent">
       <div className="max-w-3xl mx-auto w-full flex flex-col gap-3">
         {/* ── Pending attachment chips ── */}
         <AnimatePresence>
@@ -110,10 +110,10 @@ export default function ChatInput({
               {pendingAttachments.map((att) => (
                 <div
                   key={att.id}
-                  className="flex items-center gap-2 rounded-sm border border-border bg-bg-elevated px-2 py-1.5 pr-1.5 max-w-56 relative group shadow-sm hover:border-border-hover transition-colors"
+                  className="flex items-center gap-2 rounded-sm border border-border/60 bg-bg-elevated/35 backdrop-blur-md px-2 py-1.5 pr-1.5 max-w-56 relative group shadow-sm hover:border-border-hover transition-colors"
                 >
                   {/* Square preview */}
-                  <div className="h-9 w-9 rounded-xs bg-bg-highlight border border-border overflow-hidden shrink-0 flex items-center justify-center">
+                  <div className="h-9 w-9 rounded-xs bg-bg-highlight/35 border border-border/60 overflow-hidden shrink-0 flex items-center justify-center">
                     {att.type === "image" && att.dataUrl ? (
                       <img
                         src={att.dataUrl}
@@ -167,7 +167,7 @@ export default function ChatInput({
           <div
             className="
             flex items-end gap-0
-            border border-border bg-bg-elevated
+            border border-border/60 bg-bg-elevated/28 backdrop-blur-xl
             focus-within:border-accent/40 focus-within:ring-2 focus-within:ring-accent/10
             transition-all duration-200 shadow-sm overflow-hidden
           "
@@ -236,7 +236,7 @@ export default function ChatInput({
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.8 }}
                   transition={{ duration: 0.12 }}
-                  className="shrink-0 flex items-center justify-center h-10 w-10 text-accent hover:bg-accent/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                  className="shrink-0 flex items-center justify-center h-10 w-10 text-fg-primary hover:bg-fg-primary/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
                   aria-label="Send message"
                   title="Send"
                 >

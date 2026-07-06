@@ -10,6 +10,7 @@ import {
 	SelectContent,
 	SelectItem,
 	SelectTrigger,
+	SelectValue,
 	Textarea,
 	cn,
 } from "../ui";
@@ -67,7 +68,9 @@ export function FieldEditor({
 						value={String(currentValue || "")}
 						onValueChange={onChange}
 					>
-						<SelectTrigger />
+						<SelectTrigger>
+							<SelectValue />
+						</SelectTrigger>
 						<SelectContent>
 							{field.options.map((opt) => (
 								<SelectItem key={opt.value} value={opt.value}>

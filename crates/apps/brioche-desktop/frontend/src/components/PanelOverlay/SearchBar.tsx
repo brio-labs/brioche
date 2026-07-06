@@ -50,7 +50,7 @@ export function SearchBar({
 				<button
 					type="button"
 					onClick={onSearch}
-					className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-accent-text transition-colors hover:bg-accent-hover active:bg-accent-dim focus-visible:ring-1 focus-visible:ring-accent-glow"
+					className="rounded-md border border-fg-primary/18 bg-fg-primary/14 px-3 py-1 text-xs font-semibold text-fg-primary transition-colors hover:bg-fg-primary/22 active:bg-fg-primary/28 focus-visible:ring-1 focus-visible:ring-accent-glow"
 				>
 					Search
 				</button>

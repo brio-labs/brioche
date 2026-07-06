@@ -19,65 +19,57 @@
    ======================================================================== */
 
 @theme {
-    /* ----- Core Brio palette ----- */
-    --color-brio-void: #0a0808;
-    --color-brio-bg: #1a1614;
-    --color-brio-foam: #f5e6d3;
-    --color-brio-muted: #eae0d5;
-    --color-brio-clay: #bd6532;
-    --color-brio-sand: #ffddb3;
+    /* Runtime themes set a tiny source palette; semantic colors derive from it. */
+    --color-brio-void: var(--theme-bg-base);
+    --color-brio-bg: var(--theme-bg-surface);
+    --color-brio-foam: var(--theme-fg-primary);
+    --color-brio-muted: var(--theme-fg-secondary);
+    --color-brio-clay: var(--theme-accent);
+    --color-brio-sand: var(--theme-fg-primary);
 
-    /* ----- Semantic background ----- */
-    --color-bg-base: var(--color-brio-void);
-    --color-bg-surface: var(--color-brio-bg);
-    --color-bg-elevated: #24201e;
-    --color-bg-highlight: #2e2926;
-    --color-bg-subtle: #3a3430;
+    --color-bg-base: var(--theme-bg-base);
+    --color-bg-surface: var(--theme-bg-surface);
+    --color-bg-elevated: color-mix(in oklab, var(--theme-bg-surface), var(--theme-fg-primary) 6%);
+    --color-bg-highlight: color-mix(in oklab, var(--theme-bg-surface), var(--theme-fg-primary) 10%);
+    --color-bg-subtle: color-mix(in oklab, var(--theme-bg-surface), var(--theme-fg-primary) 15%);
 
-    /* ----- Semantic foreground ----- */
-    --color-fg-primary: var(--color-brio-foam);
-    --color-fg-secondary: #d8c9b8;
-    --color-fg-tertiary: #a89b8c;
-    --color-fg-muted: #6b6258;
-    --color-fg-dim: #453f39;
+    --color-fg-primary: var(--theme-fg-primary);
+    --color-fg-secondary: color-mix(in oklab, var(--theme-fg-primary), var(--theme-bg-base) 18%);
+    --color-fg-tertiary: color-mix(in oklab, var(--theme-fg-primary), var(--theme-bg-base) 38%);
+    --color-fg-muted: color-mix(in oklab, var(--theme-fg-primary), var(--theme-bg-base) 58%);
+    --color-fg-dim: color-mix(in oklab, var(--theme-fg-primary), var(--theme-bg-base) 76%);
 
-    /* ----- Accent ----- */
-    --color-accent: var(--color-brio-clay);
-    --color-accent-hover: #d97942;
-    --color-accent-dim: #8a4a24;
-    --color-accent-glow: rgba(189, 101, 50, 0.3);
-    --color-accent-glow-strong: rgba(189, 101, 50, 0.5);
-    --color-accent-text: var(--color-brio-sand);
+    --color-accent: var(--theme-accent);
+    --color-accent-hover: color-mix(in oklab, var(--theme-accent), var(--theme-fg-primary) 14%);
+    --color-accent-dim: color-mix(in oklab, var(--theme-accent), var(--theme-bg-base) 38%);
+    --color-accent-glow: color-mix(in oklab, var(--theme-accent), transparent 70%);
+    --color-accent-glow-strong: color-mix(in oklab, var(--theme-accent), transparent 50%);
+    --color-accent-text: var(--theme-fg-primary);
 
-    /* ----- Borders ----- */
-    --color-border: var(--color-bg-highlight);
-    --color-border-hover: var(--color-bg-subtle);
-    --color-border-accent: rgba(189, 101, 50, 0.35);
+    --color-border: color-mix(in oklab, var(--theme-fg-primary), transparent 86%);
+    --color-border-hover: color-mix(in oklab, var(--theme-fg-primary), transparent 78%);
+    --color-border-accent: color-mix(in oklab, var(--theme-accent), transparent 58%);
 
-    /* ----- Surfaces for chat bubbles ----- */
-    --color-user-bg: var(--color-bg-elevated);
-    --color-assistant-bg: rgba(36, 32, 30, 0.65);
-    --color-system-bg: var(--color-bg-highlight);
+    --color-user-bg: color-mix(in oklab, var(--theme-fg-primary), transparent 88%);
+    --color-assistant-bg: color-mix(in oklab, var(--theme-bg-surface), transparent 32%);
+    --color-system-bg: color-mix(in oklab, var(--theme-fg-primary), transparent 90%);
 
-    /* ----- Status ----- */
-    --color-error-bg: #2a1515;
-    --color-error-border: #5c2a2a;
-    --color-error-text: #e8a0a0;
-    --color-success-bg: #142b1e;
-    --color-success-border: #2a5c3f;
-    --color-success-text: #7fd99a;
-    --color-warning-bg: #2d2314;
-    --color-warning-border: #5c4a22;
-    --color-warning-text: #f0c674;
+    --color-error-bg: color-mix(in oklab, var(--theme-error), var(--theme-bg-base) 82%);
+    --color-error-border: color-mix(in oklab, var(--theme-error), transparent 62%);
+    --color-error-text: var(--theme-error);
+    --color-success-bg: color-mix(in oklab, var(--theme-success), var(--theme-bg-base) 84%);
+    --color-success-border: color-mix(in oklab, var(--theme-success), transparent 64%);
+    --color-success-text: var(--theme-success);
+    --color-warning-bg: color-mix(in oklab, var(--theme-warning), var(--theme-bg-base) 84%);
+    --color-warning-border: color-mix(in oklab, var(--theme-warning), transparent 62%);
+    --color-warning-text: var(--theme-warning);
 
-    /* ----- Typography ----- */
     --font-ui:
         -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
         sans-serif;
     --font-mono:
         "SF Mono", Monaco, Inconsolata, "Fira Code", Consolas, monospace;
 
-    /* ----- Spacing ----- */
     --spacing: 0.25rem;
     --space-1: 4px;
     --space-2: 8px;
@@ -86,13 +78,11 @@
     --space-5: 24px;
     --space-6: 32px;
 
-    /* ----- Radius ----- */
     --radius-sm: 4px;
     --radius-md: 6px;
     --radius: 8px;
     --radius-lg: 12px;
 
-    /* ----- Animations ----- */
     --animate-fadeIn: fadeIn 0.15s ease-out forwards;
     --animate-slideDown: slideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     --animate-slideUp: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
@@ -135,14 +125,13 @@
         }
     }
 
-    /* ----- Legacy aliases (deprecated; kept for backward compatibility) ----- */
     --color-bg-0: var(--color-bg-base);
     --color-bg-1: var(--color-bg-surface);
     --color-bg-2: var(--color-bg-elevated);
     --color-bg-3: var(--color-bg-highlight);
     --color-bg-4: var(--color-bg-subtle);
-    --color-bg-5: #453f39;
-    --color-bg-6: #524a43;
+    --color-bg-5: color-mix(in oklab, var(--theme-bg-surface), var(--theme-fg-primary) 20%);
+    --color-bg-6: color-mix(in oklab, var(--theme-bg-surface), var(--theme-fg-primary) 25%);
 
     --color-text-primary: var(--color-fg-primary);
     --color-text-secondary: var(--color-fg-secondary);
@@ -151,7 +140,31 @@
     --color-text-dim: var(--color-fg-dim);
 }
 
-/* Expose semantic tokens as CSS variables for backward compatibility and fallback usage. */
+:root,
+:root[data-theme="brio"] {
+    color-scheme: dark;
+    --theme-bg-base: #0a0808;
+    --theme-bg-surface: #15110f;
+    --theme-fg-primary: #f5e6d3;
+    --theme-fg-secondary: #e6d8c8;
+    --theme-accent: #bd6532;
+    --theme-error: #e8a0a0;
+    --theme-success: #b7d9ba;
+    --theme-warning: #f0c674;
+}
+
+:root[data-theme="catppuccin-mocha"] {
+    color-scheme: dark;
+    --theme-bg-base: #1e1e2e;
+    --theme-bg-surface: #242438;
+    --theme-fg-primary: #cdd6f4;
+    --theme-fg-secondary: #bac2de;
+    --theme-accent: #cba6f7;
+    --theme-error: #f38ba8;
+    --theme-success: #a6e3a1;
+    --theme-warning: #f9e2af;
+}
+
 :root {
     --brio-void: var(--color-brio-void);
     --brio-bg: var(--color-brio-bg);
@@ -212,14 +225,13 @@
     --radius-md: 6px;
     --radius-lg: 12px;
 
-    /* Legacy aliases */
     --bg-0: var(--color-bg-base);
     --bg-1: var(--color-bg-surface);
     --bg-2: var(--color-bg-elevated);
     --bg-3: var(--color-bg-highlight);
     --bg-4: var(--color-bg-subtle);
-    --bg-5: #453f39;
-    --bg-6: #524a43;
+    --bg-5: var(--color-bg-5);
+    --bg-6: var(--color-bg-6);
 
     --text-primary: var(--color-fg-primary);
     --text-secondary: var(--color-fg-secondary);
@@ -284,7 +296,7 @@
 }
 
 @utility panel-backdrop {
-    @apply fixed inset-0 bg-black/70 flex items-center justify-center z-[1000] animate-fadeIn;
+    @apply fixed inset-0 bg-bg-base/75 flex items-center justify-center z-[1000] animate-fadeIn;
 }
 
 @utility panel-header {
@@ -305,27 +317,39 @@
 
 .app {
     background:
+        linear-gradient(
+            color-mix(in oklab, var(--theme-bg-base), transparent 38%),
+            color-mix(in oklab, var(--theme-bg-base), transparent 12%)
+        ),
         radial-gradient(
             ellipse 80% 50% at 0% 0%,
-            rgba(189, 101, 50, 0.12) 0%,
+            color-mix(in oklab, var(--theme-accent), transparent 86%) 0%,
             transparent 50%
         ),
         radial-gradient(
             ellipse 70% 60% at 100% 100%,
-            rgba(189, 101, 50, 0.08) 0%,
+            color-mix(in oklab, var(--theme-accent), transparent 90%) 0%,
             transparent 50%
         ),
+        url("../assets/brand/hero-bg.webp") center / cover no-repeat,
         var(--bg-base);
 }
 
 .app::before {
     content: "";
     @apply absolute inset-0 pointer-events-none z-0;
-    background: radial-gradient(
-        ellipse at 50% 0%,
-        rgba(245, 230, 211, 0.03) 0%,
-        transparent 60%
-    );
+    background:
+        radial-gradient(
+            ellipse at 50% 0%,
+            color-mix(in oklab, var(--theme-fg-primary), transparent 96%) 0%,
+            transparent 60%
+        ),
+        linear-gradient(
+            90deg,
+            color-mix(in oklab, var(--theme-bg-base), transparent 16%) 0%,
+            color-mix(in oklab, var(--theme-bg-base), transparent 50%) 45%,
+            color-mix(in oklab, var(--theme-bg-base), transparent 22%) 100%
+        );
     animation: ambientPulse 8s ease-in-out infinite;
 }
 

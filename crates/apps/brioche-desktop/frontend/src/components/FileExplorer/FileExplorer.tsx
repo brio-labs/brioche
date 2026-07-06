@@ -122,7 +122,7 @@ export default function FileExplorer() {
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-transparent text-fg-primary">
-      <SectionHeader>
+      <SectionHeader className="bg-bg-surface/10 backdrop-blur-md">
         <SectionHeaderTitle>{folderName}</SectionHeaderTitle>
         <div className="flex items-center gap-2">
           <button
@@ -176,7 +176,7 @@ export default function FileExplorer() {
                   action={
                     <button
                       type="button"
-                      className="mt-3 w-full max-w-50 cursor-pointer rounded-md bg-accent py-2 px-3 text-sm font-medium text-white shadow-sm transition-colors hover:bg-accent-hover active:bg-accent-dim"
+                      className="mt-3 w-full max-w-50 cursor-pointer rounded-md border border-fg-primary/18 bg-fg-primary/14 py-2 px-3 text-sm font-medium text-fg-primary shadow-sm transition-colors hover:bg-fg-primary/22 active:bg-fg-primary/28"
                       onClick={handleOpenFolder}
                     >
                       Open Folder
@@ -204,8 +204,8 @@ export default function FileExplorer() {
       </FileExplorerProvider>
  
       {preview && (
-        <div className="absolute bottom-0 left-0 right-0 z-10 flex h-[45%] flex-col border-t border-border bg-bg-surface">
-          <div className="flex shrink-0 items-center justify-between border-b border-border bg-bg-surface px-4 py-3">
+        <div className="absolute bottom-0 left-0 right-0 z-10 flex h-[45%] flex-col border-t border-border/60 bg-bg-surface/25 backdrop-blur-lg">
+          <div className="flex shrink-0 items-center justify-between border-b border-border/60 bg-bg-surface/15 px-4 py-3">
             <span className="truncate font-mono text-xs text-fg-secondary">
               {preview.path}
             </span>

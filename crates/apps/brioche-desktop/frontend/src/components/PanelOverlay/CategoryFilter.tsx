@@ -32,7 +32,7 @@ export function CategoryFilter({
 				className={cn(
 					"rounded-md border px-3 py-1 text-xs font-medium transition-all",
 					!activeCategory
-						? "border-accent bg-accent text-accent-text"
+						? "border-fg-primary/18 bg-fg-primary/14 text-fg-primary"
 						: "border-border bg-bg-elevated text-fg-muted hover:bg-bg-highlight hover:text-fg-secondary",
 					buttonClassName,
 				)}
@@ -49,7 +49,7 @@ export function CategoryFilter({
 						className={cn(
 							"rounded-md border px-3 py-1 text-xs font-medium transition-all",
 							isActive
-								? "border-accent bg-accent text-accent-text"
+								? "border-fg-primary/18 bg-fg-primary/14 text-fg-primary"
 								: "border-border bg-bg-elevated text-fg-muted hover:bg-bg-highlight hover:text-fg-secondary",
 							buttonClassName,
 						)}

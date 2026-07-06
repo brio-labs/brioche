@@ -69,17 +69,17 @@ function AttachmentCard({ content }: { content: string }) {
   const fileName = filePath.split(/[/\\]/).pop() || "";
   const ext = fileName.split(".").pop()?.toLowerCase() || "";
   return (
-    <div className="flex items-center gap-3 rounded-md border border-white/10 bg-white/5 px-3 py-2.5 mt-1 max-w-xs">
+    <div className="flex items-center gap-3 rounded-md border border-border bg-fg-primary/5 px-3 py-2.5 mt-1 max-w-xs">
       {getFileIcon(ext)}
       <div className="flex flex-col min-w-0">
         <span
-          className="truncate text-[12px] font-semibold text-white/90"
+          className="truncate text-[12px] font-semibold text-fg-primary"
           title={fileName}
         >
           {fileName}
         </span>
         <span
-          className="truncate text-[10px] text-white/40 font-mono"
+          className="truncate text-[10px] text-fg-muted font-mono"
           title={filePath}
         >
           {filePath}
@@ -97,7 +97,7 @@ function ImageAttachment({ content }: { content: string }) {
   const fileName = imagePath.split(/[/\\]/).pop() || "";
   return (
     <div
-      className="mt-1.5 rounded-md overflow-hidden border border-white/10 w-full max-w-55 cursor-pointer"
+      className="mt-1.5 rounded-md overflow-hidden border border-border w-full max-w-55 cursor-pointer"
       onClick={() => window.open(dataUrl)}
     >
       <img
@@ -105,7 +105,7 @@ function ImageAttachment({ content }: { content: string }) {
         alt={fileName}
         className="w-full max-h-40 object-cover hover:opacity-90 transition-opacity"
       />
-      <div className="px-2 py-1 bg-black/20 text-[10px] text-white/50 font-mono truncate">
+      <div className="px-2 py-1 bg-bg-base/35 text-[10px] text-fg-muted font-mono truncate">
         {fileName}
       </div>
     </div>
@@ -236,7 +236,7 @@ export default function MessageList({
                     {/* Bubble */}
                     <div
                       className="
-                      bg-brio-bg text-brio-foam px-2 rounded-sm
+                      bg-bg-surface/70 text-fg-primary px-2 rounded-sm
                       text-sm leading-relaxed
                       wrap-break-word overflow-hidden w-full
                     "
