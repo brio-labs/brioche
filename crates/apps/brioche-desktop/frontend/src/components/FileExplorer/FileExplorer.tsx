@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { FolderOpen, RefreshCw, Save } from "lucide-react";
+import { FolderOpen, Save } from "lucide-react";
 import { useFileExplorer } from "../../hooks/fileExplorer";
 import {
   ContextMenu,
@@ -60,6 +60,11 @@ export default function FileExplorer() {
     }));
   }, [entries, childrenMap, loadingPaths, workspaceRoot]);
 
+  const folderName = useMemo(() => {
+    if (!workspaceRoot) return "No folder open";
+    return workspaceRoot.split(/[/\\]/).pop() || "";
+  }, [workspaceRoot]);
+
   const contextValue = useMemo<FileExplorerContextValue>(
     () => ({
       expandedPaths,
@@ -118,7 +123,7 @@ export default function FileExplorer() {
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-transparent text-fg-primary">
       <SectionHeader>
-        <SectionHeaderTitle>Explorer</SectionHeaderTitle>
+        <SectionHeaderTitle>{folderName}</SectionHeaderTitle>
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -127,14 +132,6 @@ export default function FileExplorer() {
             title="Open Folder..."
           >
             <FolderOpen className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            className="btn-icon h-7 w-7"
-            onClick={handleRefresh}
-            title="Refresh"
-          >
-            <RefreshCw className="h-4 w-4" />
           </button>
         </div>
       </SectionHeader>
@@ -147,14 +144,6 @@ export default function FileExplorer() {
       {notice && (
         <div className="notice-error shrink-0 px-5 py-2 text-xs">{notice}</div>
       )}
-      <div className="flex items-center gap-2 border-b border-border bg-bg-elevated px-4 py-3">
-        <span
-          className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-xs text-fg-muted"
-          title={workspaceRoot || currentPath}
-        >
-          {workspaceRoot || currentPath || "No directory"}
-        </span>
-      </div>
 
       <FileExplorerProvider value={contextValue}>
         <ContextMenu>
