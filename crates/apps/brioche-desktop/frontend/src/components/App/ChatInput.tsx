@@ -77,6 +77,8 @@ export default function ChatInput({
 }: ChatInputProps) {
   return (
     <div className="flex flex-col bg-bg-surface border-t border-border shrink-0">
+      {/* centred column wrapper mirrors the message list */}
+      <div className="max-w-3xl mx-auto w-full">
       {pendingAttachments.length > 0 && (
         <div className="flex flex-wrap gap-3 px-4 py-3 border-b border-border bg-bg-base/20 max-h-40 overflow-y-auto animate-fadeIn">
           {pendingAttachments.map((att) => (
@@ -159,6 +161,7 @@ export default function ChatInput({
           <Send className="w-4 h-4" />
         </button>
       </form>
+      </div>
     </div>
   );
 }
