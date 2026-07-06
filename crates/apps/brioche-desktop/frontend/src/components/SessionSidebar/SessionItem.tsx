@@ -48,13 +48,20 @@ export function SessionItem({ session, switchToSession, deleteSession }: Session
 			<div className="flex flex-1 min-w-0 items-center gap-2 pl-1">
 				<div
 					className={cn(
-						"truncate font-mono text-xs transition-colors",
+						"truncate text-xs transition-colors",
 						session.active
-							? "text-fg-primary"
+							? "text-fg-primary font-medium"
 							: "text-fg-secondary group-hover:text-fg-primary",
 					)}
 				>
-					{session.id}
+					{session.created_at
+						? new Date(session.created_at * 1000).toLocaleString(undefined, {
+								month: "short",
+								day: "numeric",
+								hour: "2-digit",
+								minute: "2-digit",
+							})
+						: session.id}
 				</div>
 			</div>
 

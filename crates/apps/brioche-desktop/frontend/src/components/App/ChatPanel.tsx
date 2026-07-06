@@ -11,6 +11,7 @@ interface ChatPanelProps {
   handleSubmit: (e?: React.FormEvent) => Promise<void> | void;
   handleKeyDown: (e: React.KeyboardEvent) => void;
   handleAttach: () => Promise<void> | void;
+  handleStop: () => void;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
   pendingAttachments: Attachment[];
   removeAttachment: (id: string) => void;
@@ -24,6 +25,7 @@ export default function ChatPanel({
   handleSubmit,
   handleKeyDown,
   handleAttach,
+  handleStop,
   messagesEndRef,
   pendingAttachments,
   removeAttachment,
@@ -42,6 +44,7 @@ export default function ChatPanel({
         handleSubmit={handleSubmit}
         handleKeyDown={handleKeyDown}
         handleAttach={handleAttach}
+        handleStop={handleStop}
         pendingAttachments={pendingAttachments}
         removeAttachment={removeAttachment}
       />

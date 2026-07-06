@@ -57,6 +57,7 @@ export default function App() {
     handleSubmit,
     handleKeyDown,
     handleAttach,
+    handleStop,
     handleClearChat,
     handleExportChat,
     pendingAttachments,
@@ -121,6 +122,7 @@ export default function App() {
             handleSubmit={handleSubmit}
             handleKeyDown={handleKeyDown}
             handleAttach={handleAttach}
+            handleStop={handleStop}
             messagesEndRef={messagesEndRef}
             pendingAttachments={pendingAttachments}
             removeAttachment={removeAttachment}

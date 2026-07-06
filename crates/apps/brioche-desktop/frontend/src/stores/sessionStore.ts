@@ -82,7 +82,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 	createSession: async () => {
 		try {
 			const id = await newSession();
-			const sessions = await listSessions(get().sortMode);
+
+			// The backend may need a moment to persist the session before it
+			// appears in listSessions. Retry up to 3 times with a short delay.
+			let sessions: Awaited<ReturnType<typeof listSessions>> = [];
+			for (let attempt = 0; attempt < 3; attempt++) {
+				sessions = await listSessions(get().sortMode);
+				if (sessions.some((s) => s.id === id)) break;
+				await new Promise((r) => setTimeout(r, 150));
+			}
+
 			const current = sessions.find((s) => s.active);
 			set({ sessions, currentSessionId: current?.id ?? null });
 			return id;

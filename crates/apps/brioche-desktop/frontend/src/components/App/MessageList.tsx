@@ -64,10 +64,10 @@ function ImageAttachment({ content }: { content: string }) {
   const [, imagePath, dataUrl] = match;
   const fileName = imagePath.split(/[/\\]/).pop() || "";
   return (
-    <div className="mt-1.5 rounded-[6px] overflow-hidden border border-white/10 max-w-xs cursor-pointer"
+    <div className="mt-1.5 rounded-[6px] overflow-hidden border border-white/10 w-full max-w-[220px] cursor-pointer"
          onClick={() => window.open(dataUrl)}>
-      <img src={dataUrl} alt={fileName} className="w-full max-h-48 object-cover hover:opacity-90 transition-opacity" />
-      <div className="px-2 py-1 bg-white/5 text-[10px] text-white/40 font-mono truncate">{fileName}</div>
+      <img src={dataUrl} alt={fileName} className="w-full max-h-40 object-cover hover:opacity-90 transition-opacity" />
+      <div className="px-2 py-1 bg-black/20 text-[10px] text-white/50 font-mono truncate">{fileName}</div>
     </div>
   );
 }
@@ -172,12 +172,12 @@ export default function MessageList({ messages, isLoading, messagesEndRef }: Mes
                   transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
                   className="flex justify-end px-6 py-1.5 group"
                 >
-                  <div className="flex flex-col items-end gap-1 max-w-[75%]">
+                  <div className="flex flex-col items-end gap-1 max-w-[75%] min-w-0">
                     {/* Bubble */}
                     <div className="
                       bg-accent text-white px-4 py-3 rounded-[18px] rounded-br-[4px]
                       text-[13.5px] leading-relaxed shadow-md shadow-accent-glow/20
-                      break-words
+                      break-words overflow-hidden w-full
                     ">
                       {(isAttachment || imageMatch) ? null : (
                         <MarkdownRenderer content={textPart || msg.content} />

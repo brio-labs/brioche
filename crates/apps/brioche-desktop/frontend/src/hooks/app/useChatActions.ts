@@ -20,6 +20,7 @@ export interface ChatActions {
   handleSubmit: (e?: React.FormEvent) => Promise<void>;
   handleKeyDown: (e: React.KeyboardEvent) => void;
   handleAttach: () => Promise<void>;
+  handleStop: () => void;
   handleClearChat: () => void;
   handleExportChat: () => void;
   pendingAttachments: Attachment[];
@@ -38,6 +39,7 @@ export function useChatActions(): ChatActions {
   } = useChatStore();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
+  const abortRef = useRef(false);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -63,12 +65,19 @@ export function useChatActions(): ChatActions {
     URL.revokeObjectURL(url);
   }, [messages]);
 
+  /** Stop the agent mid-response (frontend abort; backend finishes naturally). */
+  const handleStop = useCallback(() => {
+    abortRef.current = true;
+    setLoading(false);
+  }, [setLoading]);
+
   const handleSubmit = useCallback(
     async (e?: React.FormEvent) => {
       e?.preventDefault();
       const trimmed = input.trim();
       if ((!trimmed && pendingAttachments.length === 0) || isLoading) return;
 
+      abortRef.current = false;
       setInput("");
       const attachmentsToSend = [...pendingAttachments];
       setPendingAttachments([]);
@@ -77,20 +86,26 @@ export function useChatActions(): ChatActions {
       try {
         let finalContent = trimmed;
 
-        // Process attachments
+        // Process attachments — only doc uploads need an IPC call first
         for (const att of attachmentsToSend) {
           if (att.type === "document") {
             await attachReference(att.path);
             finalContent += `\n\nAttached: ${att.path}`;
           } else if (att.type === "image") {
+            // dataUrl is already obtained on attach; just embed the reference
             finalContent += `\n\n![${att.path}](${att.dataUrl})`;
           }
         }
 
         addMessage("user", finalContent.trim());
-        await sendMessage(finalContent.trim());
+
+        if (!abortRef.current) {
+          await sendMessage(finalContent.trim());
+        }
       } catch (err) {
-        addMessage("error", String(err));
+        if (!abortRef.current) {
+          addMessage("error", String(err));
+        }
       } finally {
         setLoading(false);
       }
@@ -114,7 +129,7 @@ export function useChatActions(): ChatActions {
       directory: false,
     });
     if (!path) return;
-    
+
     const name = path.split(/[/\\]/).pop() || "";
     const extension = name.split(".").pop()?.toLowerCase() || "";
     const isImage = ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(extension);
@@ -124,13 +139,7 @@ export function useChatActions(): ChatActions {
         const dataUrl = await sendImage(path);
         setPendingAttachments((prev) => [
           ...prev,
-          {
-            id: Math.random().toString(),
-            path,
-            name,
-            type: "image",
-            dataUrl,
-          },
+          { id: Math.random().toString(), path, name, type: "image", dataUrl },
         ]);
       } catch (err) {
         addMessage("error", String(err));
@@ -138,12 +147,7 @@ export function useChatActions(): ChatActions {
     } else {
       setPendingAttachments((prev) => [
         ...prev,
-        {
-          id: Math.random().toString(),
-          path,
-          name,
-          type: "document",
-        },
+        { id: Math.random().toString(), path, name, type: "document" },
       ]);
     }
   }, [addMessage]);
@@ -161,6 +165,7 @@ export function useChatActions(): ChatActions {
     handleSubmit,
     handleKeyDown,
     handleAttach,
+    handleStop,
     handleClearChat,
     handleExportChat,
     pendingAttachments,
