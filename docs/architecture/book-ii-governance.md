@@ -50,12 +50,12 @@ Evaluated if `session.state == SubRoutine`. If `Some(effects)`, standard dispatc
 
 ```rust
 pub trait ConsistencyVerifier: Send + Sync {
-    fn verify_consistency(&self, session: &mut Session)
-        -> PluginResult<Option<Vec<Effect>>>;
+    fn verify_consistency(&self, session: &Session)
+        -> PluginResult<Option<PolicyDecision>>;
 }
 ```
 
-Evaluated **last** in `finalize_transition`. If `Some(effects)`, the kernel applies mechanical forcing (typically `OverrideTransition` to `Idle`). Ignored if `RebuildRoutes` is present in the effects.
+Evaluated **last** in `finalize_transition`. Implementations must not mutate `session`. If the verifier returns `Some(PolicyDecision::OverrideTransition(effects))`, the kernel applies mechanical forcing (transition to `Idle`, clear `state_stack`, clear `active_tools`) and appends the returned effects. Other `PolicyDecision` variants are handled by the kernel's decision machinery. Ignored if `RebuildRoutes` is present in the effects.
 
 **Reference implementation** : `StateConsistencyGuard` (`brioche-governance-default`).
 
@@ -128,7 +128,7 @@ pub trait SubRoutineLifecycleGuard: Send + Sync {
 }
 ```
 
-**Mandatory.** Called by the kernel on every outgoing transition from `SubRoutine`. Without an implementation, `BriocheEngineBuilder::build()` returns `Err`.
+**Mandatory.** Called by the kernel on every outgoing transition from `SubRoutine`. The reference implementation `SubRoutineCleanupGuard` removes the child from `SessionRegistry` and tracks per-handle exit counters in its governance-owned `SubRoutineExitState` extension state, emitting `SaveSession` on successful removal.
 
 **Reference implementation** : `SubRoutineCleanupGuard` (`brioche-governance-default`).
 

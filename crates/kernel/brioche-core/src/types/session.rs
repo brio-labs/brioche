@@ -370,6 +370,10 @@ impl Default for Session {
 /// The shell and persistence manipulate only flattened `SessionHeadDTO`s.
 /// The kernel is the sole holder of live `Session` instances.
 ///
+/// `SessionRegistry` is a plain handle→session map. Any per-handle
+/// metadata (e.g. outgoing transition counters) belongs in a
+/// governance-owned `ExtensionStorage` state, not in this mechanism type.
+///
 /// `SessionRegistry` is strictly `!Send` and `!Sync`.
 /// # Complexity
 /// O(1) for construction and field/variant access.
@@ -379,10 +383,6 @@ impl Default for Session {
 /// Refs: I-Shell-Session-NoSend, I-Shell-DTO-Only
 pub struct SessionRegistry {
     sessions: BTreeMap<SubRoutineHandle, Session>,
-    /// Outgoing transition counters per handle.
-    /// Incremented at each outgoing transition from `SubRoutine`.
-    /// Used by `SubRoutineCleanupGuard` for defensive cleanup.
-    exit_counts: BTreeMap<SubRoutineHandle, u64>,
     /// Stable-marker making `SessionRegistry` `!Send + !Sync`.
     _not_send_sync: NotSendSync,
 }
@@ -391,7 +391,6 @@ impl std::fmt::Debug for SessionRegistry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SessionRegistry")
             .field("sessions", &self.sessions.keys().collect::<Vec<_>>())
-            .field("exit_counts", &self.exit_counts)
             .finish_non_exhaustive()
     }
 }
@@ -409,7 +408,6 @@ impl SessionRegistry {
     pub fn new() -> Self {
         Self {
             sessions: BTreeMap::new(),
-            exit_counts: BTreeMap::new(),
             _not_send_sync: std::marker::PhantomData,
         }
     }
@@ -464,37 +462,6 @@ impl SessionRegistry {
     /// Refs: I-Shell-Session-NoSend
     pub fn contains(&self, handle: &SubRoutineHandle) -> bool {
         self.sessions.contains_key(handle)
-    }
-
-    /// Increment the exit counter for a sub-routine handle.
-    ///
-    /// Called by the kernel on every outgoing transition from `SubRoutine`.
-    ///
-    /// # Complexity
-    /// O(log n).
-    ///
-    /// # Panics
-    /// Never panics.
-    ///
-    /// Refs: I-Shell-Session-NoSend
-    pub fn increment_exit_count(&mut self, handle: &SubRoutineHandle) {
-        *self.exit_counts.entry(handle.clone()).or_insert(0) += 1;
-    }
-
-    /// Get the current exit count for a handle.
-    ///
-    /// # Complexity
-    /// O(log n).
-    ///
-    /// # Panics
-    /// Never panics.
-    ///
-    /// Refs: I-Shell-Session-NoSend
-    pub fn get_exit_count(&self, handle: &SubRoutineHandle) -> u64 {
-        match self.exit_counts.get(handle) {
-            Some(&v) => v,
-            None => 0,
-        }
     }
 
     /// Iterate over all registered handles.

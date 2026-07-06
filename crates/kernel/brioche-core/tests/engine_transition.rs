@@ -63,9 +63,8 @@ impl SubRoutineLifecycleGuard for MockSubRoutineLifecycleGuard {
         &self,
         _handle: SubRoutineHandle,
         _parent: &mut Session,
-        registry: &mut SessionRegistry,
+        _registry: &mut SessionRegistry,
     ) -> PluginResult<Vec<Effect>> {
-        registry.increment_exit_count(&SubRoutineHandle::new("mock"));
         Ok(vec![])
     }
 }
@@ -614,9 +613,8 @@ fn transition_exits_subroutine_triggers_lifecycle_guard() {
             &self,
             _handle: SubRoutineHandle,
             _parent: &mut Session,
-            registry: &mut SessionRegistry,
+            _registry: &mut SessionRegistry,
         ) -> PluginResult<Vec<Effect>> {
-            registry.increment_exit_count(&SubRoutineHandle::new("counted"));
             Ok(vec![Effect::SaveSession])
         }
     }
@@ -659,8 +657,8 @@ fn transition_exits_subroutine_triggers_lifecycle_guard() {
 fn transition_consistency_verifier_effects_appended() {
     struct ForcingVerifier;
     impl ConsistencyVerifier for ForcingVerifier {
-        fn verify_consistency(&self, _session: &mut Session) -> PluginResult<Option<Vec<Effect>>> {
-            Ok(Some(vec![Effect::SystemIdle]))
+        fn verify_consistency(&self, _session: &Session) -> PluginResult<Option<PolicyDecision>> {
+            Ok(Some(PolicyDecision::RequestEffect(Effect::SystemIdle)))
         }
     }
 
@@ -685,6 +683,40 @@ fn transition_consistency_verifier_effects_appended() {
             Effect::SaveSession,
             Effect::CallLlmNetwork,
             Effect::SystemIdle
+        ]
+    );
+}
+
+#[test]
+fn transition_consistency_override_transition_applies_recovery() {
+    struct RecoveryVerifier;
+    impl ConsistencyVerifier for RecoveryVerifier {
+        fn verify_consistency(&self, _session: &Session) -> PluginResult<Option<PolicyDecision>> {
+            Ok(Some(PolicyDecision::OverrideTransition(vec![
+                Effect::SystemIdle,
+            ])))
+        }
+    }
+
+    let mut engine = BriocheEngineBuilder::new()
+        .with_consistency_verifier(Box::new(RecoveryVerifier))
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .build();
+
+    let mut session = Session::new("test");
+    let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
+
+    // The verifier's OverrideTransition forced recovery to Idle.
+    assert_eq!(session.state, AgentState::Idle);
+    assert!(session.state_stack.is_empty());
+    assert!(session.active_tools.is_empty());
+    assert_eq!(
+        effects,
+        vec![
+            Effect::SaveSession,
+            Effect::CallLlmNetwork,
+            Effect::SystemIdle,
         ]
     );
 }

@@ -9,9 +9,9 @@
 
 use brioche_core::types::InconsistencySource;
 use brioche_core::{
-    AgentState, AgentStateTag, ConsistencyVerifier, Effect, EngineInput, EpochAction,
-    EpochInterceptor, EpochState, ErrorCode, ErrorDetail, ExtensionStorage,
-    GovernanceFailoverHandler, PluginResult, Session,
+    AgentStateTag, ConsistencyVerifier, Effect, EngineInput, EpochAction, EpochInterceptor,
+    EpochState, ErrorCode, ErrorDetail, ExtensionStorage, GovernanceFailoverHandler, PluginResult,
+    PolicyDecision, Session,
 };
 
 // ---------------------------------------------------------------------------
@@ -83,7 +83,7 @@ impl Default for StateConsistencyGuard {
 }
 
 impl ConsistencyVerifier for StateConsistencyGuard {
-    fn verify_consistency(&self, session: &mut Session) -> PluginResult<Option<Vec<Effect>>> {
+    fn verify_consistency(&self, session: &Session) -> PluginResult<Option<PolicyDecision>> {
         let tag = AgentStateTag::from(&session.state);
 
         match tag {
@@ -102,11 +102,7 @@ impl ConsistencyVerifier for StateConsistencyGuard {
                         Effect::SystemIdle,
                     ];
 
-                    session.state = AgentState::Idle;
-                    session.state_stack.clear();
-                    session.active_tools.clear();
-
-                    return Ok(Some(effects));
+                    return Ok(Some(PolicyDecision::OverrideTransition(effects)));
                 }
 
                 Ok(None)
@@ -163,5 +159,52 @@ impl GovernanceFailoverHandler for SystemFailoverGuard {
             Effect::SaveSession,
             Effect::SystemIdle,
         ]))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use brioche_core::{AgentState, BriocheError};
+
+    use super::*;
+
+    #[test]
+    fn consistency_guard_returns_override_transition_on_empty_stack() -> Result<(), BriocheError> {
+        let guard = StateConsistencyGuard::new();
+        let mut session = Session::new("test");
+        // Simulate an inconsistent OverrideTransition that set Predicting
+        // without preserving a previous state on the stack.
+        session.state = AgentState::Predicting { generation_id: 1 };
+
+        let decision = guard
+            .verify_consistency(&session)
+            .map_err(|e| BriocheError::InvalidStateTransition(e.to_string()))?;
+
+        assert!(
+            matches!(decision, Some(PolicyDecision::OverrideTransition(_))),
+            "expected OverrideTransition for inconsistent state"
+        );
+        // The guard must not mutate the session; recovery is applied by the kernel.
+        assert!(matches!(
+            session.state,
+            AgentState::Predicting { generation_id: 1 }
+        ));
+        assert!(session.state_stack.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn consistency_guard_allows_consistent_state() -> Result<(), BriocheError> {
+        let guard = StateConsistencyGuard::new();
+        let mut session = Session::new("test");
+        session.push_state(AgentState::Predicting { generation_id: 1 })?;
+        session.push_state(AgentState::ExecutingTools { generation_id: 1 })?;
+
+        let decision = guard
+            .verify_consistency(&session)
+            .map_err(|e| BriocheError::InvalidStateTransition(e.to_string()))?;
+
+        assert_eq!(decision, None);
+        Ok(())
     }
 }
