@@ -164,8 +164,9 @@ impl GovernanceFailoverHandler for SystemFailoverGuard {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use brioche_core::{AgentState, BriocheError};
+
+    use super::*;
 
     #[test]
     fn consistency_guard_returns_override_transition_on_empty_stack() -> Result<(), BriocheError> {

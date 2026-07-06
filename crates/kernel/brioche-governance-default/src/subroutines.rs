@@ -6,13 +6,14 @@
 //!
 //! Refs: I-Comp-Epoch-Subroutine, I-Gov-SubRoutineLifecycle-Guard
 
+use std::collections::BTreeMap;
+
 use brioche_core::{
     ActiveToolCall, AgentState, BriocheExtensionType, ChatMessage, Effect, EngineInput,
     PluginResult, Session, SessionRegistry, StreamEvent, SubRoutineHandle, SubRoutineHandler,
     SubRoutineLifecycleGuard, ToolResultDTO,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 // ---------------------------------------------------------------------------
 // SubRoutineOrchestrator
