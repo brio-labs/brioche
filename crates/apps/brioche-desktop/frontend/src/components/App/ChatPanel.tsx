@@ -1,4 +1,5 @@
 import type { ChatMessage } from "../../store";
+import type { Attachment } from "../../hooks/app/useChatActions";
 import MessageList from "./MessageList";
 import ChatInput from "./ChatInput";
 
@@ -13,6 +14,8 @@ interface ChatPanelProps {
   handleImage: () => Promise<void> | void;
   handleClearChat: () => void;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
+  pendingAttachments: Attachment[];
+  removeAttachment: (id: string) => void;
 }
 
 export default function ChatPanel({
@@ -26,6 +29,8 @@ export default function ChatPanel({
   handleImage,
   handleClearChat,
   messagesEndRef,
+  pendingAttachments,
+  removeAttachment,
 }: ChatPanelProps) {
   return (
     <>
@@ -43,6 +48,8 @@ export default function ChatPanel({
         handleAttach={handleAttach}
         handleImage={handleImage}
         handleClearChat={handleClearChat}
+        pendingAttachments={pendingAttachments}
+        removeAttachment={removeAttachment}
       />
     </>
   );

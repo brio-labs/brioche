@@ -60,6 +60,8 @@ export default function App() {
     handleImage,
     handleClearChat,
     handleExportChat,
+    pendingAttachments,
+    removeAttachment,
   } = useChatActions();
 
   const paletteCommands = useCommandPaletteActions({
@@ -123,6 +125,8 @@ export default function App() {
             handleImage={handleImage}
             handleClearChat={handleClearChat}
             messagesEndRef={messagesEndRef}
+            pendingAttachments={pendingAttachments}
+            removeAttachment={removeAttachment}
           />
         </Panel>
         <Separator className="w-1 bg-transparent hover:bg-accent/30 active:bg-accent/50 transition-colors data-[resize-handle-state=drag]:bg-accent/50" />

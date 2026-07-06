@@ -1,7 +1,15 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useChatStore, type ChatMessage } from "../../store";
 import { open } from "@tauri-apps/plugin-dialog";
 import { sendMessage, attachReference, sendImage } from "../../ipc";
+
+export interface Attachment {
+  id: string;
+  path: string;
+  name: string;
+  type: "document" | "image";
+  dataUrl?: string;
+}
 
 export interface ChatActions {
   messages: ChatMessage[];
@@ -15,6 +23,8 @@ export interface ChatActions {
   handleImage: () => Promise<void>;
   handleClearChat: () => void;
   handleExportChat: () => void;
+  pendingAttachments: Attachment[];
+  removeAttachment: (id: string) => void;
 }
 
 export function useChatActions(): ChatActions {
@@ -28,6 +38,7 @@ export function useChatActions(): ChatActions {
     clearMessages,
   } = useChatStore();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -57,21 +68,35 @@ export function useChatActions(): ChatActions {
     async (e?: React.FormEvent) => {
       e?.preventDefault();
       const trimmed = input.trim();
-      if (!trimmed || isLoading) return;
+      if ((!trimmed && pendingAttachments.length === 0) || isLoading) return;
 
       setInput("");
-      addMessage("user", trimmed);
+      const attachmentsToSend = [...pendingAttachments];
+      setPendingAttachments([]);
       setLoading(true);
 
       try {
-        await sendMessage(trimmed);
+        let finalContent = trimmed;
+
+        // Process attachments
+        for (const att of attachmentsToSend) {
+          if (att.type === "document") {
+            await attachReference(att.path);
+            finalContent += `\n\nAttached: ${att.path}`;
+          } else if (att.type === "image") {
+            finalContent += `\n\n![${att.path}](${att.dataUrl})`;
+          }
+        }
+
+        addMessage("user", finalContent.trim());
+        await sendMessage(finalContent.trim());
       } catch (err) {
         addMessage("error", String(err));
       } finally {
         setLoading(false);
       }
     },
-    [input, isLoading, addMessage, setInput, setLoading],
+    [input, isLoading, pendingAttachments, addMessage, setInput, setLoading],
   );
 
   const handleKeyDown = useCallback(
@@ -90,13 +115,17 @@ export function useChatActions(): ChatActions {
       directory: false,
     });
     if (!path) return;
-    try {
-      await attachReference(path);
-      addMessage("system", `Attached: ${path}`);
-    } catch (err) {
-      addMessage("error", String(err));
-    }
-  }, [addMessage]);
+    const name = path.split(/[/\\]/).pop() || "";
+    setPendingAttachments((prev) => [
+      ...prev,
+      {
+        id: Math.random().toString(),
+        path,
+        name,
+        type: "document",
+      },
+    ]);
+  }, []);
 
   const handleImage = useCallback(async () => {
     const path = await open({
@@ -108,12 +137,26 @@ export function useChatActions(): ChatActions {
     });
     if (!path) return;
     try {
+      const name = path.split(/[/\\]/).pop() || "";
       const dataUrl = await sendImage(path);
-      addMessage("user", `![${path}](${dataUrl})`);
+      setPendingAttachments((prev) => [
+        ...prev,
+        {
+          id: Math.random().toString(),
+          path,
+          name,
+          type: "image",
+          dataUrl,
+        },
+      ]);
     } catch (err) {
       addMessage("error", String(err));
     }
   }, [addMessage]);
+
+  const removeAttachment = useCallback((id: string) => {
+    setPendingAttachments((prev) => prev.filter((a) => a.id !== id));
+  }, []);
 
   return {
     messages,
@@ -127,5 +170,7 @@ export function useChatActions(): ChatActions {
     handleImage,
     handleClearChat,
     handleExportChat,
+    pendingAttachments,
+    removeAttachment,
   };
 }
