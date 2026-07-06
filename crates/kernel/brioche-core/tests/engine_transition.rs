@@ -1032,9 +1032,14 @@ fn transition_with_epoch_guard_blocks_stale_generation() {
         .build();
 
     let mut session = Session::new("test");
-    session.extensions.insert(brioche_core::EpochState {
-        current_generation: 5,
-    });
+    assert!(
+        session
+            .extensions
+            .insert(brioche_core::EpochState {
+                current_generation: 5,
+            })
+            .is_ok()
+    );
 
     let effects = engine.transition(
         &mut session,
@@ -1071,9 +1076,14 @@ fn transition_with_epoch_guard_allows_current_generation() {
         .build();
 
     let mut session = Session::new("test");
-    session.extensions.insert(brioche_core::EpochState {
-        current_generation: 7,
-    });
+    assert!(
+        session
+            .extensions
+            .insert(brioche_core::EpochState {
+                current_generation: 7,
+            })
+            .is_ok()
+    );
 
     let r1 = session.push_state(AgentState::Predicting { generation_id: 7 });
     assert!(r1.is_ok());
@@ -1413,9 +1423,12 @@ fn adaptive_undo_frame_guard_restores_mutated_extension() {
 
     let mut guard = AdaptiveUndoFrameGuard::new();
     let mut ext = ExtensionStorage::new();
-    ext.insert(brioche_core::EpochState {
-        current_generation: 42,
-    });
+    assert!(
+        ext.insert(brioche_core::EpochState {
+            current_generation: 42,
+        })
+        .is_ok()
+    );
 
     guard.begin_hook("on_input");
 
@@ -1441,7 +1454,7 @@ fn adaptive_undo_frame_guard_abandons_past_threshold() {
 
     let mut guard = AdaptiveUndoFrameGuard::new(); // budget will likely be exceeded by TestCowState
     let mut ext = ExtensionStorage::new();
-    ext.insert(TestCowState { value: 7 });
+    assert!(ext.insert(TestCowState { value: 7 }).is_ok());
 
     guard.begin_hook("on_input");
 
@@ -1527,8 +1540,8 @@ fn engine_rolls_back_extensions_when_cow_budget_exceeded() {
         .build();
 
     let mut session = Session::new("rollback-test");
-    session.extensions.insert(snapshot_a);
-    session.extensions.insert(snapshot_b);
+    assert!(session.extensions.insert(snapshot_a).is_ok());
+    assert!(session.extensions.insert(snapshot_b).is_ok());
 
     let _effects = engine.transition(&mut session, &EngineInput::UserMessage("go".into()));
 
@@ -1725,9 +1738,14 @@ fn engine_with_adaptive_undo_frame_guard_instruments_hooks() {
         .build();
 
     let mut session = Session::new("test");
-    session.extensions.insert(brioche_core::EpochState {
-        current_generation: 1,
-    });
+    assert!(
+        session
+            .extensions
+            .insert(brioche_core::EpochState {
+                current_generation: 1,
+            })
+            .is_ok()
+    );
 
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
 
@@ -1930,9 +1948,14 @@ mod production_profile_tests {
     fn standard_profile_tool_call_lifecycle_predict_execute_respond() {
         let mut engine = engine_with_profile(GovernanceProfile::Standard);
         let mut session = Session::new("test");
-        session.extensions.insert(brioche_core::EpochState {
-            current_generation: 1,
-        });
+        assert!(
+            session
+                .extensions
+                .insert(brioche_core::EpochState {
+                    current_generation: 1,
+                })
+                .is_ok()
+        );
         let r = session.push_state(AgentState::Predicting { generation_id: 1 });
         assert!(r.is_ok());
 
@@ -2006,9 +2029,14 @@ mod production_profile_tests {
     fn strict_profile_tool_call_lifecycle_uses_stricter_timeout() {
         let mut engine = engine_with_profile(GovernanceProfile::Strict);
         let mut session = Session::new("test");
-        session.extensions.insert(brioche_core::EpochState {
-            current_generation: 1,
-        });
+        assert!(
+            session
+                .extensions
+                .insert(brioche_core::EpochState {
+                    current_generation: 1,
+                })
+                .is_ok()
+        );
         let r = session.push_state(AgentState::Predicting { generation_id: 1 });
         assert!(r.is_ok());
 

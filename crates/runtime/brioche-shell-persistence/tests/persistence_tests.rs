@@ -1170,7 +1170,7 @@ fn session_head_dto_strategy() -> impl Strategy<Value = SessionHeadDTO> {
             prop::collection::vec(any::<u8>(), 0..32),
             0..10,
         ),
-        any::<usize>(),
+        any::<u64>(),
         any::<u32>(),
     )
         .prop_map(

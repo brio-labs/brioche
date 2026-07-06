@@ -24,7 +24,9 @@ const PENDING_MARKER: &str = "__PENDING__";
 /// COW: full clone (~64 bytes). Two `String` fields plus one enum.
 ///
 /// Refs: I-Eco-OrderedCollections
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, BriocheExtensionType,
+)]
 pub struct PendingTaskInfo {
     /// Identifier of the pending task.
     pub task_id: String,
@@ -37,7 +39,9 @@ pub struct PendingTaskInfo {
 /// Status of a pending task.
 ///
 /// Refs: I-Eco-OrderedCollections
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, BriocheExtensionType,
+)]
 pub enum PendingTaskStatus {
     /// Task is queued but not yet started.
     #[default]
@@ -179,6 +183,7 @@ impl BriochePlugin for PendingTaskManager {
                             };
                             PendingTaskStatus::Completed(msg)
                         }
+                        _ => PendingTaskStatus::Pending,
                     };
                     Some((task_id.clone(), new_status))
                 }

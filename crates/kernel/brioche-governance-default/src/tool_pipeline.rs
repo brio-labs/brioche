@@ -35,7 +35,7 @@ use crate::Priority;
 )]
 pub struct ToolResultFormatterState {
     /// Maximum size of a JSON result in bytes (0 = no limit).
-    pub max_result_bytes: usize,
+    pub max_result_bytes: u64,
     /// Total number of formatted results.
     pub formatted_count: u64,
 }
@@ -55,7 +55,7 @@ impl Default for ToolResultFormatterState {
 ///
 /// Refs: I-Core-ActiveToolCall
 pub struct ToolResultFormatter {
-    max_result_bytes: usize,
+    max_result_bytes: u64,
 }
 
 impl ToolResultFormatter {
@@ -70,7 +70,7 @@ impl ToolResultFormatter {
 
     /// Creates an instance with a custom size limit.
     /// Refs: I-Gov-TraitAtomic
-    pub fn with_max_result_bytes(max_result_bytes: usize) -> Self {
+    pub fn with_max_result_bytes(max_result_bytes: u64) -> Self {
         Self { max_result_bytes }
     }
 }
@@ -105,8 +105,9 @@ impl BriochePlugin for ToolResultFormatter {
         for result in results {
             let content = tool_outcome_to_string(&result.outcome);
 
-            if self.max_result_bytes > 0 && content.len() > self.max_result_bytes {
-                let meta = TruncatedToolResult::from_content(&content, self.max_result_bytes);
+            if self.max_result_bytes > 0 && content.len() > self.max_result_bytes as usize {
+                let meta =
+                    TruncatedToolResult::from_content(&content, self.max_result_bytes as usize);
                 let json = meta.to_json().map_err(|e| PluginError::Soft {
                     plugin_name: "tool_result_formatter".into(),
                     message: format!("JSON serialization failed: {e}"),

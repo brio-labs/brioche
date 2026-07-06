@@ -130,7 +130,7 @@ impl CycleRollbackPolicy for UndoFrameGuard {
         log.events.push(RollbackEvent {
             hook_name: String::new(),
             was_rollback: false,
-            frame_weight: self.current_frame_weight,
+            frame_weight: self.current_frame_weight as u64,
             budget_exceeded: self.current_frame_weight >= self.max_cow_bytes_per_hook,
         });
         self.active_frame = None;
@@ -149,7 +149,7 @@ impl CycleRollbackPolicy for UndoFrameGuard {
         log.events.push(RollbackEvent {
             hook_name: String::new(),
             was_rollback: true,
-            frame_weight: self.current_frame_weight,
+            frame_weight: self.current_frame_weight as u64,
             budget_exceeded,
         });
         self.active_frame = None;
@@ -279,7 +279,7 @@ impl CycleRollbackPolicy for TieredUndoFrameGuard {
         log.events.push(RollbackEvent {
             hook_name: String::new(),
             was_rollback: false,
-            frame_weight: self.current_standard_weight + self.current_best_effort_weight,
+            frame_weight: (self.current_standard_weight + self.current_best_effort_weight) as u64,
             budget_exceeded: self.current_standard_weight >= self.max_standard_bytes
                 || self.current_best_effort_weight >= self.max_best_effort_bytes,
         });
@@ -302,7 +302,7 @@ impl CycleRollbackPolicy for TieredUndoFrameGuard {
         log.events.push(RollbackEvent {
             hook_name: String::new(),
             was_rollback: true,
-            frame_weight: self.current_standard_weight + self.current_best_effort_weight,
+            frame_weight: (self.current_standard_weight + self.current_best_effort_weight) as u64,
             budget_exceeded,
         });
         self.active_frame = None;
@@ -438,7 +438,7 @@ impl CycleRollbackPolicy for AdaptiveUndoFrameGuard {
         log.events.push(RollbackEvent {
             hook_name: self.current_hook.clone(),
             was_rollback: false,
-            frame_weight: self.current_frame_weight,
+            frame_weight: self.current_frame_weight as u64,
             budget_exceeded: self.current_frame_weight >= self.effective_max(),
         });
         self.active_frame = None;
@@ -458,7 +458,7 @@ impl CycleRollbackPolicy for AdaptiveUndoFrameGuard {
         log.events.push(RollbackEvent {
             hook_name: self.current_hook.clone(),
             was_rollback: true,
-            frame_weight: self.current_frame_weight,
+            frame_weight: self.current_frame_weight as u64,
             budget_exceeded,
         });
         self.active_frame = None;
@@ -597,21 +597,21 @@ impl CowBudgetPolicy for HistoricalCowBudgetPolicy {
 
 #[cfg(test)]
 mod tests {
-    use brioche_core::{BriocheExtensionType, ExtensionStorage, RollbackEventLog};
+    use brioche_core::{BriocheError, BriocheExtensionType, ExtensionStorage, RollbackEventLog};
 
     use super::*;
 
-    fn snapshot_epoch(ext: &mut ExtensionStorage, generation: u64) {
+    fn snapshot_epoch(ext: &mut ExtensionStorage, generation: u64) -> Result<(), BriocheError> {
         ext.insert(brioche_core::EpochState {
             current_generation: generation,
-        });
+        })
     }
 
     #[test]
-    fn undo_frame_guard_restores_on_rollback() {
+    fn undo_frame_guard_restores_on_rollback() -> Result<(), BriocheError> {
         let mut guard = UndoFrameGuard::new();
         let mut ext = ExtensionStorage::new();
-        snapshot_epoch(&mut ext, 42);
+        snapshot_epoch(&mut ext, 42)?;
 
         guard.begin_hook("on_input");
 
@@ -630,13 +630,14 @@ mod tests {
         let log = ext.get_or_insert_default::<RollbackEventLog>();
         assert_eq!(log.events.len(), 1);
         assert!(log.events[0].was_rollback);
+        Ok(())
     }
 
     #[test]
-    fn undo_frame_guard_discards_on_commit() {
+    fn undo_frame_guard_discards_on_commit() -> Result<(), BriocheError> {
         let mut guard = UndoFrameGuard::new();
         let mut ext = ExtensionStorage::new();
-        snapshot_epoch(&mut ext, 42);
+        snapshot_epoch(&mut ext, 42)?;
 
         guard.begin_hook("on_input");
 
@@ -655,13 +656,14 @@ mod tests {
         let log = ext.get_or_insert_default::<RollbackEventLog>();
         assert_eq!(log.events.len(), 1);
         assert!(!log.events[0].was_rollback);
+        Ok(())
     }
 
     #[test]
-    fn tiered_undo_frame_guard_restores_critical_type() {
+    fn tiered_undo_frame_guard_restores_critical_type() -> Result<(), BriocheError> {
         let mut guard = TieredUndoFrameGuard::new();
         let mut ext = ExtensionStorage::new();
-        snapshot_epoch(&mut ext, 42);
+        snapshot_epoch(&mut ext, 42)?;
 
         guard.begin_hook("on_input");
 
@@ -676,13 +678,14 @@ mod tests {
 
         let restored = ext.get_or_insert_default::<brioche_core::EpochState>();
         assert_eq!(restored.current_generation, 42);
+        Ok(())
     }
 
     #[test]
-    fn adaptive_undo_frame_guard_restores_on_rollback() {
+    fn adaptive_undo_frame_guard_restores_on_rollback() -> Result<(), BriocheError> {
         let mut guard = AdaptiveUndoFrameGuard::new();
         let mut ext = ExtensionStorage::new();
-        snapshot_epoch(&mut ext, 7);
+        snapshot_epoch(&mut ext, 7)?;
 
         guard.begin_hook("on_input");
 
@@ -697,6 +700,7 @@ mod tests {
 
         let restored = ext.get_or_insert_default::<brioche_core::EpochState>();
         assert_eq!(restored.current_generation, 7);
+        Ok(())
     }
 
     #[test]

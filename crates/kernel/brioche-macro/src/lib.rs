@@ -427,12 +427,17 @@ fn scan_fields(fields: &Fields, errors: &mut Vec<DeriveError>) {
     }
 }
 
-/// Extract the nested carrier type from a collection wrapper.
+/// Recursively extract immediate nested carrier types from a type.
 ///
-/// For collection types that commonly hold persisted carriers, this
-/// returns the element/value type that must implement
-/// `BriocheExtensionType`. Non-collection types are returned as-is.
-fn extract_nested_carrier_type(ty: &Type) -> Type {
+/// Collection wrappers (`Vec`, `Option`, `Box`, `BTreeMap`, `IndexMap`,
+/// `HashMap`, `BTreeSet`, `IndexSet`, `HashSet`) are unwrapped; their
+/// element/value types are returned. Non-wrapper types are returned as-is.
+/// Bare pointers, references, arrays, slices, and tuples are recursed.
+///
+/// This does not expand into the definitions of returned carriers; each
+/// carrier's own `#[derive(BriocheExtensionType)]` will scan its own fields.
+fn extract_immediate_carriers(ty: &Type) -> Vec<Type> {
+    let mut out = Vec::new();
     match ty {
         Type::Path(type_path) => {
             let segments: Vec<String> = type_path
@@ -456,45 +461,130 @@ fn extract_nested_carrier_type(ty: &Type) -> Type {
                     .collect();
 
                 match last {
-                    Some("Vec") if !type_args.is_empty() => {
-                        return type_args[0].clone();
+                    Some("Vec") | Some("Option") | Some("Box") if !type_args.is_empty() => {
+                        out.extend(extract_immediate_carriers(type_args[0]));
+                        return out;
                     }
-                    Some("IndexMap") | Some("BTreeMap") | Some("HashMap")
+                    Some("BTreeMap") | Some("IndexMap") | Some("HashMap")
                         if type_args.len() >= 2 =>
                     {
-                        return type_args[1].clone();
+                        // Value type is the carrier; key type is typically a
+                        // scalar or string and is filtered out later.
+                        out.extend(extract_immediate_carriers(type_args[1]));
+                        return out;
                     }
-                    Some("Option") | Some("Box") if !type_args.is_empty() => {
-                        return type_args[0].clone();
+                    Some("BTreeSet") | Some("IndexSet") | Some("HashSet")
+                        if !type_args.is_empty() =>
+                    {
+                        out.extend(extract_immediate_carriers(type_args[0]));
+                        return out;
+                    }
+                    Some("Result") if type_args.len() >= 2 => {
+                        out.extend(extract_immediate_carriers(type_args[0]));
+                        return out;
                     }
                     _ => {}
                 }
             }
-            ty.clone()
+
+            // Non-wrapper type: return it as a carrier (filtering happens later).
+            out.push(ty.clone());
         }
-        _ => ty.clone(),
+        Type::Array(arr) => out.extend(extract_immediate_carriers(&arr.elem)),
+        Type::Tuple(tuple) => {
+            for elem in &tuple.elems {
+                out.extend(extract_immediate_carriers(elem));
+            }
+        }
+        Type::Reference(rf) => out.extend(extract_immediate_carriers(&rf.elem)),
+        Type::Paren(paren) => out.extend(extract_immediate_carriers(&paren.elem)),
+        Type::Slice(slice) => out.extend(extract_immediate_carriers(&slice.elem)),
+        Type::BareFn(bare) => {
+            for inp in &bare.inputs {
+                out.extend(extract_immediate_carriers(&inp.ty));
+            }
+            if let syn::ReturnType::Type(_, output) = &bare.output {
+                out.extend(extract_immediate_carriers(output));
+            }
+        }
+        Type::ImplTrait(impl_trait) => {
+            for bound in &impl_trait.bounds {
+                if let syn::TypeParamBound::Trait(trait_bound) = bound {
+                    for seg in &trait_bound.path.segments {
+                        if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                            for arg in &args.args {
+                                if let syn::GenericArgument::Type(inner) = arg {
+                                    out.extend(extract_immediate_carriers(inner));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
+/// Returns `true` if the type is a primitive scalar or `String`.
+///
+/// These types are never required to implement `BriocheExtensionType`,
+/// even when they appear as nested carriers in persisted state.
+fn is_primitive_or_string(ty: &Type) -> bool {
+    let primitives = [
+        "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16", "i32", "i64", "i128", "isize",
+        "f32", "f64", "bool", "char", "str",
+    ];
+    match ty {
+        Type::Path(type_path) => {
+            let segments: Vec<String> = type_path
+                .path
+                .segments
+                .iter()
+                .map(|s| s.ident.to_string())
+                .collect();
+            if let Some(last) = segments.last() {
+                if last == "String" {
+                    return true;
+                }
+                if primitives.contains(&last.as_str()) && segments.len() == 1 {
+                    return true;
+                }
+            }
+            false
+        }
+        _ => false,
     }
 }
 
-/// Collect nested carrier types from fields marked with
-/// `#[brioche(nested_carrier)]`.
+/// Collect all nested carrier types from fields of a struct/enum.
 ///
-/// These types are asserted at compile time to implement
-/// `BriocheExtensionType`, ensuring nested persisted carriers are
-/// explicitly typed and deterministic.
+/// Unlike the previous implementation, this does not require explicit
+/// `#[brioche(nested_carrier)]` annotations. Every non-primitive field type
+/// or carrier extracted from a collection wrapper is asserted to implement
+/// `BriocheExtensionType` at compile time, ensuring nested `Vec`/`HashMap`
+/// checks cannot escape by hiding inside another carrier.
+///
+/// Primitives and `String` are skipped because they do not implement the
+/// trait and are deterministic by construction.
 fn collect_nested_carriers(fields: &Fields, out: &mut Vec<Type>) {
     match fields {
         Fields::Named(named) => {
             for f in &named.named {
-                if field_has_brioche_flag(&f.attrs, "nested_carrier") {
-                    out.push(extract_nested_carrier_type(&f.ty));
+                for carrier in extract_immediate_carriers(&f.ty) {
+                    if !is_primitive_or_string(&carrier) {
+                        out.push(carrier);
+                    }
                 }
             }
         }
         Fields::Unnamed(unnamed) => {
             for f in &unnamed.unnamed {
-                if field_has_brioche_flag(&f.attrs, "nested_carrier") {
-                    out.push(extract_nested_carrier_type(&f.ty));
+                for carrier in extract_immediate_carriers(&f.ty) {
+                    if !is_primitive_or_string(&carrier) {
+                        out.push(carrier);
+                    }
                 }
             }
         }
@@ -657,14 +747,12 @@ pub fn derive_brioche_extension_type(input: TokenStream) -> TokenStream {
                 where
                     Self: Sized,
                 {
-                    fn serialize(any: &dyn ::core::any::Any) -> ::std::vec::Vec<u8> {
+                    fn serialize(any: &dyn ::core::any::Any) -> ::core::result::Result<::std::vec::Vec<u8>, ::std::string::String> {
                         if let Some(this) = any.downcast_ref::<#name>() {
-                            match ::brioche_core::postcard::to_stdvec(this) {
-                                Ok(v) => v,
-                                Err(_) => ::std::vec::Vec::new(),
-                            }
+                            ::brioche_core::postcard::to_stdvec(this)
+                                .map_err(|e| ::std::string::String::from("postcard: ") + &e.to_string())
                         } else {
-                            ::std::vec::Vec::new()
+                            ::core::result::Result::Err(::std::string::String::from("downcast failed"))
                         }
                     }
                     fn deserialize(bytes: &[u8]) -> ::core::result::Result<::std::boxed::Box<dyn ::core::any::Any + Send + Sync>, ::std::string::String> {

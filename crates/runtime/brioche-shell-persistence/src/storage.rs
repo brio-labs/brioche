@@ -124,7 +124,7 @@ const FLAG_COMPRESSED: u8 = 0x01;
 ///
 /// Refs: docs/SPECS.md §Book III-B Ch 3.1
 pub fn extract_delta(session: &Session) -> &[ChatMessage] {
-    &session.history[session.persisted_msg_count..]
+    &session.history[session.persisted_msg_count as usize..]
 }
 
 /// Maximum size of a session head blob (uncompressed).
@@ -608,8 +608,8 @@ impl Persistence for RedbStorage {
         let head = entry.head.clone();
         let sid = session_id.to_string();
         let db = Arc::clone(&self.db);
-        let delta = entry.messages[entry.head.persisted_msg_count..].to_vec();
-        let start_index = entry.head.persisted_msg_count;
+        let delta = entry.messages[entry.head.persisted_msg_count as usize..].to_vec();
+        let start_index = entry.head.persisted_msg_count as usize;
 
         // Serialize and commit head + delta messages in a single Redb
         // transaction so the on-disk state is always consistent.
@@ -645,7 +645,7 @@ impl Persistence for RedbStorage {
         // Advance the watermark only after the atomic commit succeeds.
         let mut store = self.session_store.write().await;
         if let Some(entry) = store.get_mut(session_id) {
-            entry.head.persisted_msg_count = new_count;
+            entry.head.persisted_msg_count = new_count as u64;
         }
 
         Ok(())

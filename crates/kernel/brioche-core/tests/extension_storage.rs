@@ -43,7 +43,7 @@ fn insert_and_get_mut_roundtrip() {
     let mut tags = BTreeMap::new();
     tags.insert("a".to_string(), 1);
     let state = TestState { counter: 42, tags };
-    storage.insert(state.clone());
+    assert!(storage.insert(state.clone()).is_ok());
     if let Some(retrieved) = storage.get_mut::<TestState>() {
         assert_eq!(retrieved.counter, 42);
         assert_eq!(retrieved.tags.get("a"), Some(&1));
@@ -72,7 +72,7 @@ fn get_or_insert_default_restores_from_cold_snapshot() {
     let mut tags = BTreeMap::new();
     tags.insert("key".to_string(), 123);
     let original = TestState { counter: 99, tags };
-    storage.insert(original.clone());
+    assert!(storage.insert(original.clone()).is_ok());
 
     // Evict from hot_map to force restore from cold_snapshot.
     assert!(storage.evict_from_hot::<TestState>());
@@ -119,7 +119,7 @@ fn cold_snapshot_persists_binary_blobs() {
         counter: 55,
         tags: BTreeMap::new(),
     };
-    storage.insert(state);
+    assert!(storage.insert(state).is_ok());
     let snapshot = storage.cold_snapshot();
     assert!(snapshot.contains_key(TestState::EXT_ID));
     assert!(
@@ -131,7 +131,7 @@ fn cold_snapshot_persists_binary_blobs() {
 #[test]
 fn no_snapshot_types_skip_cold_storage() {
     let mut storage = ExtensionStorage::new();
-    storage.insert(TransientState { counter: 99 });
+    assert!(storage.insert(TransientState { counter: 99 }).is_ok());
 
     // The transient type must still be reachable in hot_map.
     if let Some(state) = storage.get_mut::<TransientState>() {
@@ -151,13 +151,21 @@ fn no_snapshot_types_skip_cold_storage() {
 #[test]
 fn multiple_extension_types_coexist() {
     let mut storage = ExtensionStorage::new();
-    storage.insert(TestState {
-        counter: 1,
-        tags: BTreeMap::new(),
-    });
-    storage.insert(EpochState {
-        current_generation: 7,
-    });
+    assert!(
+        storage
+            .insert(TestState {
+                counter: 1,
+                tags: BTreeMap::new(),
+            })
+            .is_ok()
+    );
+    assert!(
+        storage
+            .insert(EpochState {
+                current_generation: 7,
+            })
+            .is_ok()
+    );
 
     if let Some(test_state) = storage.get_mut::<TestState>() {
         assert_eq!(test_state.counter, 1);
@@ -254,10 +262,14 @@ fn dedup_sorted_pairs(pairs: Vec<(String, u64)>) -> Vec<(String, u64)> {
 fn attach_rollback_policy_stores_policy_and_resets_snapshot_tracking() {
     let mut storage = ExtensionStorage::new();
     let (policy, counter) = RecordingPolicy::new();
-    storage.insert(TestState {
-        counter: 0,
-        tags: BTreeMap::new(),
-    });
+    assert!(
+        storage
+            .insert(TestState {
+                counter: 0,
+                tags: BTreeMap::new(),
+            })
+            .is_ok()
+    );
     storage.attach_rollback_policy(Box::new(policy));
 
     {
@@ -277,10 +289,14 @@ fn attach_rollback_policy_stores_policy_and_resets_snapshot_tracking() {
 fn detach_rollback_policy_returns_policy_and_clears_tracking() {
     let mut storage = ExtensionStorage::new();
     let (policy, counter) = RecordingPolicy::new();
-    storage.insert(TestState {
-        counter: 0,
-        tags: BTreeMap::new(),
-    });
+    assert!(
+        storage
+            .insert(TestState {
+                counter: 0,
+                tags: BTreeMap::new(),
+            })
+            .is_ok()
+    );
     storage.attach_rollback_policy(Box::new(policy));
 
     {
@@ -329,10 +345,14 @@ fn attach_rollback_policy_notifies_on_first_get_or_insert_default_mutation() {
 #[test]
 fn attach_rollback_policy_notifies_on_first_get_mut_mutation() {
     let mut storage = ExtensionStorage::new();
-    storage.insert(TestState {
-        counter: 0,
-        tags: BTreeMap::new(),
-    });
+    assert!(
+        storage
+            .insert(TestState {
+                counter: 0,
+                tags: BTreeMap::new(),
+            })
+            .is_ok()
+    );
     let (policy, counter) = RecordingPolicy::new();
     storage.attach_rollback_policy(Box::new(policy));
 
@@ -353,10 +373,14 @@ fn attach_rollback_policy_notifies_on_first_get_mut_mutation() {
 fn attach_rollback_policy_clears_tracking_when_replacing_policy() {
     let mut storage = ExtensionStorage::new();
     let (policy_a, counter_a) = RecordingPolicy::new();
-    storage.insert(TestState {
-        counter: 0,
-        tags: BTreeMap::new(),
-    });
+    assert!(
+        storage
+            .insert(TestState {
+                counter: 0,
+                tags: BTreeMap::new(),
+            })
+            .is_ok()
+    );
     storage.attach_rollback_policy(Box::new(policy_a));
 
     {
@@ -387,7 +411,7 @@ proptest! {
             tags.insert(key, val);
         }
         let state = TestState { counter, tags };
-        storage.insert(state.clone());
+        assert!(storage.insert(state.clone()).is_ok());
         if let Some(retrieved) = storage.get_mut::<TestState>() {
             prop_assert_eq!(retrieved.counter, counter);
             prop_assert_eq!(&retrieved.tags, &state.tags);
@@ -491,8 +515,8 @@ proptest! {
 
         let mut storage1 = ExtensionStorage::new();
         let mut storage2 = ExtensionStorage::new();
-        storage1.insert(state1);
-        storage2.insert(state2);
+        assert!(storage1.insert(state1).is_ok());
+        assert!(storage2.insert(state2).is_ok());
 
         prop_assert_eq!(storage1.cold_snapshot(), storage2.cold_snapshot());
     }

@@ -32,14 +32,16 @@ pub struct RollbackEventLog {
 /// # Panics
 /// Never panics.
 /// Refs: I-Gov-Rollback-BestEffort
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, BriocheExtensionType,
+)]
 pub struct RollbackEvent {
     /// Hook name during which the event occurred.
     pub hook_name: String,
     /// `true` = rollback restored snapshots; `false` = commit discarded them.
     pub was_rollback: bool,
     /// Cumulative weight of the frame at decision time (bytes).
-    pub frame_weight: usize,
+    pub frame_weight: u64,
     /// Whether the budget was exceeded (abandoned rollback).
     pub budget_exceeded: bool,
 }
@@ -49,12 +51,16 @@ pub struct RollbackEvent {
 
 /// Single entry in the `TransitionTraceLog` ring buffer.
 ///
+/// ## Snapshot strategy
+/// COW: full clone. Weight is one `String`, one `PolicyDecision`, and one `u64`.
+///
 /// # Complexity
 /// O(1). No heap allocation.
 /// # Panics
 /// Never panics.
 /// Refs: I-Gov-OverrideTrace
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
+#[brioche(critical_state)]
 pub struct TransitionTrace {
     /// Name of the plugin that emitted the `OverrideTransition`.
     pub source_plugin: String,
@@ -116,12 +122,16 @@ impl TransitionTraceLog {
 
 /// Single entry in the `SupersededTransitionTraceLog` ring buffer.
 ///
+/// ## Snapshot strategy
+/// COW: full clone. Weight is two `String` fields, one `PolicyDecision`, and one `u64`.
+///
 /// # Complexity
 /// O(1). No heap allocation.
 /// # Panics
 /// Never panics.
 /// Refs: I-Gov-OverrideTrace
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
+#[brioche(critical_state)]
 pub struct SupersededTransitionTrace {
     /// Name of the plugin that emitted the `OverrideTransition`.
     pub source_plugin: String,

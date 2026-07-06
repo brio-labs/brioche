@@ -9,6 +9,7 @@ use super::fundamental::{PluginError, PluginSource, SubRoutineHandle, TaskId};
 use super::runtime::StreamEvent;
 use super::session::ChatMessage;
 use super::tool::{ActiveToolCall, ToolResultDTO};
+use crate::BriocheExtensionType;
 
 // ---------------------------------------------------------------------------
 // EngineInput
@@ -59,10 +60,11 @@ pub enum EngineInput {
 /// O(1) for construction and field/variant access.
 /// # Panics
 /// Never panics.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 #[non_exhaustive]
 pub enum PolicyDecision {
     /// Allow the current operation to proceed.
+    #[default]
     Allow,
     /// Block the current operation with a reason.
     Block {
@@ -70,12 +72,12 @@ pub enum PolicyDecision {
         reason: String,
     },
     /// Mutate the session history before the next phase.
-    MutateHistory(Vec<HistoryEdit>),
+    MutateHistory(#[brioche(deterministic_order)] Vec<HistoryEdit>),
     /// Request emission of a mechanical effect.
     /// Validated by `HookEffectConstraint` if injected.
     RequestEffect(Effect),
     /// Force a state transition and emit associated effects.
-    OverrideTransition(Vec<Effect>),
+    OverrideTransition(#[brioche(deterministic_order)] Vec<Effect>),
 }
 
 /// Individual history edit operation.
@@ -88,28 +90,34 @@ pub enum PolicyDecision {
 /// O(1) for construction and field/variant access.
 /// # Panics
 /// Never panics.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 #[non_exhaustive]
 pub enum HistoryEdit {
     /// Insert a message at a specific history index.
     Insert {
         /// Position in history for the edit operation.
-        index: usize,
+        index: u64,
         /// The `ChatMessage` to insert or replace.
         message: ChatMessage,
     },
     /// Overwrite a message at a specific history index.
     Replace {
         /// Position in history for the edit operation.
-        index: usize,
+        index: u64,
         /// The `ChatMessage` to insert or replace.
         message: ChatMessage,
     },
     /// Discard all but the most recent N messages.
     Truncate {
         /// Number of most recent messages to retain.
-        keep_last: usize,
+        keep_last: u64,
     },
+}
+
+impl Default for HistoryEdit {
+    fn default() -> Self {
+        Self::Truncate { keep_last: 0 }
+    }
 }
 
 /// Discriminated history operation for typed error reporting.
@@ -121,10 +129,11 @@ pub enum HistoryEdit {
 /// O(1). No heap allocation.
 /// # Panics
 /// Never panics.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 #[non_exhaustive]
 pub enum HistoryOperation {
     /// Insert a message at a specific history index.
+    #[default]
     Insert,
     /// Overwrite a message at a specific history index.
     Replace,
@@ -151,7 +160,7 @@ impl std::fmt::Display for HistoryOperation {
 /// O(1). No heap allocation.
 /// # Panics
 /// Never panics.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 #[non_exhaustive]
 pub enum InconsistencySource {
     /// Internal kernel module.
@@ -164,6 +173,14 @@ pub enum InconsistencySource {
         /// Name of the plugin that detected the inconsistency.
         name: String,
     },
+}
+
+impl Default for InconsistencySource {
+    fn default() -> Self {
+        Self::Kernel {
+            module: String::new(),
+        }
+    }
 }
 
 impl std::fmt::Display for InconsistencySource {
@@ -194,7 +211,7 @@ impl std::fmt::Display for InconsistencySource {
 /// O(1) for construction and field/variant access.
 /// # Panics
 /// Never panics.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 #[non_exhaustive]
 pub enum UiWidget {
     /// Text fragment from LLM streaming.
@@ -228,7 +245,7 @@ pub enum UiWidget {
         /// Transport-level failure description.
         reason: String,
     },
-    /// Generic status indicator (e.g., "cancelled").
+    /// Generic status indicator (e.g. "cancelled").
     Status(String),
     /// Sub-routine timeout notification.
     SubRoutineTimeout {
@@ -264,8 +281,15 @@ pub enum UiWidget {
         /// Canonical type string for third-party widget routing.
         widget_type: String,
         /// Raw JSON payload. Deterministic because it is bytes.
+        #[brioche(deterministic_order)]
         payload_json: Vec<u8>,
     },
+}
+
+impl Default for UiWidget {
+    fn default() -> Self {
+        Self::Status(String::new())
+    }
 }
 
 impl UiWidget {
@@ -313,16 +337,16 @@ impl UiWidget {
 /// # Panics
 /// Never panics.
 /// Refs: I-Comp-Typed-Effects
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 pub enum ErrorDetail {
     /// History edit index out of bounds.
     HistoryIndexOutOfBounds {
         /// Which edit failed: insert, replace, or truncate.
         operation: HistoryOperation,
         /// Position in history for the edit operation.
-        index: usize,
+        index: u64,
         /// Current history length at the time of the failed edit.
-        len: usize,
+        len: u64,
     },
     /// Tool descriptor missing timeout (default applied).
     MissingToolTimeout {
@@ -339,7 +363,7 @@ pub enum ErrorDetail {
     /// Effects were dropped after `RebuildRoutes`.
     EffectsDroppedAfterRebuildRoutes {
         /// Number of discarded effects.
-        count: usize,
+        count: u64,
     },
     /// Sub-routine lifecycle guard failed.
     SubRoutineLifecycleFailed {
@@ -430,6 +454,14 @@ impl std::fmt::Display for ErrorDetail {
     }
 }
 
+impl Default for ErrorDetail {
+    fn default() -> Self {
+        Self::MissingToolTimeout {
+            default_timeout_ms: 0,
+        }
+    }
+}
+
 /// Declarative effect emitted by the kernel. The shell is responsible for
 /// execution.
 ///
@@ -441,13 +473,14 @@ impl std::fmt::Display for ErrorDetail {
 /// O(1) for construction and field/variant access.
 /// # Panics
 /// Never panics.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 #[non_exhaustive]
 pub enum Effect {
     /// Request the shell to initiate an LLM prediction.
+    #[default]
     CallLlmNetwork,
     /// Request the shell to execute active tool calls.
-    ExecuteTools(Vec<ActiveToolCall>),
+    ExecuteTools(#[brioche(deterministic_order)] Vec<ActiveToolCall>),
     /// Emit a structured widget to the projection layer.
     ForwardToUi(UiWidget),
     /// Report a system-level error. The shell decides on recovery.
@@ -464,6 +497,7 @@ pub enum Effect {
         /// Plugin that owns this blob.
         plugin_id: PluginSource,
         /// Opaque binary payload. Serialized by the plugin itself.
+        #[brioche(deterministic_order)]
         data: Vec<u8>,
     },
     /// Start a background summarization task.
@@ -473,6 +507,7 @@ pub enum Effect {
         /// Identifier of the background task.
         task_id: TaskId,
         /// Serialized input for the offloaded computation.
+        #[brioche(deterministic_order)]
         payload: Vec<u8>,
     },
     /// Request garbage collection of orphaned sub-routines.
@@ -505,10 +540,13 @@ pub enum Effect {
 /// O(1). No heap allocation.
 /// # Panics
 /// Never panics.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType,
+)]
 #[non_exhaustive]
 pub enum ErrorCode {
     /// Transport-level network failure.
+    #[default]
     NetworkUnavailable,
     /// User cancelled the current operation.
     OperationCancelled,

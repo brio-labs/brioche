@@ -40,5 +40,8 @@ fn ui_tests() {
     t.compile_fail("tests/ui/fail_vec_undetermined.rs");
     t.compile_fail("tests/ui/fail_nested_hashmap.rs");
     t.compile_fail("tests/ui/fail_nested_indexmap.rs");
-    t.compile_fail("tests/ui/fail_nested_carrier.rs");
+    t.pass("tests/ui/pass_nested_carrier.rs");
+
+    // `BriocheExtensionType` negative cases.
+    t.compile_fail("tests/ui/fail_hashmap.rs");
 }
