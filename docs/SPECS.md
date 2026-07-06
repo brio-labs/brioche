@@ -3129,15 +3129,15 @@ Treated as a transactional barrier. No following effect from the same batch, no 
 
 **ExecuteTools:**
 
-1. Create `CancellationToken`.
+1. Create a child `CancellationToken` from the shell-level shutdown token.
 2. Read `ActiveToolCall.timeout_ms` (mechanical source of truth).
 3. If absent (`0` or not specified), use the engine's `default_tool_timeout_ms`. An `Effect::Error` has already been emitted. **No technical fallback** is applied beyond this mechanical safeguard.
 4. `tokio::spawn` :
    * Parallel execution.
    * `tokio::select!` :
-     * a. Timeout: capture partial logs → `TimeoutWithPartialData`.
-     * b. Cancellation by token → emit `SystemSignal::OperationCancelled`.
-5. The shell does not transform results by business policy. Raw `ToolResultDTO`s injected into the engine channel.
+     * a. Timeout: cancel the child token and return `TimeoutWithPartialData`.
+     * b. Shell shutdown/user cancellation: return a terminal `SystemError` tool result so the generation cannot wait forever.
+5. The shell does not transform results by business policy. Raw terminal `ToolResultDTO`s are injected into the engine channel even during shutdown/rebuild barriers because the effect was already admitted.
 
 <br>
 
@@ -3151,7 +3151,7 @@ Treated as a transactional barrier. No following effect from the same batch, no 
 
 1. SSE connection.
 2. Each chunk segmented according to `MAX_INLINE_CHUNK` (4 KB), structured as `StreamEvent` with zero-copy `Bytes`.
-3. Network failure: `NetworkRecovery` (shell plugin) manages retries/backoff. As a last resort, `SystemSignal::NetworkUnavailable`. The kernel never receives a `NetworkFailure`.
+3. Network/SSE failure: `NetworkRecovery` (shell plugin) manages retries/backoff. As a last resort, emit `SystemSignal::NetworkUnavailable` and a terminal `StreamEvent::Done`; the kernel never receives a `NetworkFailure` and never remains in a streaming wait state.
 
 <br>
 
@@ -4412,14 +4412,14 @@ Composition invariants define the interaction rules between governance traits an
 
 | ID | Invariant |
 |----|-----------|
-| **I-Shell-ToolResult-PassThrough** | The shell does not filter nor transform tool results by business policy. Volume management is in the `on_tool_result` kernel hook. |
+| **I-Shell-ToolResult-PassThrough** | The shell does not filter nor transform tool results by business policy. Volume management is in the `on_tool_result` kernel hook. Terminal tool results for already-admitted effects may bypass front-door shutdown/rebuild barriers so the kernel can close the in-flight generation. |
 | **I-Shell-Session-NoSend** | `Session` is marked `!Send` and `!Sync`. No concurrent mutation on `ExtensionStorage`. |
 | **I-Shell-DTO-Only** | The shell and persistence manipulate only `SessionHeadDTO`s; the kernel holds live `Session` instances via `SessionRegistry`. |
 | **I-Shell-SubRoutineCache** | The sub-routine cache uses two levels (L1 visible / L2 LRU) to guarantee that DTOs currently rendered by the UI are never evicted. |
 | **I-Shell-Composer-Frame** | The `UiComposer` consumes its effects synchronized on `requestAnimationFrame` with a budget configurable by `UiPerformancePolicy`. |
 | **I-Shell-Load-Batch** | Session loading recursively loads direct children (depth 1) in a batch query to avoid N+1 requests. |
 | **I-Shell-NoUIType** | No type transiting through IPC or Redb contains a reference to a UI type. |
-| **I-Shell-Network-Signal** | The kernel never receives a `NetworkFailure`; the shell emits `SystemSignal::NetworkUnavailable` as a last resort. |
+| **I-Shell-Network-Signal** | The kernel never receives a `NetworkFailure`; the shell emits `SystemSignal::NetworkUnavailable` as a last resort and terminates the stream with `StreamEvent::Done`. |
 | **I-Shell-Watchdog-NoKill** | The `EngineWatchdog` on the shell side monitors the engine thread's reactivity. In case of prolonged blocking, it triggers emergency serialization without corruption of the global Redb database. The watchdog never attempts to forcibly interrupt the engine thread. |
 | **I-Shell-Tick** | The shell emits `SystemSignal::Tick { elapsed_ms }` periodically for temporal governance plugins, without modifying the `EngineInput` enum. |
 | **I-Shell-Backpressure-NoOverflow** | The `BackpressureRegulator` guarantees that the channel to the engine never exceeds its capacity (I-Shell-Backpressure-NoOverflow). Intermediate SSE chunks can be dropped in `Conservative` mode without losing structural events. |

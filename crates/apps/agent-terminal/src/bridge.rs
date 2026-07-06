@@ -115,13 +115,15 @@ async fn handle_slash_command(
     match parts.first().copied() {
         Some("quit") | Some("q") => {
             let _ = printer.print(format!("{}", Color::Green.paint("Goodbye.")));
-            {
+            let shells = {
                 let mgr = manager.read().await;
-                for id in mgr.list() {
-                    if let Some(shell) = mgr.get(id) {
-                        shell.shutdown();
-                    }
-                }
+                mgr.list()
+                    .into_iter()
+                    .filter_map(|id| mgr.get(id).cloned())
+                    .collect::<Vec<_>>()
+            };
+            for shell in shells {
+                shell.shutdown().await;
             }
             cancel.cancel();
             true
