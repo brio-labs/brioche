@@ -1110,12 +1110,12 @@ If a `CycleRollbackPolicy` is injected, call `cycle_rollback_policy.begin_hook()
 
 <br>
 
-**3. `EpochInterceptor` trait:**
+**3. `EpochInterceptor` chain:**
 
-Call `epoch_guard.intercept_epoch(input, ext)`.
+Call each registered `EpochInterceptor::intercept_epoch(input, ext)` in builder-registration order.
 
-* If `EpochAction::Block { reason }` : return `ForwardToUi(UiWidget::Error { code, message })` + `SystemIdle`.
-* If `EpochAction::Proceed` : continue.
+* If any interceptor returns `EpochAction::Block { reason }` : return `ForwardToUi(UiWidget::Error { code, message })` + `SystemIdle`.
+* If every interceptor returns `EpochAction::Proceed` : continue.
 
 <br>
 
@@ -1464,7 +1464,7 @@ pub trait EpochInterceptor: Send + Sync {
 pub enum EpochAction { Proceed, Block { reason: String } }
 ```
 
-Called first in each cycle. If `Block`, the kernel returns `ForwardToUi` + `SystemIdle`. This trait is the first governance component evaluated; no other trait can override an epoch barrier (see composition invariants I-Comp-Epoch-First, I-Comp-Epoch-Subroutine).
+Called first in each cycle as an ordered chain. If any interceptor returns `Block`, the kernel returns `ForwardToUi` + `SystemIdle`; later interceptors, sub-routine handling, and hooks are skipped. No other trait can override an epoch barrier (see composition invariants I-Comp-Epoch-First, I-Comp-Epoch-Subroutine).
 
 <br>
 

@@ -323,9 +323,10 @@ The kernel exposes `SessionSnapshot` in `ExtensionStorage` before each transitio
 
 **1. Inject `SessionSnapshot`** before each hook.
 
-**2. `EpochInterceptor`** (optional, evaluated first):
-- `Block { reason }` → return `Error(EpochMismatch)` + `SystemIdle`
-- `Proceed` → continue
+**2. `EpochInterceptor` chain** (optional, evaluated first):
+- Registered interceptors run in builder-registration order.
+- First `Block { reason }` → return `Error(EpochMismatch)` + `SystemIdle`.
+- `Proceed` from every interceptor → continue.
 
 **3. `SubRoutineHandler`** (optional):
 - If `session.state` is `SubRoutine(handle)`, resolve child via `SessionRegistry`
@@ -385,11 +386,13 @@ Plugins are sorted by ascending `priority`, then by `name` lexicographically for
 
 ### 5.3 Governance traits (anchor points)
 
-The kernel defines 10 governance trait slots:
+The kernel defines 10 governance trait slots. The `EpochInterceptor` slot is an
+ordered chain so independent pre-delegation barriers can compose without moving
+policy into Core:
 
 | # | Trait | Mandatory | Role |
 |---|-------|-----------|------|
-| 1 | `EpochInterceptor` | No | Temporal barrier — rejects stale epochs |
+| 1 | `EpochInterceptor` | No | Temporal barrier chain — rejects stale epochs and other pre-delegation barriers |
 | 2 | `SubRoutineHandler` | No | Delegates sub-routine input resolution |
 | 3 | `ConsistencyVerifier` | No | Post-transition mechanical validation |
 | 4 | `DecisionAggregator` | **Yes** | Merges `before_prediction` decisions |
@@ -410,6 +413,7 @@ pub struct BriocheEngineBuilder { ... }
 impl BriocheEngineBuilder {
     pub fn new() -> Self;
     pub fn with_plugin(self, plugin: Box<dyn BriochePlugin>) -> Self;
+    /// Appends an interceptor to the ordered pre-delegation chain.
     pub fn with_epoch_interceptor(self, interceptor: Box<dyn EpochInterceptor>) -> Self;
     pub fn with_subroutine_handler(self, handler: Box<dyn SubRoutineHandler>) -> Self;
     pub fn with_consistency_verifier(self, verifier: Box<dyn ConsistencyVerifier>) -> Self;

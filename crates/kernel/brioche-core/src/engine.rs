@@ -48,20 +48,20 @@ pub use router::{PluginRouter, UnifiedRoutingTable};
 /// Holds all injectable policy traits and their orchestration state.
 ///
 /// ## Architectural Note
-/// Each optional trait is stored as `Box<dyn>`. This introduces one vtable
-/// indirection per access. PHILOSOPHY.md §1 recommends pre-routing tables,
-/// but governance traits have heterogeneous signatures that cannot be
-/// flattened into a uniform table without erasing type safety.
+/// Most optional traits are stored as `Box<dyn>`. Epoch interceptors are
+/// stored as an ordered vector so independent pre-delegation guards can be
+/// composed without wrapper types.
 ///
 /// # Complexity
-/// O(1) field access per governance phase. No allocation in `transition()`.
+/// O(1) field access per governance phase except epoch interception, which is
+/// O(e) for e registered interceptors. No allocation in `transition()`.
 ///
 /// # Panics
-/// Never panics. All fields are `Option`; absent traits are silently skipped.
+/// Never panics. Empty/absent traits are silently skipped.
 ///
 /// Refs: I-Comp-Epoch-First, I-Gov-Decision-Required
 pub struct GovernanceKernel {
-    pub(crate) epoch_interceptor: Option<Box<dyn EpochInterceptor>>,
+    pub(crate) epoch_interceptors: Vec<Box<dyn EpochInterceptor>>,
     pub(crate) subroutine_handler: Option<Box<dyn SubRoutineHandler>>,
     pub(crate) subroutine_hydrator: Option<Box<dyn SubRoutineHydrator>>,
     pub(crate) consistency_verifier: Option<Box<dyn ConsistencyVerifier>>,

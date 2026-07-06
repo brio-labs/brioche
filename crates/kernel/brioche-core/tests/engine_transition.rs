@@ -1105,6 +1105,59 @@ fn transition_with_epoch_guard_allows_current_generation() {
 }
 
 #[test]
+fn transition_with_subroutine_timeout_intercepts_before_child_delegation() {
+    use brioche_governance_default::{
+        EpochGuard, SubRoutineOrchestrator, SubRoutineTimeoutPolicy, SubRoutineTimerState,
+    };
+
+    let mut engine = BriocheEngineBuilder::new()
+        .with_epoch_interceptor(Box::new(EpochGuard))
+        .with_epoch_interceptor(Box::new(SubRoutineTimeoutPolicy::new()))
+        .with_subroutine_handler(Box::new(SubRoutineOrchestrator::new()))
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .build();
+
+    let handle = SubRoutineHandle::new("sub-1");
+    let mut session = Session::new("parent");
+    let pushed = session.push_state(AgentState::SubRoutine(handle.clone()));
+    assert!(pushed.is_ok());
+
+    {
+        let buffer = session
+            .extensions
+            .get_or_insert_default::<brioche_core::SignalBuffer>();
+        buffer
+            .system_signals
+            .push(brioche_core::SystemSignal::Tick { elapsed_ms: 101 });
+
+        let state = session
+            .extensions
+            .get_or_insert_default::<SubRoutineTimerState>();
+        state.timers.insert(handle.clone(), (0, 100));
+    }
+
+    engine.create_subroutine(handle.clone(), Session::new("child"));
+
+    let effects = engine.transition(&mut session, &EngineInput::UserMessage("continue".into()));
+
+    assert_eq!(session.state, AgentState::SubRoutine(handle.clone()));
+    assert!(engine.session_registry().contains(&handle));
+    assert_eq!(
+        effects,
+        vec![
+            Effect::Error {
+                code: ErrorCode::EpochMismatch,
+                detail: ErrorDetail::EpochGuardRejected {
+                    reason: "sub-routine SubRoutineHandle(\"sub-1\") exceeded timeout".into(),
+                },
+            },
+            Effect::SystemIdle,
+        ]
+    );
+}
+
+#[test]
 fn transition_with_policy_aggregator_allows() {
     use brioche_governance_default::LexicographicDecisionAggregator;
 

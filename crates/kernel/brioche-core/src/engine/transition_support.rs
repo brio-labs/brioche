@@ -40,16 +40,17 @@ impl BriocheEngine {
         }
     }
 
-    /// Apply `EpochInterceptor` if configured.
+    /// Apply registered `EpochInterceptor`s.
     ///
-    /// Returns `Some(())` when the interceptor produces a terminal action
+    /// Returns `Some(())` when an interceptor produces a terminal action
     /// (Block), in which case `effects` has been populated and the caller
-    /// should return early.
+    /// should return early. Interceptors run in registration order; the first
+    /// block wins.
     ///
     /// Refs: I-Comp-Epoch-First
     ///
     /// # Complexity
-    /// O(1). One optional lookup + one trait call.
+    /// O(e) where e = registered epoch interceptors.
     ///
     /// # Panics
     /// Never panics.
@@ -59,25 +60,26 @@ impl BriocheEngine {
         input: &EngineInput,
         effects: &mut Vec<Effect>,
     ) -> Option<()> {
-        let interceptor = self.governance.epoch_interceptor.as_ref()?;
-
-        match interceptor.intercept_epoch(input, &mut session.extensions) {
-            Ok(EpochAction::Block { reason }) => {
-                effects.push(Effect::Error {
-                    code: ErrorCode::EpochMismatch,
-                    detail: ErrorDetail::EpochGuardRejected {
-                        reason: reason.clone(),
-                    },
-                });
-                effects.push(Effect::SystemIdle);
-                Some(())
-            }
-            Ok(EpochAction::Proceed) => None,
-            Err(err) => {
-                effects.push(Self::plugin_fault("epoch_interceptor", err));
-                None
+        for interceptor in &self.governance.epoch_interceptors {
+            match interceptor.intercept_epoch(input, &mut session.extensions) {
+                Ok(EpochAction::Block { reason }) => {
+                    effects.push(Effect::Error {
+                        code: ErrorCode::EpochMismatch,
+                        detail: ErrorDetail::EpochGuardRejected {
+                            reason: reason.clone(),
+                        },
+                    });
+                    effects.push(Effect::SystemIdle);
+                    return Some(());
+                }
+                Ok(EpochAction::Proceed) => {}
+                Err(err) => {
+                    effects.push(Self::plugin_fault("epoch_interceptor", err));
+                }
             }
         }
+
+        None
     }
 
     /// Apply `SubRoutineHandler` if configured and session is in sub-routine state.
