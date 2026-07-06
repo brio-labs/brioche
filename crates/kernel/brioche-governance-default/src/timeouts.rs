@@ -182,7 +182,12 @@ impl BriochePlugin for SubRoutineTimeoutPolicy {
         ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
         let is_subroutine = {
-            let snapshot = ext.get_or_insert_default::<SessionSnapshot>();
+            let Some(snapshot) = ext.get::<SessionSnapshot>() else {
+                return Err(brioche_core::PluginError::Fatal {
+                    plugin_name: self.name().into(),
+                    message: "missing SessionSnapshot".into(),
+                });
+            };
             snapshot.current_state == AgentStateTag::SubRoutine
         };
 

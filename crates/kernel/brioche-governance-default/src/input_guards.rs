@@ -106,7 +106,12 @@ impl BriochePlugin for DepthGuard {
             return Ok(PolicyDecision::Allow);
         }
 
-        let snapshot = ext.get_or_insert_default::<SessionSnapshot>();
+        let Some(snapshot) = ext.get::<SessionSnapshot>() else {
+            return Err(brioche_core::PluginError::Fatal {
+                plugin_name: self.name().into(),
+                message: "missing SessionSnapshot".into(),
+            });
+        };
         let current_depth = calculate_depth(snapshot.state_stack_depth, snapshot.current_state);
 
         let state = ext.get_or_insert_default::<DepthState>();
