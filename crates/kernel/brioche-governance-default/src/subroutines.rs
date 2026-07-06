@@ -9,9 +9,8 @@
 use std::collections::BTreeMap;
 
 use brioche_core::{
-    AgentState, BriocheExtensionType, ChatMessage, Effect, EngineInput,
-    PluginResult, Session, SessionRegistry, SubRoutineHandle, SubRoutineHandler,
-    SubRoutineLifecycleGuard,
+    AgentState, BriocheExtensionType, ChatMessage, Effect, EngineInput, PluginResult, Session,
+    SessionRegistry, SubRoutineHandle, SubRoutineHandler, SubRoutineLifecycleGuard,
 };
 use serde::{Deserialize, Serialize};
 
@@ -41,9 +40,6 @@ impl Default for SubRoutineOrchestrator {
         Self::new()
     }
 }
-
-
-
 
 /// Detect terminal sub-routine states and bubble the result up to the parent.
 fn detect_subroutine_termination(
@@ -186,7 +182,6 @@ mod tests {
             .map_err(to_plugin_err)?;
         Ok(parent)
     }
-
 
     #[test]
     fn orchestrator_bubbles_up_on_idle() -> Result<(), PluginError> {
