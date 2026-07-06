@@ -30,17 +30,39 @@ interface ChatInputProps {
 
 function getFileIcon(extension: string) {
   switch (extension) {
-    case "pdf":    return <FileText className="h-4 w-4 text-red-400 shrink-0" />;
-    case "xlsx": case "xls": case "csv": case "ods":
+    case "pdf":
+      return <FileText className="h-4 w-4 text-red-400 shrink-0" />;
+    case "xlsx":
+    case "xls":
+    case "csv":
+    case "ods":
       return <FileSpreadsheet className="h-4 w-4 text-emerald-400 shrink-0" />;
-    case "zip": case "tar": case "gz": case "rar": case "7z":
+    case "zip":
+    case "tar":
+    case "gz":
+    case "rar":
+    case "7z":
       return <FileArchive className="h-4 w-4 text-amber-400 shrink-0" />;
-    case "mp3": case "wav": case "ogg": case "aac":
+    case "mp3":
+    case "wav":
+    case "ogg":
+    case "aac":
       return <FileAudio className="h-4 w-4 text-sky-400 shrink-0" />;
-    case "mp4": case "mkv": case "avi": case "mov":
+    case "mp4":
+    case "mkv":
+    case "avi":
+    case "mov":
       return <FileVideo className="h-4 w-4 text-indigo-400 shrink-0" />;
-    case "js": case "ts": case "tsx": case "jsx":
-    case "html": case "css": case "py": case "rs": case "go": case "json":
+    case "js":
+    case "ts":
+    case "tsx":
+    case "jsx":
+    case "html":
+    case "css":
+    case "py":
+    case "rs":
+    case "go":
+    case "json":
       return <FileCode className="h-4 w-4 text-violet-400 shrink-0" />;
     default:
       return <File className="h-4 w-4 text-fg-muted shrink-0" />;
@@ -68,12 +90,12 @@ export default function ChatInput({
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [input]);
 
-  const canSend = (input.trim().length > 0 || pendingAttachments.length > 0) && !isLoading;
+  const canSend =
+    (input.trim().length > 0 || pendingAttachments.length > 0) && !isLoading;
 
   return (
     <div className="shrink-0 px-6 py-4 bg-bg-surface border-t border-border">
       <div className="max-w-3xl mx-auto w-full flex flex-col gap-3">
-
         {/* ── Pending attachment chips ── */}
         <AnimatePresence>
           {pendingAttachments.length > 0 && (
@@ -88,15 +110,21 @@ export default function ChatInput({
               {pendingAttachments.map((att) => (
                 <div
                   key={att.id}
-                  className="flex items-center gap-2 rounded-[4px] border border-border bg-bg-elevated px-2 py-1.5 pr-1.5 max-w-56 relative group shadow-sm hover:border-border-hover transition-colors"
+                  className="flex items-center gap-2 rounded-sm border border-border bg-bg-elevated px-2 py-1.5 pr-1.5 max-w-56 relative group shadow-sm hover:border-border-hover transition-colors"
                 >
                   {/* Square preview */}
-                  <div className="h-9 w-9 rounded-[2px] bg-bg-highlight border border-border overflow-hidden shrink-0 flex items-center justify-center">
+                  <div className="h-9 w-9 rounded-xs bg-bg-highlight border border-border overflow-hidden shrink-0 flex items-center justify-center">
                     {att.type === "image" && att.dataUrl ? (
-                      <img src={att.dataUrl} alt={att.name} className="h-full w-full object-cover" />
+                      <img
+                        src={att.dataUrl}
+                        alt={att.name}
+                        className="h-full w-full object-cover"
+                      />
                     ) : (
                       <div className="flex flex-col items-center justify-center h-full w-full p-1">
-                        {getFileIcon(att.name.split(".").pop()?.toLowerCase() || "")}
+                        {getFileIcon(
+                          att.name.split(".").pop()?.toLowerCase() || "",
+                        )}
                         <span className="text-[7px] font-bold text-accent mt-0.5 tracking-wider font-mono uppercase">
                           {att.name.split(".").pop() || "file"}
                         </span>
@@ -106,11 +134,16 @@ export default function ChatInput({
 
                   {/* Name + type */}
                   <div className="flex flex-col min-w-0 flex-1">
-                    <span className="truncate text-[11px] font-medium text-fg-primary leading-tight" title={att.path}>
+                    <span
+                      className="truncate text-[11px] font-medium text-fg-primary leading-tight"
+                      title={att.path}
+                    >
                       {att.name}
                     </span>
                     <span className="text-[9px] text-fg-muted font-mono uppercase tracking-wide mt-0.5">
-                      {att.type === "image" ? "Image" : att.name.split(".").pop() || "Doc"}
+                      {att.type === "image"
+                        ? "Image"
+                        : att.name.split(".").pop() || "Doc"}
                     </span>
                   </div>
 
@@ -131,12 +164,14 @@ export default function ChatInput({
 
         {/* ── Unified input pill ── */}
         <form onSubmit={handleSubmit} className="relative">
-          <div className="
+          <div
+            className="
             flex items-end gap-0
-            rounded-[10px] border border-border bg-bg-elevated
+            border border-border bg-bg-elevated
             focus-within:border-accent/40 focus-within:ring-2 focus-within:ring-accent/10
             transition-all duration-200 shadow-sm overflow-hidden
-          ">
+          "
+          >
             {/* Attach button — left inside the pill */}
             <Tooltip label="Attach file or image">
               <button
@@ -167,7 +202,7 @@ export default function ChatInput({
                 px-3 py-2.5 outline-none resize-none
                 placeholder:text-fg-muted/50
                 disabled:opacity-50 disabled:cursor-not-allowed
-                min-h-10 max-h-[200px]
+                min-h-10 max-h-50
                 scrollbar-thin scrollbar-thumb-border
               "
             />
@@ -211,11 +246,6 @@ export default function ChatInput({
             </AnimatePresence>
           </div>
         </form>
-
-        {/* Hint */}
-        <p className="text-center text-[10px] text-fg-muted/40 select-none">
-          Enter to send · Shift+Enter for new line
-        </p>
       </div>
     </div>
   );

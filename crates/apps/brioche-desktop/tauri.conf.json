@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "identifier": "com.brioche.desktop",
   "build": {
-    "beforeDevCommand": "pnpm dev",
-    "beforeBuildCommand": "pnpm build",
+    "beforeDevCommand": "cd $(git rev-parse --show-toplevel)/crates/apps/brioche-desktop/frontend && pnpm dev",
+    "beforeBuildCommand": "cd $(git rev-parse --show-toplevel)/crates/apps/brioche-desktop/frontend && pnpm build",
     "frontendDist": "./frontend/dist",
-    "devUrl": "http://localhost:5173"
+    "devUrl": "http://localhost:5174"
   },
   "app": {
     "windows": [

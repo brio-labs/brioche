@@ -19,7 +19,6 @@ import TitleBarWrapper from "./TitleBarWrapper";
 export default function App() {
   const {
     panels,
-    panelWidths,
     showChat,
     showSettings,
     showSkills,
@@ -37,7 +36,6 @@ export default function App() {
     handleCenterResize,
     handleRightResize,
     toggleLeftPanel,
-    toggleCenterPanel,
     toggleRightPanel,
     setShowSettings,
     setShowSkills,
@@ -145,18 +143,32 @@ export default function App() {
 
       <Footer
         panels={{ left: panels.left, center: showChat, right: panels.right }}
-        panelWidths={panelWidths}
         onToggleLeft={toggleLeftPanel}
         onToggleRight={toggleRightPanel}
-        onToggleChat={toggleCenterPanel}
       />
 
       <AnimatePresence>
-        {showSettings && <SettingsPanel key="settings" onClose={() => setShowSettings(false)} />}
-        {showSkills && <SkillsPanel key="skills" onClose={() => setShowSkills(false)} />}
-        {showProfiles && <ProfilesPanel key="profiles" onClose={() => setShowProfiles(false)} />}
-        {showMemory && <MemoryPanel key="memory" onClose={() => setShowMemory(false)} />}
-        {showTools && <ToolsPanel key="tools" onClose={() => setShowTools(false)} />}
+        {showSettings && (
+          <SettingsPanel
+            key="settings"
+            onClose={() => setShowSettings(false)}
+          />
+        )}
+        {showSkills && (
+          <SkillsPanel key="skills" onClose={() => setShowSkills(false)} />
+        )}
+        {showProfiles && (
+          <ProfilesPanel
+            key="profiles"
+            onClose={() => setShowProfiles(false)}
+          />
+        )}
+        {showMemory && (
+          <MemoryPanel key="memory" onClose={() => setShowMemory(false)} />
+        )}
+        {showTools && (
+          <ToolsPanel key="tools" onClose={() => setShowTools(false)} />
+        )}
       </AnimatePresence>
 
       <CommandPalette

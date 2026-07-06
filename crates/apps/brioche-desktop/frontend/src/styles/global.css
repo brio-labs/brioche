@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@source "./src/**/*.{ts,tsx,html}";
+
 /* ========================================================================
    Brioche Desktop Theme System
    ========================================================================
@@ -17,223 +19,226 @@
    ======================================================================== */
 
 @theme {
-	/* ----- Core Brio palette ----- */
-	--color-brio-void: #0a0808;
-	--color-brio-bg: #1a1614;
-	--color-brio-foam: #f5e6d3;
-	--color-brio-muted: #eae0d5;
-	--color-brio-clay: #bd6532;
-	--color-brio-sand: #ffddb3;
+    /* ----- Core Brio palette ----- */
+    --color-brio-void: #0a0808;
+    --color-brio-bg: #1a1614;
+    --color-brio-foam: #f5e6d3;
+    --color-brio-muted: #eae0d5;
+    --color-brio-clay: #bd6532;
+    --color-brio-sand: #ffddb3;
 
-	/* ----- Semantic background ----- */
-	--color-bg-base: var(--color-brio-void);
-	--color-bg-surface: var(--color-brio-bg);
-	--color-bg-elevated: #24201e;
-	--color-bg-highlight: #2e2926;
-	--color-bg-subtle: #3a3430;
+    /* ----- Semantic background ----- */
+    --color-bg-base: var(--color-brio-void);
+    --color-bg-surface: var(--color-brio-bg);
+    --color-bg-elevated: #24201e;
+    --color-bg-highlight: #2e2926;
+    --color-bg-subtle: #3a3430;
 
-	/* ----- Semantic foreground ----- */
-	--color-fg-primary: var(--color-brio-foam);
-	--color-fg-secondary: #d8c9b8;
-	--color-fg-tertiary: #a89b8c;
-	--color-fg-muted: #6b6258;
-	--color-fg-dim: #453f39;
+    /* ----- Semantic foreground ----- */
+    --color-fg-primary: var(--color-brio-foam);
+    --color-fg-secondary: #d8c9b8;
+    --color-fg-tertiary: #a89b8c;
+    --color-fg-muted: #6b6258;
+    --color-fg-dim: #453f39;
 
-	/* ----- Accent ----- */
-	--color-accent: var(--color-brio-clay);
-	--color-accent-hover: #d97942;
-	--color-accent-dim: #8a4a24;
-	--color-accent-glow: rgba(189, 101, 50, 0.3);
-	--color-accent-glow-strong: rgba(189, 101, 50, 0.5);
-	--color-accent-text: var(--color-brio-sand);
+    /* ----- Accent ----- */
+    --color-accent: var(--color-brio-clay);
+    --color-accent-hover: #d97942;
+    --color-accent-dim: #8a4a24;
+    --color-accent-glow: rgba(189, 101, 50, 0.3);
+    --color-accent-glow-strong: rgba(189, 101, 50, 0.5);
+    --color-accent-text: var(--color-brio-sand);
 
-	/* ----- Borders ----- */
-	--color-border: var(--color-bg-highlight);
-	--color-border-hover: var(--color-bg-subtle);
-	--color-border-accent: rgba(189, 101, 50, 0.35);
+    /* ----- Borders ----- */
+    --color-border: var(--color-bg-highlight);
+    --color-border-hover: var(--color-bg-subtle);
+    --color-border-accent: rgba(189, 101, 50, 0.35);
 
-	/* ----- Surfaces for chat bubbles ----- */
-	--color-user-bg: var(--color-bg-elevated);
-	--color-assistant-bg: rgba(36, 32, 30, 0.65);
-	--color-system-bg: var(--color-bg-highlight);
+    /* ----- Surfaces for chat bubbles ----- */
+    --color-user-bg: var(--color-bg-elevated);
+    --color-assistant-bg: rgba(36, 32, 30, 0.65);
+    --color-system-bg: var(--color-bg-highlight);
 
-	/* ----- Status ----- */
-	--color-error-bg: #2a1515;
-	--color-error-border: #5c2a2a;
-	--color-error-text: #e8a0a0;
-	--color-success-bg: #142b1e;
-	--color-success-border: #2a5c3f;
-	--color-success-text: #7fd99a;
-	--color-warning-bg: #2d2314;
-	--color-warning-border: #5c4a22;
-	--color-warning-text: #f0c674;
+    /* ----- Status ----- */
+    --color-error-bg: #2a1515;
+    --color-error-border: #5c2a2a;
+    --color-error-text: #e8a0a0;
+    --color-success-bg: #142b1e;
+    --color-success-border: #2a5c3f;
+    --color-success-text: #7fd99a;
+    --color-warning-bg: #2d2314;
+    --color-warning-border: #5c4a22;
+    --color-warning-text: #f0c674;
 
-	/* ----- Typography ----- */
-	--font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-	--font-mono: "SF Mono", Monaco, Inconsolata, "Fira Code", Consolas, monospace;
+    /* ----- Typography ----- */
+    --font-ui:
+        -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+        sans-serif;
+    --font-mono:
+        "SF Mono", Monaco, Inconsolata, "Fira Code", Consolas, monospace;
 
-	/* ----- Spacing ----- */
-	--spacing: 0.25rem;
-	--space-1: 4px;
-	--space-2: 8px;
-	--space-3: 12px;
-	--space-4: 16px;
-	--space-5: 24px;
-	--space-6: 32px;
+    /* ----- Spacing ----- */
+    --spacing: 0.25rem;
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
 
-	/* ----- Radius ----- */
-	--radius-sm: 4px;
-	--radius-md: 6px;
-	--radius: 8px;
-	--radius-lg: 12px;
+    /* ----- Radius ----- */
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius: 8px;
+    --radius-lg: 12px;
 
-	/* ----- Animations ----- */
-	--animate-fadeIn: fadeIn 0.15s ease-out forwards;
-	--animate-slideDown: slideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-	--animate-slideUp: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    /* ----- Animations ----- */
+    --animate-fadeIn: fadeIn 0.15s ease-out forwards;
+    --animate-slideDown: slideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    --animate-slideUp: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 
-	@keyframes fadeIn {
-		from {
-			opacity: 0;
-		}
-		to {
-			opacity: 1;
-		}
-	}
-	@keyframes slideDown {
-		from {
-			opacity: 0;
-			transform: translateY(-12px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-	@keyframes slideUp {
-		from {
-			opacity: 0;
-			transform: translateY(12px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-	@keyframes ambientPulse {
-		0%,
-		100% {
-			opacity: 0.4;
-		}
-		50% {
-			opacity: 0.8;
-		}
-	}
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+        }
+        to {
+            opacity: 1;
+        }
+    }
+    @keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-12px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    @keyframes slideUp {
+        from {
+            opacity: 0;
+            transform: translateY(12px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    @keyframes ambientPulse {
+        0%,
+        100% {
+            opacity: 0.4;
+        }
+        50% {
+            opacity: 0.8;
+        }
+    }
 
-	/* ----- Legacy aliases (deprecated; kept for backward compatibility) ----- */
-	--color-bg-0: var(--color-bg-base);
-	--color-bg-1: var(--color-bg-surface);
-	--color-bg-2: var(--color-bg-elevated);
-	--color-bg-3: var(--color-bg-highlight);
-	--color-bg-4: var(--color-bg-subtle);
-	--color-bg-5: #453f39;
-	--color-bg-6: #524a43;
+    /* ----- Legacy aliases (deprecated; kept for backward compatibility) ----- */
+    --color-bg-0: var(--color-bg-base);
+    --color-bg-1: var(--color-bg-surface);
+    --color-bg-2: var(--color-bg-elevated);
+    --color-bg-3: var(--color-bg-highlight);
+    --color-bg-4: var(--color-bg-subtle);
+    --color-bg-5: #453f39;
+    --color-bg-6: #524a43;
 
-	--color-text-primary: var(--color-fg-primary);
-	--color-text-secondary: var(--color-fg-secondary);
-	--color-text-tertiary: var(--color-fg-tertiary);
-	--color-text-muted: var(--color-fg-muted);
-	--color-text-dim: var(--color-fg-dim);
+    --color-text-primary: var(--color-fg-primary);
+    --color-text-secondary: var(--color-fg-secondary);
+    --color-text-tertiary: var(--color-fg-tertiary);
+    --color-text-muted: var(--color-fg-muted);
+    --color-text-dim: var(--color-fg-dim);
 }
 
 /* Expose semantic tokens as CSS variables for backward compatibility and fallback usage. */
 :root {
-	--brio-void: var(--color-brio-void);
-	--brio-bg: var(--color-brio-bg);
-	--brio-foam: var(--color-brio-foam);
-	--brio-muted: var(--color-brio-muted);
-	--brio-clay: var(--color-brio-clay);
-	--brio-sand: var(--color-brio-sand);
+    --brio-void: var(--color-brio-void);
+    --brio-bg: var(--color-brio-bg);
+    --brio-foam: var(--color-brio-foam);
+    --brio-muted: var(--color-brio-muted);
+    --brio-clay: var(--color-brio-clay);
+    --brio-sand: var(--color-brio-sand);
 
-	--bg-base: var(--color-bg-base);
-	--bg-surface: var(--color-bg-surface);
-	--bg-elevated: var(--color-bg-elevated);
-	--bg-highlight: var(--color-bg-highlight);
-	--bg-subtle: var(--color-bg-subtle);
+    --bg-base: var(--color-bg-base);
+    --bg-surface: var(--color-bg-surface);
+    --bg-elevated: var(--color-bg-elevated);
+    --bg-highlight: var(--color-bg-highlight);
+    --bg-subtle: var(--color-bg-subtle);
 
-	--fg-primary: var(--color-fg-primary);
-	--fg-secondary: var(--color-fg-secondary);
-	--fg-tertiary: var(--color-fg-tertiary);
-	--fg-muted: var(--color-fg-muted);
-	--fg-dim: var(--color-fg-dim);
+    --fg-primary: var(--color-fg-primary);
+    --fg-secondary: var(--color-fg-secondary);
+    --fg-tertiary: var(--color-fg-tertiary);
+    --fg-muted: var(--color-fg-muted);
+    --fg-dim: var(--color-fg-dim);
 
-	--accent: var(--color-accent);
-	--accent-hover: var(--color-accent-hover);
-	--accent-dim: var(--color-accent-dim);
-	--accent-glow: var(--color-accent-glow);
-	--accent-glow-strong: var(--color-accent-glow-strong);
-	--accent-text: var(--color-accent-text);
+    --accent: var(--color-accent);
+    --accent-hover: var(--color-accent-hover);
+    --accent-dim: var(--color-accent-dim);
+    --accent-glow: var(--color-accent-glow);
+    --accent-glow-strong: var(--color-accent-glow-strong);
+    --accent-text: var(--color-accent-text);
 
-	--border: var(--color-border);
-	--border-hover: var(--color-border-hover);
-	--border-accent: var(--color-border-accent);
+    --border: var(--color-border);
+    --border-hover: var(--color-border-hover);
+    --border-accent: var(--color-border-accent);
 
-	--user-bg: var(--color-user-bg);
-	--assistant-bg: var(--color-assistant-bg);
-	--system-bg: var(--color-system-bg);
+    --user-bg: var(--color-user-bg);
+    --assistant-bg: var(--color-assistant-bg);
+    --system-bg: var(--color-system-bg);
 
-	--error-bg: var(--color-error-bg);
-	--error-border: var(--color-error-border);
-	--error-text: var(--color-error-text);
-	--success-bg: var(--color-success-bg);
-	--success-border: var(--color-success-border);
-	--success-text: var(--color-success-text);
-	--warning-bg: var(--color-warning-bg);
-	--warning-border: var(--color-warning-border);
-	--warning-text: var(--color-warning-text);
+    --error-bg: var(--color-error-bg);
+    --error-border: var(--color-error-border);
+    --error-text: var(--color-error-text);
+    --success-bg: var(--color-success-bg);
+    --success-border: var(--color-success-border);
+    --success-text: var(--color-success-text);
+    --warning-bg: var(--color-warning-bg);
+    --warning-border: var(--color-warning-border);
+    --warning-text: var(--color-warning-text);
 
-	--font-ui: var(--font-ui);
-	--font-mono: var(--font-mono);
+    --font-ui: var(--font-ui);
+    --font-mono: var(--font-mono);
 
-	--space-1: 4px;
-	--space-2: 8px;
-	--space-3: 12px;
-	--space-4: 16px;
-	--space-5: 24px;
-	--space-6: 32px;
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
 
-	--radius: 8px;
-	--radius-sm: 4px;
-	--radius-md: 6px;
-	--radius-lg: 12px;
+    --radius: 8px;
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 12px;
 
-	/* Legacy aliases */
-	--bg-0: var(--color-bg-base);
-	--bg-1: var(--color-bg-surface);
-	--bg-2: var(--color-bg-elevated);
-	--bg-3: var(--color-bg-highlight);
-	--bg-4: var(--color-bg-subtle);
-	--bg-5: #453f39;
-	--bg-6: #524a43;
+    /* Legacy aliases */
+    --bg-0: var(--color-bg-base);
+    --bg-1: var(--color-bg-surface);
+    --bg-2: var(--color-bg-elevated);
+    --bg-3: var(--color-bg-highlight);
+    --bg-4: var(--color-bg-subtle);
+    --bg-5: #453f39;
+    --bg-6: #524a43;
 
-	--text-primary: var(--color-fg-primary);
-	--text-secondary: var(--color-fg-secondary);
-	--text-tertiary: var(--color-fg-tertiary);
-	--text-muted: var(--color-fg-muted);
-	--text-dim: var(--color-fg-dim);
+    --text-primary: var(--color-fg-primary);
+    --text-secondary: var(--color-fg-secondary);
+    --text-tertiary: var(--color-fg-tertiary);
+    --text-muted: var(--color-fg-muted);
+    --text-dim: var(--color-fg-dim);
 }
 
 @layer base {
-	* {
-		box-sizing: border-box;
-		margin: 0;
-		padding: 0;
-	}
+    * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+    }
 
-	body {
-		@apply bg-bg-base text-fg-primary h-screen overflow-hidden antialiased;
-		font-family: var(--font-ui);
-	}
+    body {
+        @apply bg-bg-base text-fg-primary h-screen overflow-hidden antialiased;
+        font-family: var(--font-ui);
+    }
 }
 
 /* ========================================================================
@@ -241,55 +246,57 @@
    ======================================================================== */
 
 @utility btn-icon {
-	@apply inline-flex items-center justify-center rounded-md transition-all duration-200 cursor-pointer text-fg-muted hover:text-fg-secondary hover:bg-bg-highlight active:bg-bg-subtle focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-glow;
+    @apply inline-flex items-center justify-center rounded-md transition-all duration-200 cursor-pointer text-fg-muted hover:text-fg-secondary hover:bg-bg-highlight active:bg-bg-subtle focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-glow;
 }
 
 @utility dock-button {
-	@apply inline-flex items-center justify-center w-7 h-7 rounded-md border border-transparent bg-transparent transition-all duration-200 cursor-pointer text-fg-muted hover:text-fg-secondary hover:bg-bg-highlight active:bg-bg-subtle focus-visible:outline-none focus-visible:border-border-accent focus-visible:ring-1 focus-visible:ring-accent-glow;
+    @apply inline-flex items-center justify-center w-7 h-7 rounded-md border border-transparent bg-transparent transition-all duration-200 cursor-pointer text-fg-muted hover:text-fg-secondary hover:bg-bg-highlight active:bg-bg-subtle focus-visible:outline-none focus-visible:border-border-accent focus-visible:ring-1 focus-visible:ring-accent-glow;
 }
 
 @utility dock-button-active {
-	@apply text-accent hover:text-accent-hover;
+    @apply text-accent hover:text-accent-hover;
 }
 
 @utility title-bar {
-	@apply flex flex-row items-center shrink-0 h-10 border-b border-border select-none cursor-default bg-bg-surface/70 backdrop-blur-md;
+    @apply flex flex-row items-center shrink-0 h-10 border-b border-border select-none cursor-default bg-bg-surface/70 backdrop-blur-md;
 }
 
 @utility top-bar-button {
-	@apply inline-flex items-center justify-center w-10 h-10 p-2 bg-transparent border border-transparent rounded-none transition-all duration-200 cursor-pointer text-fg-muted hover:text-fg-primary hover:bg-bg-highlight hover:border-border active:bg-bg-subtle focus-visible:outline-none focus-visible:bg-bg-highlight focus-visible:border-border focus-visible:ring-inset focus-visible:ring-1 focus-visible:ring-accent-glow;
+    @apply inline-flex items-center justify-center w-10 h-10 p-2 bg-transparent border border-transparent rounded-none transition-all duration-200 cursor-pointer text-fg-muted hover:text-fg-primary hover:bg-bg-highlight hover:border-border active:bg-bg-subtle focus-visible:outline-none focus-visible:bg-bg-highlight focus-visible:border-border focus-visible:ring-inset focus-visible:ring-1 focus-visible:ring-accent-glow;
 
-	&[data-close]:hover {
-		@apply text-error-text bg-error-bg border-error-border;
-	}
+    &[data-close]:hover {
+        @apply text-error-text bg-error-bg border-error-border;
+    }
 
-	&[data-close]:active {
-		@apply bg-error-bg;
-	}
+    &[data-close]:active {
+        @apply bg-error-bg;
+    }
 }
 
 @utility panel {
-	@apply bg-bg-surface border border-border rounded-lg flex flex-col overflow-hidden shadow-2xl animate-slideUp;
+    @apply bg-bg-surface border border-border rounded-lg flex flex-col overflow-hidden shadow-2xl animate-slideUp;
 }
 
 .panel-transition {
-	transition: flex-grow 350ms cubic-bezier(0.16, 1, 0.3, 1), flex-basis 350ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+    transition:
+        flex-grow 350ms cubic-bezier(0.16, 1, 0.3, 1),
+        flex-basis 350ms cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
 @utility panel-backdrop {
-	@apply fixed inset-0 bg-black/70 flex items-center justify-center z-[1000] animate-fadeIn;
+    @apply fixed inset-0 bg-black/70 flex items-center justify-center z-[1000] animate-fadeIn;
 }
 
 @utility panel-header {
-	@apply flex items-center justify-between px-5 py-4 border-b border-border bg-bg-surface;
+    @apply flex items-center justify-between px-5 py-4 border-b border-border bg-bg-surface;
 }
 
 @utility input-field {
-	@apply flex w-full rounded-md border border-border bg-bg-elevated px-3 py-2 text-[13px] font-mono text-fg-primary outline-none transition-all duration-200 placeholder:text-fg-muted hover:border-border-hover focus:border-accent-dim focus:bg-bg-highlight focus:ring-1 focus:ring-accent-glow disabled:cursor-not-allowed disabled:opacity-50;
+    @apply flex w-full rounded-md border border-border bg-bg-elevated px-3 py-2 text-[13px] font-mono text-fg-primary outline-none transition-all duration-200 placeholder:text-fg-muted hover:border-border-hover focus:border-accent-dim focus:bg-bg-highlight focus:ring-1 focus:ring-accent-glow disabled:cursor-not-allowed disabled:opacity-50;
 }
 
 @utility textarea-field {
-	@apply flex w-full rounded-md border border-border bg-bg-elevated px-3 py-2 font-mono text-[12px] text-fg-primary outline-none transition-all duration-200 min-h-[80px] resize-y placeholder:text-fg-muted hover:border-border-hover focus:border-accent-dim focus:bg-bg-highlight focus:ring-1 focus:ring-accent-glow disabled:cursor-not-allowed disabled:opacity-50;
+    @apply flex w-full rounded-md border border-border bg-bg-elevated px-3 py-2 font-mono text-[12px] text-fg-primary outline-none transition-all duration-200 min-h-[80px] resize-y placeholder:text-fg-muted hover:border-border-hover focus:border-accent-dim focus:bg-bg-highlight focus:ring-1 focus:ring-accent-glow disabled:cursor-not-allowed disabled:opacity-50;
 }
 
 /* ========================================================================
@@ -297,29 +304,29 @@
    ======================================================================== */
 
 .app {
-	background:
-		radial-gradient(
-			ellipse 80% 50% at 0% 0%,
-			rgba(189, 101, 50, 0.12) 0%,
-			transparent 50%
-		),
-		radial-gradient(
-			ellipse 70% 60% at 100% 100%,
-			rgba(189, 101, 50, 0.08) 0%,
-			transparent 50%
-		),
-		var(--bg-base);
+    background:
+        radial-gradient(
+            ellipse 80% 50% at 0% 0%,
+            rgba(189, 101, 50, 0.12) 0%,
+            transparent 50%
+        ),
+        radial-gradient(
+            ellipse 70% 60% at 100% 100%,
+            rgba(189, 101, 50, 0.08) 0%,
+            transparent 50%
+        ),
+        var(--bg-base);
 }
 
 .app::before {
-	content: "";
-	@apply absolute inset-0 pointer-events-none z-0;
-	background: radial-gradient(
-		ellipse at 50% 0%,
-		rgba(245, 230, 211, 0.03) 0%,
-		transparent 60%
-	);
-	animation: ambientPulse 8s ease-in-out infinite;
+    content: "";
+    @apply absolute inset-0 pointer-events-none z-0;
+    background: radial-gradient(
+        ellipse at 50% 0%,
+        rgba(245, 230, 211, 0.03) 0%,
+        transparent 60%
+    );
+    animation: ambientPulse 8s ease-in-out infinite;
 }
 
 /* ========================================================================
@@ -327,19 +334,19 @@
    ======================================================================== */
 
 ::-webkit-scrollbar {
-	@apply w-1.5 h-1.5;
+    @apply w-1.5 h-1.5;
 }
 
 ::-webkit-scrollbar-track {
-	@apply bg-transparent;
+    @apply bg-transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-	@apply bg-bg-subtle rounded-[2px];
+    @apply bg-bg-subtle rounded-[2px];
 }
 
 ::-webkit-scrollbar-thumb:hover {
-	@apply bg-fg-muted;
+    @apply bg-fg-muted;
 }
 
 /* ========================================================================
@@ -347,78 +354,97 @@
    ======================================================================== */
 
 .message-content {
-	& h1, & h2, & h3, & h4 {
-		@apply font-semibold text-fg-primary mt-3 mb-2;
-	}
-	& h1 { @apply text-[18px]; }
-	& h2 { @apply text-[16px]; }
-	& h3 { @apply text-[14px]; }
-	& h4 { @apply text-[13px]; }
-	
-	& p { @apply my-2 leading-relaxed; }
-	& ul, & ol { @apply my-2 pl-4; }
-	& li { @apply my-1; }
-	
-	& code {
-		@apply font-mono text-[12px] bg-accent/10 px-1.5 py-0.5 rounded-sm text-accent-text;
-	}
+    & h1,
+    & h2,
+    & h3,
+    & h4 {
+        @apply font-semibold text-fg-primary mt-3 mb-2;
+    }
+    & h1 {
+        @apply text-[18px];
+    }
+    & h2 {
+        @apply text-[16px];
+    }
+    & h3 {
+        @apply text-[14px];
+    }
+    & h4 {
+        @apply text-[13px];
+    }
 
-	& pre {
-		@apply bg-bg-surface border border-border rounded-lg p-3 my-2 overflow-x-auto relative;
-	}
+    & p {
+        @apply my-2 leading-relaxed;
+    }
+    & ul,
+    & ol {
+        @apply my-2 pl-4;
+    }
+    & li {
+        @apply my-1;
+    }
 
-	& pre code {
-		@apply bg-transparent p-0 text-fg-secondary text-[12px] leading-relaxed;
-	}
+    & code {
+        @apply font-mono text-[12px] bg-accent/10 px-1.5 py-0.5 rounded-sm text-accent-text;
+    }
 
-	& pre:has(+ .code-block-header),
-	& .code-block-header + pre {
-		@apply rounded-t-none;
-	}
+    & pre {
+        @apply bg-bg-surface border border-border rounded-lg p-3 my-2 overflow-x-auto relative;
+    }
 
-	& blockquote {
-		@apply border-l-3 border-accent my-2 px-3 py-2 bg-accent/5 rounded-r-sm text-fg-secondary;
-	}
+    & pre code {
+        @apply bg-transparent p-0 text-fg-secondary text-[12px] leading-relaxed;
+    }
 
-	& a {
-		@apply text-accent no-underline border-b border-transparent transition-all duration-150 hover:border-accent;
-	}
+    & pre:has(+ .code-block-header),
+    & .code-block-header + pre {
+        @apply rounded-t-none;
+    }
 
-	& table {
-		@apply w-full border-collapse my-2 text-[13px];
-	}
+    & blockquote {
+        @apply border-l-3 border-accent my-2 px-3 py-2 bg-accent/5 rounded-r-sm text-fg-secondary;
+    }
 
-	& th, & td {
-		@apply px-3 py-2 border border-border text-left;
-	}
+    & a {
+        @apply text-accent no-underline border-b border-transparent transition-all duration-150 hover:border-accent;
+    }
 
-	& th {
-		@apply bg-bg-elevated font-semibold text-fg-primary;
-	}
+    & table {
+        @apply w-full border-collapse my-2 text-[13px];
+    }
 
-	& td {
-		@apply text-fg-secondary;
-	}
+    & th,
+    & td {
+        @apply px-3 py-2 border border-border text-left;
+    }
 
-	& hr {
-		@apply border-none border-t border-border my-3;
-	}
+    & th {
+        @apply bg-bg-elevated font-semibold text-fg-primary;
+    }
 
-	&.loading {
-		@apply min-h-[1.5em];
-	}
+    & td {
+        @apply text-fg-secondary;
+    }
+
+    & hr {
+        @apply border-none border-t border-border my-3;
+    }
+
+    &.loading {
+        @apply min-h-[1.5em];
+    }
 }
 
 .code-block-header {
-	@apply flex items-center justify-between px-3 py-1.5 bg-bg-elevated border border-border border-b-0 rounded-t-lg text-[11px] font-mono text-fg-muted;
+    @apply flex items-center justify-between px-3 py-1.5 bg-bg-elevated border border-border border-b-0 rounded-t-lg text-[11px] font-mono text-fg-muted;
 
-	& .lang-label {
-		@apply lowercase;
-	}
+    & .lang-label {
+        @apply lowercase;
+    }
 
-	& .copy-btn {
-		@apply bg-transparent border-none text-fg-muted cursor-pointer text-[11px] px-2 py-0.5 rounded-sm transition-all duration-150 hover:bg-bg-highlight hover:text-fg-secondary;
-	}
+    & .copy-btn {
+        @apply bg-transparent border-none text-fg-muted cursor-pointer text-[11px] px-2 py-0.5 rounded-sm transition-all duration-150 hover:bg-bg-highlight hover:text-fg-secondary;
+    }
 }
 
 /* ========================================================================
@@ -426,41 +452,41 @@
    ======================================================================== */
 
 .streaming-cursor {
-	@apply inline-block w-0.5 h-[1em] bg-accent ml-0.5 align-middle;
-	animation: cursorBlink 1s step-end infinite;
+    @apply inline-block w-0.5 h-[1em] bg-accent ml-0.5 align-middle;
+    animation: cursorBlink 1s step-end infinite;
 }
 
 @keyframes cursorBlink {
-	0%,
-	100% {
-		opacity: 1;
-	}
-	50% {
-		opacity: 0;
-	}
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0;
+    }
 }
 
 .loading-dots::after {
-	content: "";
-	animation: dots 1.5s steps(4, end) infinite;
+    content: "";
+    animation: dots 1.5s steps(4, end) infinite;
 }
 
 @keyframes dots {
-	0% {
-		content: "";
-	}
-	25% {
-		content: ".";
-	}
-	50% {
-		content: "..";
-	}
-	75% {
-		content: "...";
-	}
-	100% {
-		content: "";
-	}
+    0% {
+        content: "";
+    }
+    25% {
+        content: ".";
+    }
+    50% {
+        content: "..";
+    }
+    75% {
+        content: "...";
+    }
+    100% {
+        content: "";
+    }
 }
 
 /* ========================================================================
@@ -468,11 +494,11 @@
    ======================================================================== */
 
 @media (prefers-reduced-motion: reduce) {
-	*,
-	*::before,
-	*::after {
-		animation-duration: 0.01ms !important;
-		animation-iteration-count: 1 !important;
-		transition-duration: 0.01ms !important;
-	}
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
 }
