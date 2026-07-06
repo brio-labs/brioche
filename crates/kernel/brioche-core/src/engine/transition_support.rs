@@ -98,22 +98,39 @@ impl BriocheEngine {
         input: &EngineInput,
         effects: &mut Vec<Effect>,
     ) -> Option<()> {
-        let handler = self.governance.subroutine_handler.as_ref()?;
+        let _ = self.governance.subroutine_handler.as_ref()?;
+
         let handle = match &session.state {
-            AgentState::SubRoutine(h) => h,
+            AgentState::SubRoutine(h) => h.clone(),
             _ => return None,
         };
-        let child = self.routines.registry.get_mut(handle)?;
 
-        match handler.handle_subroutine(session, child, input) {
+        if matches!(input, EngineInput::RestoreSubRoutine { .. }) {
+            return None;
+        }
+
+        let mut child = self.routines.registry.remove(&handle)?;
+
+        let mut child_effects = self.transition(&mut child, input);
+        effects.append(&mut child_effects);
+
+        let result = if let Some(handler) = self.governance.subroutine_handler.as_ref() {
+            handler.handle_subroutine(session, &mut child, input)
+        } else {
+            Ok(None)
+        };
+
+        self.routines.registry.insert(handle, child);
+
+        match result {
             Ok(Some(sub_effects)) => {
                 effects.extend(sub_effects);
                 Some(())
             }
-            Ok(None) => None,
+            Ok(None) => Some(()),
             Err(err) => {
                 effects.push(Self::plugin_fault("subroutine_handler", err));
-                None
+                Some(())
             }
         }
     }

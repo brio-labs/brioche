@@ -9,9 +9,9 @@
 use std::collections::BTreeMap;
 
 use brioche_core::{
-    ActiveToolCall, AgentState, BriocheExtensionType, ChatMessage, Effect, EngineInput,
-    PluginResult, Session, SessionRegistry, StreamEvent, SubRoutineHandle, SubRoutineHandler,
-    SubRoutineLifecycleGuard, ToolResultDTO,
+    AgentState, BriocheExtensionType, ChatMessage, Effect, EngineInput,
+    PluginResult, Session, SessionRegistry, SubRoutineHandle, SubRoutineHandler,
+    SubRoutineLifecycleGuard,
 };
 use serde::{Deserialize, Serialize};
 
@@ -21,8 +21,8 @@ use serde::{Deserialize, Serialize};
 
 /// Sub-routine orchestrator.
 ///
-/// Delegates inputs to the child `Session` and handles bubbling up when
-/// the child reaches `Idle` or `Failure`.
+/// Monitors the child `Session` after its native transition and handles
+/// bubbling up when the child reaches `Idle` or `Failure`.
 ///
 /// Refs: I-Comp-Epoch-Subroutine, I-Shell-Session-NoSend
 pub struct SubRoutineOrchestrator;
@@ -42,111 +42,8 @@ impl Default for SubRoutineOrchestrator {
     }
 }
 
-/// Push a user message into the child's history and transition to Predicting.
-fn delegate_user_message(
-    child: &mut Session,
-    content: &str,
-) -> Result<Vec<Effect>, brioche_core::BriocheError> {
-    child.history.push(ChatMessage::User {
-        content: content.into(),
-    });
 
-    let generation = child
-        .extensions
-        .get_or_insert_default::<brioche_core::EpochState>()
-        .current_generation;
-    child.push_state(AgentState::Predicting {
-        generation_id: generation,
-    })?;
 
-    Ok(vec![Effect::CallLlmNetwork, Effect::SaveSession])
-}
-
-/// Accumulate tool-call fragments from an `LlmStream` event.
-fn accumulate_stream_tools(
-    child: &mut Session,
-    event: &StreamEvent,
-) -> Result<Option<Vec<Effect>>, brioche_core::BriocheError> {
-    if !matches!(child.state, AgentState::Predicting { .. }) {
-        return Ok(None);
-    }
-
-    match event {
-        StreamEvent::ToolCallStart { id, name, .. } => {
-            let acc = child
-                .extensions
-                .get_or_insert_default::<brioche_core::StreamToolAccumulator>();
-            acc.pending.insert(
-                id.clone(),
-                brioche_core::ToolCallDescriptor {
-                    tool_id: id.clone(),
-                    tool_name: name.clone(),
-                    arguments: String::new(),
-                    timeout_ms: None,
-                },
-            );
-            Ok(None)
-        }
-        StreamEvent::ToolArgumentChunk { id, chunk, .. } => {
-            let acc = child
-                .extensions
-                .get_or_insert_default::<brioche_core::StreamToolAccumulator>();
-            if let Some(desc) = acc.pending.get_mut(id) {
-                desc.arguments.push_str(&String::from_utf8_lossy(chunk));
-            }
-            Ok(None)
-        }
-        StreamEvent::ToolCallDone { .. } => {
-            let acc = child
-                .extensions
-                .get_or_insert_default::<brioche_core::StreamToolAccumulator>();
-            let pending: Vec<_> = std::mem::take(&mut acc.pending).into_values().collect();
-            if pending.is_empty() {
-                return Ok(None);
-            }
-            let active: Vec<ActiveToolCall> = pending
-                .into_iter()
-                .map(|d| brioche_core::seal_single(d, brioche_core::DEFAULT_TOOL_TIMEOUT_MS))
-                .collect();
-            child.active_tools = active.clone();
-            let generation = match child.state {
-                AgentState::Predicting { generation_id } => generation_id,
-                _ => 0,
-            };
-            child.push_state(AgentState::ExecutingTools {
-                generation_id: generation,
-            })?;
-            Ok(Some(vec![
-                Effect::ExecuteTools(active),
-                Effect::SaveSession,
-            ]))
-        }
-        _ => Ok(None),
-    }
-}
-
-/// Convert tool results into history entries and transition child back to Predicting.
-fn resolve_tool_results(
-    child: &mut Session,
-    generation_id: u64,
-    results: &[ToolResultDTO],
-) -> Result<(), brioche_core::BriocheError> {
-    if !matches!(child.state, AgentState::ExecutingTools { .. }) {
-        return Ok(());
-    }
-    child.pop_state()?;
-    child.active_tools.clear();
-
-    for result in results {
-        child.history.push(ChatMessage::ToolResult {
-            id: result.tool_id.clone(),
-            content: brioche_core::tool_outcome_to_string(&result.outcome),
-        });
-    }
-
-    child.push_state(AgentState::Predicting { generation_id })?;
-    Ok(())
-}
 
 /// Detect terminal sub-routine states and bubble the result up to the parent.
 fn detect_subroutine_termination(
@@ -177,31 +74,13 @@ impl SubRoutineHandler for SubRoutineOrchestrator {
         &self,
         parent: &mut Session,
         child: &mut Session,
-        input: &EngineInput,
+        _input: &EngineInput,
     ) -> PluginResult<Option<Vec<Effect>>> {
         let wrap = |e: brioche_core::BriocheError| brioche_core::PluginError::Soft {
             plugin_name: "subroutine_orchestrator".into(),
             message: e.to_string(),
         };
-
-        match input {
-            EngineInput::UserMessage(content) => delegate_user_message(child, content)
-                .map(Some)
-                .map_err(wrap),
-
-            EngineInput::LlmStream(event) => accumulate_stream_tools(child, event).map_err(wrap),
-
-            EngineInput::ToolCallsResult {
-                generation_id,
-                results,
-            } => {
-                resolve_tool_results(child, *generation_id, results).map_err(wrap)?;
-                detect_subroutine_termination(parent, child).map_err(wrap)
-            }
-
-            EngineInput::RestoreSubRoutine { .. } => Ok(None),
-            _ => Ok(None),
-        }
+        detect_subroutine_termination(parent, child).map_err(wrap)
     }
 }
 
@@ -308,76 +187,6 @@ mod tests {
         Ok(parent)
     }
 
-    #[test]
-    fn orchestrator_delegates_user_message() -> Result<(), PluginError> {
-        let orchestrator = SubRoutineOrchestrator::new();
-        let mut parent = subroutine_parent()?;
-        let mut child = Session::new("child");
-
-        let mut effects = Vec::new();
-        if let Some(e) = orchestrator.handle_subroutine(
-            &mut parent,
-            &mut child,
-            &EngineInput::UserMessage("hello".into()),
-        )? {
-            effects = e;
-        }
-
-        assert_eq!(child.history.len(), 1);
-        assert!(matches!(child.history[0], ChatMessage::User { .. }));
-        assert!(matches!(child.state, AgentState::Predicting { .. }));
-        assert!(effects.contains(&Effect::CallLlmNetwork));
-        assert!(effects.contains(&Effect::SaveSession));
-        Ok(())
-    }
-
-    #[test]
-    fn orchestrator_accumulates_stream_tools() -> Result<(), PluginError> {
-        let orchestrator = SubRoutineOrchestrator::new();
-        let mut parent = subroutine_parent()?;
-        let mut child = Session::new("child");
-        child
-            .push_state(AgentState::Predicting { generation_id: 1 })
-            .map_err(to_plugin_err)?;
-
-        let path = brioche_core::ExecutionPath::default();
-        let events = vec![
-            EngineInput::LlmStream(brioche_core::StreamEvent::ToolCallStart {
-                path: path.clone(),
-                id: "tc1".into(),
-                name: "calc".into(),
-            }),
-            EngineInput::LlmStream(brioche_core::StreamEvent::ToolArgumentChunk {
-                path: path.clone(),
-                id: "tc1".into(),
-                chunk: From::from(&b"{\"x\":1}"[..]),
-            }),
-            EngineInput::LlmStream(brioche_core::StreamEvent::ToolCallDone { path }),
-        ];
-
-        let mut effects = Vec::new();
-        for event in &events {
-            if let Some(e) = orchestrator.handle_subroutine(&mut parent, &mut child, event)? {
-                effects.extend(e);
-            }
-        }
-
-        assert!(matches!(child.state, AgentState::ExecutingTools { .. }));
-        assert_eq!(child.active_tools.len(), 1);
-        let active = child
-            .active_tools
-            .first()
-            .ok_or_else(|| PluginError::Fatal {
-                plugin_name: "subroutine_test".into(),
-                message: "expected active tool".into(),
-            })?;
-        assert_eq!(active.tool_id, "tc1");
-        assert_eq!(active.tool_name, "calc");
-        assert_eq!(active.timeout_ms, brioche_core::DEFAULT_TOOL_TIMEOUT_MS);
-        assert!(effects.iter().any(|e| matches!(e, Effect::ExecuteTools(_))));
-        assert!(effects.contains(&Effect::SaveSession));
-        Ok(())
-    }
 
     #[test]
     fn orchestrator_bubbles_up_on_idle() -> Result<(), PluginError> {
