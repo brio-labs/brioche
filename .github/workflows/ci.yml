@@ -147,7 +147,7 @@ jobs:
           echo "✓ Commit messages OK"
 
   clippy:
-    runs-on: blacksmith-8vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     needs: [changes]
     if: needs.changes.outputs.rust == 'true'
     steps:
@@ -273,7 +273,7 @@ jobs:
   # Gate 2 — Test matrix (unit, doc, property)
   # -------------------------------------------------------------------------
   test:
-    runs-on: blacksmith-16vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     needs: [changes, clippy, deny]
     if: needs.changes.outputs.rust == 'true'
     steps:
@@ -286,7 +286,7 @@ jobs:
       - run: cargo test --workspace --all-targets --all-features
 
   test-doc:
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     needs: [changes, clippy]
     if: needs.changes.outputs.rust == 'true'
     steps:
@@ -301,7 +301,7 @@ jobs:
   # Property tests with a high case count to surface edge-case failures
   # that unit tests miss (PHILOSOPHY.md §5.4, docs/SPECS.md Book V Ch.10).
   proptest:
-    runs-on: blacksmith-16vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     needs: [changes, clippy, deny]
     if: needs.changes.outputs.rust == 'true'
     steps:
