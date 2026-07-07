@@ -376,8 +376,10 @@ jobs:
         with:
           save-if: false
       - uses: mozilla-actions/sccache-action@v0.0.10
+      # Benchmark smoke jobs compile benchmark targets only; desktop embedding is
+      # validated by profile/test jobs that build the frontend first.
       - name: Check benchmarks compile
-        run: cargo check --workspace --benches
+        run: cargo check --workspace --benches --exclude brioche-desktop
       - name: Smoke-run key benchmarks (minimal sample)
         run: |
           # Divan: --test runs each benchmark once to verify they execute
