@@ -9,6 +9,7 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use brioche_shell_runtime::util::{load_json, save_json};
 use serde::{Deserialize, Serialize};
@@ -86,115 +87,48 @@ pub struct Settings {
     pub modules: BTreeMap<String, Value>,
 }
 
-fn home_or_tmp() -> String {
-    match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
-        Ok(v) => v,
-        Err(_) => "/tmp".into(),
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            modules: schema_default_modules().clone(),
+        }
     }
 }
 
-impl Default for Settings {
-    fn default() -> Self {
-        let mut modules = BTreeMap::new();
-        modules.insert(
-            "chat".into(),
-            Value::Object(
-                [
-                    ("provider".into(), Value::String("openrouter".into())),
-                    ("model".into(), Value::String("qwen/qwen3.7-plus".into())),
-                    ("api_key".into(), Value::String(String::new())),
-                    (
-                        "base_url".into(),
-                        Value::String("https://openrouter.ai/api/v1".into()),
-                    ),
-                    ("max_tokens".into(), Value::Number(4096.into())),
-                    (
-                        "context_window".into(),
-                        Value::Number(128_000.into()),
-                    ),
-                    ("reasoning_enabled".into(), Value::Bool(false)),
-                    (
-                        "reasoning_effort".into(),
-                        Value::String("medium".into()),
-                    ),
-                    ("fallback_models".into(), Value::Array(Vec::new())),
-                    ("personality".into(), Value::String("helpful".into())),
-                    ("custom_identity".into(), Value::String(String::new())),
-                    (
-                        "system_prompt".into(),
-                        Value::String(
-                            "You are a helpful AI coding assistant with access to filesystem tools."
-                                .into(),
-                        ),
-                    ),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-        );
-        modules.insert(
-            "context".into(),
-            Value::Object(
-                [
-                    ("enabled".into(), Value::Bool(true)),
-                    ("trigger_percentage".into(), Value::Number(75.into())),
-                    ("target_percentage".into(), Value::Number(50.into())),
-                    ("preserve_recent".into(), Value::Number(6.into())),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-        );
-        modules.insert(
-            "memory".into(),
-            Value::Object(
-                [
-                    (
-                        "active_providers".into(),
-                        Value::Array(vec![Value::String("memory-local".into())]),
-                    ),
-                    (
-                        "endpoints".into(),
-                        Value::Array(vec![Value::Object(
-                            [
-                                ("id".into(), Value::String("memory-amp-1".into())),
-                                ("name".into(), Value::String("Remote memory".into())),
-                                ("url".into(), Value::String("http://localhost:9471".into())),
-                                ("api_key".into(), Value::Null),
-                                ("scope".into(), Value::Null),
-                            ]
-                            .into_iter()
-                            .collect(),
-                        )]),
-                    ),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-        );
-        modules.insert(
-            "tools".into(),
-            Value::Object(
-                [
-                    ("user_tools_enabled".into(), Value::Bool(false)),
-                    ("allowed_commands".into(), Value::Array(Vec::new())),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-        );
-        modules.insert(
-            "ui".into(),
-            Value::Object(
-                [
-                    ("working_dir".into(), Value::String(home_or_tmp())),
-                    ("stream".into(), Value::Bool(true)),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-        );
-        Self { modules }
+fn schema_default_modules() -> &'static BTreeMap<String, Value> {
+    static DEFAULTS: OnceLock<BTreeMap<String, Value>> = OnceLock::new();
+
+    DEFAULTS.get_or_init(|| {
+        let mut settings = Settings {
+            modules: BTreeMap::new(),
+        };
+
+        for section in crate::extensions::settings_sections::all_builtin_sections() {
+            for field in section.fields {
+                if let Some(value) = field.default_value {
+                    let _ = settings.set(&field.key, value);
+                }
+            }
+        }
+        settings.modules
+    })
+}
+
+fn get_from_modules(modules: &BTreeMap<String, Value>, key: &str) -> Option<Value> {
+    let mut parts = key.split('.');
+    let module = parts.next()?;
+    let mut value = modules.get(module)?;
+    for part in parts {
+        value = value.get(part)?;
+    }
+    Some(value.clone())
+}
+#[inline]
+#[allow(clippy::manual_unwrap_or, clippy::manual_unwrap_or_default)]
+fn option_or<T>(value: Option<T>, default: T) -> T {
+    match value {
+        Some(value) => value,
+        None => default,
     }
 }
 
@@ -278,13 +212,7 @@ impl Settings {
     /// # Panic / Safety
     /// Never panics.
     pub fn get(&self, key: &str) -> Option<Value> {
-        let mut parts = key.split('.');
-        let module = parts.next()?;
-        let mut value = self.modules.get(module)?;
-        for part in parts {
-            value = value.get(part)?;
-        }
-        Some(value.clone())
+        get_from_modules(&self.modules, key)
     }
 
     /// Sets a dotted value such as `chat.model`.
@@ -322,14 +250,23 @@ impl Settings {
         Ok(())
     }
 
+    /// Returns a dotted value, falling back to the schema-derived default.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    fn get_with_schema_default(&self, key: &str) -> Option<Value> {
+        self.get(key)
+            .or_else(|| get_from_modules(schema_default_modules(), key))
+    }
+
     /// Returns the working directory.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     pub fn working_dir(&self) -> String {
-        match self.get("ui.working_dir") {
-            Some(Value::String(s)) => s,
-            _ => home_or_tmp(),
-        }
+        option_or(
+            self.get_with_schema_default("ui.working_dir")
+                .and_then(|v| v.as_str().map(ToString::to_string)),
+            "workspace".into(),
+        )
     }
 
     /// Returns the working directory as a PathBuf.
@@ -343,144 +280,256 @@ impl Settings {
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     pub fn chat_provider(&self) -> String {
-        match self.get("chat.provider") {
-            Some(Value::String(s)) => s,
-            _ => "openrouter".into(),
-        }
+        option_or(
+            self.get_with_schema_default("chat.provider")
+                .and_then(|v| v.as_str().map(ToString::to_string)),
+            "openrouter".into(),
+        )
     }
 
     /// Returns the active chat model.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     pub fn chat_model(&self) -> String {
-        match self.get("chat.model") {
-            Some(Value::String(s)) => s,
-            _ => "qwen/qwen3.7-plus".into(),
-        }
+        option_or(
+            self.get_with_schema_default("chat.model")
+                .and_then(|v| v.as_str().map(ToString::to_string)),
+            "qwen/qwen3.7-plus".into(),
+        )
     }
 
     /// Returns the configured API key.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     pub fn api_key(&self) -> String {
-        match self.get("chat.api_key") {
-            Some(Value::String(s)) => reveal_secret(&s).map_or(String::new(), |secret| secret),
-            _ => String::new(),
-        }
+        self.get_with_schema_default("chat.api_key")
+            .and_then(|v| v.as_str().map(ToString::to_string))
+            .map_or(String::new(), |secret| {
+                reveal_secret(&secret).map_or(String::new(), |secret| secret)
+            })
     }
 
     /// Returns the configured base URL.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     pub fn base_url(&self) -> String {
-        match self.get("chat.base_url") {
-            Some(Value::String(s)) => s,
-            _ => "https://openrouter.ai/api/v1".into(),
-        }
+        option_or(
+            self.get_with_schema_default("chat.base_url")
+                .and_then(|v| v.as_str().map(ToString::to_string)),
+            "https://openrouter.ai/api/v1".into(),
+        )
     }
 
     /// Returns the configured max tokens.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     pub fn max_tokens(&self) -> u32 {
-        match self.get("chat.max_tokens") {
-            Some(Value::Number(n)) => n.as_u64().map_or(4096, |v| v as u32),
-            _ => 4096,
-        }
+        option_or(
+            self.get_with_schema_default("chat.max_tokens")
+                .and_then(|v| v.as_u64())
+                .and_then(|v| u32::try_from(v).ok()),
+            4096,
+        )
     }
 
     /// Returns the configured context window.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     pub fn context_window(&self) -> usize {
-        match self.get("chat.context_window") {
-            Some(Value::Number(n)) => n.as_u64().map_or(128_000, |v| v as usize),
-            _ => 128_000,
-        }
+        option_or(
+            self.get_with_schema_default("chat.context_window")
+                .and_then(|v| v.as_u64())
+                .and_then(|v| usize::try_from(v).ok()),
+            128_000,
+        )
     }
 
     /// Returns whether streaming is enabled.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     pub fn stream(&self) -> bool {
-        match self.get("ui.stream") {
-            Some(Value::Bool(b)) => b,
-            _ => true,
-        }
+        option_or(
+            self.get_with_schema_default("ui.stream")
+                .and_then(|v| v.as_bool()),
+            true,
+        )
+    }
+
+    /// Returns whether context compression is enabled.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn context_enabled(&self) -> bool {
+        option_or(
+            self.get_with_schema_default("context.enabled")
+                .and_then(|v| v.as_bool()),
+            true,
+        )
+    }
+
+    /// Returns the trigger percentage that starts context compression.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn context_trigger_percentage(&self) -> u8 {
+        option_or(
+            self.get_with_schema_default("context.trigger_percentage")
+                .and_then(|v| v.as_u64())
+                .and_then(|v| u8::try_from(v).ok()),
+            75,
+        )
+    }
+
+    /// Returns the target percentage to compress context to.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn context_target_percentage(&self) -> u8 {
+        option_or(
+            self.get_with_schema_default("context.target_percentage")
+                .and_then(|v| v.as_u64())
+                .and_then(|v| u8::try_from(v).ok()),
+            50,
+        )
+    }
+
+    /// Returns the number of recent messages to always preserve.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn context_preserve_recent(&self) -> usize {
+        option_or(
+            self.get_with_schema_default("context.preserve_recent")
+                .and_then(|v| v.as_u64())
+                .and_then(|v| usize::try_from(v).ok()),
+            6,
+        )
+    }
+
+    /// Returns whether reasoning is enabled for supported chat models.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn reasoning_enabled(&self) -> bool {
+        option_or(
+            self.get_with_schema_default("chat.reasoning_enabled")
+                .and_then(|v| v.as_bool()),
+            false,
+        )
+    }
+
+    /// Returns the configured reasoning effort.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn reasoning_effort(&self) -> String {
+        option_or(
+            self.get_with_schema_default("chat.reasoning_effort")
+                .and_then(|v| v.as_str().map(ToString::to_string)),
+            "medium".into(),
+        )
     }
 
     /// Returns the active memory provider ids.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     pub fn active_memory_providers(&self) -> Vec<String> {
-        match self.get("memory.active_providers") {
-            Some(Value::Array(arr)) => arr
-                .iter()
-                .filter_map(|v| match v {
-                    Value::String(s) => Some(s.clone()),
-                    _ => None,
-                })
-                .collect(),
-            _ => vec!["memory-local".into()],
-        }
+        let providers = option_or(
+            self.get_with_schema_default("memory.active_providers")
+                .and_then(|v| v.as_array().cloned()),
+            vec![serde_json::Value::String("memory-local".into())],
+        );
+        providers
+            .iter()
+            .filter_map(|v| v.as_str().map(ToString::to_string))
+            .collect()
     }
 
     /// Returns configured AMP-compatible memory endpoints.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     pub fn memory_endpoints(&self) -> Vec<MemoryEndpoint> {
-        match self.get("memory.endpoints") {
-            Some(Value::Array(arr)) => arr
-                .iter()
-                .filter_map(|v| serde_json::from_value::<MemoryEndpoint>(v.clone()).ok())
-                .map(|mut endpoint| {
-                    if let Some(api_key) = endpoint.api_key.take() {
-                        endpoint.api_key = reveal_secret(&api_key).ok();
-                    }
-                    endpoint
-                })
-                .collect(),
-            _ => Vec::new(),
-        }
+        let endpoints = option_or(
+            self.get_with_schema_default("memory.endpoints")
+                .and_then(|v| v.as_array().cloned()),
+            Vec::new(),
+        );
+        endpoints
+            .into_iter()
+            .filter_map(|v| serde_json::from_value::<MemoryEndpoint>(v).ok())
+            .map(|mut endpoint| {
+                if let Some(api_key) = endpoint.api_key.take() {
+                    endpoint.api_key = reveal_secret(&api_key).ok();
+                }
+                endpoint
+            })
+            .collect()
     }
 
     /// Returns fallback models.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     pub fn fallback_models(&self) -> Vec<FallbackModel> {
-        self.get("chat.fallback_models").map_or(Vec::new(), |v| {
-            serde_json::from_value::<Vec<FallbackModel>>(v).map_or(Vec::new(), |models| {
-                models
-                    .into_iter()
-                    .map(|mut model| {
-                        if let Some(api_key) = model.api_key.take() {
-                            model.api_key = reveal_secret(&api_key).ok();
-                        }
-                        model
-                    })
-                    .collect()
+        let models = option_or(
+            self.get_with_schema_default("chat.fallback_models")
+                .and_then(|v| serde_json::from_value::<Vec<FallbackModel>>(v).ok()),
+            Vec::new(),
+        );
+        models
+            .into_iter()
+            .map(|mut model| {
+                if let Some(api_key) = model.api_key.take() {
+                    model.api_key = reveal_secret(&api_key).ok();
+                }
+                model
             })
-        })
+            .collect()
     }
 
     /// Returns the current system prompt.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     pub fn system_prompt(&self) -> String {
-        match self.get("chat.system_prompt") {
-            Some(Value::String(s)) => s,
-            _ => "You are a helpful AI coding assistant with access to filesystem tools.".into(),
-        }
+        option_or(
+            self.get_with_schema_default("chat.system_prompt")
+                .and_then(|v| v.as_str().map(ToString::to_string)),
+            "You are a helpful AI coding assistant with access to filesystem tools.".into(),
+        )
     }
 
     /// Returns the current personality.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     pub fn personality(&self) -> String {
-        match self.get("chat.personality") {
-            Some(Value::String(s)) => s,
-            _ => "helpful".into(),
-        }
+        option_or(
+            self.get_with_schema_default("chat.personality")
+                .and_then(|v| v.as_str().map(ToString::to_string)),
+            "helpful".into(),
+        )
+    }
+
+    /// User-defined tools execute arbitrary shell commands or HTTP requests and
+    /// are disabled for safety.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn user_tools_enabled(&self) -> bool {
+        option_or(
+            self.get_with_schema_default("tools.user_tools_enabled")
+                .and_then(|v| v.as_bool()),
+            false,
+        )
+    }
+
+    /// Returns additional command names the user has allowed for the built-in
+    /// `execute_command` tool.
+    ///
+    /// These names extend the desktop application's default allow-list.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn allowed_commands(&self) -> Vec<String> {
+        let commands = option_or(
+            self.get_with_schema_default("tools.allowed_commands")
+                .and_then(|v| v.as_array().cloned()),
+            Vec::new(),
+        );
+        commands
+            .iter()
+            .filter_map(|item| item.as_str().map(ToString::to_string))
+            .collect()
     }
 
     /// Validates settings before they are persisted or applied.
@@ -518,10 +567,10 @@ impl Settings {
         }
 
         let trigger = self
-            .get("context.trigger_percentage")
+            .get_with_schema_default("context.trigger_percentage")
             .and_then(|v| v.as_u64());
         let target = self
-            .get("context.target_percentage")
+            .get_with_schema_default("context.target_percentage")
             .and_then(|v| v.as_u64());
         if trigger.is_some_and(|n| n > 100) {
             errors.push("context.trigger_percentage must be between 0 and 100".into());
@@ -562,36 +611,6 @@ impl Settings {
             Ok(())
         } else {
             Err(errors.join("\n"))
-        }
-    }
-
-    /// User-defined tools execute arbitrary shell commands or HTTP requests and
-    /// are disabled by default for safety.
-    ///
-    /// Refs: I-Shell-Runtime-OnlyIO
-    pub fn user_tools_enabled(&self) -> bool {
-        match self.get("tools.user_tools_enabled") {
-            Some(Value::Bool(b)) => b,
-            _ => false,
-        }
-    }
-
-    /// Returns additional command names the user has allowed for the built-in
-    /// `execute_command` tool.
-    ///
-    /// These names extend the desktop application's default allow-list.
-    ///
-    /// Refs: I-Shell-Runtime-OnlyIO
-    pub fn allowed_commands(&self) -> Vec<String> {
-        match self.get("tools.allowed_commands") {
-            Some(Value::Array(items)) => items
-                .iter()
-                .filter_map(|item| match item {
-                    Value::String(s) => Some(s.clone()),
-                    _ => None,
-                })
-                .collect(),
-            _ => Vec::new(),
         }
     }
 }
@@ -665,7 +684,210 @@ fn settings_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::extensions::settings_sections::SettingsListRenderer;
+    #[allow(clippy::panic)]
+    #[test]
+    fn section_defaults_match_schema_defaults() {
+        let defaults = Settings::default();
+        let registry = crate::extensions::ExtensionRegistry::default_set_from_settings(&defaults);
+        let sections: Vec<_> = registry
+            .settings_sections()
+            .iter()
+            .flat_map(|provider| provider.sections())
+            .collect();
 
+        let find_field = |key: &str| {
+            sections
+                .iter()
+                .flat_map(|section| section.fields.iter())
+                .find(|field| field.key == key)
+        };
+
+        let assert_default_value = |key: &str| {
+            let Some(expected) = defaults.get(key) else {
+                panic!("default key missing: {key}");
+            };
+            let Some(actual) = find_field(key).and_then(|field| field.default_value.clone()) else {
+                panic!("settings schema missing default for {key}");
+            };
+            assert_eq!(
+                actual, expected,
+                "schema default for `{key}` should match settings defaults"
+            );
+        };
+
+        assert_default_value("chat.model");
+        assert_default_value("chat.base_url");
+        assert_default_value("context.enabled");
+        assert_default_value("context.trigger_percentage");
+        assert_default_value("context.target_percentage");
+        assert_default_value("context.preserve_recent");
+        assert_default_value("chat.reasoning_enabled");
+        assert_default_value("chat.reasoning_effort");
+        assert_default_value("memory.endpoints");
+        assert_default_value("tools.allowed_commands");
+        assert_default_value("ui.stream");
+        assert_default_value("ui.working_dir");
+
+        let Some(fallback_schema) =
+            find_field("chat.fallback_models").and_then(|field| field.list_schema.as_ref())
+        else {
+            panic!("fallback schema missing");
+        };
+        assert_eq!(fallback_schema.renderer, SettingsListRenderer::Record);
+
+        let Some(memory_schema) =
+            find_field("memory.endpoints").and_then(|field| field.list_schema.as_ref())
+        else {
+            panic!("memory schema missing");
+        };
+        assert_eq!(
+            memory_schema.renderer,
+            SettingsListRenderer::MemoryEndpoints
+        );
+        assert_eq!(
+            memory_schema.item_schema.len(),
+            5,
+            "memory schema should expose all endpoint fields"
+        );
+
+        let Some(allowed_command_schema) =
+            find_field("tools.allowed_commands").and_then(|field| field.list_schema.as_ref())
+        else {
+            panic!("allowed commands schema missing");
+        };
+        assert_eq!(
+            allowed_command_schema.renderer,
+            SettingsListRenderer::String
+        );
+    }
+
+    #[test]
+    fn list_renderer_serializes_ipc_snake_case() -> Result<(), serde_json::Error> {
+        assert_eq!(
+            serde_json::to_value(SettingsListRenderer::Record)?,
+            Value::String("record".into())
+        );
+        assert_eq!(
+            serde_json::to_value(SettingsListRenderer::MemoryEndpoints)?,
+            Value::String("memory_endpoints".into())
+        );
+        assert_eq!(
+            serde_json::to_value(SettingsListRenderer::String)?,
+            Value::String("string".into())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn partial_modules_use_schema_defaults_for_missing_fields() -> Result<(), String> {
+        let defaults = Settings::default();
+        let expected_working_dir = defaults
+            .get("ui.working_dir")
+            .and_then(|value| value.as_str().map(ToString::to_string))
+            .ok_or_else(|| "default ui.working_dir missing".to_string())?;
+
+        let mut modules = BTreeMap::new();
+        modules.insert(
+            "ui".into(),
+            Value::Object(
+                [("stream".into(), Value::Bool(false))]
+                    .into_iter()
+                    .collect(),
+            ),
+        );
+        modules.insert(
+            "context".into(),
+            Value::Object(
+                [("enabled".into(), Value::Bool(false))]
+                    .into_iter()
+                    .collect(),
+            ),
+        );
+        modules.insert(
+            "chat".into(),
+            Value::Object(
+                [("provider".into(), Value::String("anthropic".into()))]
+                    .into_iter()
+                    .collect(),
+            ),
+        );
+        let settings = Settings { modules };
+
+        assert_eq!(settings.working_dir(), expected_working_dir);
+        assert!(!settings.context_enabled());
+        assert_eq!(settings.context_trigger_percentage(), 75);
+        assert_eq!(settings.context_target_percentage(), 50);
+        assert_eq!(settings.context_preserve_recent(), 6);
+        assert_eq!(settings.chat_provider(), "anthropic");
+        assert_eq!(settings.chat_model(), "qwen/qwen3.7-plus");
+        let endpoint_ids: Vec<_> = settings
+            .memory_endpoints()
+            .into_iter()
+            .map(|endpoint| endpoint.id)
+            .collect();
+        let default_endpoint_ids: Vec<_> = defaults
+            .memory_endpoints()
+            .into_iter()
+            .map(|endpoint| endpoint.id)
+            .collect();
+        assert_eq!(endpoint_ids, default_endpoint_ids);
+        Ok(())
+    }
+
+    #[test]
+    fn context_and_reasoning_accessors_default_from_schema() {
+        let mut settings = Settings::default();
+
+        assert!(settings.context_enabled());
+        assert_eq!(settings.context_trigger_percentage(), 75);
+        assert_eq!(settings.context_target_percentage(), 50);
+        assert_eq!(settings.context_preserve_recent(), 6);
+        assert!(!settings.reasoning_enabled());
+        assert_eq!(settings.reasoning_effort(), "medium");
+
+        assert!(
+            settings
+                .set("context.trigger_percentage", Value::Number(82.into()))
+                .is_ok(),
+            "setting context.trigger_percentage should succeed"
+        );
+        assert_eq!(settings.context_trigger_percentage(), 82);
+        assert!(
+            settings
+                .set("context.preserve_recent", Value::Number(12.into()))
+                .is_ok(),
+            "setting context.preserve_recent should succeed"
+        );
+        assert_eq!(settings.context_preserve_recent(), 12);
+
+        assert!(
+            settings
+                .set("context.trigger_percentage", Value::String("bad".into()))
+                .is_ok(),
+            "setting invalid trigger should succeed"
+        );
+        assert_eq!(
+            settings.context_trigger_percentage(),
+            75,
+            "invalid numeric values should fall back to schema defaults"
+        );
+
+        assert!(
+            settings
+                .set("chat.reasoning_enabled", Value::Bool(true))
+                .is_ok(),
+            "setting reasoning_enabled should succeed"
+        );
+        assert!(settings.reasoning_enabled());
+        assert!(
+            settings
+                .set("chat.reasoning_effort", Value::String("high".into()))
+                .is_ok(),
+            "setting reasoning_effort should succeed"
+        );
+        assert_eq!(settings.reasoning_effort(), "high");
+    }
     #[test]
     fn settings_get_set_dotted() {
         let mut settings = Settings::default();
