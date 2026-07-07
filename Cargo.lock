@@ -658,6 +658,7 @@ name = "brioche-shell-persistence"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "brioche-core",
  "brioche-shell-runtime",
  "brioche-tools-system",
@@ -669,6 +670,7 @@ dependencies = [
  "rand 0.8.6",
  "redb",
  "reqwest",
+ "ring",
  "rmp-serde",
  "serde",
  "serde_json",
@@ -740,6 +742,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "wiremock",
 ]
 
 [[package]]

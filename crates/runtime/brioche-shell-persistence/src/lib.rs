@@ -21,6 +21,7 @@
 pub mod dto;
 pub mod extensions;
 pub mod profiles;
+pub mod secrets;
 pub mod settings;
 pub mod skills;
 pub mod storage;
