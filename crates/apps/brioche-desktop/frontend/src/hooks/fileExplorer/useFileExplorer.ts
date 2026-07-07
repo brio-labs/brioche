@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useFileStore } from "../../stores/fileStore";
 import { useSettingsStore, getWorkingDir } from "../../stores/settingsStore";
-import { isTauri, readDirectory } from "../../ipc";
+import { isTauri, readDirectory, readFile } from "../../ipc";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useFileTree } from "./useFileTree";
 import { useFileClipboard } from "./useFileClipboard";
-import { useFileRename } from "./useFileRename";
-import { useFilePreview } from "./useFilePreview";
 import { useFileCreation } from "./useFileCreation";
 
 export function useFileExplorer() {
@@ -26,6 +24,11 @@ export function useFileExplorer() {
 		getWorkingDir(state.settings),
 	);
 	const [notice, setNotice] = useState<string | null>(null);
+	const [renamingPath, setRenamingPath] = useState<string | null>(null);
+	const [renameValue, setRenameValue] = useState("");
+	const [preview, setPreview] = useState<{ path: string; content: string } | null>(
+		null,
+	);
 
 	// Clear transient notices after a short delay.
 	useEffect(() => {
@@ -54,23 +57,62 @@ export function useFileExplorer() {
 		setChildrenMap,
 	});
 
-	const {
-		renamingPath,
-		renameValue,
-		handleStartRename,
-		handleRenameValueChange,
-		handleCommitRename,
-		handleCancelRename,
-	} = useFileRename({
-		renamePath,
-		refreshDirectory,
-		expandedPaths,
-	});
 
-	const { preview, setPreview, handlePreview, handleSavePreview } = useFilePreview(
-		{ writeExistingFile },
-	);
+	const handleStartRename = useCallback((path: string, name: string) => {
+		setRenamingPath(path);
+		setRenameValue(name);
+	}, []);
 
+	const handleRenameValueChange = useCallback((value: string) => {
+		setRenameValue(value);
+	}, []);
+
+	const handleCommitRename = useCallback(async () => {
+		if (!renamingPath) return;
+		const trimmed = renameValue.trim();
+		if (!trimmed) {
+			setRenamingPath(null);
+			setRenameValue("");
+			return;
+		}
+		const parent = renamingPath.split("/").slice(0, -1).join("/") || "/";
+		const newPath = `${parent.replace(/\/$/, "")}/${trimmed}`;
+		try {
+			await renamePath(renamingPath, newPath);
+			if (expandedPaths.has(parent)) {
+				await refreshDirectory(parent);
+			}
+		} catch (err) {
+			console.error("Failed to rename:", err);
+		} finally {
+			setRenamingPath(null);
+			setRenameValue("");
+		}
+	}, [renamingPath, renameValue, renamePath, expandedPaths, refreshDirectory]);
+
+	const handleCancelRename = useCallback(() => {
+		setRenamingPath(null);
+		setRenameValue("");
+	}, []);
+
+	const handlePreview = useCallback(async (path: string) => {
+		try {
+			const content = await readFile(path);
+			setPreview({ path, content });
+		} catch (err) {
+			console.error("Failed to read file:", err);
+		}
+	}, []);
+
+	const handleSavePreview = useCallback(async () => {
+		if (!preview) return;
+		try {
+			await writeExistingFile(preview.path, preview.content);
+			setPreview(null);
+		} catch (err) {
+			console.error("Failed to save file:", err);
+		}
+	}, [preview, writeExistingFile]);
 	const {
 		isCreating,
 		createType,

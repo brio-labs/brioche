@@ -4,9 +4,11 @@ import {
   ContextMenu,
   ContextMenuTrigger,
   ContextMenuContent,
+  ContextMenuGroup,
+  ContextMenuItem,
+  ContextMenuSeparator,
 } from "../ui/ContextMenu";
 import { cn } from "../ui/lib";
-import FileTreeItemMenu from "./FileTreeItemMenu";
 import { useFileExplorerContext } from "./FileExplorerContext";
 import type { TreeEntry } from "../../hooks/fileExplorer";
 
@@ -111,9 +113,44 @@ export default function FileTreeItem({ entry, depth }: FileTreeItemProps) {
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
-          <FileTreeItemMenu
-            entry={entry}
-          />
+          {entry.is_dir && (
+            <>
+              <ContextMenuGroup>
+                <ContextMenuItem onClick={() => onNewFile(entry.path, entry.is_dir)}>
+                  New File
+                </ContextMenuItem>
+                <ContextMenuItem
+                  onClick={() => onNewFolder(entry.path, entry.is_dir)}
+                >
+                  New Folder
+                </ContextMenuItem>
+              </ContextMenuGroup>
+              <ContextMenuSeparator />
+            </>
+          )}
+          <ContextMenuGroup>
+            <ContextMenuItem onClick={() => onRename(entry.path, entry.name)}>
+              Rename
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => onCopy(entry.path)}>
+              Copy
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => onCut(entry.path)}>
+              Cut
+            </ContextMenuItem>
+            <ContextMenuItem
+              onClick={() => onPaste(entry.path, entry.is_dir)}
+              disabled={!clipboard}
+            >
+              Paste
+            </ContextMenuItem>
+          </ContextMenuGroup>
+          <ContextMenuSeparator />
+          <ContextMenuGroup>
+            <ContextMenuItem onClick={() => handleDelete(entry.path)} destructive>
+              Delete
+            </ContextMenuItem>
+          </ContextMenuGroup>
         </ContextMenuContent>
       </ContextMenu>
 
