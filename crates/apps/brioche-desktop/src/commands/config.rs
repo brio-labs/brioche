@@ -43,37 +43,23 @@ pub async fn set_settings(
     // Rebuild the extension registry from the new settings so that AMP
     // endpoint changes take effect immediately.
     let extensions = ExtensionRegistry::default_set_from_settings(&settings);
-    {
-        let mut ext_guard = state.extensions.write().await;
-        *ext_guard = extensions.clone();
-    }
-
-    // Update state factory settings and config in memory
-    {
-        let mut factory = state.factory.write().await;
-        factory.config = crate::commands::shell::DesktopConfig::from_settings(&settings);
-        factory.settings = settings.clone();
-        factory.extensions = extensions;
-    }
 
     // Rebuild the active session's shell if there is one
-    let mut current_id_opt = None;
-    {
-        let mgr = state.manager.read().await;
-        if let Some(manager) = mgr.as_ref() {
-            current_id_opt = Some(manager.current_id().to_string());
-        }
-    }
+    let current_id_opt = state.current_session_id_if_ready().await;
+
+    state
+        .replace_settings_contract(settings.clone(), extensions)
+        .await;
 
     if let Some(current_id) = current_id_opt {
-        let factory = state.factory.read().await.clone();
+        let factory = state.factory_snapshot().await;
         let handle = crate::commands::shell::build_shell(&current_id, &factory)
             .await
             .map_err(|e| e.to_string())?;
         DesktopState::initialize_memory_providers(
             &factory,
             &current_id,
-            &factory.settings.working_dir(),
+            &factory.settings().working_dir(),
         )?;
         let mut mgr = state.manager.write().await;
         if let Some(manager) = mgr.as_mut() {

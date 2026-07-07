@@ -17,6 +17,40 @@ use tokio_util::sync::CancellationToken;
 
 use super::{ExtensionMetadata, PanelSlot, PersistenceError};
 
+/// Source that owns a tool descriptor.
+///
+/// The serialized values are the frontend IPC contract. Keeping this as an
+/// enum makes built-in and user-extension ownership exhaustive while leaving
+/// arbitrary JSON only at the user tool boundary.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ToolSource {
+    /// Tool shipped by Brioche.
+    BuiltIn,
+    /// Tool loaded from the user JSON registry.
+    UserJson,
+    /// Tool loaded from a Wasm extension.
+    Wasm,
+    /// Tool executed by an external process extension.
+    Process,
+}
+
+impl ToolSource {
+    /// Returns the stable frontend IPC string for this source.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::BuiltIn => "built-in",
+            Self::UserJson => "user-json",
+            Self::Wasm => "wasm",
+            Self::Process => "process",
+        }
+    }
+}
+
 /// A tool descriptor.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
@@ -36,8 +70,8 @@ pub struct ToolDescriptor {
     pub tags: Vec<String>,
     /// Whether the tool is enabled.
     pub enabled: bool,
-    /// Source: `built-in`, `user-json`, `wasm`, `process`.
-    pub source: String,
+    /// Constrained owner of the descriptor.
+    pub source: ToolSource,
 }
 
 impl ToolDescriptor {
@@ -67,7 +101,7 @@ impl ToolDescriptor {
             category: category.into(),
             tags: tags.iter().map(|tag| (*tag).into()).collect(),
             enabled: true,
-            source: "built-in".into(),
+            source: ToolSource::BuiltIn,
         }
     }
 
@@ -90,7 +124,7 @@ impl ToolDescriptor {
             category: user.category.clone(),
             tags: user.tags.clone(),
             enabled,
-            source: "user-json".into(),
+            source: ToolSource::UserJson,
         }
     }
 }
@@ -146,6 +180,41 @@ pub struct UserToolDefinition {
     pub tags: Vec<String>,
     /// Executor configuration.
     pub executor: ToolExecutor,
+}
+
+impl UserToolDefinition {
+    /// Creates a user tool definition at the JSON extension boundary.
+    ///
+    /// The parameter schema remains arbitrary JSON because user tools are the
+    /// explicit extension boundary; descriptor projection constrains ownership
+    /// through [`ToolSource`].
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(1). Moves caller-owned strings, tags, schema, and executor into the definition.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
+    pub fn new(
+        id: String,
+        name: String,
+        description: String,
+        parameters: serde_json::Value,
+        category: String,
+        tags: Vec<String>,
+        executor: ToolExecutor,
+    ) -> Self {
+        Self {
+            id,
+            name,
+            description,
+            parameters,
+            category,
+            tags,
+            executor,
+        }
+    }
 }
 
 /// How a user-defined tool is executed.
@@ -697,7 +766,7 @@ mod tests {
             .iter()
             .find(|tool| tool.id == "read_file")
             .ok_or("missing read_file descriptor")?;
-        assert_eq!(read_file.source, "built-in");
+        assert_eq!(read_file.source, ToolSource::BuiltIn);
         assert_eq!(
             read_file.parameters["required"],
             serde_json::Value::Array(vec![serde_json::Value::String("path".into())])
@@ -707,6 +776,7 @@ mod tests {
             .iter()
             .find(|tool| tool.id == "write_file")
             .ok_or("missing write_file descriptor")?;
+
         assert_eq!(
             write_file.parameters["properties"]["append"]["type"],
             "boolean"
@@ -734,6 +804,30 @@ mod tests {
             .ok_or("missing fetch_url descriptor")?;
         assert_eq!(fetch_url.parameters["properties"]["url"]["type"], "string");
         Ok(())
+    }
+
+    #[test]
+    fn user_tool_descriptor_projects_typed_source() {
+        let mut parameters = serde_json::Map::new();
+        parameters.insert("type".into(), serde_json::Value::String("object".into()));
+
+        let definition = UserToolDefinition::new(
+            "custom_echo".into(),
+            "Custom Echo".into(),
+            "Echoes input".into(),
+            serde_json::Value::Object(parameters),
+            "custom".into(),
+            vec!["user".into()],
+            ToolExecutor::ReadFile {
+                path: "fixture.txt".into(),
+            },
+        );
+
+        let descriptor = ToolDescriptor::from_user_definition(&definition, true);
+
+        assert_eq!(descriptor.source, ToolSource::UserJson);
+        assert_eq!(descriptor.source.as_str(), "user-json");
+        assert!(descriptor.enabled);
     }
 
     #[tokio::test]

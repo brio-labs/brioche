@@ -38,7 +38,9 @@ pub use memory_provider::{LocalMemoryProvider, MemoryProvider, MemoryQuery, Memo
 use serde::{Deserialize, Serialize};
 pub use settings_sections::{SettingsSection, SettingsSectionProvider};
 pub use skill_provider::{SkillProvider, SkillRegistry};
-pub use tool_provider::{ToolProvider, ToolRegistry, UserDefinedTool, UserToolDefinition};
+pub use tool_provider::{
+    ToolProvider, ToolRegistry, ToolSource, UserDefinedTool, UserToolDefinition,
+};
 
 use crate::settings::Settings;
 
