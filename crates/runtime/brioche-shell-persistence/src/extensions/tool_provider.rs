@@ -619,38 +619,7 @@ async fn execute_http_post(
     args: serde_json::Value,
     cancel: CancellationToken,
 ) -> Result<String, ToolError> {
-    let client = reqwest::Client::new();
-    let mut request = client.post(url).json(&args);
-    for (key, value) in headers {
-        request = request.header(key, value);
-    }
-
-    let response = tokio::select! {
-        biased;
-        _ = cancel.cancelled() => {
-            return Err(ToolError::Io(std::io::Error::new(
-                std::io::ErrorKind::Interrupted,
-                "cancelled",
-            )));
-        }
-        result = request.send() => result,
-    };
-
-    let response = response.map_err(|err| ToolError::Io(std::io::Error::other(err.to_string())))?;
-    let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|err| ToolError::Io(std::io::Error::other(err.to_string())))?;
-
-    if !status.is_success() {
-        return Err(ToolError::Io(std::io::Error::other(format!(
-            "HTTP {}: {}",
-            status, body
-        ))));
-    }
-
-    Ok(body)
+    brioche_tools_system::post_json(url, headers, args, cancel).await
 }
 
 async fn execute_read_file(path: &str) -> Result<String, ToolError> {
@@ -868,6 +837,28 @@ mod tests {
         assert!(
             err.to_string().contains("nested opening brace"),
             "expected nested brace error, got {err}"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn http_post_rejects_localhost() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let mut payload = serde_json::Map::new();
+        payload.insert("message".into(), serde_json::Value::String("hello".into()));
+        let result = execute_http_post(
+            "http://localhost:8080/hook",
+            &BTreeMap::new(),
+            serde_json::Value::Object(payload),
+            CancellationToken::new(),
+        )
+        .await;
+        let err = match result {
+            Err(err) => err,
+            Ok(_) => return Err("localhost HTTP POST must be blocked".into()),
+        };
+        assert!(
+            err.to_string().contains("localhost"),
+            "expected localhost denial, got {err}"
         );
         Ok(())
     }

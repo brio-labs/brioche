@@ -29,6 +29,7 @@ use brioche_shell_runtime::{
 };
 use bytes::Bytes;
 use futures_util::StreamExt;
+use reqwest::redirect::Policy;
 use tokio::sync::{RwLock, broadcast};
 
 use crate::config::OpenAiConfig;
@@ -285,9 +286,9 @@ impl OpenAiLlmClient {
         config: OpenAiConfig,
     ) -> Result<(Self, broadcast::Receiver<LlmChunk>, SharedHistory), OpenAiError> {
         let http = reqwest::Client::builder()
-            // No global request timeout — streaming generations can
-            // take minutes (e.g. 80KB file writes). Idle detection
-            // is handled by the per-chunk READ_TIMEOUT in call_llm().
+            // Streaming generations may legitimately take minutes, so the
+            // request timeout is enforced as time-to-first-byte in send_request.
+            .redirect(Policy::limited(3))
             .build()
             .map_err(OpenAiError::HttpClientBuilder)?;
 

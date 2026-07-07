@@ -15,6 +15,8 @@ use std::path::PathBuf;
 use brioche_shell_runtime::util::{load_json, save_json, system_time_secs};
 use serde::{Deserialize, Serialize};
 
+use crate::secrets::{protect_secret, reveal_secret};
+
 /// A user profile.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
@@ -30,7 +32,7 @@ pub struct Profile {
     pub provider: String,
     /// The model ID for this profile.
     pub model: String,
-    /// The API key (encrypted at rest in production).
+    /// API key, decrypted in memory and encrypted before disk persistence.
     pub api_key: String,
     /// Custom system prompt.
     pub system_prompt: Option<String>,
@@ -83,7 +85,10 @@ impl ProfileConfig {
     pub fn load() -> Self {
         let path = profile_config_path();
         match load_json::<_, ProfileConfig>(&path, "profiles") {
-            Ok(config) => config,
+            Ok(mut config) => {
+                config.reveal_api_keys();
+                config
+            }
             Err(_) => {
                 let default = Self::default();
                 let _ = default.save();
@@ -96,7 +101,24 @@ impl ProfileConfig {
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     pub fn save(&self) -> Result<(), String> {
-        save_json(profile_config_path(), self, "profiles")
+        let mut persisted = self.clone();
+        persisted.protect_api_keys()?;
+        save_json(profile_config_path(), &persisted, "profiles")
+    }
+
+    fn reveal_api_keys(&mut self) {
+        for profile in &mut self.profiles {
+            if let Ok(api_key) = reveal_secret(&profile.api_key) {
+                profile.api_key = api_key;
+            }
+        }
+    }
+
+    fn protect_api_keys(&mut self) -> Result<(), String> {
+        for profile in &mut self.profiles {
+            profile.api_key = protect_secret(&profile.api_key)?;
+        }
+        Ok(())
     }
 
     /// Gets the active profile.
@@ -248,5 +270,27 @@ mod tests {
     fn profile_cannot_delete_default() {
         let mut config = ProfileConfig::default();
         assert!(config.delete("default").is_err());
+    }
+
+    #[test]
+    fn profile_api_key_is_protected_for_persistence() -> Result<(), String> {
+        let mut config = ProfileConfig::default();
+        let profile = config
+            .profiles
+            .first_mut()
+            .ok_or_else(|| "missing default profile".to_string())?;
+        profile.api_key = "sk-profile-secret".into();
+        config.protect_api_keys()?;
+        let persisted = serde_json::to_string(&config).map_err(|err| err.to_string())?;
+
+        assert!(persisted.contains("brioche-secret:v1:"));
+        assert!(
+            !persisted.contains("sk-profile-secret"),
+            "serialized profile config must not contain plaintext API keys"
+        );
+
+        config.reveal_api_keys();
+        assert_eq!(config.profiles[0].api_key, "sk-profile-secret");
+        Ok(())
     }
 }

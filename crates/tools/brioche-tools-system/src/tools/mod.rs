@@ -10,4 +10,4 @@ pub mod web;
 
 pub use filesystem::{ListDirTool, ReadFileTool, WriteFileTool};
 pub use shell::ExecuteCommandTool;
-pub use web::FetchUrlTool;
+pub use web::{FetchUrlTool, post_json};

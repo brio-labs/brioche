@@ -27,6 +27,8 @@ reqwest = { workspace = true, features = ["json"] }
 brioche-tools-system = { workspace = true }
 rand = "0.8"
 tracing = { workspace = true }
+base64 = "0.22"
+ring = "0.17"
 
 [dev-dependencies]
 proptest = { workspace = true }

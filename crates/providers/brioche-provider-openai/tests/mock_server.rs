@@ -134,6 +134,7 @@ async fn streams_text_chunks_to_kernel() -> Result<(), Box<dyn std::error::Error
     let config = OpenAiConfig {
         base_url: mock_server.uri(),
         api_key: "test-key".into(),
+        allow_loopback: true,
         ..OpenAiConfig::default()
     };
     let (client, _rx, _history) = OpenAiLlmClient::new(config)?;
@@ -168,6 +169,7 @@ async fn emits_tool_calls_to_kernel() -> Result<(), Box<dyn std::error::Error>> 
     let config = OpenAiConfig {
         base_url: mock_server.uri(),
         api_key: "test-key".into(),
+        allow_loopback: true,
         ..OpenAiConfig::default()
     };
     let (client, _rx, _history) = OpenAiLlmClient::new(config)?;
@@ -198,6 +200,7 @@ async fn http_error_before_sse_emits_terminal_done() -> Result<(), Box<dyn std::
     let config = OpenAiConfig {
         base_url: mock_server.uri(),
         api_key: "test-key".into(),
+        allow_loopback: true,
         ..OpenAiConfig::default()
     };
     let (client, mut ui_rx, _history) = OpenAiLlmClient::new(config)?;
@@ -233,6 +236,7 @@ async fn http_error_truncates_large_response_body() -> Result<(), Box<dyn std::e
     let config = OpenAiConfig {
         base_url: mock_server.uri(),
         api_key: "test-key".into(),
+        allow_loopback: true,
         ..OpenAiConfig::default()
     };
     let (client, _rx, _history) = OpenAiLlmClient::new(config)?;
@@ -269,6 +273,7 @@ async fn http_error_body_limit_is_enforced() -> Result<(), Box<dyn std::error::E
     let config = OpenAiConfig {
         base_url: mock_server.uri(),
         api_key: "test-key".into(),
+        allow_loopback: true,
         ..OpenAiConfig::default()
     };
     let (client, _rx, _history) = OpenAiLlmClient::new(config)?;
@@ -314,6 +319,7 @@ async fn malformed_sse_abort_emits_terminal_done() -> Result<(), Box<dyn std::er
     let config = OpenAiConfig {
         base_url: mock_server.uri(),
         api_key: "test-key".into(),
+        allow_loopback: true,
         ..OpenAiConfig::default()
     };
     let (client, mut ui_rx, _history) = OpenAiLlmClient::new(config)?;
@@ -359,6 +365,7 @@ async fn partial_sse_fragment_at_stream_end_is_buffered() -> Result<(), Box<dyn 
     let config = OpenAiConfig {
         base_url: mock_server.uri(),
         api_key: "test-key".into(),
+        allow_loopback: true,
         ..OpenAiConfig::default()
     };
     let (client, _rx, _history) = OpenAiLlmClient::new(config)?;
@@ -404,6 +411,7 @@ async fn http_timeout_is_surfaced_as_network_error() -> Result<(), Box<dyn std::
     let config = OpenAiConfig {
         base_url: mock_server.uri(),
         api_key: "test-key".into(),
+        allow_loopback: true,
         timeout_ms: 100,
         ..OpenAiConfig::default()
     };
@@ -461,6 +469,7 @@ async fn transient_http_error_is_retried_with_retry_after() -> Result<(), Box<dy
     let config = OpenAiConfig {
         base_url: mock_server.uri(),
         api_key: "test-key".into(),
+        allow_loopback: true,
         ..OpenAiConfig::default()
     };
     let (client, _rx, _history) = OpenAiLlmClient::new(config)?;
@@ -483,5 +492,47 @@ async fn transient_http_error_is_retried_with_retry_after() -> Result<(), Box<dy
         "call_llm should succeed after retry: {result:?}"
     );
     // Wiremock expectations are verified on MockServer drop.
+    Ok(())
+}
+
+/// Redirect loops are capped by the provider HTTP client.
+///
+/// Refs: docs/SPECS.md §Book III-B, I-Shell-Network-Signal
+#[tokio::test]
+async fn redirect_loop_is_capped() -> Result<(), Box<dyn std::error::Error>> {
+    let mock_server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(302).append_header("Location", "/again"))
+        .mount(&mock_server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/again"))
+        .respond_with(ResponseTemplate::new(302).append_header("Location", "/again"))
+        .mount(&mock_server)
+        .await;
+
+    let config = OpenAiConfig {
+        base_url: mock_server.uri(),
+        api_key: "test-key".into(),
+        allow_loopback: true,
+        ..OpenAiConfig::default()
+    };
+    let (client, mut ui_rx, _history) = OpenAiLlmClient::new(config)?;
+    let client = client.with_retry_policy(RetryConfig::none());
+    client
+        .push_message(ChatMessage::User {
+            content: "hello".into(),
+        })
+        .await;
+
+    let shell = test_shell()?;
+    let result = client.call_llm(&shell).await;
+
+    assert!(
+        result.is_ok(),
+        "call_llm should terminate after redirect cap"
+    );
+    expect_provider_error(&mut ui_rx, "redirect").await?;
     Ok(())
 }
