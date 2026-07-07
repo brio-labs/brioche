@@ -25,6 +25,7 @@ pub mod network_recovery;
 pub mod shell;
 pub mod signal_adapter;
 pub mod telemetry;
+pub mod tool_schema;
 pub mod transition_journal;
 pub mod unified_event_bus;
 pub mod util;
@@ -50,6 +51,10 @@ pub use signal_adapter::{
 pub use telemetry::{
     Secret, TelemetryChannel, TelemetryEvent, TelemetryLevel, TelemetryPayload,
     install_default_subscriber,
+};
+pub use tool_schema::{
+    ToolSchemaProperty, ToolSchemaPropertyType, openai_function_tool, openai_function_tool_schema,
+    tool_parameters_schema,
 };
 pub use transition_journal::{JournalEntry, TransitionJournal};
 pub use unified_event_bus::{EngineEnvelope, UnifiedEventBus};

@@ -21,7 +21,9 @@ impl OpenAiLlmClient {
     /// Build the HTTP request from current history and tools.
     ///
     /// # Complexity
-    /// O(n) where n = history length (build_messages copies).
+    /// O(n + t) where n = history length and t = tool schema count. Clones the
+    /// shared tool schema cache once so the request boundary can take ownership
+    /// without holding the async lock.
     pub(super) async fn build_request(&self) -> (serde_json::Value, usize) {
         let history_guard = self.history.read().await;
         let transformed = {
@@ -39,10 +41,10 @@ impl OpenAiLlmClient {
         drop(history_guard);
 
         let tools_guard = self.tools_schema.read().await;
-        let tools: Option<&[serde_json::Value]> = if tools_guard.is_empty() {
+        let tools: Option<Vec<serde_json::Value>> = if tools_guard.is_empty() {
             None
         } else {
-            Some(&*tools_guard)
+            Some(tools_guard.clone())
         };
 
         let body = build_request_body(

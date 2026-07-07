@@ -153,9 +153,13 @@ pub fn build_messages(history: &[ChatMessage]) -> Vec<serde_json::Value> {
 
 /// Assembles the Chat Completions request body.
 ///
-/// `tools` is optional. When provided, the `tools` field is injected
-/// into the payload to enable function calling mode.
+/// `tools` is optional. When provided, the owned tool schemas are moved into the
+/// payload to enable function calling mode.
 /// `stream` controls whether the provider returns an SSE stream.
+///
+/// # Complexity
+/// O(m + t) where m is message count and t is tool count. Does not clone tool
+/// schemas; callers that hold shared tool caches must clone before this boundary.
 ///
 /// Refs: docs/SPECS.md §Book III-B
 pub fn build_request_body(
@@ -163,7 +167,7 @@ pub fn build_request_body(
     messages: Vec<serde_json::Value>,
     max_tokens: u32,
     reasoning_effort: Option<&str>,
-    tools: Option<&[serde_json::Value]>,
+    tools: Option<Vec<serde_json::Value>>,
     stream: bool,
 ) -> serde_json::Value {
     let mut body = serde_json::Map::new();
@@ -184,7 +188,7 @@ pub fn build_request_body(
     if let Some(tools) = tools
         && !tools.is_empty()
     {
-        body.insert("tools".into(), serde_json::Value::Array(tools.to_vec()));
+        body.insert("tools".into(), serde_json::Value::Array(tools));
         body.insert(
             "tool_choice".into(),
             serde_json::Value::String("auto".into()),

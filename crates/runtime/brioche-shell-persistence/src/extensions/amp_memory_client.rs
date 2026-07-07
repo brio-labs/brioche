@@ -12,6 +12,7 @@ use std::future::Future;
 use std::sync::{Arc, RwLock};
 
 use brioche_shell_runtime::util::system_time_secs;
+use brioche_shell_runtime::{ToolSchemaProperty, ToolSchemaPropertyType, openai_function_tool};
 use serde::{Deserialize, Serialize};
 
 use super::memory_provider::{MemoryEntry, MemoryProvider, MemoryQuery, MemorySessionContext};
@@ -306,12 +307,22 @@ impl MemoryProvider for AmpMemoryProvider {
             amp_tool_schema(
                 &format!("{}_recall", self.endpoint.id),
                 "Recall relevant memories from the long-term memory backend.",
-                &[("query", "string", "What to search for", true)],
+                &[ToolSchemaProperty::new(
+                    "query",
+                    ToolSchemaPropertyType::String,
+                    "What to search for",
+                    true,
+                )],
             ),
             amp_tool_schema(
                 &format!("{}_store", self.endpoint.id),
                 "Store a fact, lesson, or decision in the long-term memory backend.",
-                &[("content", "string", "Content to store", true)],
+                &[ToolSchemaProperty::new(
+                    "content",
+                    ToolSchemaPropertyType::String,
+                    "Content to store",
+                    true,
+                )],
             ),
         ]
     }
@@ -384,53 +395,9 @@ impl AmpMemoryProvider {
 fn amp_tool_schema(
     name: &str,
     description: &str,
-    params: &[(&str, &str, &str, bool)],
+    params: &[ToolSchemaProperty],
 ) -> serde_json::Value {
-    let mut properties = serde_json::Map::new();
-    let mut required: Vec<String> = Vec::new();
-    for (param_name, param_type, param_desc, is_required) in params {
-        let mut prop = serde_json::Map::new();
-        prop.insert(
-            "type".into(),
-            serde_json::Value::String((*param_type).into()),
-        );
-        prop.insert(
-            "description".into(),
-            serde_json::Value::String((*param_desc).into()),
-        );
-        properties.insert((*param_name).into(), serde_json::Value::Object(prop));
-        if *is_required {
-            required.push((*param_name).into());
-        }
-    }
-
-    let mut params_obj = serde_json::Map::new();
-    params_obj.insert("type".into(), serde_json::Value::String("object".into()));
-    params_obj.insert("properties".into(), serde_json::Value::Object(properties));
-    if !required.is_empty() {
-        params_obj.insert(
-            "required".into(),
-            serde_json::Value::Array(
-                required
-                    .into_iter()
-                    .map(serde_json::Value::String)
-                    .collect(),
-            ),
-        );
-    }
-
-    let mut function = serde_json::Map::new();
-    function.insert("name".into(), serde_json::Value::String(name.into()));
-    function.insert(
-        "description".into(),
-        serde_json::Value::String(description.into()),
-    );
-    function.insert("parameters".into(), serde_json::Value::Object(params_obj));
-
-    let mut obj = serde_json::Map::new();
-    obj.insert("type".into(), serde_json::Value::String("function".into()));
-    obj.insert("function".into(), serde_json::Value::Object(function));
-    serde_json::Value::Object(obj)
+    openai_function_tool(name, description, params)
 }
 
 fn random_key(prefix: &str) -> String {
@@ -476,4 +443,38 @@ where
             })?
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn amp_tool_schemas_use_typed_openai_wrapper()
+    -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let provider = AmpMemoryProvider::new(AmpMemoryEndpoint {
+            id: "amp".into(),
+            name: "AMP".into(),
+            url: "https://memory.example".into(),
+            api_key: None,
+            scope: None,
+        });
+
+        let schemas = provider.tool_schemas();
+        assert_eq!(schemas.len(), 2);
+        let recall = schemas.first().ok_or("missing recall schema")?;
+        let store = schemas.get(1).ok_or("missing store schema")?;
+        assert_eq!(recall["type"], "function");
+        assert_eq!(recall["function"]["name"], "amp_recall");
+        assert_eq!(
+            recall["function"]["parameters"]["required"],
+            serde_json::Value::Array(vec![serde_json::Value::String("query".into())])
+        );
+        assert_eq!(store["function"]["name"], "amp_store");
+        assert_eq!(
+            store["function"]["parameters"]["properties"]["content"]["type"],
+            "string"
+        );
+        Ok(())
+    }
 }
