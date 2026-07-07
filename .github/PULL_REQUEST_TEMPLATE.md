@@ -17,6 +17,7 @@
 - [ ] No trivial `*State` structs that only mirror plugin config
 - [ ] No redundant `O(1)` / `Never panics` docs on obvious accessors
 - [ ] No stale backup/generated artifacts in production source or workflow paths
+- [ ] Oversized source/test/tool files are split or carry architectural exemptions
 
 ## Human Checks (not enforced by CI)
 - [ ] Does this change uphold or violate any invariant? If it changes behavior, the spec is updated.
@@ -27,3 +28,4 @@
 - [ ] Related modules remain cohesive; small one-type files are not introduced.
 - [ ] New `*State` types carry mutable runtime state, not copied config.
 - [ ] Docs add invariant signal, not boilerplate ceremony.
+- [ ] Large test suites are grouped by invariant/contract, not chronology.
