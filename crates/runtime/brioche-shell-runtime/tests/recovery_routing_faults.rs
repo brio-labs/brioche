@@ -8,6 +8,7 @@ use brioche_core::{ChatMessage, EngineInput, Session, ToolResultDTO};
 use brioche_shell_runtime::{
     BriocheShell, DefaultEffectExecutor, EchoToolExecutor, NoopPersistence, ShellConfig,
 };
+
 use common::{
     build_minimal_engine, build_shell_with_recorder, is_idle, is_predicting, recorded_views,
     session_recorder,

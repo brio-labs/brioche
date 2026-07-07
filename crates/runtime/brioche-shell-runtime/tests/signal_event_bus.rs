@@ -9,6 +9,7 @@ use brioche_shell_runtime::{
     AsyncTaskResultAdapter, GovernanceNotificationAdapter, SignalMultiplexer, SystemSignalAdapter,
     TickEmitter, UnifiedEventBus,
 };
+
 use common::{build_shell_with_recorder, is_idle, is_predicting, recorded_views};
 
 #[tokio::test]

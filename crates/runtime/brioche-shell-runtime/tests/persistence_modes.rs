@@ -9,6 +9,7 @@ use brioche_shell_runtime::{
     BriocheShell, DefaultEffectExecutor, EchoToolExecutor, MockLlmClient, NoopPersistence,
     ShellConfig,
 };
+
 use common::{
     build_minimal_engine, build_shell_with_recorder, is_idle, recorded_views, session_recorder,
 };
