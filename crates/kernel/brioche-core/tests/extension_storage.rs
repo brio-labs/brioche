@@ -2,9 +2,12 @@
 //!
 //! Refs: I-Core-ExtensionType
 
-use std::collections::BTreeMap;
+use std::any::{Any, TypeId};
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
-use brioche_core::{BriocheExtensionType, ExtensionStorage};
+use brioche_core::{BriocheExtensionType, CycleRollbackPolicy, ExtVTable, ExtensionStorage};
 use proptest::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -24,6 +27,15 @@ pub struct EpochState {
     /// Current generation ID for epoch tracking.
     pub current_generation: u64,
 }
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, BriocheExtensionType)]
+#[brioche(no_snapshot)]
+/// Transient extension state that must not be written to cold storage.
+///
+/// Refs: I-Core-Pure
+pub struct TransientState {
+    /// In-memory counter only.
+    pub counter: u64,
+}
 
 #[test]
 fn insert_and_get_mut_roundtrip() {
@@ -31,7 +43,7 @@ fn insert_and_get_mut_roundtrip() {
     let mut tags = BTreeMap::new();
     tags.insert("a".to_string(), 1);
     let state = TestState { counter: 42, tags };
-    storage.insert(state.clone());
+    assert!(storage.insert(state.clone()).is_ok());
     if let Some(retrieved) = storage.get_mut::<TestState>() {
         assert_eq!(retrieved.counter, 42);
         assert_eq!(retrieved.tags.get("a"), Some(&1));
@@ -60,7 +72,7 @@ fn get_or_insert_default_restores_from_cold_snapshot() {
     let mut tags = BTreeMap::new();
     tags.insert("key".to_string(), 123);
     let original = TestState { counter: 99, tags };
-    storage.insert(original.clone());
+    assert!(storage.insert(original.clone()).is_ok());
 
     // Evict from hot_map to force restore from cold_snapshot.
     assert!(storage.evict_from_hot::<TestState>());
@@ -107,7 +119,7 @@ fn cold_snapshot_persists_binary_blobs() {
         counter: 55,
         tags: BTreeMap::new(),
     };
-    storage.insert(state);
+    assert!(storage.insert(state).is_ok());
     let snapshot = storage.cold_snapshot();
     assert!(snapshot.contains_key(TestState::EXT_ID));
     assert!(
@@ -116,17 +128,44 @@ fn cold_snapshot_persists_binary_blobs() {
             .is_some_and(|v| !v.is_empty())
     );
 }
+#[test]
+fn no_snapshot_types_skip_cold_storage() {
+    let mut storage = ExtensionStorage::new();
+    assert!(storage.insert(TransientState { counter: 99 }).is_ok());
+
+    // The transient type must still be reachable in hot_map.
+    if let Some(state) = storage.get_mut::<TransientState>() {
+        assert_eq!(state.counter, 99);
+    } else {
+        assert_eq!(1, 0, "TransientState not found in hot_map");
+    }
+
+    // But it must not be serialized into cold_snapshot.
+    let snapshot = storage.cold_snapshot();
+    assert!(
+        !snapshot.contains_key(TransientState::EXT_ID),
+        "NoSnapshot type was written to cold_snapshot"
+    );
+}
 
 #[test]
 fn multiple_extension_types_coexist() {
     let mut storage = ExtensionStorage::new();
-    storage.insert(TestState {
-        counter: 1,
-        tags: BTreeMap::new(),
-    });
-    storage.insert(EpochState {
-        current_generation: 7,
-    });
+    assert!(
+        storage
+            .insert(TestState {
+                counter: 1,
+                tags: BTreeMap::new(),
+            })
+            .is_ok()
+    );
+    assert!(
+        storage
+            .insert(EpochState {
+                current_generation: 7,
+            })
+            .is_ok()
+    );
 
     if let Some(test_state) = storage.get_mut::<TestState>() {
         assert_eq!(test_state.counter, 1);
@@ -175,6 +214,198 @@ fn hydrate_plugin_corrupted_blob_fallback() {
     );
 }
 
+struct RecordingPolicy {
+    counter: Arc<AtomicUsize>,
+}
+
+impl RecordingPolicy {
+    fn new() -> (Self, Arc<AtomicUsize>) {
+        let counter = Arc::new(AtomicUsize::new(0));
+        (
+            Self {
+                counter: counter.clone(),
+            },
+            counter,
+        )
+    }
+}
+
+impl CycleRollbackPolicy for RecordingPolicy {
+    type CowBudgetPolicy = dyn brioche_core::CowBudgetPolicy;
+    type ExtVTable = ExtVTable;
+    type ExtensionStorage = ExtensionStorage;
+
+    fn begin_hook(&mut self, _hook_name: &'static str) {}
+
+    fn on_mutation(&mut self, _type_id: TypeId, _vtable: &ExtVTable, _current: &dyn Any) {
+        self.counter.fetch_add(1, AtomicOrdering::SeqCst);
+    }
+
+    fn commit_hook(&mut self, _ext: &mut ExtensionStorage) {}
+
+    fn rollback_hook(&mut self, _ext: &mut ExtensionStorage) {}
+}
+
+/// Sort `String` keyed pairs and remove duplicate keys.
+///
+/// Refs: I-Eco-OrderedCollections
+fn dedup_sorted_pairs(pairs: Vec<(String, u64)>) -> Vec<(String, u64)> {
+    let mut sorted = pairs;
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut unique = Vec::new();
+    for (k, v) in sorted {
+        if unique.last().is_some_and(|(last_k, _)| last_k == &k) {
+            continue;
+        }
+        unique.push((k, v));
+    }
+    unique
+}
+
+#[test]
+fn attach_rollback_policy_stores_policy_and_resets_snapshot_tracking() {
+    let mut storage = ExtensionStorage::new();
+    let (policy, counter) = RecordingPolicy::new();
+    assert!(
+        storage
+            .insert(TestState {
+                counter: 0,
+                tags: BTreeMap::new(),
+            })
+            .is_ok()
+    );
+    storage.attach_rollback_policy(Box::new(policy));
+
+    {
+        let state = storage.get_or_insert_default::<TestState>();
+        state.counter = 1;
+    }
+    assert_eq!(counter.load(AtomicOrdering::SeqCst), 1);
+
+    {
+        let state = storage.get_or_insert_default::<TestState>();
+        state.counter = 2;
+    }
+    assert_eq!(counter.load(AtomicOrdering::SeqCst), 1);
+}
+
+#[test]
+fn detach_rollback_policy_returns_policy_and_clears_tracking() {
+    let mut storage = ExtensionStorage::new();
+    let (policy, counter) = RecordingPolicy::new();
+    assert!(
+        storage
+            .insert(TestState {
+                counter: 0,
+                tags: BTreeMap::new(),
+            })
+            .is_ok()
+    );
+    storage.attach_rollback_policy(Box::new(policy));
+
+    {
+        let state = storage.get_or_insert_default::<TestState>();
+        state.counter = 1;
+    }
+    assert_eq!(counter.load(AtomicOrdering::SeqCst), 1);
+
+    let detached = storage.detach_rollback_policy();
+    if let Some(policy_box) = detached {
+        storage.attach_rollback_policy(policy_box);
+    } else {
+        assert_eq!(1, 0, "expected detached policy");
+    }
+
+    {
+        let state = storage.get_or_insert_default::<TestState>();
+        state.counter = 2;
+    }
+    assert_eq!(
+        counter.load(AtomicOrdering::SeqCst),
+        2,
+        "reattached policy should be notified again after tracking is cleared"
+    );
+}
+
+#[test]
+fn attach_rollback_policy_notifies_on_first_get_or_insert_default_mutation() {
+    let mut storage = ExtensionStorage::new();
+    let (policy, counter) = RecordingPolicy::new();
+    storage.attach_rollback_policy(Box::new(policy));
+
+    {
+        let state = storage.get_or_insert_default::<TestState>();
+        state.counter = 7;
+    }
+    assert_eq!(counter.load(AtomicOrdering::SeqCst), 1);
+
+    {
+        let state = storage.get_or_insert_default::<TestState>();
+        state.counter = 8;
+    }
+    assert_eq!(counter.load(AtomicOrdering::SeqCst), 1);
+}
+
+#[test]
+fn attach_rollback_policy_notifies_on_first_get_mut_mutation() {
+    let mut storage = ExtensionStorage::new();
+    assert!(
+        storage
+            .insert(TestState {
+                counter: 0,
+                tags: BTreeMap::new(),
+            })
+            .is_ok()
+    );
+    let (policy, counter) = RecordingPolicy::new();
+    storage.attach_rollback_policy(Box::new(policy));
+
+    {
+        let state = storage.get_mut::<TestState>();
+        assert!(state.is_some());
+    }
+    assert_eq!(counter.load(AtomicOrdering::SeqCst), 1);
+
+    {
+        let state = storage.get_mut::<TestState>();
+        assert!(state.is_some());
+    }
+    assert_eq!(counter.load(AtomicOrdering::SeqCst), 1);
+}
+
+#[test]
+fn attach_rollback_policy_clears_tracking_when_replacing_policy() {
+    let mut storage = ExtensionStorage::new();
+    let (policy_a, counter_a) = RecordingPolicy::new();
+    assert!(
+        storage
+            .insert(TestState {
+                counter: 0,
+                tags: BTreeMap::new(),
+            })
+            .is_ok()
+    );
+    storage.attach_rollback_policy(Box::new(policy_a));
+
+    {
+        let state = storage.get_or_insert_default::<TestState>();
+        state.counter = 1;
+    }
+    assert_eq!(counter_a.load(AtomicOrdering::SeqCst), 1);
+
+    // Replacing the attached policy must clear the per-hook snapshot tracking
+    // so that the next mutation is recorded by the new policy.
+    let (policy_b, counter_b) = RecordingPolicy::new();
+    storage.attach_rollback_policy(Box::new(policy_b));
+
+    {
+        let state = storage.get_or_insert_default::<TestState>();
+        state.counter = 2;
+    }
+    assert_eq!(counter_a.load(AtomicOrdering::SeqCst), 1);
+    assert_eq!(counter_b.load(AtomicOrdering::SeqCst), 1);
+}
+
 proptest! {
     #[test]
     fn prop_insert_get_mut_roundtrip(counter: u64, key: String, val: u64) {
@@ -184,7 +415,7 @@ proptest! {
             tags.insert(key, val);
         }
         let state = TestState { counter, tags };
-        storage.insert(state.clone());
+        assert!(storage.insert(state.clone()).is_ok());
         if let Some(retrieved) = storage.get_mut::<TestState>() {
             prop_assert_eq!(retrieved.counter, counter);
             prop_assert_eq!(&retrieved.tags, &state.tags);
@@ -200,5 +431,166 @@ proptest! {
         state.counter = counter;
         let retrieved = storage.get_or_insert_default::<TestState>();
         prop_assert_eq!(retrieved.counter, counter);
+    }
+}
+
+proptest! {
+    #[test]
+    fn prop_btreemap_serialization_is_order_independent(
+        pairs in prop::collection::vec((any::<String>(), any::<u64>()), 0..20)
+    ) {
+        let unique = dedup_sorted_pairs(pairs);
+
+        let mut map1 = BTreeMap::new();
+        let mut map2 = BTreeMap::new();
+        for (k, v) in &unique {
+            map1.insert(k.clone(), *v);
+        }
+        for (k, v) in unique.iter().rev() {
+            map2.insert(k.clone(), *v);
+        }
+
+        let bytes1 = match postcard::to_stdvec(&map1) {
+            Ok(b) => b,
+            Err(_) => {
+                prop_assert!(false, "serialize map1 failed");
+                return Ok(());
+            }
+        };
+        let bytes2 = match postcard::to_stdvec(&map2) {
+            Ok(b) => b,
+            Err(_) => {
+                prop_assert!(false, "serialize map2 failed");
+                return Ok(());
+            }
+        };
+        prop_assert_eq!(bytes1, bytes2);
+    }
+
+    #[test]
+    fn prop_btreeset_serialization_is_order_independent(
+        values in prop::collection::vec(any::<String>(), 0..20)
+    ) {
+        let set: BTreeSet<String> = values.iter().cloned().collect();
+
+        let mut set1 = BTreeSet::new();
+        let mut set2 = BTreeSet::new();
+        for v in &set {
+            set1.insert(v.clone());
+        }
+        for v in set.iter().rev() {
+            set2.insert(v.clone());
+        }
+
+        let bytes1 = match postcard::to_stdvec(&set1) {
+            Ok(b) => b,
+            Err(_) => {
+                prop_assert!(false, "serialize set1 failed");
+                return Ok(());
+            }
+        };
+        let bytes2 = match postcard::to_stdvec(&set2) {
+            Ok(b) => b,
+            Err(_) => {
+                prop_assert!(false, "serialize set2 failed");
+                return Ok(());
+            }
+        };
+        prop_assert_eq!(bytes1, bytes2);
+    }
+
+    #[test]
+    fn prop_teststate_cold_snapshot_is_deterministic(
+        pairs in prop::collection::vec((any::<String>(), any::<u64>()), 0..20)
+    ) {
+        let unique = dedup_sorted_pairs(pairs);
+
+        let mut tags1 = BTreeMap::new();
+        let mut tags2 = BTreeMap::new();
+        for (k, v) in &unique {
+            tags1.insert(k.clone(), *v);
+        }
+        for (k, v) in unique.iter().rev() {
+            tags2.insert(k.clone(), *v);
+        }
+
+        let state1 = TestState { counter: 42, tags: tags1 };
+        let state2 = TestState { counter: 42, tags: tags2 };
+
+        let mut storage1 = ExtensionStorage::new();
+        let mut storage2 = ExtensionStorage::new();
+        assert!(storage1.insert(state1).is_ok());
+        assert!(storage2.insert(state2).is_ok());
+
+        prop_assert_eq!(storage1.cold_snapshot(), storage2.cold_snapshot());
+    }
+
+    #[test]
+    fn prop_teststate_postcard_serialization_is_bit_for_bit_deterministic(
+        pairs in prop::collection::vec((any::<String>(), any::<u64>()), 0..20)
+    ) {
+        let unique = dedup_sorted_pairs(pairs);
+
+        let mut tags = BTreeMap::new();
+        for (k, v) in &unique {
+            tags.insert(k.clone(), *v);
+        }
+        let state = TestState { counter: 42, tags };
+
+        let bytes1 = match postcard::to_stdvec(&state) {
+            Ok(b) => b,
+            Err(_) => {
+                prop_assert!(false, "first postcard serialization failed");
+                return Ok(());
+            }
+        };
+        let bytes2 = match postcard::to_stdvec(&state) {
+            Ok(b) => b,
+            Err(_) => {
+                prop_assert!(false, "second postcard serialization failed");
+                return Ok(());
+            }
+        };
+        prop_assert_eq!(bytes1, bytes2);
+    }
+
+    #[test]
+    fn prop_brioche_extension_type_roundtrip_is_deterministic(
+        pairs in prop::collection::vec((any::<String>(), any::<u64>()), 0..20)
+    ) {
+        let unique = dedup_sorted_pairs(pairs);
+
+        let mut tags = BTreeMap::new();
+        for (k, v) in &unique {
+            tags.insert(k.clone(), *v);
+        }
+        let state = TestState { counter: 42, tags };
+
+        let blob = match postcard::to_stdvec(&state) {
+            Ok(b) => b,
+            Err(_) => {
+                prop_assert!(false, "postcard serialization failed");
+                return Ok(());
+            }
+        };
+
+        let mut storage = ExtensionStorage::new();
+        storage.register::<TestState>();
+        if !storage.hydrate_plugin(TestState::EXT_ID, &blob) {
+            prop_assert!(false, "hydrate_plugin should succeed for registered type");
+            return Ok(());
+        }
+
+        let roundtrip = storage.get_or_insert_default::<TestState>();
+        prop_assert_eq!(roundtrip.clone(), state);
+
+        let roundtrip_blob = match postcard::to_stdvec(roundtrip) {
+            Ok(b) => b,
+            Err(_) => {
+                prop_assert!(false, "re-serialize roundtripped state failed");
+                return Ok(());
+            }
+        };
+        prop_assert_eq!(blob, roundtrip_blob);
     }
 }

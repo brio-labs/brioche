@@ -11,7 +11,9 @@
 //! Refs: docs/SPECS.md §4.4
 
 use super::{BriocheEngine, PreTransitionState};
-use crate::{Effect, ErrorCode, ErrorDetail, Session, effect_to_bitmask};
+use crate::{
+    AgentState, Effect, ErrorCode, ErrorDetail, PolicyDecision, Session, effect_to_bitmask,
+};
 
 impl BriocheEngine {
     /// Finalize a transition: apply lifecycle guards, consistency checks,
@@ -128,7 +130,12 @@ impl BriocheEngine {
     /// because the routing table change may intentionally leave transient
     /// inconsistent states.
     ///
-    /// Refs: I-Gov-Rebuild-Barrier
+    /// If the verifier returns `PolicyDecision::OverrideTransition`, the
+    /// kernel applies the standard recovery (transition to `Idle`, clear
+    /// state stack, clear active tools) before appending the returned
+    /// effects.
+    ///
+    /// Refs: I-Gov-Rebuild-Barrier, I-Gov-NoCoreMutation
     fn apply_consistency_check(&self, session: &mut Session, effects: &mut Vec<Effect>) {
         let Some(ref verifier) = self.governance.consistency_verifier else {
             return;
@@ -138,10 +145,38 @@ impl BriocheEngine {
             return;
         }
 
-        match verifier.verify_consistency(session) {
-            Ok(Some(verifier_effects)) => {
-                effects.extend(verifier_effects);
-            }
+        match verifier.verify_consistency(&*session) {
+            Ok(Some(decision)) => match decision {
+                PolicyDecision::OverrideTransition(verifier_effects) => {
+                    session.state = AgentState::Idle;
+                    session.state_stack.clear();
+                    session.active_tools.clear();
+                    effects.extend(verifier_effects);
+                }
+                PolicyDecision::RequestEffect(effect) => {
+                    effects.push(effect);
+                }
+                PolicyDecision::MutateHistory(edits) => {
+                    if let Err(err) = session.apply_history_edits(&edits) {
+                        effects.push(Effect::Error {
+                            code: ErrorCode::StateInconsistency,
+                            detail: ErrorDetail::HookConstraintFailed {
+                                reason: err.to_string(),
+                            },
+                        });
+                    }
+                }
+                PolicyDecision::Block { reason } => {
+                    effects.push(Effect::Error {
+                        code: ErrorCode::StateInconsistency,
+                        detail: ErrorDetail::HookConstraintFailed {
+                            reason: reason.clone(),
+                        },
+                    });
+                    effects.push(Effect::SystemIdle);
+                }
+                PolicyDecision::Allow => {}
+            },
             Ok(None) => {}
             Err(err) => {
                 effects.push(Self::plugin_fault("consistency_verifier", err));
@@ -155,34 +190,44 @@ impl BriocheEngine {
     /// If the handler itself errors, the original fault is preserved.
     /// Skipped when `RebuildRoutes` is present (transactional barrier).
     ///
+    /// Non-fault effects are moved, not cloned, so the presence of a single
+    /// fault does not force a copy of the entire effect vector.
+    ///
+    /// # Complexity
+    /// O(e) where e = number of effects. One pass; allocates the replacement
+    /// vector only when at least one fault is present.
+    ///
+    /// # Panics
+    /// Never panics.
+    ///
     /// Refs: I-Gov-Failover
     fn apply_governance_failover(&self, session: &mut Session, effects: &mut Vec<Effect>) {
         let Some(ref handler) = self.governance.governance_failover_handler else {
             return;
         };
-        if effects.iter().any(|e| matches!(e, Effect::RebuildRoutes)) {
+        let has_rebuild = effects.iter().any(|e| matches!(e, Effect::RebuildRoutes));
+        let has_fault = effects
+            .iter()
+            .any(|e| matches!(e, Effect::PluginFault { .. }));
+        if has_rebuild || !has_fault {
             return;
         }
 
-        let mut replacement_effects = Vec::new();
-        let mut has_fault = false;
-        for effect in effects.iter() {
+        let mut replacement_effects = Vec::with_capacity(effects.len());
+        for effect in effects.drain(..) {
             if let Effect::PluginFault { .. } = effect {
-                has_fault = true;
-                match handler.handle_failure(session, effect) {
+                match handler.handle_failure(session, &effect) {
                     Ok(Some(failover)) => {
                         replacement_effects.extend(failover);
                     }
                     Ok(None) | Err(_) => {
-                        replacement_effects.push(effect.clone());
+                        replacement_effects.push(effect);
                     }
                 }
             } else {
-                replacement_effects.push(effect.clone());
+                replacement_effects.push(effect);
             }
         }
-        if has_fault {
-            *effects = replacement_effects;
-        }
+        *effects = replacement_effects;
     }
 }

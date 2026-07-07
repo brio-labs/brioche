@@ -14,11 +14,10 @@ path = "src/main.rs"
 
 [dependencies]
 brioche-governance-default = { workspace = true }
+brioche-lint-core = { workspace = true }
 clap = { version = "4", features = ["derive"] }
-walkdir = "2"
 regex = "1"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 
 [lints]
 workspace = true

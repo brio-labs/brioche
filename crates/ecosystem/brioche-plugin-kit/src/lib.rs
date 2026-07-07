@@ -12,7 +12,7 @@
 //!
 //! ## Stability guarantee
 //! Items exported from this crate follow semver. Internal crate APIs
-//! (`brioche-core`, `brioche-governance`) may change without notice.
+//! (`brioche-core`, `brioche-governance-default`) may change without notice.
 //!
 //! Refs: docs/SPECS.md §Book IV Ch 3 §3.2
 
@@ -21,14 +21,20 @@
 // Re-export proc macros from brioche-macro.
 // Re-export core types (stable interface).
 pub use brioche_core::{
-    ActiveToolCall, AgentState, AgentStateTag, AsyncTaskResult, BriocheError, BriochePlugin,
-    ChatMessage, ConsistencyVerifier, CowBudgetPolicy, CycleRollbackPolicy, DecisionAggregator,
-    Effect, EffectBit, EngineInput, EpochAction, EpochInterceptor, EpochState, ErrorCode,
-    ExecutionPath, ExtVTable, ExtensionStorage, GovernanceFailoverHandler, GovernanceNotification,
-    HistoryEdit, HookEffectConstraint, MAX_INLINE_CHUNK, PluginCapabilities, PluginError,
-    PluginResult, PluginSource, PolicyDecision, Session, SessionRegistry, SessionSnapshot,
-    SignalBuffer, SignalDrainBatch, SignalDrainOrder, SnapshotStrategy, StreamAction, StreamEvent,
-    StreamToolAccumulator, SubRoutineHandle, SubRoutineHandler, SubRoutineLifecycleGuard,
+    ActiveToolCall, AfterPrediction, AfterPredictionPlugin, AgentState, AgentStateTag,
+    AsyncTaskResult, BeforePrediction, BeforePredictionPlugin, BriocheError, ChatMessage,
+    ConsistencyVerifier, ConsistencyVerifierPlugin, CowBudgetPolicy, CowBudgetPolicyPlugin,
+    CycleRollbackPolicy, CycleRollbackPolicyPlugin, DecisionAggregator, DecisionAggregatorPlugin,
+    Effect, EffectBit, EngineInput, EpochAction, EpochInterceptor, EpochInterceptorPlugin,
+    EpochState, ErrorCode, ExecutionPath, ExtVTable, ExtensionStorage, GovernanceFailoverHandler,
+    GovernanceFailoverHandlerPlugin, GovernanceNotification, HistoryEdit, HookEffectConstraint,
+    MAX_INLINE_CHUNK, OnError, OnErrorPlugin, OnInput, OnInputPlugin, OnStreamEvent,
+    OnStreamEventPlugin, OnToolCalls, OnToolCallsPlugin, OnToolResult, OnToolResultPlugin,
+    PluginError, PluginPersistence, PluginResult, PluginSource, PolicyDecision, Session,
+    SessionRegistry, SessionSnapshot, SignalBuffer, SignalDrainBatch, SignalDrainOrder,
+    SignalDrainOrderPlugin, SnapshotStrategy, StreamAction, StreamEvent, StreamToolAccumulator,
+    SubRoutineHandle, SubRoutineHandler, SubRoutineHandlerPlugin, SubRoutineHydrator,
+    SubRoutineHydratorPlugin, SubRoutineLifecycleGuard, SubRoutineLifecycleGuardPlugin,
     SystemSignal, TaskId, ToolCallDescriptor, ToolOutcome, ToolResultDTO, ToolStatus,
     TransitionTrace, TransitionTraceLog, effect_to_bitmask, seal,
 };
@@ -154,9 +160,9 @@ impl MockEngine {
 /// Import everything needed to write a basic Brioche plugin.
 pub mod prelude {
     pub use crate::{
-        BriocheError, BriocheExtensionType, BriochePlugin, ChatMessage, Effect, EngineInput,
-        EpochState, ExtensionStorage, PluginCapabilities, PluginError, PluginResult,
-        PolicyDecision, Session, SessionSnapshot, StreamAction, StreamEvent, ToolCallDescriptor,
-        ToolResultDTO, brioche_offload_task, brioche_plugin, hook,
+        BeforePrediction, BriocheError, BriocheExtensionType, ChatMessage, Effect, EngineInput,
+        EpochState, ExtensionStorage, OnInput, OnStreamEvent, OnToolCalls, OnToolResult,
+        PluginError, PluginResult, PolicyDecision, Session, SessionSnapshot, StreamAction,
+        StreamEvent, ToolCallDescriptor, ToolResultDTO, brioche_offload_task, brioche_plugin, hook,
     };
 }

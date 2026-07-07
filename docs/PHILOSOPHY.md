@@ -388,12 +388,10 @@ Reviewers must verify:
 
 Not every rule applies with the same strictness to every crate. The workspace is organized by architectural book, and the `philosophy-check` script maps checks accordingly.
 
-Frontend code in `crates/apps/brioche-desktop/frontend` follows `docs/frontend-style-guide.md` for Tailwind CSS v4, React component styling, and UI conventions. It is the canonical companion to this document for all browser-facing code.
-
 | Book | Crates | Mandatory checks |
 |------|--------|------------------|
 | **Book I — Core** | `brioche-core`, `brioche-macro` | All §5 checks; determinism guards; no panics; no hidden I/O |
-| **Book II — Governance** | `brioche-governance`, `brioche-governance-default` | All §5 checks; trait-hierarchy guard |
+| **Book II — Governance** | `brioche-governance-default` | All §5 checks; trait-hierarchy guard |
 | **Book III-A — Shell Runtime** | `brioche-shell-runtime`, `brioche-shell-persistence`, `brioche-shell-projection` | Module docs; invariant refs; English prose; TODO policy; async standards (§10) |
 | **Book III-B — Providers** | `brioche-provider-openai`, future providers | Module docs; invariant refs; English prose; TODO policy; structured errors (§12) |
 | **Book III-C — Tools** | `brioche-tools-system`, future tools | Module docs; invariant refs; English prose; TODO policy |
@@ -445,18 +443,21 @@ pub struct RateLimiter {
     cooldown_ms: u64,
 }
 
-impl BriochePlugin for RateLimiter {
-    fn name(&self) -> &'static str { "rate_limiter" }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
-    }
-
-    fn priority(&self) -> i16 { 100 } // Early interceptor
-
+impl PluginPersistence for RateLimiter {
     fn owned_state_keys(&self) -> &'static [&'static str] {
         &["rate_limiter::state"]
     }
+}
+
+impl OnInput for RateLimiter {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PolicyDecision = PolicyDecision;
+    type PluginError = PluginError;
+
+    fn name(&self) -> &'static str { "rate_limiter" }
+
+    fn priority(&self) -> i16 { 100 } // Early interceptor
 
     fn on_input(
         &self,
@@ -491,7 +492,7 @@ Dan North's CUPID framework defines five properties that make code *maintainable
 
 | CUPID Property | Brioche Manifestation |
 |----------------|----------------------|
-| **Composable** | `BriochePlugin` trait + `UnifiedRoutingTable`. Plugins assemble without structural coupling. Traits are capabilities, not taxonomies. |
+| **Composable** | Atomic hook traits (`OnInput`, `BeforePrediction`, etc.) + `UnifiedRoutingTable`. Plugins assemble without structural coupling. Traits are capabilities, not taxonomies. |
 | **Unix philosophy** | Mechanism vs Policy separation. Each plugin does one thing (`EpochGuard`, `DepthGuard`, `QuarantineManager`). No plugin builds UI JSON *and* checks depth limits. |
 | **Predictable** | Determinism by design: `BTreeMap`, no `rand`, no `Instant::now()` in Core. Effects are explicit. Two identical inputs always produce identical outputs. |
 | **Idiomatic** | Sealed traits, proc-macros, exhaustive `match`, `Result` for errors—native Rust patterns. No OOP-in-Rust cargo culting. |
@@ -503,7 +504,7 @@ Jakob Jenkov's SCIFI principles provide an operational workflow for composition-
 
 1. **Split** — Divide responsibilities into small, independent units. Each governance plugin is a single observable concern. `ToolCallDetector` only counts; `ToolResultFormatter` only formats.
 2. **Connect** — Wire units through explicit interfaces. `BriocheEngine` + `UnifiedRoutingTable` connect plugins without them knowing each other exist.
-3. **Improve** — Refine interfaces until they are self-documenting. `PluginCapabilities` evolved from a runtime bitmask check into pre-routed indices (I-Core-StreamNoBranch).
+3. **Improve** — Refine interfaces until they are self-documenting. Hook routing evolved from a runtime capability bitmask into capability-specific vectors with pre-routed indices (I-Core-StreamNoBranch).
 4. **Facilitate** — Provide façades for common operations. `BriocheEngineBuilder` is the façade; governance profiles (`Permissive`, `Standard`, `Strict`) are pre-configured façades.
 5. **Iterate** — Governance plugins are swapped without kernel changes. New safety policies are added via composition, never by modifying mechanism code.
 
@@ -567,7 +568,7 @@ A trait must declare "I can do X," never "I am a Y." No supertrait hierarchies. 
 
 ```rust
 // BAD: Taxonomy trait — creates inheritance coupling
-trait GovernancePlugin: BriochePlugin { ... }
+trait GovernancePlugin: OnInput { ... }
 
 // GOOD: Capability trait — standalone, composable
 trait EpochInterceptor: Send + Sync { ... }
@@ -629,7 +630,7 @@ All internal channels must be bounded. Document the capacity and `DropPolicy`.
 ### 10.4 Output Conventions
 - `println!` and `eprintln!` are allowed **only** in app crates.
 - Library crates use `tracing` at the appropriate level.
-- Never emit user-facing text from `brioche-core`, `brioche-governance`, or provider internals.
+- Never emit user-facing text from `brioche-core` or provider internals.
 
 ### 10.5 Error Mapping at Boundaries
 When an async provider or tool returns an error, map it to the appropriate crate error type (`ShellError`, `PersistenceError`, etc.) at the architectural boundary. Never let provider-specific error types leak into `Effect` payloads.

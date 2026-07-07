@@ -1,16 +1,15 @@
 import { useEffect, useRef } from "react";
-import { listen } from "@tauri-apps/api/event";
-import type { Event } from "@tauri-apps/api/event";
+import { listen, type Event } from "@tauri-apps/api/event";
 import { useChatStore } from "../store";
 import { useSessionStore } from "../stores/sessionStore";
-import { getMessages } from "../ipc";
-import { isTauri } from "../ipc";
-import type { ChatMessagePayload } from "../ipc";
+import { getMessages, type ChatMessagePayload } from "../ipc";
 
-/// Subscribes to a named Tauri event and invokes the callback on every payload.
-/// Keeps the callback in a ref so the listener is not recreated on each render.
-///
-/// Refs: I-Ui-TauriEventBinding
+/**
+ * A reactive hook to listen to Tauri events with proper cleanup and callback stability.
+ * Uses a ref for the callback to prevent unnecessary listener unregistration/registration.
+ *
+ * Refs: I-Ui-TauriEventBinding
+ */
 export function useTauriEvent<T>(
 	eventName: string,
 	callback: (event: Event<T>) => void,
@@ -19,8 +18,6 @@ export function useTauriEvent<T>(
 	callbackRef.current = callback;
 
 	useEffect(() => {
-		if (!isTauri()) return;
-
 		let unlisten: (() => void) | undefined;
 		let cancelled = false;
 
@@ -45,24 +42,27 @@ export function useTauriEvent<T>(
 	}, [eventName]);
 }
 
-/// Binds Tauri runtime events to the frontend Zustand stores.
-///
-/// Refs: I-Ui-TauriStateSync
+/**
+ * A reactive state-synchronization hook that binds Tauri window/system events
+ * directly to frontend Zustand store actions.
+ *
+ * Refs: I-Ui-TauriStateSync
+ */
 export function useTauriSync() {
 	const { receiveMessage, clearMessages, setMessagesFromHistory } = useChatStore();
 	const { loadSessions } = useSessionStore();
 
-	// Route incoming assistant/user messages into the chat store.
+	// 1. Reactive incoming message routing
 	useTauriEvent<ChatMessagePayload>("chat-message", (event) => {
 		receiveMessage(event.payload);
 	});
 
-	// Close the window when the backend requests a clean application exit.
+	// 2. Safe application exit request
 	useTauriEvent("app-exit", () => {
 		window.close();
 	});
 
-	// Replace the chat history whenever the active session changes.
+	// 3. Batched history retrieval upon active session change
 	useTauriEvent("session-changed", async () => {
 		clearMessages();
 		void loadSessions();
@@ -70,12 +70,12 @@ export function useTauriSync() {
 		try {
 			const history = await getMessages();
 			setMessagesFromHistory(history);
-		} catch (err: unknown) {
+		} catch (err) {
 			console.error("Failed to sync session history:", err);
 		}
 	});
 
-	// Keep the session list in sync with the backend.
+	// 4. Session list synchronization
 	useTauriEvent("sessions-updated", () => {
 		void loadSessions();
 	});

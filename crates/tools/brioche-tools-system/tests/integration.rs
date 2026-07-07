@@ -1,8 +1,8 @@
 //! Integration tests for `brioche-tools-system`.
 //!
-//! Covers idempotency of filesystem writes and sandboxing of shell commands.
+//! Covers idempotency of filesystem writes and sandboxing of commands.
 //!
-//! Refs: docs/SPECS.md §Book III-C, I-Shell-Runtime-OnlyIO
+//! Refs: I-Shell-Runtime-OnlyIO
 
 use std::sync::Arc;
 
@@ -21,7 +21,7 @@ async fn write_file_is_idempotent() -> std::io::Result<()> {
         .to_str()
         .ok_or_else(|| std::io::Error::other("temp path is not valid UTF-8"))?;
 
-    let tool = WriteFileTool::default();
+    let tool = WriteFileTool::default().with_allow_absolute(true);
     let args = serde_json::Value::Object({
         let mut m = serde_json::Map::new();
         m.insert("path".into(), path.into());
@@ -53,7 +53,7 @@ async fn write_file_append_is_idempotent() -> std::io::Result<()> {
         .to_str()
         .ok_or_else(|| std::io::Error::other("temp path is not valid UTF-8"))?;
 
-    let tool = WriteFileTool::default();
+    let tool = WriteFileTool::default().with_allow_absolute(true);
     let args = serde_json::Value::Object({
         let mut m = serde_json::Map::new();
         m.insert("path".into(), path.into());
@@ -167,4 +167,158 @@ async fn permissive_allows_when_handler_confirms() {
     let result = tool.run(args, CancellationToken::new()).await;
 
     assert!(result.is_ok(), "expected success, got {result:?}");
+}
+
+#[tokio::test]
+async fn schema_validation_accepts_valid_arguments() -> std::io::Result<()> {
+    let temp = tempfile::NamedTempFile::new()?;
+    let path = temp
+        .path()
+        .to_str()
+        .ok_or_else(|| std::io::Error::other("temp path is not valid UTF-8"))?;
+
+    let executor =
+        SystemToolExecutor::new().with_tool(WriteFileTool::default().with_allow_absolute(true));
+    let call = brioche_core::ActiveToolCall {
+        tool_id: "t1".into(),
+        tool_name: "write_file".into(),
+        arguments: format!(
+            "{{\"path\":{},\"content\":\"hello\"}}",
+            serde_json::Value::String(path.to_string())
+        ),
+        timeout_ms: 1000,
+    };
+
+    let result = executor.execute(&call, CancellationToken::new()).await;
+    assert!(
+        matches!(result.outcome, brioche_core::ToolOutcome::Success(_)),
+        "expected success, got {result:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn schema_validation_rejects_missing_required_field() {
+    let executor =
+        SystemToolExecutor::new().with_tool(WriteFileTool::default().with_allow_absolute(true));
+    let call = brioche_core::ActiveToolCall {
+        tool_id: "t1".into(),
+        tool_name: "write_file".into(),
+        arguments: r#"{"path":"/tmp/test.txt"}"#.into(),
+        timeout_ms: 1000,
+    };
+
+    let result = executor.execute(&call, CancellationToken::new()).await;
+    match result.outcome {
+        brioche_core::ToolOutcome::BusinessError(msg) => {
+            assert!(
+                msg.contains("schema") && msg.contains("content"),
+                "expected schema validation error for missing content, got {msg}"
+            );
+        }
+        other => unreachable!("expected BusinessError, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn schema_validation_rejects_wrong_type() {
+    let executor =
+        SystemToolExecutor::new().with_tool(WriteFileTool::default().with_allow_absolute(true));
+    let call = brioche_core::ActiveToolCall {
+        tool_id: "t1".into(),
+        tool_name: "write_file".into(),
+        arguments: r#"{"path":"/tmp/test.txt","content":123,"append":"yes"}"#.into(),
+        timeout_ms: 1000,
+    };
+
+    let result = executor.execute(&call, CancellationToken::new()).await;
+    match result.outcome {
+        brioche_core::ToolOutcome::BusinessError(msg) => {
+            assert!(
+                msg.contains("schema"),
+                "expected schema validation error for wrong type, got {msg}"
+            );
+        }
+        other => unreachable!("expected BusinessError, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn schema_validation_rejects_invalid_json() {
+    let executor =
+        SystemToolExecutor::new().with_tool(WriteFileTool::default().with_allow_absolute(true));
+    let call = brioche_core::ActiveToolCall {
+        tool_id: "t1".into(),
+        tool_name: "write_file".into(),
+        arguments: "not json".into(),
+        timeout_ms: 1000,
+    };
+
+    let result = executor.execute(&call, CancellationToken::new()).await;
+    match result.outcome {
+        brioche_core::ToolOutcome::BusinessError(msg) => {
+            assert!(
+                msg.contains("invalid JSON"),
+                "expected JSON parse error, got {msg}"
+            );
+        }
+        other => unreachable!("expected BusinessError, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn sandbox_blocks_command_injection_when_first_token_is_allowed() {
+    let executor = SystemToolExecutor::new().with_tool(ExecuteCommandTool::new().with_policy(
+        SandboxPolicy::AllowList(AllowList::new().with_command("ls")),
+    ));
+
+    let call = ActiveToolCall {
+        tool_id: "1".into(),
+        tool_name: "execute_command".into(),
+        arguments: r#"{"command":"ls; rm -rf /"}"#.into(),
+        timeout_ms: 5000,
+    };
+    let result = executor.execute(&call, CancellationToken::new()).await;
+
+    assert!(
+        matches!(result.outcome, brioche_core::ToolOutcome::BusinessError(_)),
+        "expected business error, got {:?}",
+        result.outcome
+    );
+    let brioche_core::ToolOutcome::BusinessError(err) = result.outcome else {
+        unreachable!("outcome already asserted to be a business error")
+    };
+    assert!(
+        err.contains("shell metacharacter"),
+        "error should mention shell metacharacter: {err}"
+    );
+}
+
+#[tokio::test]
+async fn execute_command_respects_cwd_argument() -> std::io::Result<()> {
+    let temp = tempfile::tempdir()?;
+    let marker = temp.path().join("marker");
+    tokio::fs::write(&marker, "hello from cwd").await?;
+
+    let tool = ExecuteCommandTool::new().with_policy(SandboxPolicy::AllowList(
+        AllowList::new().with_command("cat"),
+    ));
+
+    let cwd = temp
+        .path()
+        .to_str()
+        .ok_or_else(|| std::io::Error::other("temp path is not valid UTF-8"))?;
+    let args = serde_json::Value::Object({
+        let mut m = serde_json::Map::new();
+        m.insert("command".into(), "cat marker".into());
+        m.insert("cwd".into(), cwd.into());
+        m
+    });
+    let result = tool
+        .run(args, CancellationToken::new())
+        .await
+        .map_err(|e| std::io::Error::other(format!("tool run failed: {e}")))?;
+
+    assert!(result.contains("hello from cwd"), "result was: {result:?}");
+    Ok(())
 }

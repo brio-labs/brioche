@@ -1,0 +1,5 @@
+error: Field `data` uses HashMap. HashMap is prohibited in BriocheExtensionType persisted state. Use BTreeMap or IndexMap instead.
+ --> tests/ui/fail_enum_hashmap.rs:6:21
+  |
+6 |     Variant { data: HashMap<String, u64> },
+  |                     ^^^^^^^

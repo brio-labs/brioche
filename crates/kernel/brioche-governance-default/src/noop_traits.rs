@@ -27,6 +27,10 @@ use brioche_core::{
 pub struct NoopGovernanceFailoverHandler;
 
 impl GovernanceFailoverHandler for NoopGovernanceFailoverHandler {
+    type Effect = Effect;
+    type PluginError = brioche_core::PluginError;
+    type Session = Session;
+
     fn handle_failure(
         &self,
         _session: &mut Session,
@@ -79,6 +83,10 @@ impl CowBudgetPolicy for NoopCowBudgetPolicy {
 pub struct NoopCycleRollbackPolicy;
 
 impl CycleRollbackPolicy for NoopCycleRollbackPolicy {
+    type CowBudgetPolicy = dyn CowBudgetPolicy;
+    type ExtVTable = brioche_core::ExtVTable;
+    type ExtensionStorage = ExtensionStorage;
+
     fn begin_hook(&mut self, _hook_name: &'static str) {}
 
     fn on_mutation(
@@ -96,9 +104,9 @@ impl CycleRollbackPolicy for NoopCycleRollbackPolicy {
 
 /// Permissive `HookEffectConstraint`.
 ///
-/// Refs: I-Gov-TraitAtomic
-/// Allows all standard and future effects on all hooks. Used by the
-/// `Permissive` profile for prototyping and migration.
+/// **Dev / prototyping only.** Allows all standard and future effects on
+/// all hooks. This disables the effect-safety layer and should never be
+/// used in production.
 ///
 /// Refs: I-Gov-TraitAtomic, I-Core-HookEffect-O1
 pub struct PermissiveHookEffectConstraint {
@@ -108,8 +116,16 @@ pub struct PermissiveHookEffectConstraint {
 impl PermissiveHookEffectConstraint {
     /// Creates a fully permissive constraint (all effects allowed).
     ///
+    /// # Warning
+    /// This disables all effect restrictions. It is intended for local
+    /// development and prototyping only.
+    ///
     /// Refs: I-Gov-TraitAtomic
     pub fn new() -> Self {
+        tracing::warn!(
+            "PermissiveHookEffectConstraint constructed: all effects are allowed. \
+             Use only for development / prototyping."
+        );
         Self {
             masks: [u64::MAX; 8],
         }

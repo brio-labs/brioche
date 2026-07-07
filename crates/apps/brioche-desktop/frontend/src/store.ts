@@ -1,14 +1,8 @@
-import type { ChatMessagePayload } from './ipc';
 import { create } from 'zustand';
+import { type ChatMessagePayload } from './ipc';
 
-/// Every role that a chat message can assume in the desktop UI.
-///
-/// Refs: I-Ui-MessageRole
 export type MessageRole = 'user' | 'assistant' | 'system' | 'error' | 'tool_request' | 'tool_argument' | 'tool_done' | 'tool_result';
 
-/// A chat message as it is stored and rendered by the frontend.
-///
-/// Refs: I-Ui-ChatMessage
 export interface ChatMessage {
     role: MessageRole;
     content: string;
@@ -19,9 +13,6 @@ export interface ChatMessage {
     toolOutput?: string;
 }
 
-/// Optional tool-related fields that can be attached to a chat message.
-///
-/// Refs: I-Ui-ChatToolFields
 interface ChatToolFields {
     toolId?: string;
     toolName?: string;
@@ -29,9 +20,6 @@ interface ChatToolFields {
     toolOutput?: string;
 }
 
-/// State and actions for the chat message stream.
-///
-/// Refs: I-Ui-ChatStore
 interface ChatStore {
     messages: ChatMessage[];
     input: string;
@@ -48,21 +36,16 @@ interface ChatStore {
 
 let messageId = 0;
 
-/// Zustand store that owns the chat message list, input state, and streaming id.
-///
-/// Refs: I-Ui-ChatStore
 export const useChatStore = create<ChatStore>((set, get) => ({
     messages: [],
     input: '',
     isLoading: false,
     streamingId: null,
-
-    addMessage: (role: MessageRole, content: string, tool?: ChatToolFields) =>
+    addMessage: (role, content, tool) =>
         set((state) => ({
             messages: [...state.messages, { role, content, id: String(++messageId), ...tool }],
         })),
-
-    appendMessage: (role: MessageRole, content: string, tool?: ChatToolFields) =>
+    appendMessage: (role, content, tool) =>
         set((state) => {
             // If we're streaming assistant text, append to the last assistant message
             if (role === 'assistant' && state.streamingId) {
@@ -83,12 +66,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                 streamingId: role === 'assistant' ? id : state.streamingId,
             };
         }),
-
-    setInput: (input: string) => set({ input }),
-    setLoading: (isLoading: boolean) => set({ isLoading }),
+    setInput: (input) => set({ input }),
+    setLoading: (isLoading) => set({ isLoading }),
     clearMessages: () => set({ messages: [], streamingId: null }),
-
-    receiveMessage: (payload: ChatMessagePayload) => {
+    receiveMessage: (payload) => {
         const role = payload.role as MessageRole;
         const tool = {
             toolId: payload.tool_id,
@@ -102,8 +83,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             get().addMessage(role, payload.content, tool);
         }
     },
-
-    setMessagesFromHistory: (history: ChatMessagePayload[]) => {
+    setMessagesFromHistory: (history) => {
         const messages = history.map((msg) => ({
             role: msg.role as MessageRole,
             content: msg.content,

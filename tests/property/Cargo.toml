@@ -1,0 +1,19 @@
+[package]
+name = "brioche-property-tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Cross-crate property tests"
+publish = false
+
+[dependencies]
+brioche-core = { workspace = true }
+brioche-governance-default = { workspace = true }
+proptest = { workspace = true }
+
+[dev-dependencies]
+divan = "=0.1.21"
+

@@ -1,0 +1,7 @@
+error: unknown capability `UNKNOWN`
+ --> tests/ui/fail_plugin_unknown_cap.rs:5:1
+  |
+5 | #[brioche_plugin(name = "x", capabilities = "UNKNOWN")]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `brioche_plugin` (in Nightly builds, run with -Z macro-backtrace for more info)

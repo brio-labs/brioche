@@ -4,43 +4,108 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
+use std::io::{BufRead, Write};
 use std::sync::Arc;
 
 use brioche_core::ChatMessage;
-use brioche_plugin_kit::PluginBuilder;
 use brioche_provider_openai::{LlmChunk, OpenAiLlmClient, SharedHistory};
-use brioche_shell_persistence::{RedbStorage, SessionHeadDTO, SessionStore, SessionStoreEntry};
-use brioche_shell_runtime::{BriocheShell, DefaultEffectExecutor, ShellConfig};
+use brioche_shell_builder::{ShellBuilder, session_factory_with_head};
+use brioche_shell_persistence::{RedbStorage, SessionHeadDTO, SessionStore};
+use brioche_shell_runtime::{BriocheShell, ShellError};
 use brioche_tools_system::{
-    ExecuteCommandTool, FetchUrlTool, ListDirTool, ReadFileTool, SandboxPolicy, SystemToolExecutor,
-    WriteFileTool,
+    AllowList, ExecuteCommandTool, FetchUrlTool, ListDirTool, ReadFileTool, SandboxPolicy,
+    SystemToolExecutor, WriteFileTool,
 };
 use tokio::sync::broadcast;
 
 use crate::CliConfig;
 
+/// Execution mode for a shell session.
+///
+/// Determines the default sandbox policy for shell commands and
+/// whether interactive confirmation prompts are appropriate.
+/// Refs: docs/SPECS.md §Book III-C
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ShellMode {
+    /// Full REPL with a human-in-the-loop. Commands outside the
+    /// default allow-list trigger an interactive confirmation prompt.
+    Interactive,
+    /// Single prompt, non-interactive mode. Only allow-listed commands
+    /// run unless the permissive opt-in is enabled.
+    Headless,
+}
+
+/// Returns the sandbox policy selected for the given terminal mode.
+///
+/// The default is the system allow-list. Permissive mode is only
+/// selected when the user explicitly opts in via CLI flag or env var.
+/// Refs: docs/SPECS.md §Book III-C
+pub fn sandbox_policy_for(cli_config: &CliConfig, _mode: ShellMode) -> SandboxPolicy {
+    if cli_config.permissive_shell {
+        SandboxPolicy::Permissive
+    } else {
+        SandboxPolicy::AllowList(AllowList::default())
+    }
+}
+
 /// Builds a complete `BriocheShell` with all its components.
 ///
 /// This function is reusable for creating multiple shells
-/// (multi-session) or a headless shell.
+/// (multi-session) or a headless shell. It is async and must be awaited
+/// from a Tokio runtime context.
+///
+/// # Errors
+/// Returns a `ShellError` if the LLM client fails to initialize.
+///
 /// Refs: docs/SPECS.md §Book IV
-pub fn build_shell(
+///
+/// # Complexity
+/// O(T) where T is the number of tools registered. Performs a bounded amount
+/// of async initialization before returning.
+///
+/// # Cancel safety
+/// This future delegates to `ShellBuilder::build`. Dropping it before
+/// completion leaves the caller without a shell, but does not leave partial
+/// state in the LLM client.
+///
+/// # Panic / Safety
+/// Never panics.
+pub async fn build_shell(
     session_id: impl Into<String>,
     cli_config: &CliConfig,
+    mode: ShellMode,
     redb_storage: RedbStorage,
     session_store: SessionStore,
     initial_history: Option<Vec<ChatMessage>>,
     initial_head: Option<SessionHeadDTO>,
-) -> (
-    BriocheShell,
-    OpenAiLlmClient,
-    broadcast::Receiver<LlmChunk>,
-    SharedHistory,
-) {
-    // Agent-terminal runs without a permission system — all commands
-    // are executed directly. This is intentional: the user is the
-    // human-in-the-loop and controls the terminal.
-    let exec_tool = ExecuteCommandTool::new().with_policy(SandboxPolicy::Permissive);
+) -> Result<
+    (
+        BriocheShell,
+        OpenAiLlmClient,
+        broadcast::Receiver<LlmChunk>,
+        SharedHistory,
+    ),
+    ShellError,
+> {
+    let exec_tool = match sandbox_policy_for(cli_config, mode) {
+        SandboxPolicy::Permissive => {
+            tracing::warn!(
+                "permissive shell execution enabled; all commands will run without confirmation"
+            );
+            ExecuteCommandTool::new().with_policy(SandboxPolicy::Permissive)
+        }
+        SandboxPolicy::AllowList(list) => {
+            let tool = ExecuteCommandTool::new().with_policy(SandboxPolicy::AllowList(list));
+            if mode == ShellMode::Interactive {
+                tool.with_confirm_handler(Arc::new(prompt_confirm))
+            } else {
+                tool
+            }
+        }
+        SandboxPolicy::Interactive => {
+            unreachable!("agent-terminal does not use the Interactive sandbox policy directly")
+        }
+    };
 
     let tool_executor = SystemToolExecutor::new()
         .with_tool(ReadFileTool::default())
@@ -49,90 +114,44 @@ pub fn build_shell(
         .with_tool(exec_tool)
         .with_tool(FetchUrlTool);
 
-    let (llm_client, llm_rx, history) = OpenAiLlmClient::new(cli_config.openai.clone());
-
-    // Inject default system prompt into the LLM client's history mirror.
-    // This instructs the model to use available tools rather than
-    // emitting file contents directly in its response.
-    let llm_for_prompt = llm_client.clone();
-    tokio::spawn(async move {
-        llm_for_prompt.push_message(ChatMessage::System {
-            content: "You are a helpful AI coding assistant with access to filesystem tools. \
-CRITICAL RULES: \
-1. When the user asks you to create, write, or modify ANY file, you MUST use the write_file tool. \
-2. NEVER output file contents directly in your response text — ALWAYS use the write_file tool with the full content. \
-3. For large files, you may use multiple write_file calls with append=true after the first call. \
-4. Use read_file before modifying existing files. \
-5. Use execute_command for shell commands. \
-6. Use list_dir to explore directories. \
-7. If you need to fetch content from the web, use fetch_url. \
-8. After using write_file, the tool result will confirm success. Do not read the file back unless the user asks.".into(),
-        }).await;
-    });
-
-    let schemas = tool_executor.schema_json();
-    let llm_for_schema = llm_client.clone();
-    tokio::spawn(async move {
-        // `set_tools_schema` is infallible (writes to an RwLock).
-        // The task runs in background so startup is not blocked.
-        llm_for_schema.set_tools_schema(schemas).await;
-    });
-
-    let effect_executor =
-        DefaultEffectExecutor::new(tool_executor, llm_client.clone(), redb_storage.clone())
-            .with_history(Arc::clone(&history));
-    // Session callback — snapshot after each transition.
-    let store_for_callback = Arc::clone(&session_store);
-    let session_callback: brioche_shell_runtime::SessionCallback =
-        Box::new(move |session: &mut brioche_core::Session| {
-            // Carry forward the last persisted watermark so the next delta
-            if let Ok(store) = store_for_callback.try_read()
-                && let Some(existing) = store.get(&session.id)
-            {
-                session.persisted_msg_count = session
-                    .persisted_msg_count
-                    .max(existing.head.persisted_msg_count);
-            }
-            let head = brioche_shell_persistence::SessionHeadDTO::from_session(session);
-            let entry = SessionStoreEntry {
-                head,
-                messages: session.history.clone(),
-            };
-            if let Ok(mut store) = store_for_callback.try_write() {
-                store.insert(session.id.clone(), entry);
-            }
-        });
-
     let session_id = session_id.into();
-    let history_clone = Arc::clone(&history);
-    let initial_history_for_factory = initial_history.clone();
-    let shell = BriocheShell::new(
-        move || {
-            let (engine, mut session) = PluginBuilder::standard()
-                .with_subroutine_hydrator(Box::new(
-                    brioche_shell_persistence::PersistenceSubRoutineHydrator::new(
-                        redb_storage.clone(),
-                    ),
-                ))
-                .build_with_session(&session_id);
-            if let Some(head) = initial_head {
-                session =
-                    head.to_session(initial_history_for_factory.map_or(Default::default(), |v| v));
-            } else if let Some(hist) = initial_history_for_factory {
-                session.history = hist;
-            }
-            (engine, session)
-        },
-        ShellConfig {
-            engine_channel_capacity: 256,
-            tick_interval_ms: cli_config.tick_interval_ms,
-            max_concurrent_effects: 32,
-            persistence_mode: brioche_shell_runtime::PersistenceMode::Async,
-            transition_journal_enabled: false,
-        },
-        effect_executor,
-        Some(session_callback),
-    );
+    let history_for_factory = initial_history.clone();
+    ShellBuilder::new(
+        &session_id,
+        cli_config.openai.clone(),
+        redb_storage.clone(),
+        session_store,
+        tool_executor,
+    )
+    .with_tick_interval_ms(cli_config.tick_interval_ms)
+    .with_engine_factory(session_factory_with_head(
+        session_id,
+        redb_storage,
+        history_for_factory,
+        initial_head,
+    ))
+    .build()
+    .await
+}
 
-    (shell, llm_client, llm_rx, history_clone)
+/// Prompts the user to confirm execution of a shell command.
+///
+/// This is used as the `ConfirmHandler` for interactive mode. It
+/// blocks on stdin, so it is called inside `tokio::task::spawn_blocking`
+/// by the tool executor.
+fn prompt_confirm(command: &str) -> bool {
+    let mut stderr = std::io::stderr();
+    let _ = writeln!(stderr, "The following command requires confirmation:");
+    let _ = writeln!(stderr, "  {command}");
+    let _ = write!(stderr, "Allow execution? [y/N] ");
+    let _ = stderr.flush();
+
+    let mut input = String::new();
+    let stdin = std::io::stdin();
+    let mut handle = stdin.lock();
+    let Ok(_) = handle.read_line(&mut input) else {
+        return false;
+    };
+
+    matches!(input.trim().to_lowercase().as_str(), "y" | "yes")
 }

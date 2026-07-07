@@ -62,7 +62,7 @@ pub enum AgentState {
 /// O(1) for construction and field/variant access.
 /// # Panics
 /// Never panics.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 #[non_exhaustive]
 pub enum ChatMessage {
     /// System prompt or instruction. Fixed at session start.
@@ -96,6 +96,7 @@ pub enum ChatMessage {
         ///
         /// Refs: I-Shell-Runtime-OnlyIO
         #[serde(default)]
+        #[brioche(deterministic_order)]
         tool_calls: Vec<ToolCallDescriptor>,
     },
     /// Tool call requested by the assistant.
@@ -114,6 +115,14 @@ pub enum ChatMessage {
         /// Message text content.
         content: String,
     },
+}
+
+impl Default for ChatMessage {
+    fn default() -> Self {
+        Self::System {
+            content: String::new(),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -146,7 +155,7 @@ pub struct Session {
     /// Chronological message history (user, assistant, tool results).
     pub history: Vec<ChatMessage>,
     /// Disk synchronization index for the Delta protocol (Redb).
-    pub persisted_msg_count: usize,
+    pub persisted_msg_count: u64,
     /// Current mechanical state of the hierarchical automaton.
     pub state: AgentState,
     /// Stack of previous states, restored on `pop_state()`.
@@ -217,7 +226,8 @@ impl Session {
     ///
     /// # Errors
     /// Returns `BriocheError::InvalidStateTransition` if the transition
-    /// is semantically invalid (e.g., pushing `Failure`).
+    /// is semantically invalid (e.g., pushing `Failure`) or if the stack
+    /// would exceed `MAX_STATE_STACK_DEPTH`.
     ///
     /// Refs: I-Core-NoPanic
     pub fn push_state(&mut self, new_state: AgentState) -> Result<(), BriocheError> {
@@ -225,6 +235,12 @@ impl Session {
             return Err(BriocheError::InvalidStateTransition(
                 "cannot push Failure onto state stack".into(),
             ));
+        }
+        if self.state_stack.len() >= crate::types::MAX_STATE_STACK_DEPTH {
+            return Err(BriocheError::InvalidStateTransition(format!(
+                "state stack depth exceeds maximum {}",
+                crate::types::MAX_STATE_STACK_DEPTH
+            )));
         }
         let old = std::mem::replace(&mut self.state, new_state);
         self.state_stack.push(old);
@@ -270,7 +286,7 @@ impl Session {
     pub fn snapshot(&self) -> SessionSnapshot {
         SessionSnapshot {
             current_state: AgentStateTag::from(&self.state),
-            state_stack_depth: self.state_stack.len(),
+            state_stack_depth: self.state_stack.len() as u64,
         }
     }
 
@@ -313,30 +329,32 @@ impl Session {
         for edit in edits {
             match edit {
                 HistoryEdit::Insert { index, message } => {
-                    if *index > self.history.len() {
+                    let idx = *index as usize;
+                    if idx > self.history.len() {
                         return Err(BriocheError::HistoryIndexOutOfBounds {
                             operation: HistoryOperation::Insert,
-                            index: *index,
-                            len: self.history.len(),
+                            index: idx as u64,
+                            len: self.history.len() as u64,
                         });
                     }
-                    self.history.insert(*index, message.clone());
+                    self.history.insert(idx, message.clone());
                 }
                 HistoryEdit::Replace { index, message } => {
-                    if *index >= self.history.len() {
+                    let idx = *index as usize;
+                    if idx >= self.history.len() {
                         return Err(BriocheError::HistoryIndexOutOfBounds {
                             operation: HistoryOperation::Replace,
-                            index: *index,
-                            len: self.history.len(),
+                            index: idx as u64,
+                            len: self.history.len() as u64,
                         });
                     }
                     // Invariant: index validated above.
-                    if let Some(slot) = self.history.get_mut(*index) {
+                    if let Some(slot) = self.history.get_mut(idx) {
                         *slot = message.clone();
                     }
                 }
                 HistoryEdit::Truncate { keep_last } => {
-                    let keep = (*keep_last).min(self.history.len());
+                    let keep = ((*keep_last) as usize).min(self.history.len());
                     let drain_count = self.history.len() - keep;
                     self.history.drain(..drain_count);
                 }
@@ -363,6 +381,10 @@ impl Default for Session {
 /// The shell and persistence manipulate only flattened `SessionHeadDTO`s.
 /// The kernel is the sole holder of live `Session` instances.
 ///
+/// `SessionRegistry` is a plain handle→session map. Any per-handle
+/// metadata (e.g. outgoing transition counters) belongs in a
+/// governance-owned `ExtensionStorage` state, not in this mechanism type.
+///
 /// `SessionRegistry` is strictly `!Send` and `!Sync`.
 /// # Complexity
 /// O(1) for construction and field/variant access.
@@ -372,10 +394,6 @@ impl Default for Session {
 /// Refs: I-Shell-Session-NoSend, I-Shell-DTO-Only
 pub struct SessionRegistry {
     sessions: BTreeMap<SubRoutineHandle, Session>,
-    /// Outgoing transition counters per handle.
-    /// Incremented at each outgoing transition from `SubRoutine`.
-    /// Used by `SubRoutineCleanupGuard` for defensive cleanup.
-    exit_counts: BTreeMap<SubRoutineHandle, u64>,
     /// Stable-marker making `SessionRegistry` `!Send + !Sync`.
     _not_send_sync: NotSendSync,
 }
@@ -384,7 +402,6 @@ impl std::fmt::Debug for SessionRegistry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SessionRegistry")
             .field("sessions", &self.sessions.keys().collect::<Vec<_>>())
-            .field("exit_counts", &self.exit_counts)
             .finish_non_exhaustive()
     }
 }
@@ -402,7 +419,6 @@ impl SessionRegistry {
     pub fn new() -> Self {
         Self {
             sessions: BTreeMap::new(),
-            exit_counts: BTreeMap::new(),
             _not_send_sync: std::marker::PhantomData,
         }
     }
@@ -459,37 +475,6 @@ impl SessionRegistry {
         self.sessions.contains_key(handle)
     }
 
-    /// Increment the exit counter for a sub-routine handle.
-    ///
-    /// Called by the kernel on every outgoing transition from `SubRoutine`.
-    ///
-    /// # Complexity
-    /// O(log n).
-    ///
-    /// # Panics
-    /// Never panics.
-    ///
-    /// Refs: I-Shell-Session-NoSend
-    pub fn increment_exit_count(&mut self, handle: &SubRoutineHandle) {
-        *self.exit_counts.entry(handle.clone()).or_insert(0) += 1;
-    }
-
-    /// Get the current exit count for a handle.
-    ///
-    /// # Complexity
-    /// O(log n).
-    ///
-    /// # Panics
-    /// Never panics.
-    ///
-    /// Refs: I-Shell-Session-NoSend
-    pub fn get_exit_count(&self, handle: &SubRoutineHandle) -> u64 {
-        match self.exit_counts.get(handle) {
-            Some(&v) => v,
-            None => 0,
-        }
-    }
-
     /// Iterate over all registered handles.
     ///
     /// # Complexity
@@ -524,7 +509,9 @@ impl Default for SessionRegistry {
 /// # Panics
 /// Never panics.
 /// Refs: I-Core-AgentState
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType,
+)]
 pub enum AgentStateTag {
     #[default]
     /// No active prediction or tool execution.
@@ -590,5 +577,5 @@ pub struct SessionSnapshot {
     /// Mechanical state tag (no internal data exposed to plugins).
     pub current_state: AgentStateTag,
     /// Depth of the state stack (used by depth guards).
-    pub state_stack_depth: usize,
+    pub state_stack_depth: u64,
 }

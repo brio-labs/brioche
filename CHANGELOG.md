@@ -14,9 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release of the Brioche deterministic plugin execution kernel.
 - `brioche-core`: synchronous state-machine kernel with `transition()`,
   `ExtensionStorage`, and deterministic `Effect` emission.
-- `brioche-governance` / `brioche-governance-default`: injectable governance
-  traits and reference implementations (rollback, quarantine, epoch, depth,
-  timeouts, telemetry, decision aggregation).
+- `brioche-governance-default`: injectable governance traits and reference
+  implementations (rollback, quarantine, epoch, depth, timeouts, telemetry,
+  decision aggregation).
 - `brioche-shell-runtime`: async effect executor and engine event loop.
 - `brioche-shell-persistence`: Redb-backed session head and delta-message
   persistence with atomic saves and interruptible GC.

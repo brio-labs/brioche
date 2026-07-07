@@ -17,6 +17,7 @@
 //! Refs: docs/SPECS.md §Book III-A, I-Core-ChunkBudget
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -28,12 +29,140 @@ use brioche_shell_runtime::{
 };
 use bytes::Bytes;
 use futures_util::StreamExt;
+use reqwest::redirect::Policy;
 use tokio::sync::{RwLock, broadcast};
 
 use crate::config::OpenAiConfig;
 use crate::extractor::{ChunkExtractor, StreamErrorDetector};
 use crate::request::build_request_body;
 use crate::sse::SseParser;
+
+/// Retry/backoff policy for transient provider failures.
+///
+/// Retries are attempted for network errors, HTTP 5xx responses, and
+/// HTTP 429 (rate limited) responses. The provider's `Retry-After`
+/// header is honoured when present and bounded by [`RetryConfig::max_backoff_ms`].
+///
+/// Refs: docs/SPECS.md §Book III-B
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RetryConfig {
+    /// Maximum number of retry attempts after the initial request.
+    pub max_retries: u32,
+    /// Initial backoff delay in milliseconds.
+    pub base_backoff_ms: u64,
+    /// Maximum backoff delay in milliseconds.
+    pub max_backoff_ms: u64,
+}
+
+impl RetryConfig {
+    /// Creates a retry policy with no retries.
+    ///
+    /// Useful in tests that need to verify first-attempt behaviour.
+    ///
+    /// Refs: docs/SPECS.md §Book III-B
+    pub fn none() -> Self {
+        Self {
+            max_retries: 0,
+            base_backoff_ms: 0,
+            max_backoff_ms: 0,
+        }
+    }
+
+    /// Computes the backoff delay for a given retry attempt.
+    ///
+    /// Uses exponential growth: `base_backoff_ms * 2^(attempt - 1)`,
+    /// capped at `max_backoff_ms`. Attempts are 1-indexed.
+    ///
+    /// # Complexity
+    /// O(1).
+    ///
+    /// Refs: docs/SPECS.md §Book III-B
+    pub fn backoff_ms(&self, attempt: u32) -> u64 {
+        if self.base_backoff_ms == 0 || self.max_retries == 0 {
+            return 0;
+        }
+        let shift = (attempt.saturating_sub(1)).min(63);
+        let raw = self.base_backoff_ms.saturating_mul(1u64 << shift);
+        raw.min(self.max_backoff_ms)
+    }
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 2,
+            base_backoff_ms: 1_000,
+            max_backoff_ms: 30_000,
+        }
+    }
+}
+
+/// Returns true when an HTTP status code is considered transient.
+///
+/// 5xx server errors and 429 rate-limit responses may resolve on retry.
+/// 4xx client errors are not retried because the request itself is faulty.
+///
+/// Refs: docs/SPECS.md §Book III-B
+fn is_retriable_status(status: reqwest::StatusCode) -> bool {
+    status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+}
+
+/// Parses a `Retry-After` header value into a bounded millisecond delay.
+///
+/// Returns `None` for missing or unparseable values. The result is capped
+/// at `max_delay` so a malicious provider cannot stall the shell.
+///
+/// Refs: docs/SPECS.md §Book III-B
+fn parse_retry_after(
+    header: Option<&reqwest::header::HeaderValue>,
+    max_delay: Duration,
+) -> Option<Duration> {
+    let value = header?.to_str().ok()?;
+    let secs: u64 = value.parse().ok()?;
+    Some(Duration::from_secs(secs).min(max_delay))
+}
+
+/// Provider-specific error returned by `OpenAiLlmClient` operations.
+///
+/// Preserves OpenAI-specific context (HTTP status, SSE diagnostics, parse
+/// failures) and is converted to a generic [`ShellError`] at the trait
+/// boundary.
+///
+/// Refs: docs/SPECS.md §Book III-B
+#[derive(Debug, thiserror::Error)]
+pub enum OpenAiError {
+    /// The HTTP client could not be constructed from the provided configuration.
+    ///
+    /// Refs: docs/SPECS.md §Book III-B
+    #[error("failed to build HTTP client: {0}")]
+    HttpClientBuilder(reqwest::Error),
+    /// The HTTP request could not be sent or the connection failed.
+    #[error("network request failed: {0}")]
+    Network(String),
+    /// The provider returned a non-success HTTP status.
+    #[error("HTTP {status}: {message}")]
+    Http {
+        /// HTTP status code returned by the provider.
+        status: u16,
+        /// Compacted error message extracted from the response body.
+        message: String,
+    },
+    /// No SSE data was received within the configured idle timeout.
+    #[error("SSE stream idle timeout")]
+    IdleTimeout,
+    /// The SSE stream failed or contained malformed data.
+    #[error("SSE provider error: {0}")]
+    Sse(String),
+    /// The summary response could not be parsed as JSON.
+    #[error("failed to parse summary response: {0}")]
+    SummaryParse(String),
+}
+
+impl From<OpenAiError> for ShellError {
+    fn from(err: OpenAiError) -> Self {
+        ShellError::EffectExecution(err.to_string())
+    }
+}
 
 /// OpenAI-compatible LLM client.
 ///
@@ -43,7 +172,7 @@ use crate::sse::SseParser;
 ///
 /// # Usage
 /// ```ignore
-/// let (client, llm_rx) = OpenAiLlmClient::new(config);
+/// let (client, llm_rx, _history) = OpenAiLlmClient::new(config)?;
 /// client.set_tools_schema(schemas).await;
 /// // client is injected into DefaultEffectExecutor.
 /// ```
@@ -58,17 +187,59 @@ pub type SharedHistory = Arc<RwLock<Vec<ChatMessage>>>;
 /// Refs: I-Shell-Runtime-OnlyIO
 pub type HistoryTransform = Arc<dyn Fn(&[ChatMessage]) -> Vec<ChatMessage> + Send + Sync>;
 
+/// Maximum number of bytes to read from an HTTP error response body.
+///
+/// Prevents a malicious or misbehaving provider from OOM-ing the shell by
+/// returning an unbounded error payload. The limit is applied while streaming
+/// chunks, so no more than this amount is buffered.
+///
+/// Refs: docs/SPECS.md §Book III-B
+pub const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
+
+/// Reads at most [`MAX_ERROR_BODY_BYTES`] from `response`, then converts the
+/// buffered bytes to a string, replacing invalid UTF-8 sequences.
+///
+/// Streaming stops as soon as the limit is reached; remaining bytes are
+/// discarded. This function consumes the response body.
+///
+/// Refs: docs/SPECS.md §Book III-B
+async fn limited_error_body(mut response: reqwest::Response, limit: usize) -> String {
+    let mut collected = Vec::with_capacity(limit.min(4096));
+    loop {
+        match response.chunk().await {
+            Ok(Some(chunk)) => {
+                let remaining = limit.saturating_sub(collected.len());
+                if remaining == 0 {
+                    break;
+                }
+                let take = chunk.len().min(remaining);
+                collected.extend_from_slice(&chunk[..take]);
+                if collected.len() >= limit {
+                    break;
+                }
+            }
+            Ok(None) => break,
+            Err(err) => {
+                tracing::debug!(error = %err, "failed to read error response chunk");
+                break;
+            }
+        }
+    }
+    String::from_utf8_lossy(&collected).into_owned()
+}
+
 /// OpenAI-compatible LLM client implementation.
 ///
 /// Handles SSE streaming, tool-call parsing, and payload segmentation.
 /// Broadcasts chunks to the projection layer via `broadcast::Sender<LlmChunk>`.
 /// A `history_transform` may be registered to compress or augment the
-/// conversation before each request without changing the mirror history.
+/// conversation without changing the mirror history.
 ///
 /// Refs: docs/SPECS.md §Book III-A, I-Core-ChunkBudget
 pub struct OpenAiLlmClient {
     config: OpenAiConfig,
     http: reqwest::Client,
+    retry_config: RetryConfig,
     tools_schema: Arc<RwLock<Vec<serde_json::Value>>>,
     ui_tx: broadcast::Sender<LlmChunk>,
     history: SharedHistory,
@@ -84,6 +255,7 @@ impl Clone for OpenAiLlmClient {
         Self {
             config: self.config.clone(),
             http: self.http.clone(),
+            retry_config: self.retry_config,
             tools_schema: Arc::clone(&self.tools_schema),
             ui_tx: self.ui_tx.clone(),
             history: Arc::clone(&self.history),
@@ -102,20 +274,23 @@ impl OpenAiLlmClient {
     /// The broadcast channel has capacity for 256 messages. Slow
     /// receivers may drop old messages.
     ///
+    /// # Errors
+    /// Returns `OpenAiError::HttpClientBuilder` if the underlying
+    /// `reqwest` client cannot be constructed.
+    ///
     /// # Panics
     /// Never panics. Empty `api_key` is accepted (some local endpoints
     /// like Ollama do not require a key).
     /// Refs: docs/SPECS.md §Book III-B
-    pub fn new(config: OpenAiConfig) -> (Self, broadcast::Receiver<LlmChunk>, SharedHistory) {
-        let http = match reqwest::Client::builder()
-            // No global request timeout — streaming generations can
-            // take minutes (e.g. 80KB file writes). Idle detection
-            // is handled by the per-chunk READ_TIMEOUT in call_llm().
+    pub fn new(
+        config: OpenAiConfig,
+    ) -> Result<(Self, broadcast::Receiver<LlmChunk>, SharedHistory), OpenAiError> {
+        let http = reqwest::Client::builder()
+            // Streaming generations may legitimately take minutes, so the
+            // request timeout is enforced as time-to-first-byte in send_request.
+            .redirect(Policy::limited(3))
             .build()
-        {
-            Ok(c) => c,
-            Err(_) => reqwest::Client::new(),
-        };
+            .map_err(OpenAiError::HttpClientBuilder)?;
 
         let (ui_tx, ui_rx) = broadcast::channel(256);
         let history: SharedHistory = Arc::new(RwLock::new(Vec::new()));
@@ -125,6 +300,7 @@ impl OpenAiLlmClient {
         let client = Self {
             config,
             http,
+            retry_config: RetryConfig::default(),
             tools_schema: Arc::new(RwLock::new(Vec::new())),
             ui_tx,
             history: Arc::clone(&history),
@@ -135,7 +311,7 @@ impl OpenAiLlmClient {
             error_detector,
         };
 
-        (client, ui_rx, history)
+        Ok((client, ui_rx, history))
     }
 
     /// Subscribe to the LLM chunk broadcast channel.
@@ -144,6 +320,17 @@ impl OpenAiLlmClient {
     /// Refs: docs/SPECS.md §Book III-B
     pub fn subscribe(&self) -> broadcast::Receiver<LlmChunk> {
         self.ui_tx.subscribe()
+    }
+
+    /// Replace the retry/backoff policy used for provider requests.
+    ///
+    /// The default policy retries twice with exponential backoff starting
+    /// at one second. Tests use this setter to exercise retries quickly.
+    ///
+    /// Refs: docs/SPECS.md §Book III-B
+    pub fn with_retry_policy(mut self, retry_config: RetryConfig) -> Self {
+        self.retry_config = retry_config;
+        self
     }
 
     /// Push a message into the history mirror.
@@ -172,10 +359,19 @@ impl OpenAiLlmClient {
         *guard = schemas;
     }
 
-    /// Returns a copy of the currently registered tool schemas.
+    /// Returns the currently registered tool schemas.
     ///
-    /// # Complexity
-    /// O(n) where n is the number of tool schemas.
+    /// Exposed primarily for tests that need to verify the schema list
+    /// after initialization.
+    ///
+    /// Refs: docs/SPECS.md §Book III-B, I-Shell-Runtime-OnlyIO
+    ///
+    /// # Cancel safety
+    /// This future awaits an `RwLock` read lock. If it is dropped before the
+    /// lock is acquired, the caller receives nothing and no guard is held. Once
+    /// the lock is acquired, the guarded list is cloned in a single non-awaiting
+    /// statement and the guard is released before the future resolves, so the
+    /// returned value is always complete.
     pub async fn tools_schema(&self) -> Vec<serde_json::Value> {
         self.tools_schema.read().await.clone()
     }
@@ -460,10 +656,16 @@ impl OpenAiLlmClient {
             .map(|s| s.to_string())
     }
 
-    /// Send the request and surface network or HTTP errors.
+    /// Send the request, retrying transient failures and surfacing fatal errors.
     ///
-    /// On error emits `SystemSignal::NetworkUnavailable` and
-    /// returns `Ok(())` so the kernel can recover.
+    /// Applies `config.timeout_ms` as the time-to-first-byte timeout so that
+    /// stalled connections fail fast without cutting off long streaming
+    /// generations. Retries are performed for network errors, HTTP 5xx
+    /// responses, and HTTP 429 responses, honouring `Retry-After` when
+    /// present. When retries are exhausted the final error is emitted as
+    /// `SystemSignal::NetworkUnavailable`.
+    ///
+    /// Refs: docs/SPECS.md §Book III-B, I-Shell-Network-Signal
     async fn send_request(
         &self,
         shell: &BriocheShell,
@@ -471,6 +673,8 @@ impl OpenAiLlmClient {
         url: &str,
     ) -> Result<reqwest::Response, ShellError> {
         let body_str = body.to_string();
+        let timeout = Duration::from_millis(self.config.timeout_ms);
+        let max_backoff = Duration::from_millis(self.retry_config.max_backoff_ms);
 
         let _ = self.ui_tx.send(LlmChunk::Status(format!(
             "HTTP POST {} — ~{} chars",
@@ -478,56 +682,118 @@ impl OpenAiLlmClient {
             body_str.len(),
         )));
 
-        let request = self
-            .http
-            .post(url)
-            .header("Authorization", format!("Bearer {}", self.config.api_key))
-            .header("Content-Type", "application/json")
-            .json(body);
+        let mut attempt: u32 = 0;
+        loop {
+            let request = self
+                .http
+                .post(url)
+                .header("Authorization", format!("Bearer {}", self.config.api_key))
+                .header("Content-Type", "application/json")
+                .json(body);
 
-        let response = match request.send().await {
-            Ok(r) => {
-                let _ = self.ui_tx.send(LlmChunk::Status(format!(
-                    "HTTP {} — starting SSE stream",
-                    r.status()
-                )));
-                r
-            }
-            Err(err) => {
-                let msg = format!("Network error: {err}");
-                tracing::error!(error = %err, "OpenAI request failed");
-                let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
-                shell
-                    .send_system_signal(SystemSignal::NetworkUnavailable { reason: msg })
-                    .await?;
-                return Err(ShellError::EffectExecution("network".into()));
-            }
-        };
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body_text = response.text().await.ok().map_or(String::new(), |t| t);
-            let compact = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body_text) {
-                json.get("error")
-                    .and_then(|e| e.get("message"))
-                    .and_then(|m| m.as_str())
-                    .map_or_else(|| body_text.clone(), |s| s.to_string())
-            } else {
-                match body_text.lines().next() {
-                    Some(line) => line.to_string(),
-                    None => body_text.clone(),
+            match tokio::time::timeout(timeout, request.send()).await {
+                Ok(Ok(response)) if response.status().is_success() => {
+                    let _ = self.ui_tx.send(LlmChunk::Status(format!(
+                        "HTTP {} — starting SSE stream",
+                        response.status()
+                    )));
+                    return Ok(response);
                 }
-            };
-            let msg = format!("HTTP {status}: {compact}");
-            tracing::error!(status = %status, error = %body_text, "OpenAI HTTP error");
-            let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
-            shell
-                .send_system_signal(SystemSignal::NetworkUnavailable { reason: msg })
-                .await?;
-            return Err(ShellError::EffectExecution("http".into()));
-        }
+                Ok(Ok(response)) => {
+                    let status = response.status();
+                    let retriable = is_retriable_status(status);
+                    let retry_after =
+                        parse_retry_after(response.headers().get("retry-after"), max_backoff);
 
-        Ok(response)
+                    if !retriable || attempt >= self.retry_config.max_retries {
+                        let body_text = limited_error_body(response, MAX_ERROR_BODY_BYTES).await;
+                        let compact = if let Ok(json) =
+                            serde_json::from_str::<serde_json::Value>(&body_text)
+                        {
+                            json.get("error")
+                                .and_then(|e| e.get("message"))
+                                .and_then(|m| m.as_str())
+                                .map_or_else(|| body_text.clone(), |s| s.to_string())
+                        } else {
+                            match body_text.lines().next() {
+                                Some(line) => line.to_string(),
+                                None => body_text.clone(),
+                            }
+                        };
+                        let msg = format!("HTTP {status}: {compact}");
+                        tracing::error!(status = %status, error = %body_text, "OpenAI HTTP error");
+                        let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
+                        shell
+                            .send_system_signal(SystemSignal::NetworkUnavailable {
+                                reason: msg.clone(),
+                            })
+                            .await?;
+                        return Err(OpenAiError::Http {
+                            status: status.as_u16(),
+                            message: compact,
+                        }
+                        .into());
+                    }
+
+                    attempt += 1;
+                    let delay = match retry_after {
+                        Some(delay) => delay,
+                        None => Duration::from_millis(self.retry_config.backoff_ms(attempt)),
+                    };
+                    let _ = self.ui_tx.send(LlmChunk::Status(format!(
+                        "HTTP {status} — retry {attempt}/{} in {:?}",
+                        self.retry_config.max_retries, delay
+                    )));
+                    tokio::time::sleep(delay).await;
+                }
+                Ok(Err(err)) => {
+                    let msg = format!("Network error: {err}");
+                    if attempt >= self.retry_config.max_retries {
+                        tracing::error!(error = %err, "OpenAI request failed");
+                        let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
+                        shell
+                            .send_system_signal(SystemSignal::NetworkUnavailable {
+                                reason: msg.clone(),
+                            })
+                            .await?;
+                        return Err(OpenAiError::Network(err.to_string()).into());
+                    }
+                    attempt += 1;
+                    let delay = Duration::from_millis(self.retry_config.backoff_ms(attempt));
+                    tracing::warn!(
+                        error = %err,
+                        attempt,
+                        "OpenAI request failed — retrying"
+                    );
+                    let _ = self.ui_tx.send(LlmChunk::Status(format!(
+                        "{msg} — retry {attempt}/{} in {:?}",
+                        self.retry_config.max_retries, delay
+                    )));
+                    tokio::time::sleep(delay).await;
+                }
+                Err(_) => {
+                    let msg = format!("Request timed out after {timeout:?}");
+                    if attempt >= self.retry_config.max_retries {
+                        tracing::error!(%msg, "OpenAI request timed out");
+                        let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
+                        shell
+                            .send_system_signal(SystemSignal::NetworkUnavailable {
+                                reason: msg.clone(),
+                            })
+                            .await?;
+                        return Err(OpenAiError::Network(msg).into());
+                    }
+                    attempt += 1;
+                    let delay = Duration::from_millis(self.retry_config.backoff_ms(attempt));
+                    tracing::warn!(%msg, attempt, "OpenAI request timed out — retrying");
+                    let _ = self.ui_tx.send(LlmChunk::Status(format!(
+                        "{msg} — retry {attempt}/{} in {:?}",
+                        self.retry_config.max_retries, delay
+                    )));
+                    tokio::time::sleep(delay).await;
+                }
+            }
+        }
     }
 
     /// Process a single parsed SSE event.
@@ -694,12 +960,11 @@ impl OpenAiLlmClient {
                         acc.tool_acc.len(),
                         acc.finish_reason
                     );
-                    tracing::warn!(%diag, "SSE read timeout");
                     let _ = self.ui_tx.send(LlmChunk::Warning(diag.clone()));
                     shell
                         .send_system_signal(SystemSignal::NetworkUnavailable { reason: diag })
                         .await?;
-                    return Err(ShellError::EffectExecution("idle_timeout".into()));
+                    return Err(OpenAiError::IdleTimeout.into());
                 }
             };
 
@@ -731,9 +996,11 @@ impl OpenAiLlmClient {
                     tracing::error!(error = %err, "SSE stream error");
                     let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
                     shell
-                        .send_system_signal(SystemSignal::NetworkUnavailable { reason: msg })
+                        .send_system_signal(SystemSignal::NetworkUnavailable {
+                            reason: msg.clone(),
+                        })
                         .await?;
-                    return Err(ShellError::EffectExecution("sse".into()));
+                    return Err(OpenAiError::Sse(msg).into());
                 }
             };
 
@@ -754,7 +1021,21 @@ impl OpenAiLlmClient {
                 )));
             }
 
-            for event in parser.feed(&chunk) {
+            let events = match parser.feed(&chunk) {
+                Ok(events) => events,
+                Err(err) => {
+                    let msg = format!("SSE parser error: {err}");
+                    tracing::error!(%msg, "SSE parser aborted after repeated malformed lines");
+                    let _ = self.ui_tx.send(LlmChunk::Error(msg.clone()));
+                    shell
+                        .send_system_signal(SystemSignal::NetworkUnavailable {
+                            reason: msg.clone(),
+                        })
+                        .await?;
+                    return Err(OpenAiError::Sse(msg).into());
+                }
+            };
+            for event in events {
                 event_count += 1;
                 tracing::debug!(event = %event.to_string(), "SSE event");
                 self.process_sse_event(shell, &event, &mut acc).await?;
@@ -906,9 +1187,130 @@ impl OpenAiLlmClient {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Diagnostic helpers — private, redacted request dumps.
+// ---------------------------------------------------------------------------
+
+/// Maximum size of a redacted diagnostic request body, in bytes.
+const MAX_DIAG_BYTES: usize = 1_048_576;
+
+/// Diagnostic marker for redacted text fields.
+const REDACTED: &str = "[REDACTED]";
+
+/// Returns the private diagnostic directory, creating it with 0700 if needed.
+///
+/// Uses `$XDG_CACHE_HOME/brioche/diag` when available, otherwise
+/// falls back to `$HOME/.cache/brioche/diag`.
+fn private_diag_dir() -> Option<PathBuf> {
+    let base = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| {
+                let mut path = PathBuf::from(home);
+                path.push(".cache");
+                path
+            })
+        })?;
+
+    let mut dir = base;
+    dir.push("brioche");
+    dir.push("diag");
+
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        tracing::warn!(error = %e, "failed to create diagnostic directory");
+        return None;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let metadata = std::fs::metadata(&dir).ok()?;
+        let mut perms = metadata.permissions();
+        // Ensure the directory is not world-readable/searchable.
+        let mode = perms.mode() & 0o777;
+        if mode & 0o077 != 0 {
+            perms.set_mode(0o700);
+            if let Err(e) = std::fs::set_permissions(&dir, perms) {
+                tracing::warn!(error = %e, "failed to set diagnostic directory permissions");
+                return None;
+            }
+        }
+    }
+
+    Some(dir)
+}
+
+/// Recursively redact sensitive string fields from a request body.
+///
+/// Redacts `content` in messages and `description` in tool function
+/// definitions. Leaves structural metadata intact for debugging.
+fn redact_request_body(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut out = serde_json::Map::new();
+            for (k, v) in map {
+                let redacted = if k == "content" || k == "description" {
+                    match v {
+                        serde_json::Value::String(_) => serde_json::Value::String(REDACTED.into()),
+                        _ => redact_request_body(v),
+                    }
+                } else {
+                    redact_request_body(v)
+                };
+                out.insert(k.clone(), redacted);
+            }
+            serde_json::Value::Object(out)
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.iter().map(redact_request_body).collect())
+        }
+        other => other.clone(),
+    }
+}
+
+/// Writes a redacted, size-capped request body to the private diagnostic dir.
+fn write_diag_request(turn: usize, body: &serde_json::Value) {
+    let Some(dir) = private_diag_dir() else {
+        return;
+    };
+
+    let mut path = dir;
+    path.push(format!("brioche_request_turn_{turn}.json"));
+
+    let redacted = redact_request_body(body);
+    let mut text = redacted.to_string();
+    const TRUNCATION_SUFFIX: &str = "\n...[truncated]";
+    if text.len() > MAX_DIAG_BYTES {
+        let limit = MAX_DIAG_BYTES.saturating_sub(TRUNCATION_SUFFIX.len());
+        let trunc_idx = text.floor_char_boundary(limit);
+        text.truncate(trunc_idx);
+        text.push_str(TRUNCATION_SUFFIX);
+    }
+
+    if let Err(e) = std::fs::write(&path, &text) {
+        tracing::warn!(error = %e, path = %path.display(), "failed to write diagnostic request");
+    }
+}
+
 #[async_trait::async_trait]
 impl LlmClient for OpenAiLlmClient {
+    /// Initiate an LLM call and stream fragments back via `shell.send_input`.
+    ///
+    /// Builds the request, opens an SSE connection, and delegates the
+    /// streaming loop to `read_sse_stream`.
+    ///
+    /// Refs: I-Core-ChunkBudget
+    ///
+    /// # Cancel safety
+    /// This future delegates to `read_sse_stream` and may await network I/O.
+    /// Dropping it before completion leaks the SSE connection until the
+    /// read-side idle timeout or the provider closes it.
     async fn call_llm(&self, shell: &BriocheShell) -> Result<(), ShellError> {
+        if let Err(err) = self.config.validate() {
+            let _ = self.ui_tx.send(LlmChunk::Error(err.to_string()));
+            return Err(ShellError::EffectExecution(err.to_string()));
+        }
+
         let url = format!("{}/chat/completions", self.config.base_url);
 
         let turn = {
@@ -925,24 +1327,33 @@ impl LlmClient for OpenAiLlmClient {
 
         let (body, _msg_count) = self.build_request().await;
 
-        // Diagnostic: write request body to temp file before sending.
-        // Activated by BRIOCHE_DIAG=1 env var.
+        // Diagnostic: write redacted request body to a private cache directory.
+        // Activated by the BRIOCHE_DIAG env var (any value).
         if std::env::var("BRIOCHE_DIAG").is_ok() {
-            let _ = std::fs::write(
-                format!("/tmp/brioche_request_turn_{turn}.json"),
-                body.to_string(),
-            );
+            write_diag_request(turn, &body);
         }
 
         let response = match self.send_request(shell, &body, &url).await {
             Ok(r) => r,
-            Err(_) => return Ok(()), // Error already surfaced to shell.
+            Err(_) => {
+                shell
+                    .send_input(EngineInput::LlmStream(StreamEvent::Done))
+                    .await?;
+                let _ = self.ui_tx.send(LlmChunk::Done);
+                return Ok(());
+            }
         };
 
         let stream = response.bytes_stream();
         let outcome = match self.read_sse_stream(shell, stream, turn).await {
             Ok(o) => o,
-            Err(_) => return Ok(()), // Error already surfaced to shell.
+            Err(_) => {
+                shell
+                    .send_input(EngineInput::LlmStream(StreamEvent::Done))
+                    .await?;
+                let _ = self.ui_tx.send(LlmChunk::Done);
+                return Ok(());
+            }
         };
 
         if outcome.finish_reason.as_deref() == Some("tool_calls")
@@ -960,6 +1371,15 @@ impl LlmClient for OpenAiLlmClient {
         Ok(())
     }
 
+    /// Summarize a slice of chat history into a single compressed message.
+    ///
+    /// Mirrors the `LlmClient::summarize` contract.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Cancel safety
+    /// This future may await network I/O. Dropping it before completion
+    /// discards the in-flight request; no mirror history is modified.
     async fn summarize(
         &self,
         shell: &BriocheShell,
@@ -979,9 +1399,10 @@ impl LlmClient for OpenAiLlmClient {
         let body = self.build_summary_request(messages);
 
         let response = self.send_request(shell, &body, &url).await?;
-        let json: serde_json::Value = response.json().await.map_err(|err| {
-            ShellError::EffectExecution(format!("failed to parse summary response: {err}"))
-        })?;
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|err| OpenAiError::SummaryParse(err.to_string()))?;
 
         match Self::extract_summary_text(&json) {
             Some(content) => Ok(ChatMessage::System { content }),
@@ -991,7 +1412,126 @@ impl LlmClient for OpenAiLlmClient {
         }
     }
 
+    /// Push tool execution results into the conversational history.
+    ///
+    /// Delegates to the inherent `OpenAiLlmClient::push_tool_results`.
+    ///
+    /// Refs: I-Shell-ToolResult-PassThrough
+    ///
+    /// # Cancel safety
+    /// Mirrors the `LlmClient::push_tool_results` contract: this future may
+    /// leave the mirror history partially updated if dropped before completion
+    /// because each result is appended independently.
     async fn push_tool_results(&self, results: &[ToolResultDTO]) {
         OpenAiLlmClient::push_tool_results(self, results).await;
+    }
+}
+#[cfg(test)]
+mod tests {
+    use brioche_shell_runtime::ShellError;
+
+    use super::OpenAiError;
+
+    #[test]
+    fn openai_error_network_preserves_context() {
+        let err = OpenAiError::Network("connection refused".into());
+        let shell_err: ShellError = err.into();
+        let msg = format!("{shell_err}");
+        assert!(msg.contains("connection refused"), "{msg}");
+    }
+
+    #[test]
+    fn openai_error_http_preserves_status_and_message() {
+        let err = OpenAiError::Http {
+            status: 503,
+            message: "overloaded".into(),
+        };
+        let shell_err: ShellError = err.into();
+        let msg = format!("{shell_err}");
+        assert!(msg.contains("503") && msg.contains("overloaded"), "{msg}");
+    }
+
+    #[test]
+    fn openai_error_sse_preserves_message() {
+        let err = OpenAiError::Sse("stream closed".into());
+        let shell_err: ShellError = err.into();
+        let msg = format!("{shell_err}");
+        assert!(msg.contains("stream closed"), "{msg}");
+    }
+}
+
+#[cfg(test)]
+mod diag_tests {
+    use super::*;
+
+    fn obj(entries: &[(&str, serde_json::Value)]) -> serde_json::Value {
+        serde_json::Value::Object(
+            entries
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
+        )
+    }
+
+    fn arr(values: &[serde_json::Value]) -> serde_json::Value {
+        serde_json::Value::Array(values.to_vec())
+    }
+
+    fn s(value: &str) -> serde_json::Value {
+        serde_json::Value::String(value.into())
+    }
+
+    #[test]
+    fn redact_request_body_obscures_message_content() {
+        let body = obj(&[
+            ("model", s("gpt-4o")),
+            (
+                "messages",
+                arr(&[
+                    obj(&[
+                        ("role", s("system")),
+                        ("content", s("secret system prompt")),
+                    ]),
+                    obj(&[("role", s("user")), ("content", s("secret user message"))]),
+                ]),
+            ),
+            (
+                "tools",
+                arr(&[obj(&[
+                    ("type", s("function")),
+                    (
+                        "function",
+                        obj(&[
+                            ("name", s("read_file")),
+                            ("description", s("secret tool description")),
+                        ]),
+                    ),
+                ])]),
+            ),
+        ]);
+
+        let redacted = redact_request_body(&body);
+        assert_eq!(redacted["model"], s("gpt-4o"));
+        assert_eq!(redacted["messages"][0]["content"], s(REDACTED));
+        assert_eq!(redacted["messages"][1]["content"], s(REDACTED));
+        assert_eq!(redacted["tools"][0]["function"]["description"], s(REDACTED));
+        assert_eq!(redacted["tools"][0]["function"]["name"], s("read_file"));
+    }
+
+    #[test]
+    fn redact_request_body_leaves_non_sensitive_values_intact() {
+        let body = obj(&[
+            ("model", s("gpt-4o")),
+            ("stream", serde_json::Value::Bool(true)),
+            ("max_tokens", serde_json::Value::Number(4096.into())),
+        ]);
+
+        let redacted = redact_request_body(&body);
+        assert_eq!(redacted["model"], s("gpt-4o"));
+        assert_eq!(redacted["stream"], serde_json::Value::Bool(true));
+        assert_eq!(
+            redacted["max_tokens"],
+            serde_json::Value::Number(4096.into())
+        );
     }
 }

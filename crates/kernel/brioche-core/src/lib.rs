@@ -29,9 +29,15 @@ pub use extension::{
     ExtensionStorage, SerializeFn, SnapshotStrategy, WeightFn,
 };
 pub use plugin::{
-    BriochePlugin, ConsistencyVerifier, CowBudgetPolicy, CycleRollbackPolicy, DecisionAggregator,
-    EpochInterceptor, GovernanceFailoverHandler, HookEffectConstraint, PluginCapabilities,
-    SignalDrainOrder, SubRoutineHandler, SubRoutineHydrator, SubRoutineLifecycleGuard,
+    AfterPrediction, AfterPredictionPlugin, BeforePrediction, BeforePredictionPlugin,
+    ConsistencyVerifier, ConsistencyVerifierPlugin, CowBudgetPolicy, CowBudgetPolicyPlugin,
+    CycleRollbackPolicy, CycleRollbackPolicyPlugin, DecisionAggregator, DecisionAggregatorPlugin,
+    EpochInterceptor, EpochInterceptorPlugin, GovernanceFailoverHandler,
+    GovernanceFailoverHandlerPlugin, HookEffectConstraint, OnError, OnErrorPlugin, OnInput,
+    OnInputPlugin, OnStreamEvent, OnStreamEventPlugin, OnToolCalls, OnToolCallsPlugin,
+    OnToolResult, OnToolResultPlugin, PluginPersistence, SignalDrainOrder, SignalDrainOrderPlugin,
+    SubRoutineHandler, SubRoutineHandlerPlugin, SubRoutineHydrator, SubRoutineHydratorPlugin,
+    SubRoutineLifecycleGuard, SubRoutineLifecycleGuardPlugin,
 };
 // Re-export dependencies so that proc-macro generated code and users
 // can reference them through brioche_core without adding them to
@@ -41,10 +47,10 @@ pub use serde;
 pub use types::{
     ActiveToolCall, AgentState, AgentStateTag, AsyncTaskResult, BriocheError, ChatMessage,
     DEFAULT_TOOL_TIMEOUT_MS, Effect, EffectBit, EngineInput, EpochAction, EpochState, ErrorCode,
-    ErrorDetail, ExecutionPath, GovernanceNotification, HistoryEdit, MAX_INLINE_CHUNK, PluginError,
-    PluginResult, PluginSource, PolicyDecision, RollbackEvent, RollbackEventLog, Session,
-    SessionRegistry, SessionSnapshot, SignalBuffer, SignalDrainBatch, StreamAction, StreamEvent,
-    StreamToolAccumulator, SubRoutineHandle, SupersededTransitionTrace,
+    ErrorDetail, ExecutionPath, GovernanceNotification, HistoryEdit, MAX_INLINE_CHUNK,
+    MAX_STATE_STACK_DEPTH, PluginError, PluginResult, PluginSource, PolicyDecision, RollbackEvent,
+    RollbackEventLog, Session, SessionRegistry, SessionSnapshot, SignalBuffer, SignalDrainBatch,
+    StreamAction, StreamEvent, StreamToolAccumulator, SubRoutineHandle, SupersededTransitionTrace,
     SupersededTransitionTraceLog, SystemSignal, TaskId, ToolCallDescriptor, ToolOutcome,
     ToolResultDTO, ToolStatus, TransitionTrace, TransitionTraceLog, TruncatedToolResult, UiWidget,
     effect_to_bitmask, seal, seal_single, tool_outcome_to_string,

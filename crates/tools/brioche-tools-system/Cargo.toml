@@ -14,15 +14,18 @@ brioche-shell-runtime = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["fs", "process"] }
 tokio-util = { workspace = true }
-reqwest = { version = "0.13", default-features = false, features = [
+reqwest = { workspace = true, features = [
   "native-tls",
+  "json",
 ] }
 thiserror = "2"
 tracing = "0.1"
 async-trait = { workspace = true }
+jsonschema = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
+wiremock = "0.6.5"
 
 [lints]
 workspace = true

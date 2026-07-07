@@ -158,7 +158,7 @@ Brioche is a secure monolithic SDK for language model orchestration. It resolves
 
 * **Extension over Modification:** Policy complexity (safeguards, quarantine, failure recovery, depth limits, timeout bounds, volume management, cycle budget, cycle rollback, hook effect constraint, sub-routine timeout, sub-routine lifecycle) never modifies simple mechanical components. It is added through composition of new plugins or extension crates that register onto the hooks, events, or public interfaces of the simple component. In particular, no policy state (quarantine, degradation) may appear in the fundamental `AgentState` enum; any degradation is materialized by a governance plugin that forces the automaton toward a proper mechanical state (typically `Idle`) via `OverrideTransition`.
 
-* **Materialized governance hierarchy:** Fundamental governance plugins (`EpochInterceptor`, `SubRoutineHandler`, `ConsistencyVerifier`, `DecisionAggregator`, `HookEffectConstraint`, `CycleRollbackPolicy`, `SubRoutineLifecycleGuard`) are dedicated traits, called sequentially by the kernel outside the generic pre-routing system. This separation materializes governance semantic layers without modifying the `BriochePlugin` interface or injecting magic priorities into routing vectors.
+* **Materialized governance hierarchy:** Fundamental governance plugins (`EpochInterceptor`, `SubRoutineHandler`, `ConsistencyVerifier`, `DecisionAggregator`, `HookEffectConstraint`, `CycleRollbackPolicy`, `SubRoutineLifecycleGuard`) are dedicated traits, called sequentially by the kernel outside the generic pre-routing system. Atomic hook traits (`OnInput`, `BeforePrediction`, `OnStreamEvent`, `AfterPrediction`, `OnToolCalls`, `OnToolResult`, `OnError`) are routed through capability-specific vectors, so no taxonomy trait or magic priorities are required.
 
 * **Strict determinism:** Two kernel executions from the same initial state and same event sequence produce the same effect sequence and the same final state. Plugin evaluation order is guaranteed by a declared total order (`priority` + `name`). No source of randomness is tolerated in effects emitted by the core. Plugin state types and data structures passing through hooks use ordered collections (`BTreeMap`, `BTreeSet`, `IndexMap`). Persisted `Vec`s must be fed deterministically (insertion controlled by hooks, not by unordered async results). The use of `HashMap` or `HashSet` in persisted states or hooks is prohibited by the SDK. This prohibition is mechanized by a derived proc-macro `BriocheExtensionType` that raises a compilation error if a persisted field contains these types. Plugins may use `HashMap` in purely transient and non-persisted caches (internal memory not exposed via `ExtensionStorage`).
 
@@ -202,7 +202,7 @@ flowchart TB
     end
 
     subgraph GOV["🛡️ Governance Layer"]
-        GOV_APP["brioche-governance<br/>[QuarantineMgr]<br/>[RecoveryPolicy]<br/>[DepthGuard]<br/>[EpochGuard]<br/>[StateConsistency]<br/>[PolicyAggregator]<br/>[SubRoutineOrche]<br/>[ToolCallDetector]<br/>[ToolResultFormat]<br/>[HookEffectConstraint]<br/>[SubRoutineTimeoutPolicy]<br/>[UndoFrameGuard]<br/>[SubRoutineCleanupGuard]<br/>[NegotiationBroker]<br/>[TieredUndoFrameGuard]<br/>[RollbackTelemetryEmitter]<br/>[HistoricalCowBudgetPolicy]"]
+        GOV_APP["brioche-governance-default<br/>[QuarantineMgr]<br/>[RecoveryPolicy]<br/>[DepthGuard]<br/>[EpochGuard]<br/>[StateConsistency]<br/>[PolicyAggregator]<br/>[SubRoutineOrche]<br/>[ToolCallDetector]<br/>[ToolResultFormat]<br/>[HookEffectConstraint]<br/>[SubRoutineTimeoutPolicy]<br/>[UndoFrameGuard]<br/>[SubRoutineCleanupGuard]<br/>[NegotiationBroker]<br/>[TieredUndoFrameGuard]<br/>[RollbackTelemetryEmitter]<br/>[HistoricalCowBudgetPolicy]"]
     end
 
     AGENT_DESK <-->|"Tauri IPC<br/>(Invoke/Events)<br/>Binary MessagePack"| SHELL_PROJ_APP
@@ -223,7 +223,7 @@ Crates are grouped into categorized subfolders that map to the Books:
 
 | Folder | Book | Contents |
 |---|---|---|
-| `crates/kernel/` | I + II | `brioche-core`, `brioche-macro`, `brioche-governance`, `brioche-governance-default` |
+| `crates/kernel/` | I + II | `brioche-core`, `brioche-macro`, `brioche-governance-default` |
 | `crates/runtime/` | III-A/B/C | `brioche-shell-runtime`, `brioche-shell-persistence`, `brioche-shell-projection` |
 | `crates/providers/` | III-A | `brioche-provider-openai` |
 | `crates/tools/` | III-A / IV | `brioche-tools-system` |
@@ -265,7 +265,7 @@ A transition can never panic. Any invalid behavior produces a transition to an i
 
 **O(1) index pre-routing:**
 
-The `on_stream_event` hook runs on the engine's synchronous thread. Plugins declare their needs via a bitmask (`PluginCapabilities`). At initialization, the engine pre-routes them into a `UnifiedRoutingTable`. The streaming loop contains no conditional branching for mask verification and filters subscribers in constant time. Routes can be recalculated dynamically on demand (`RebuildRoutes`) without restarting the engine.
+The `on_stream_event` hook runs on the engine's synchronous thread. Plugins expose atomic capability traits, and initialization stores each capability in its own vector before building a `UnifiedRoutingTable`. The streaming loop contains no conditional branching for capability checks and filters subscribers in constant time. Routes can be recalculated dynamically on demand (`RebuildRoutes`) without restarting the engine.
 
 <br>
 
@@ -295,7 +295,7 @@ The kernel exposes an optional governance trait `CycleRollbackPolicy`. Before ea
 
 **Hook effect constraint (`HookEffectConstraint` trait):**
 
-The kernel exposes a governance trait `HookEffectConstraint` called after decision aggregation and before effect execution. This trait returns, for each hook, the set of allowed `Effect`s in response to a `PolicyDecision::RequestEffect`. The `HookEffectConstraint` trait offers a fast bitmask validation interface (`is_allowed_fast`) for the hot path: a `u64` mask per indexed hook, enabling O(1) validation by lookup. A fallback by name (`is_allowed_fallback`) is available for non-standard effects or future extensions. If a plugin requires an effect not allowed on a given hook, the kernel replaces the required effect with `Effect::Error { code: StateInconsistency, message: "Effect not allowed on this hook" }`. This governance extension closes the Mechanism/Policy separation gap without modifying the `PolicyDecision` enum or the `BriochePlugin` interface. The fundamental mechanism remains simple; the constraint is an injected policy.
+The kernel exposes a governance trait `HookEffectConstraint` called after decision aggregation and before effect execution. This trait returns, for each hook, the set of allowed `Effect`s in response to a `PolicyDecision::RequestEffect`. The `HookEffectConstraint` trait offers a fast bitmask validation interface (`is_allowed_fast`) for the hot path: a `u64` mask per indexed hook, enabling O(1) validation by lookup. A fallback by name (`is_allowed_fallback`) is available for non-standard effects or future extensions. If a plugin requires an effect not allowed on a given hook, the kernel replaces the required effect with `Effect::Error { code: StateInconsistency, message: "Effect not allowed on this hook" }`. This governance extension closes the Mechanism/Policy separation gap without modifying the `PolicyDecision` enum or atomic hook interfaces. The fundamental mechanism remains simple; the constraint is an injected policy.
 
 <br>
 
@@ -481,9 +481,6 @@ The kernel maintains a `SessionRegistry` on the synchronous thread, strictly `!S
 ```rust
 pub struct SessionRegistry {
     sessions: BTreeMap<SubRoutineHandle, Session>,
-    /// Outgoing transition counters per handle.
-    /// Used by SubRoutineCleanupGuard for defensive cleanup.
-    exit_counts: BTreeMap<SubRoutineHandle, u64>,
 }
 impl !Send for SessionRegistry {}
 impl !Sync for SessionRegistry {}
@@ -993,57 +990,54 @@ pub enum EffectBit {
 
 ---
 
-## Chapter 4: Plugin interface
+## Chapter 4: Plugin interfaces
 
 ---
 
-### 4.1 Capabilities and routing
+### 4.1 Atomic capabilities and routing
 
 ```rust
-pub trait BriochePlugin: Send + Sync {
+pub trait PluginPersistence: Send + Sync {
+    /// Reserved keys in ExtensionStorage. Format: "plugin_name::state_name"
+    fn owned_state_keys(&self) -> &'static [&'static str] { &[] }
+
+    /// Serializes the default state into a binary blob for resilient storage.
+    fn default_state_blob(&self) -> Vec<u8> { vec![] }
+
+    /// Attempts to deserialize a blob.
+    fn deserialize_state(&self, raw: &[u8]) -> Result<Box<dyn Any + Send + Sync>, String> {
+        Err("not implemented".into())
+    }
+}
+
+pub trait OnInput: Send + Sync {
     fn name(&self) -> &'static str;
-    fn capabilities(&self) -> PluginCapabilities;
 
     /// Deterministic evaluation order. Low priority = evaluated first.
     fn priority(&self) -> i16 { 0 }
 
-    /// Reserved keys in ExtensionStorage. Format: "plugin_name::state_name"
-    fn owned_state_keys(&self) -> &'static [&'static str] { &[] }
-
-    /// Serializes the default state into binary blob for resilient storage.
-    fn default_state_blob(&self) -> Vec<u8> { vec![] }
-
-    /// Attempts to deserialize a blob. On failure, the engine calls default_state_blob.
-    fn deserialize_state(&self, raw: &[u8]) -> Result<Box<dyn BriocheExtension>, String> {
-        Err("Not implemented".into())
-    }
-
     /// Input interceptor hook. Allows a governance plugin to entirely replace
     /// the standard dispatch (OverrideTransition) without modifying the kernel.
-    fn on_input(&self, _input: &EngineInput, _ext: &mut ExtensionStorage)
-        -> PluginResult<PolicyDecision> { Ok(PolicyDecision::Allow) }
-
-    fn before_prediction(&self, _history: &[ChatMessage], _ext: &mut ExtensionStorage)
-        -> PluginResult<PolicyDecision> { Ok(PolicyDecision::Allow) }
-
-    fn on_stream_event(&self, _event: &StreamEvent, _ext: &mut ExtensionStorage)
-        -> PluginResult<StreamAction> { Ok(StreamAction::Pass) }
-
-    fn after_prediction(&self, _ext: &mut ExtensionStorage)
-        -> PluginResult<()> { Ok(()) }
-
-    /// Hook called before emission of the ExecuteTools effect.
-    fn on_tool_calls(&self, _calls: &mut Vec<ToolCallDescriptor>, _ext: &mut ExtensionStorage)
-        -> PluginResult<()> { Ok(()) }
-
-    /// Hook called before persistence of tool results in history.
-    fn on_tool_result(&self, _results: &mut Vec<ToolResultDTO>, _ext: &mut ExtensionStorage)
-        -> PluginResult<()> { Ok(()) }
-
-    /// Hook called by the core when a plugin error is intercepted.
-    fn on_error(&self, _error: &PluginError, _ext: &mut ExtensionStorage)
-        -> PluginResult<PolicyDecision> { Ok(PolicyDecision::Allow) }
+    fn on_input(&self, input: &EngineInput, ext: &mut ExtensionStorage)
+        -> PluginResult<PolicyDecision>;
 }
+
+pub trait BeforePrediction: Send + Sync {
+    fn name(&self) -> &'static str;
+    fn priority(&self) -> i16 { 0 }
+    fn before_prediction(&self, history: &[ChatMessage], ext: &mut ExtensionStorage)
+        -> PluginResult<PolicyDecision>;
+}
+
+pub trait OnStreamEvent: Send + Sync {
+    fn name(&self) -> &'static str;
+    fn priority(&self) -> i16 { 0 }
+    fn on_stream_event(&self, event: &StreamEvent, ext: &mut ExtensionStorage)
+        -> PluginResult<StreamAction>;
+}
+
+// AfterPrediction, OnToolCalls, OnToolResult, and OnError follow the same
+// capability shape: name, priority, and exactly one lifecycle hook.
 ```
 
 <br>
@@ -1113,12 +1107,12 @@ If a `CycleRollbackPolicy` is injected, call `cycle_rollback_policy.begin_hook()
 
 <br>
 
-**3. `EpochInterceptor` trait:**
+**3. `EpochInterceptor` chain:**
 
-Call `epoch_guard.intercept_epoch(input, ext)`.
+Call each registered `EpochInterceptor::intercept_epoch(input, ext)` in builder-registration order.
 
-* If `EpochAction::Block { reason }` : return `ForwardToUi(UiWidget::Error { code, message })` + `SystemIdle`.
-* If `EpochAction::Proceed` : continue.
+* If any interceptor returns `EpochAction::Block { reason }` : return `ForwardToUi(UiWidget::Error { code, message })` + `SystemIdle`.
+* If every interceptor returns `EpochAction::Proceed` : continue.
 
 <br>
 
@@ -1195,7 +1189,7 @@ Call `on_input` on plugins of the `route_on_input` route in priority order.
 
 **7. Sub-routine outgoing transition (`SubRoutineLifecycleGuard` trait):**
 
-If the previous state before step 6 was `SubRoutine(handle)` and the current state is no longer `SubRoutine` (following `pop_state`, `OverrideTransition`, or any other dispatch), call `subroutine_lifecycle_guard.on_exit(handle, session, &mut session_registry)`. The trait may return additional effects (typically `SaveSession` and registry cleanup). The `SubRoutineCleanupGuard` implementation removes the child from the `SessionRegistry`, updates `exit_counts`, and emits `SaveSession`.
+If the previous state before step 6 was `SubRoutine(handle)` and the current state is no longer `SubRoutine` (following `pop_state`, `OverrideTransition`, or any other dispatch), call `subroutine_lifecycle_guard.on_exit(handle, session, &mut session_registry)`. The trait may return additional effects (typically `SaveSession` and registry cleanup). The `SubRoutineCleanupGuard` implementation removes the child from the `SessionRegistry`, increments the per-handle counter in its governance-owned `SubRoutineExitState` extension, and emits `SaveSession`.
 
 <br>
 
@@ -1270,7 +1264,7 @@ If a `CycleRollbackPolicy` is injected, call `commit_hook(ext)` if the budget is
 
 ### 5.3 Path of an input through the engine
 
-The kernel maintains a `UnifiedRoutingTable` that unifies addressing of fundamental traits (fixed sequential call) and pre-routed hooks (dynamic routing by capabilities). This table is internal to the kernel; public interfaces (`BriochePlugin`, governance traits) are not modified.
+The kernel maintains a `UnifiedRoutingTable` for pre-routed hooks. Fundamental governance traits have fixed sequential call sites; hook traits are stored in capability-specific vectors. This table is internal to the kernel; public interfaces stay atomic and composable.
 
 For a `UserMessage`, the complete path is:
 
@@ -1306,8 +1300,9 @@ For a `UserMessage`, the complete path is:
 
 10. [MECHANISM] RebuildRoutes last position guarantee
 
-11. [FIXED TRAIT] ConsistencyVerifier::verify_consistency
-    → If Some(effects) and no RebuildRoutes : returns these effects
+11. [FIXED TRAIT] `ConsistencyVerifier::verify_consistency`
+    → If `Some(PolicyDecision::OverrideTransition(effects))` and no `RebuildRoutes` : kernel applies recovery (Idle, clear stack/tools) and appends effects.
+    → Other `PolicyDecision` variants are applied by the kernel's decision machinery.
 
 12. [FIXED TRAIT] GovernanceFailoverHandler::handle_failure (optional)
     → If PluginFault on governance and no RebuildRoutes
@@ -1407,7 +1402,7 @@ Policy complexity (quarantine, recovery, safeguards, timeout, volume, epoch, sta
 
 ### 1.3 Materialized governance hierarchy
 
-Fundamental governance plugins are dedicated traits, called sequentially by the kernel outside the generic pre-routing system. This separation materializes semantic layers without modifying the `BriochePlugin` interface.
+Fundamental governance plugins are dedicated traits, called sequentially by the kernel outside the generic pre-routing system. Hook plugins implement atomic capability traits, so no taxonomy interface is modified to add lifecycle hooks.
 
 <br>
 
@@ -1466,7 +1461,7 @@ pub trait EpochInterceptor: Send + Sync {
 pub enum EpochAction { Proceed, Block { reason: String } }
 ```
 
-Called first in each cycle. If `Block`, the kernel returns `ForwardToUi` + `SystemIdle`. This trait is the first governance component evaluated; no other trait can override an epoch barrier (see composition invariants I-Comp-Epoch-First, I-Comp-Epoch-Subroutine).
+Called first in each cycle as an ordered chain. If any interceptor returns `Block`, the kernel returns `ForwardToUi` + `SystemIdle`; later interceptors, sub-routine handling, and hooks are skipped. No other trait can override an epoch barrier (see composition invariants I-Comp-Epoch-First, I-Comp-Epoch-Subroutine).
 
 <br>
 
@@ -1491,12 +1486,12 @@ Called if `session.state` is `SubRoutine`. Resolves the child via `SessionRegist
 
 ```rust
 pub trait ConsistencyVerifier: Send + Sync {
-    fn verify_consistency(&self, session: &mut Session)
-        -> Result<Option<Vec<Effect>>, PluginError>;
+    fn verify_consistency(&self, session: &Session)
+        -> Result<Option<PolicyDecision>, PluginError>;
 }
 ```
 
-Called last. If `Some(effects)`, mechanical forcing (typically `OverrideTransition` to `Idle`). If the accumulated effects vector already contains `RebuildRoutes`, the `ConsistencyVerifier` effects are ignored and traced in `SupersededTransitionTraceLog` with reason `ConsistencyBypassedByRebuild` (I-Comp-Rebuild-Overrides-Consistency).
+Called last. Implementations must not mutate `session`. If the verifier returns `Some(PolicyDecision::OverrideTransition(effects))`, the kernel applies the standard recovery (transition to `Idle`, clear `state_stack`, clear `active_tools`) and appends the returned effects. Other `PolicyDecision` variants are handled by the kernel's decision machinery. If the accumulated effects vector already contains `RebuildRoutes`, the `ConsistencyVerifier` decision is ignored and traced in `SupersededTransitionTraceLog` with reason `ConsistencyBypassedByRebuild` (I-Comp-Rebuild-Overrides-Consistency).
 
 <br>
 
@@ -1674,16 +1669,12 @@ pub trait CowBudgetPolicy: Send + Sync {
 ```rust
 pub struct SessionRegistry {
     sessions: BTreeMap<SubRoutineHandle, Session>,
-    /// Outgoing transition counters per handle.
-    /// Incremented at each outgoing transition from SubRoutine.
-    /// Used by SubRoutineCleanupGuard for defensive cleanup.
-    exit_counts: BTreeMap<SubRoutineHandle, u64>,
 }
 impl !Send for SessionRegistry {}
 impl !Sync for SessionRegistry {}
 ```
 
-The kernel maintains this registry on the synchronous thread. The shell and persistence manipulate only flattened `SessionHeadDTO`s. The `exit_counts` field is maintained by the kernel; it is incremented at each call to `SubRoutineLifecycleGuard::on_exit`, allowing implementations to detect duplicates and orphans.
+The kernel maintains this registry on the synchronous thread. The shell and persistence manipulate only flattened `SessionHeadDTO`s. `SessionRegistry` is a plain handle→session map; any per-handle lifecycle metadata (e.g. outgoing transition counters) is owned by the injected `SubRoutineLifecycleGuard` implementation in its `ExtensionStorage` state.
 
 <br>
 
@@ -1808,9 +1799,10 @@ pub struct EpochState {
 
 **`verify_consistency` algorithm:**
 
-1. Read `SessionSnapshot` from `ExtensionStorage`.
-2. Verify consistency: if the state is `Predicting` or `ExecutingTools` without justification (empty stack, no tools in progress according to `session.active_tools`), return `Some(vec![Effect::OverrideTransition(...)])` with: forcing `Idle`, clearing `state_stack`, epoch increment, `SaveSession`.
-3. Otherwise, return `None`.
+1. Read `session.state` and `session.state_stack` (the verifier receives an immutable `&Session`).
+2. Verify consistency: if the state is `Predicting` or `ExecutingTools` and `session.state_stack` is empty, return `Some(PolicyDecision::OverrideTransition(effects))` with effects: `Effect::Error(StateInconsistency)`, `Effect::SaveSession`, `Effect::SystemIdle`.
+3. The kernel applies the standard recovery: set `session.state` to `Idle`, clear `session.state_stack`, and clear `session.active_tools`.
+4. Otherwise, return `None`.
 
 <br>
 
@@ -1822,7 +1814,7 @@ pub struct EpochState {
 
 <br>
 
-**Positioning:** `brioche-governance`-provided implementation of the fundamental `DecisionAggregator` trait. It is explicitly injected into `BriocheEngine`; the kernel has no default implementation.
+**Positioning:** `brioche-governance-default`-provided implementation of the fundamental `DecisionAggregator` trait. It is explicitly injected into `BriocheEngine`; the kernel has no default implementation.
 
 <br>
 
@@ -2235,13 +2227,14 @@ pub struct UndoFrameState {
 
 **`on_exit` algorithm:**
 
-1. Increment `registry.exit_counts[handle]`.
-2. Remove the child `Session` from `SessionRegistry` via `registry.sessions.remove(handle)`.
-3. If removal succeeds, return `vec![Effect::SaveSession]`.
-4. If the handle no longer exists (already cleaned) :
+1. Retrieve `SubRoutineExitState` from `parent.extensions` (insert default if absent).
+2. Increment `state.exit_counts[handle]`.
+3. Remove the child `Session` from `SessionRegistry` via `registry.sessions.remove(handle)`.
+4. If removal succeeds, return `vec![Effect::SaveSession]`.
+5. If the handle no longer exists (already cleaned) :
    * Push a trace in `SupersededTransitionTraceLog` with reason `DuplicateCleanup`.
    * Return `vec![]`.
-5. **Orphan defensive cleanup** : iterate over `registry.exit_counts`. If a handle has a counter > 0 (confirmed outgoing transition) but is still in `registry.sessions`, remove it immediately.
+6. **Orphan defensive cleanup** : iterate over `state.exit_counts`. If a handle has a counter > 0 (confirmed outgoing transition) but is still in `registry.sessions`, remove it immediately.
 
 <br>
 
@@ -2720,15 +2713,14 @@ pub struct HistoricalCowState {
 
 ```rust
 pub struct BriocheEngine {
-    plugins: Vec<Box<dyn BriochePlugin>>,
-    // Fundamental governance traits - fixed order, outside routing
-    epoch_guard: Box<dyn EpochInterceptor>,
-    subroutine_handler: Box<dyn SubRoutineHandler>,
-    consistency_verifier: Box<dyn ConsistencyVerifier>,
+    router: PluginRouter,
+    // Fundamental governance traits - fixed order, outside hook routing
+    epoch_interceptors: Vec<Box<dyn EpochInterceptor>>,
+    subroutine_handler: Option<Box<dyn SubRoutineHandler>>,
+    consistency_verifier: Option<Box<dyn ConsistencyVerifier>>,
     subroutine_lifecycle_guard: Box<dyn SubRoutineLifecycleGuard>,
     // Governance trait for decision aggregation (mandatory, no fallback)
     decision_aggregator: Box<dyn DecisionAggregator>,
-    // Governance trait for cycle budget (optional)
     // Governance trait for per-hook effect constraint (optional)
     hook_effect_constraint: Option<Box<dyn HookEffectConstraint>>,
     // Governance trait for granular COW rollback (optional)
@@ -2741,17 +2733,6 @@ pub struct BriocheEngine {
     session_registry: SessionRegistry,
     // Default mechanical timeout if a policy plugin omits bounding a tool
     default_tool_timeout_ms: u64,
-    // Unified routing table (fundamental traits + pre-routed hooks)
-    routing_table: UnifiedRoutingTable,
-    // Standard routes for ordinary plugins (derived from routing_table)
-    route_on_input: Vec<usize>,
-    route_before_prediction: Vec<usize>,
-    route_on_text_stream: Vec<usize>,
-    route_on_tool_stream: Vec<usize>,
-    route_after_prediction: Vec<usize>,
-    route_on_error: Vec<usize>,
-    route_on_tool_calls: Vec<usize>,
-    route_on_tool_result: Vec<usize>,
 }
 ```
 
@@ -2762,10 +2743,9 @@ pub struct BriocheEngine {
 1. Mandatory injection of fundamental traits (`EpochInterceptor`, `SubRoutineHandler`, `ConsistencyVerifier`, `DecisionAggregator`, `SubRoutineLifecycleGuard`).
 2. Optional injection of `HookEffectConstraint`, `CycleRollbackPolicy`, `GovernanceFailoverHandler`, `CowBudgetPolicy`.
 3. Mandatory injection of `SignalDrainOrder` for separate channel drainage.
-4. Fail-fast anti-collision validation: verification that state keys declared by each plugin (`owned_state_keys`) are unique across the set. In case of collision, the engine refuses to start to prevent silent memory overwrite.
-5. Construction of `UnifiedRoutingTable`: fundamental traits are registered with their fixed order, standard plugins with their capability and `PluginCapabilities`.
-6. Construction of the 8 routing vectors by filtering plugins according to their `PluginCapabilities`.
-7. Stable sort by `priority` then by `name` to guarantee deterministic total order.
+4. Construction of `UnifiedRoutingTable`: hooks are already separated by atomic capability vector.
+5. Construction of the 7 routing vectors by sorting each capability vector.
+6. Stable sort by `priority` then by `name` to guarantee deterministic total order.
 
 <br>
 
@@ -2778,7 +2758,7 @@ The shell can call `engine.rebuild_routes(&active_mask)` at any time. The mask (
 **Performance invariant:** The `handle_stream_event` loop contains no heap allocation between entry and exit of the hot path for plugins in `Pass` or `Hold` mode. Mutations pass through `Bytes` (ref-counted clone) or through `OffloadTask` (delegation outside the hot path). `HookEffectConstraint` validation is O(1) by bitmask in the hot path.
 
 **Composability trade-off:**
-`BriocheEngine` declares governance traits as individual fields (`epoch_guard`, `subroutine_handler`, etc.) rather than a single `Vec<Box<dyn GovernanceStage>>`. This structural rigidity guarantees compile-time trait safety and zero-cost dispatch at the expense of requiring kernel modifications when new fundamental trait categories are introduced. This is a deliberate choice: fundamental traits are rare and their fixed ordering is a correctness invariant (I-Gov-Traits-Order). Standard plugins remain fully composable via `BriochePlugin` + `UnifiedRoutingTable`.
+`BriocheEngine` declares governance traits as individual fields (`epoch_interceptors`, `subroutine_handler`, etc.) rather than a single `Vec<Box<dyn GovernanceStage>>`. This structural rigidity guarantees compile-time trait safety and zero-cost dispatch at the expense of requiring kernel modifications when new fundamental trait categories are introduced. This is a deliberate choice: fundamental traits are rare and their fixed ordering is a correctness invariant (I-Gov-Traits-Order). Hook plugins remain fully composable via atomic capability traits + `UnifiedRoutingTable`.
 
 <br>
 
@@ -2795,7 +2775,7 @@ The shell can call `engine.rebuild_routes(&active_mask)` at any time. The mask (
 7. **SubRoutineLifecycleGuard** : if outgoing transition from `SubRoutine(handle)`, call `on_exit()`. This trait is mandatory.
 8. **HookEffectConstraint** : validate `RequestEffect`s via `is_allowed_fast(hook_index, effect_mask)` in O(1). Fallback by name for extended effects. Replace unauthorized ones with `Error(StateInconsistency)`.
 9. **RebuildRoutes guarantee** : if present, guarantee final position; truncate following effects.
-10. **ConsistencyVerifier** : `verify_consistency`. If `Some(effects)` AND `RebuildRoutes` is not present → return. If `RebuildRoutes` is present, the verifier's effects are ignored (I-Comp-Rebuild-Overrides-Consistency).
+10. **ConsistencyVerifier** : `verify_consistency`. If `Some(PolicyDecision::OverrideTransition(effects))` AND `RebuildRoutes` is not present, the kernel applies recovery (Idle, clear stack/tools) and appends the effects. Other `PolicyDecision` variants are applied by the kernel's decision machinery. If `RebuildRoutes` is present, the verifier's decision is ignored (I-Comp-Rebuild-Overrides-Consistency).
 10.5. **GovernanceFailoverHandler** (optional) : If the vector contains `PluginFault` targeting a `GovernanceCategory` and no `RebuildRoutes` is present, call `handle_failure`. If `Some(effects)`, replace the raw `PluginFault` (I-Gov-Failover-LastResort).
 11. **CycleRollbackPolicy** : if injected, call `commit_hook(ext)` or `rollback_hook(ext)` according to budget, limited by `max_cow_bytes_per_hook` (or by `CowBudgetPolicy` if `AdaptiveUndoFrameGuard` or `TieredUndoFrameGuard` is injected, I-Gov-CowBudget-Adaptative).
 12. Return the accumulated effects.
@@ -2929,7 +2909,7 @@ The Governance layer never modifies:
 
 * The `EngineInput` enum (no new policy variants).
 * The `AgentState` enum (no `Quarantined` or `Degraded` state).
-* The `BriochePlugin` interface (no additional hooks).
+* The hook capability interfaces (no taxonomy trait or monolithic hook surface).
 * The O(1) pre-routing algorithm.
 * The `PolicyDecision` enum (no restriction of variants).
 * The `Vec<Effect>` return type of `transition()`.
@@ -3016,7 +2996,7 @@ pub enum GovernanceProfile {
 | `HistoricalCowBudgetPolicy` | `CowBudgetPolicy` | Adaptive per-hook budget based on sliding history of observed weights. Capped at 512 KB. |
 | `NegotiationBroker` | `DecisionAggregator` | Multi-turn negotiation via `ExtensionStorage`. Max 3 phases, configurable fallback. |
 | `TreeDecisionAggregator` | `DecisionAggregator` | Conditional decision tree serialized in `ExtensionStorage`. |
-| `RollbackTelemetryEmitter` | `BriochePlugin` (`on_error` hook) | Emits telemetry when a COW rollback is abandoned. Passive observer. |
+| `RollbackTelemetryEmitter` | `OnError` | Emits telemetry when a COW rollback is abandoned. Passive observer. |
 | `DefaultCompatibilityMatrix` | — | Compatibility matrix with default values of I-Comp invariants. |
 
 <br>
@@ -3063,7 +3043,7 @@ The `BriocheEngineBuilder` follows a gradual model: calling `.with_profile()` au
 
 | Crate | Dependency |
 |---|---|
-| `brioche-governance-default` | `brioche-core`, `brioche-governance` |
+| `brioche-governance-default` | `brioche-core` |
 
 Feature flag: `governance-default` (enabled by default in profiles `headless`, `desktop`, `full`).
 
@@ -3149,15 +3129,15 @@ Treated as a transactional barrier. No following effect from the same batch, no 
 
 **ExecuteTools:**
 
-1. Create `CancellationToken`.
+1. Create a child `CancellationToken` from the shell-level shutdown token.
 2. Read `ActiveToolCall.timeout_ms` (mechanical source of truth).
 3. If absent (`0` or not specified), use the engine's `default_tool_timeout_ms`. An `Effect::Error` has already been emitted. **No technical fallback** is applied beyond this mechanical safeguard.
 4. `tokio::spawn` :
    * Parallel execution.
    * `tokio::select!` :
-     * a. Timeout: capture partial logs → `TimeoutWithPartialData`.
-     * b. Cancellation by token → emit `SystemSignal::OperationCancelled`.
-5. The shell does not transform results by business policy. Raw `ToolResultDTO`s injected into the engine channel.
+     * a. Timeout: cancel the child token and return `TimeoutWithPartialData`.
+     * b. Shell shutdown/user cancellation: return a terminal `SystemError` tool result so the generation cannot wait forever.
+5. The shell does not transform results by business policy. Raw terminal `ToolResultDTO`s are injected into the engine channel even during shutdown/rebuild barriers because the effect was already admitted.
 
 <br>
 
@@ -3171,7 +3151,7 @@ Treated as a transactional barrier. No following effect from the same batch, no 
 
 1. SSE connection.
 2. Each chunk segmented according to `MAX_INLINE_CHUNK` (4 KB), structured as `StreamEvent` with zero-copy `Bytes`.
-3. Network failure: `NetworkRecovery` (shell plugin) manages retries/backoff. As a last resort, `SystemSignal::NetworkUnavailable`. The kernel never receives a `NetworkFailure`.
+3. Network/SSE failure: `NetworkRecovery` (shell plugin) manages retries/backoff. As a last resort, emit `SystemSignal::NetworkUnavailable` and a terminal `StreamEvent::Done`; the kernel never receives a `NetworkFailure` and never remains in a streaming wait state.
 
 <br>
 
@@ -3440,7 +3420,7 @@ If the `pong` indicates `pending_inputs > 0` at the time of blocking, the watchd
 
 * **No synchronous orchestration logic** : all transition decisions are in the kernel (Books I and II).
 * **No business policy** : circuit breaker, token tracking, etc. are in the ecosystem (Book IV).
-* **No modification of the extension contract** : `BriochePlugin`, `Effect`, `PolicyDecision` are fixed since Book I.
+* **No modification of the extension contract** : hook capability traits, `Effect`, `PolicyDecision` are fixed since Book I.
 * **No persistence** : persistence is handled by the Shell Persistence layer (Book III-B).
 * **No UI rendering** : UI projection is handled by the Shell Projection layer (Book III-C).
 
@@ -3844,7 +3824,7 @@ impl BriocheExtensionType for UiPerformanceState {
 
 * **No synchronous orchestration logic** : all transition decisions are in the kernel (Books I and II).
 * **No business policy** : circuit breaker, token tracking, etc. are in the ecosystem (Book IV).
-* **No modification of the extension contract** : `BriochePlugin`, `Effect`, `PolicyDecision` are fixed since Book I.
+* **No modification of the extension contract** : hook capability traits, `Effect`, `PolicyDecision` are fixed since Book I.
 * **No persistence** : persistence is in the Shell Persistence layer (Book III-B).
 * **No runtime** : the asynchronous runtime is in the Shell Runtime layer (Book III-A).
 
@@ -4135,21 +4115,20 @@ impl BriocheExtensionType for AuditState {
 
 To create a third-party plugin:
 
-1. Implement `BriochePlugin`.
-2. Define `PluginCapabilities` via the bitmask.
-3. Reserve state keys with `owned_state_keys`.
-4. Provide `default_state_blob` and `deserialize_state` for resilience.
-5. Derive `BriocheExtensionType` via the SDK proc-macro to guarantee the absence of persisted `HashMap`/`HashSet` and determinism of `Vec`s.
-6. Never mutate `session.history` directly; use `PolicyDecision`.
-7. Never access `session.state` directly; use `SessionSnapshot` from `ExtensionStorage`.
-8. Never mutate `session.active_tools` directly; it is internal mechanical state of the kernel.
-9. Use `priority` to control evaluation order if the effect order is semantic.
-10. Use ordered collections (`BTreeMap`, `BTreeSet`, `IndexMap`) in extension states and data structures passing through hooks. The use of `HashMap` or `HashSet` in persisted states or hooks is prohibited by the SDK to preserve determinism. Plugins can use `HashMap` in purely transient and non-exposed caches.
-11. For execution safeguards (timeout, volume), register on `on_tool_calls` and `on_tool_result` rather than modifying the shell. Mutate `ToolCallDescriptor.timeout_ms` in place for timeouts.
-12. For system/asynchronous event management, consume separate channels (`SystemSignal`, `AsyncTaskResult`, `GovernanceNotification`) via dedicated adapters rather than waiting for variants in `EngineInput`.
-14. For effects requested via `RequestEffect`, verify that the target effect is allowed on the current hook. The kernel validates via `HookEffectConstraint` if injected; in the absence of constraint, the effect is allowed by default.
-15. Use the `brioche-plugin-kit` crate to automatically generate safe boilerplate (`EXT_ID`, ordered collections, `SessionSnapshot` accessors, hook registration). The kit preserves invariants without the developer having to memorize them.
-16. If two plugins need to negotiate a complex decision, merge them into a single plugin with internal negotiation state, or use `NegotiationBroker` as a `DecisionAggregator` implementation. `DecisionAggregator` aggregates independent decisions; it does not support direct inter-plugin communication.
+1. Implement the atomic hook trait for the lifecycle capability you need.
+2. Optionally implement `PluginPersistence` to reserve state keys and provide default/deserialize blobs.
+3. Register the plugin through the matching `BriocheEngineBuilder::with_*` method.
+4. Derive `BriocheExtensionType` via the SDK proc-macro to guarantee the absence of persisted `HashMap`/`HashSet` and determinism of `Vec`s.
+5. Never mutate `session.history` directly; use `PolicyDecision`.
+6. Never access `session.state` directly; use `SessionSnapshot` from `ExtensionStorage`.
+7. Never mutate `session.active_tools` directly; it is internal mechanical state of the kernel.
+8. Use `priority` to control evaluation order if the effect order is semantic.
+9. Use ordered collections (`BTreeMap`, `BTreeSet`, `IndexMap`) in extension states and data structures passing through hooks. The use of `HashMap` or `HashSet` in persisted states or hooks is prohibited by the SDK to preserve determinism. Plugins can use `HashMap` in purely transient and non-exposed caches.
+10. For execution safeguards (timeout, volume), register on `on_tool_calls` and `on_tool_result` rather than modifying the shell. Mutate `ToolCallDescriptor.timeout_ms` in place for timeouts.
+11. For system/asynchronous event management, consume separate channels (`SystemSignal`, `AsyncTaskResult`, `GovernanceNotification`) via dedicated adapters rather than waiting for variants in `EngineInput`.
+12. For effects requested via `RequestEffect`, verify that the target effect is allowed on the current hook. The kernel validates via `HookEffectConstraint` if injected; in the absence of constraint, the effect is allowed by default.
+13. Use the `brioche-plugin-kit` crate to automatically generate safe boilerplate (`EXT_ID`, ordered collections, `SessionSnapshot` accessors, hook registration). The kit preserves invariants without the developer having to memorize them.
+14. If two plugins need to negotiate a complex decision, merge them into a single plugin with internal negotiation state, or use `NegotiationBroker` as a `DecisionAggregator` implementation. `DecisionAggregator` aggregates independent decisions; it does not support direct inter-plugin communication.
 
 <br>
 
@@ -4253,7 +4232,7 @@ To create a third-party plugin:
 
 <br>
 
-**Positioning:** The `brioche-docgen` crate is a development toolchain tool. It does not modify any mechanical component of the SDK. It analyzes source code of `brioche-core`, `brioche-governance`, and `brioche-governance-default` crates to produce:
+**Positioning:** The `brioche-docgen` crate is a development toolchain tool. It does not modify any mechanical component of the SDK. It analyzes source code of `brioche-core` and `brioche-governance-default` crates to produce:
 
 * A **trait dependency graph**: which traits depend on which others, which plugins implement them.
 * A **sequence diagram per input type**: for each `EngineInput` variant (UserMessage, LlmStream, ToolCallsResult, RestoreSubRoutine), the complete path through fundamental traits and pre-routed hooks.
@@ -4291,7 +4270,7 @@ cargo brioche docgen --output ./docs --format json   # for CI integration
 **Usage procedure:**
 
 ```bash
-$ # In CI, after each modification of brioche-core or brioche-governance
+$ # In CI, after each modification of brioche-core or brioche-governance-default
 $ cargo brioche lint-invariants --check-refs --check-matrix
 
 $ # Output: compliance report, non-zero exit code if divergence
@@ -4413,7 +4392,7 @@ Composition invariants define the interaction rules between governance traits an
 | **I-Comp-Override-Rebuild** | An `OverrideTransition` can never cancel a `RebuildRoutes` already emitted in the same cycle. The kernel guarantees the `RebuildRoutes` order in last position (I-Gov-Rebuild-Last) and ignores any subsequent `OverrideTransition` if `RebuildRoutes` is already present. |
 | **I-Comp-Epoch-First** | `EpochInterceptor` is always evaluated before any other governance trait. The epoch is the fundamental temporal barrier; no policy decision can override an epoch barrier. |
 | **I-Comp-Epoch-Subroutine** | `SubRoutineHandler` short-circuits standard dispatch but **does not short-circuit** `EpochInterceptor` . An obsolete sub-routine (past epoch) is rejected before `SubRoutineHandler` is invoked. |
-| **I-Comp-Rebuild-Overrides-Consistency** | `ConsistencyVerifier` can never overwrite a `RebuildRoutes`. If `ConsistencyVerifier` returns `Some(effects)` and the accumulated vector already contains `RebuildRoutes`, the verifier's effects are ignored and traced in `SupersededTransitionTraceLog` (reason: `ConsistencyBypassedByRebuild`). |
+| **I-Comp-Rebuild-Overrides-Consistency** | `ConsistencyVerifier` can never overwrite a `RebuildRoutes`. If `ConsistencyVerifier` returns `Some(PolicyDecision::OverrideTransition(effects))` and the accumulated vector already contains `RebuildRoutes`, the verifier's decision is ignored and traced in `SupersededTransitionTraceLog` (reason: `ConsistencyBypassedByRebuild`). |
 | **I-Comp-Rollback-Excludes-Governance** | A `CycleRollbackPolicy` never rolls back mutations performed by fundamental governance traits (`EpochInterceptor`, `SubRoutineHandler`, `ConsistencyVerifier`, `DecisionAggregator`). Only pre-routed hooks of ordinary plugins are monitored. |
 | **I-Comp-Failover-NoOverride** | The `GovernanceFailoverHandler` trait intervenes only if `QuarantineManager` has not processed a governance fault (absence of `RebuildRoutes` with `PluginFault` targeting a `Governance` category). It does not short-circuit fundamental traits nor standard dispatch. |
 | **I-Comp-Atomic-Concern** | Each plugin implements exactly one observable policy concern. A plugin that checks depth limits does not construct UI effects; a plugin that counts tool calls does not format results. Concern separation is enforced by code review. |
@@ -4433,14 +4412,14 @@ Composition invariants define the interaction rules between governance traits an
 
 | ID | Invariant |
 |----|-----------|
-| **I-Shell-ToolResult-PassThrough** | The shell does not filter nor transform tool results by business policy. Volume management is in the `on_tool_result` kernel hook. |
+| **I-Shell-ToolResult-PassThrough** | The shell does not filter nor transform tool results by business policy. Volume management is in the `on_tool_result` kernel hook. Terminal tool results for already-admitted effects may bypass front-door shutdown/rebuild barriers so the kernel can close the in-flight generation. |
 | **I-Shell-Session-NoSend** | `Session` is marked `!Send` and `!Sync`. No concurrent mutation on `ExtensionStorage`. |
 | **I-Shell-DTO-Only** | The shell and persistence manipulate only `SessionHeadDTO`s; the kernel holds live `Session` instances via `SessionRegistry`. |
 | **I-Shell-SubRoutineCache** | The sub-routine cache uses two levels (L1 visible / L2 LRU) to guarantee that DTOs currently rendered by the UI are never evicted. |
 | **I-Shell-Composer-Frame** | The `UiComposer` consumes its effects synchronized on `requestAnimationFrame` with a budget configurable by `UiPerformancePolicy`. |
 | **I-Shell-Load-Batch** | Session loading recursively loads direct children (depth 1) in a batch query to avoid N+1 requests. |
 | **I-Shell-NoUIType** | No type transiting through IPC or Redb contains a reference to a UI type. |
-| **I-Shell-Network-Signal** | The kernel never receives a `NetworkFailure`; the shell emits `SystemSignal::NetworkUnavailable` as a last resort. |
+| **I-Shell-Network-Signal** | The kernel never receives a `NetworkFailure`; the shell emits `SystemSignal::NetworkUnavailable` as a last resort and terminates the stream with `StreamEvent::Done`. |
 | **I-Shell-Watchdog-NoKill** | The `EngineWatchdog` on the shell side monitors the engine thread's reactivity. In case of prolonged blocking, it triggers emergency serialization without corruption of the global Redb database. The watchdog never attempts to forcibly interrupt the engine thread. |
 | **I-Shell-Tick** | The shell emits `SystemSignal::Tick { elapsed_ms }` periodically for temporal governance plugins, without modifying the `EngineInput` enum. |
 | **I-Shell-Backpressure-NoOverflow** | The `BackpressureRegulator` guarantees that the channel to the engine never exceeds its capacity (I-Shell-Backpressure-NoOverflow). Intermediate SSE chunks can be dropped in `Conservative` mode without losing structural events. |
@@ -4674,13 +4653,12 @@ The following configurations are the only officially supported and CI-tested pro
 | `brioche-core` | Almost no external dependencies. |
 | `brioche-macro` | `syn`, `quote`, `proc-macro2`. |
 | `brioche-std` | Depends on `core`. |
-| `brioche-governance` | Depends on `core`. |
-| `brioche-governance-default` | Depends on `core`, `governance`. |
+| `brioche-governance-default` | Depends on `core`. |
 | `brioche-shell-runtime` | Depends on `core`, `tokio`. |
 | `brioche-shell-persistence` | Depends on `core`, `redb`. |
 | `brioche-shell-projection` | Depends on `core`, `tauri` (opt). |
 | `brioche-plugin-kit` | Depends on `core`, `macro`. |
-| `brioche-docgen` | Depends on `core`, `governance`, `syn`. |
+| `brioche-docgen` | Depends on `core`, `syn`. |
 | `brioche-playground` | Docker development image. |
 
 <br>
@@ -4838,7 +4816,7 @@ The following configurations are the only officially supported and CI-tested pro
 | 29 | I-Shell-Watchdog-NoKill | The `EngineWatchdog` on the shell side monitors the engine thread's reactivity and triggers emergency serialization in case of prolonged blocking, without panic propagation to the kernel. |
 | 30 | I-Shell-Tick | The shell emits `SystemSignal::Tick { elapsed_ms }` periodically for temporal governance plugins, without modifying the `EngineInput` enum. |
 | 31 | I-Gov-Rollback-BestEffort | The `CycleRollbackPolicy` trait is optional. Without injection, the kernel performs no snapshot or rollback of `ExtensionStorage`. With injection, only actually mutated extensions are cloned via `clone_box` from the VTable (granular COW, O(k)), and rollback is abandoned if `max_cow_bytes_per_hook` is exceeded (best-effort, I-Gov-Rollback-Critical). The `CowBudgetPolicy` trait allows configuring this threshold per hook; without injection, the default value is 65536 bytes (I-Gov-CowBudget-Adaptative). |
-| 32 | I-Gov-SubRoutineLifecycle-Guard | The `SubRoutineLifecycleGuard` trait is **mandatory**. The kernel refuses to start without an injected implementation. The `SubRoutineCleanupGuard` implementation removes the child from `SessionRegistry` on outgoing transition from `SubRoutine` and maintains `exit_counts` for defense in depth. |
+| **I-Gov-SubRoutineLifecycle-Guard** | The `SubRoutineLifecycleGuard` trait is **mandatory**. The kernel refuses to start without an injected implementation. The `SubRoutineCleanupGuard` implementation removes the child from `SessionRegistry` on outgoing transition from `SubRoutine` and tracks per-handle exit counters in its governance-owned `SubRoutineExitState` extension for defense in depth. |
 | 33 | I-Gov-Profile-Agnostic | The `brioche-governance-default` crate provides reference implementations and predefined profiles (`Permissive`, `Standard`, `Strict`) for all governance traits, including `SubRoutineCleanupGuard` as the mandatory `SubRoutineLifecycleGuard` implementation. It strictly respects I-Gov-Decision-Required (mandatory injection, no fallback in the kernel). The kernel remains agnostic of the profile notion. |
 | 34 | I-Comp-Override-Rebuild | The `GovernanceCompatibilityMatrix` defines composition invariants between traits (`epoch_overrides_subroutine`, `rebuildroutes_overrides_consistency`, `rollback_excludes_governance_traits`). It is injected at initialization with default values guaranteeing invariants I-Comp-Override-Rebuild to I-Comp-Failover-NoOverride. |
 | 35 | I-Shell-Backpressure-NoOverflow | The `BackpressureRegulator` guarantees that the channel to the engine never exceeds its capacity (I-Shell-Backpressure-NoOverflow). Intermediate SSE chunks can be dropped in `Conservative` mode without losing structural events. |

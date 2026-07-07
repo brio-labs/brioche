@@ -143,6 +143,12 @@ impl Persistence for NoopPersistence {
 #[async_trait::async_trait]
 pub trait EffectExecutor: Clone + Send + Sync + 'static {
     /// Invoke the LLM network and stream fragments back as `EngineInput::LlmStream`.
+    ///
+    /// # Cancel safety
+    /// This future delegates to the LLM client and may await network I/O.
+    /// Dropping it before completion leaves the underlying request running
+    /// until the provider times out; any chunks already emitted remain in the
+    /// shell's input queue.
     async fn call_llm(&self, shell: &BriocheShell) -> Result<(), ShellError>;
 
     /// Execute tools in parallel and send `EngineInput::ToolCallsResult`
@@ -150,6 +156,12 @@ pub trait EffectExecutor: Clone + Send + Sync + 'static {
     ///
     /// `generation_id` is captured from the engine state snapshot so the
     /// shell never reads `Session` directly.
+    ///
+    /// # Cancel safety
+    /// This future spawns one task per tool call and awaits the join handles.
+    /// Dropping it before all tasks complete detaches the remaining tasks;
+    /// their results may still be delivered to the shell and the tool
+    /// processes continue until completion or timeout.
     async fn execute_tools(
         &self,
         calls: Vec<ActiveToolCall>,
@@ -158,21 +170,51 @@ pub trait EffectExecutor: Clone + Send + Sync + 'static {
     ) -> Result<(), ShellError>;
 
     /// Forward a structured UI widget to the presentation layer.
+    ///
+    /// # Cancel safety
+    /// This future reads `self.ui_forwarder` and performs no await after that.
+    /// Dropping it is always safe and leaves no partial state.
     async fn forward_to_ui(&self, widget: UiWidget) -> Result<(), ShellError>;
 
     /// Log an error effect (telemetry / tracing).
+    ///
+    /// # Cancel safety
+    /// This future performs no await. Dropping it is safe.
     async fn log_error(&self, code: ErrorCode, detail: ErrorDetail) -> Result<(), ShellError>;
 
     /// Persist session state.
+    ///
+    /// # Cancel safety
+    /// In async persistence mode this future spawns a background task, stores
+    /// its handle, and returns immediately; the save continues to completion
+    /// or error after drop unless `EffectExecutor::shutdown` is awaited. In
+    /// sync mode it awaits `Persistence::save_session`; dropping leaves no
+    /// partial state in the executor.
     async fn save_session(&self, session_id: &str) -> Result<(), ShellError>;
 
     /// Persist a plugin blob.
+    ///
+    /// # Cancel safety
+    /// This future awaits `Persistence::save_plugin_blob`; dropping leaves no
+    /// partial state in the executor.
     async fn save_plugin_blob(&self, plugin_id: &str, data: Vec<u8>) -> Result<(), ShellError>;
 
     /// Trigger a background summarization task.
+    ///
+    /// # Cancel safety
+    /// This future awaits a read lock on the history mirror and then the LLM
+    /// summarize call. Dropping before the summarize call returns releases the
+    /// lock and does not modify history; dropping during
+    /// `send_async_task_result` may leave the summary unreported.
     async fn trigger_summarization(&self, shell: &BriocheShell) -> Result<(), ShellError>;
 
     /// Execute a CPU-intensive task on the blocking thread pool.
+    ///
+    /// # Cancel safety
+    /// This future awaits a `spawn_blocking` task. Dropping before the task
+    /// completes detaches it; the computation continues but its result is
+    /// discarded. Dropping after completion but before the result is sent
+    /// discards the result.
     async fn execute_cpu_task(
         &self,
         task_id: String,
@@ -181,9 +223,16 @@ pub trait EffectExecutor: Clone + Send + Sync + 'static {
     ) -> Result<(), ShellError>;
 
     /// Trigger opportunistic garbage collection.
+    ///
+    /// # Cancel safety
+    /// This future awaits persistence garbage collection; dropping leaves no
+    /// partial state.
     async fn trigger_gc(&self, session_id: &str) -> Result<(), ShellError>;
 
     /// Handle `SystemIdle` — may decide to trigger GC.
+    ///
+    /// # Cancel safety
+    /// This future performs no await. Dropping it is safe.
     async fn on_system_idle(
         &self,
         shell: &BriocheShell,
@@ -191,10 +240,32 @@ pub trait EffectExecutor: Clone + Send + Sync + 'static {
     ) -> Result<(), ShellError>;
 
     /// Rebuild routing tables (transactional barrier).
+    ///
+    /// # Cancel safety
+    /// This future performs no await. Dropping it is safe.
     async fn rebuild_routes(&self) -> Result<(), ShellError>;
 
     /// Notify that a sub-routine has been restored.
+    ///
+    /// # Cancel safety
+    /// This future invokes a synchronous callback with no await. Dropping
+    /// before the callback runs leaves the subroutine unnotified.
     async fn sub_routine_restored(&self, handle: SubRoutineHandle) -> Result<(), ShellError>;
+
+    /// Gracefully shut down the executor.
+    ///
+    /// Waits for any background work started by the executor to complete.
+    /// Implementations that do not spawn background work may leave this as a
+    /// no-op.
+    ///
+    /// # Cancel safety
+    /// The default implementation is a no-op and is therefore cancel-safe.
+    /// Implementations that await background tasks must document their own
+    /// contract; dropping such a future before completion may leave those tasks
+    /// running.
+    ///
+    /// Refs: I-Shell-Persistence-Mode
+    async fn shutdown(&self) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -247,6 +318,13 @@ pub struct DefaultEffectExecutor<T, L, P> {
     ///
     /// Refs: I-Shell-CpuTask-Dispatch
     cpu_task_registry: Option<Arc<CpuTaskRegistry>>,
+    /// Handles for in-flight async `SaveSession` effects.
+    ///
+    /// Stored so `shutdown` can await their completion before the
+    /// runtime exits.
+    ///
+    /// Refs: I-Shell-Persistence-Mode
+    async_save_handles: Arc<std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
 }
 
 impl<T, L, P> Clone for DefaultEffectExecutor<T, L, P> {
@@ -264,6 +342,7 @@ impl<T, L, P> Clone for DefaultEffectExecutor<T, L, P> {
                 .map(Arc::clone),
             history: self.history.as_ref().map(Arc::clone),
             cpu_task_registry: self.cpu_task_registry.as_ref().map(Arc::clone),
+            async_save_handles: Arc::clone(&self.async_save_handles),
         }
     }
 }
@@ -283,6 +362,7 @@ impl<T, L, P> DefaultEffectExecutor<T, L, P> {
             subroutine_restored_callback: None,
             history: None,
             cpu_task_registry: None,
+            async_save_handles: Arc::new(std::sync::Mutex::new(Vec::new())),
         }
     }
 
@@ -411,13 +491,12 @@ where
         shell: &BriocheShell,
     ) -> Result<(), ShellError> {
         use brioche_core::{EngineInput, ToolOutcome};
-        use tokio_util::sync::CancellationToken;
 
         let mut handles = Vec::with_capacity(calls.len());
 
         for call in calls {
             let tool_executor = Arc::clone(&self.tool_executor);
-            let cancel = CancellationToken::new();
+            let cancel = shell.child_cancellation_token();
             // ActiveToolCall.timeout_ms is the mechanical source of truth.
             // The kernel's seal() already materializes this from the descriptor
             // with default_tool_timeout_ms as fallback (docs/SPECS.md §Book III-A Ch 1).
@@ -427,10 +506,18 @@ where
                 let result = tokio::select! {
                     biased;
                     _ = tokio::time::sleep(tokio::time::Duration::from_millis(timeout_ms)) => {
+                        cancel.cancel();
                         ToolResultDTO {
                             tool_id: call.tool_id.clone(),
                             tool_name: call.tool_name.clone(),
                             outcome: ToolOutcome::TimeoutWithPartialData { partial_output: None },
+                        }
+                    }
+                    _ = cancel.cancelled() => {
+                        ToolResultDTO {
+                            tool_id: call.tool_id.clone(),
+                            tool_name: call.tool_name.clone(),
+                            outcome: ToolOutcome::SystemError("tool execution cancelled".into()),
                         }
                     }
                     r = tool_executor.execute(&call, cancel.clone()) => r,
@@ -454,7 +541,7 @@ where
         }
 
         shell
-            .send_input(EngineInput::ToolCallsResult {
+            .send_terminal_input(EngineInput::ToolCallsResult {
                 generation_id,
                 results,
             })
@@ -478,12 +565,17 @@ where
         let id = session_id.to_string();
         match self.persistence_mode {
             PersistenceMode::Async => {
-                // Non-blocking: spawn the save on a background task.
-                tokio::spawn(async move {
+                // Non-blocking: spawn the save on a background task and retain
+                // the handle so shutdown can await it.
+                let handle = tokio::spawn(async move {
                     if let Err(err) = persistence.save_session(&id).await {
                         tracing::error!(error = %err, "async save_session failed");
                     }
                 });
+                if let Ok(mut handles) = self.async_save_handles.lock() {
+                    handles.retain(|h| !h.is_finished());
+                    handles.push(handle);
+                }
                 Ok(())
             }
             PersistenceMode::Sync => {
@@ -585,12 +677,34 @@ where
         }
         Ok(())
     }
+
+    /// Wait for any in-flight async `SaveSession` effects to complete.
+    ///
+    /// Errors are ignored; the runtime is terminating.
+    ///
+    /// Refs: I-Shell-Persistence-Mode
+    async fn shutdown(&self) {
+        // Drain the shared handle list so each handle is awaited exactly once
+        // even though every clone of the executor shares the same list.
+        let handles = {
+            if let Ok(mut guard) = self.async_save_handles.lock() {
+                std::mem::take(&mut *guard)
+            } else {
+                Vec::new()
+            }
+        };
+
+        for handle in handles {
+            let _ = handle.await;
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     use tokio::sync::{RwLock, mpsc};
 
@@ -798,6 +912,77 @@ mod tests {
             executor.persistence.gc_count.load(Ordering::SeqCst),
             0,
             "on_system_idle should not trigger GC; GC is policy-driven"
+        );
+        Ok(())
+    }
+
+    /// A test persistence layer that records how many times `save_session` ran
+    /// and can optionally sleep to simulate slow I/O.
+    #[derive(Clone, Debug, Default)]
+    struct RecordingPersistence {
+        counter: Arc<AtomicU64>,
+        delay_ms: u64,
+    }
+
+    impl RecordingPersistence {
+        fn with_delay_ms(self, delay_ms: u64) -> Self {
+            Self { delay_ms, ..self }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Persistence for RecordingPersistence {
+        async fn save_session(&self, _session_id: &str) -> Result<(), ShellError> {
+            if self.delay_ms > 0 {
+                tokio::time::sleep(Duration::from_millis(self.delay_ms)).await;
+            }
+            self.counter.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        async fn save_plugin_blob(
+            &self,
+            _plugin_id: &str,
+            _data: Vec<u8>,
+        ) -> Result<(), ShellError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn shutdown_awaits_pending_async_saves() -> Result<(), ShellError> {
+        let persistence = RecordingPersistence::default().with_delay_ms(50);
+        let executor = DefaultEffectExecutor::new(
+            EchoToolExecutor,
+            MockLlmClient::default(),
+            persistence.clone(),
+        );
+
+        executor.save_session("session-a").await?;
+
+        // The save should be in-flight, so its handle is stored.
+        assert!(
+            executor
+                .async_save_handles
+                .lock()
+                .is_ok_and(|guard| !guard.is_empty()),
+            "async save handle should be stored"
+        );
+
+        // Shutdown waits for the background save to complete.
+        executor.shutdown().await;
+
+        assert_eq!(
+            persistence.counter.load(Ordering::SeqCst),
+            1,
+            "save_session should have completed during shutdown"
+        );
+        assert!(
+            executor
+                .async_save_handles
+                .lock()
+                .is_ok_and(|guard| guard.is_empty()),
+            "handles should be drained after shutdown"
         );
         Ok(())
     }

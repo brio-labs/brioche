@@ -46,6 +46,8 @@ cargo test --workspace
    - `fix/<book>-<description>` for bug fixes
    - `doc/<description>` for documentation-only changes
    - `chore/<description>` for tooling or CI changes
+   - `refactor/<description>` for code restructuring with no behavior change
+   - `test/<description>` for test-only additions or improvements
 
 2. **Update the specification** in `/docs/architecture/` before writing code if your change affects behavior, trait interfaces, or invariants.
 
@@ -75,7 +77,7 @@ cargo brioche-lint-invariants check-matrix
 
 ### Error Handling
 
-- `unwrap()`, `expect()`, and `panic!()` are **denied by clippy** in `brioche-core` and `brioche-governance`.
+- `unwrap()`, `expect()`, and `panic!()` are **denied by clippy** in `brioche-core` and `brioche-governance-default`.
 - Use `Result<T, BriocheError>` for system errors and `PluginResult<T>` for plugin hooks.
 - Never silently ignore errors. Log or propagate.
 
@@ -140,7 +142,7 @@ New Rust developers will instinctively reach for `HashMap`, `unwrap()`, and inhe
 | Change Location | Required Tests |
 |-----------------|---------------|
 | `brioche-core` | Property tests (`proptest`), replay tests |
-| `brioche-governance` traits | Unit tests + scenario tests |
+| `brioche-core` governance traits | Unit tests + scenario tests |
 | Governance plugins | Unit tests with mocked `ExtensionStorage` |
 | Hot path changes | Criterion benchmarks (see below) |
 | `brioche-macro` | `trybuild` compilation tests (positive and negative) |
@@ -207,9 +209,7 @@ A regression > 150% blocks merge.
 ### `<book>` — Required
 
 The subsystem the change affects:
-
-`core`, `governance`, `governance-default`, `shell-runtime`, `shell-persistence`, `shell-projection`, `std`, `macro`, `plugin-kit`, `playground`, `docgen`, `repo`
-
+`core`, `desktop`, `docgen`, `governance`, `governance-default`, `macro`, `playground`, `plugin-kit`, `provider-openai`, `repo`, `shell-persistence`, `shell-projection`, `shell-runtime`, `std`, `tools-system`
 ### `<description>` — Required
 
 Imperative mood, max 72 characters, no trailing period.
@@ -262,7 +262,7 @@ Refs: I-Gov-Rollback-BestEffort, I-Core-VTableClone
 | Change Type | Required Approvals |
 |-------------|------------------|
 | Core (`brioche-core`, `brioche-macro`) | 2 (System Architect + Core Engineer) |
-| Governance (`brioche-governance`, `brioche-governance-default`) | 2 (System Architect + Core Engineer) |
+| Governance (`brioche-governance-default`) | 2 (System Architect + Core Engineer) |
 | Shell (`brioche-shell-*`) | 1 (Shell Engineer) |
 | Ecosystem / Tooling (`brioche-std`, `plugin-kit`, `docgen`, `playground`) | 1 (Tooling Engineer) |
 | Documentation only | 1 (any maintainer) |

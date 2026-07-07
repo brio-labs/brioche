@@ -12,7 +12,15 @@ use brioche_core::{DecisionAggregator, ExtensionStorage, PluginResult, PolicyDec
 /// Node of a decision tree.
 ///
 /// Refs: I-Gov-Decision-Required
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    brioche_core::BriocheExtensionType,
+)]
 pub enum DecisionNode {
     /// Leaf — returns this decision.
     Leaf(PolicyDecision),
@@ -27,19 +35,35 @@ pub enum DecisionNode {
     },
 }
 
+impl Default for DecisionNode {
+    fn default() -> Self {
+        Self::Leaf(PolicyDecision::default())
+    }
+}
+
 /// Condition evaluated in the decision tree.
 ///
 /// Refs: I-Gov-Decision-Required
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    brioche_core::BriocheExtensionType,
+)]
 pub enum DecisionCondition {
     /// True if at least one decision is `Block`.
+    #[default]
     AnyBlock,
     /// True if at least one decision is `OverrideTransition`.
     AnyOverride,
     /// True if all decisions are `Allow`.
     AllAllow,
     /// True if the number of decisions exceeds the threshold.
-    CountExceeds(usize),
+    CountExceeds(u64),
 }
 
 /// Decision tree state stored in ExtensionStorage.
@@ -88,6 +112,10 @@ impl Default for TreeDecisionAggregator {
 }
 
 impl DecisionAggregator for TreeDecisionAggregator {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn aggregate_decisions(
         &self,
         decisions: Vec<PolicyDecision>,
@@ -147,7 +175,7 @@ fn evaluate_tree(node: &DecisionNode, decisions: &[PolicyDecision]) -> Option<Po
                 DecisionCondition::AllAllow => {
                     decisions.iter().all(|d| matches!(d, PolicyDecision::Allow))
                 }
-                DecisionCondition::CountExceeds(n) => decisions.len() > *n,
+                DecisionCondition::CountExceeds(n) => (decisions.len() as u64) > *n,
             };
             if result {
                 evaluate_tree(if_true, decisions)

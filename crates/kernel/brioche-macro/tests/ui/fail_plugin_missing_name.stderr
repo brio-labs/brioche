@@ -1,0 +1,7 @@
+error: `name` is required in #[brioche_plugin(...)]
+ --> tests/ui/fail_plugin_missing_name.rs:5:1
+  |
+5 | #[brioche_plugin(capabilities = "ON_INPUT")]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `brioche_plugin` (in Nightly builds, run with -Z macro-backtrace for more info)

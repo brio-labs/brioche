@@ -7,6 +7,10 @@ members = [
   "crates/ecosystem/*",
   "crates/apps/*",
   "crates/infra/*",
+  "tests/integration",
+  "tests/property",
+  "tests/replay",
+  "tests/bench",
 ]
 exclude = ["crates/brioche-plugin-template"]
 resolver = "2"
@@ -23,6 +27,8 @@ repository = "https://github.com/brio-labs/brioche"
 async-trait = "0.1"
 bytes = "1"
 brioche-core = { path = "crates/kernel/brioche-core" }
+brioche-governance = { path = "crates/kernel/brioche-governance" }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = [
   "rt-multi-thread",
@@ -32,10 +38,10 @@ tokio = { version = "1", features = [
 ] }
 tokio-util = { version = "0.7", features = ["rt"] }
 tracing = "0.1"
-brioche-governance = { path = "crates/kernel/brioche-governance" }
 brioche-governance-default = { path = "crates/kernel/brioche-governance-default" }
 brioche-shell-runtime = { path = "crates/runtime/brioche-shell-runtime" }
 brioche-shell-persistence = { path = "crates/runtime/brioche-shell-persistence" }
+brioche-shell-builder = { path = "crates/runtime/brioche-shell-builder" }
 brioche-shell-projection = { path = "crates/runtime/brioche-shell-projection" }
 brioche-std = { path = "crates/ecosystem/brioche-std" }
 brioche-macro = { path = "crates/kernel/brioche-macro" }
@@ -45,23 +51,26 @@ brioche-playground = { path = "crates/ecosystem/brioche-playground" }
 brioche-provider-openai = { path = "crates/providers/brioche-provider-openai" }
 brioche-tools-system = { path = "crates/tools/brioche-tools-system" }
 brioche-reedline = { path = "crates/infra/brioche-reedline" }
+brioche-lint-core = { path = "crates/infra/brioche-lint-core" }
 cargo-brioche-lint-invariants = { path = "crates/infra/cargo-brioche-lint-invariants" }
 cargo-brioche-lint = { path = "crates/infra/cargo-brioche-lint" }
 dirs = "6"
-reqwest = { version = "0.13", features = ["json"] }
+reqwest = { version = "0.13", default-features = false }
 lazy_static = "1"
 base64-simd = "0.8"
-
-# Tauri desktop runtime and plugins (P4-CI-11)
-tauri = { version = "2.11", features = ["custom-protocol"] }
-tauri-build = { version = "2.6", features = [] }
-tauri-plugin-dialog = "2.7"
-tauri-plugin-opener = "2.5"
+tauri = "2"
+tauri-build = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+jsonschema = "0.46"
+proptest = "1"
+criterion = { version = "0.5", features = ["async_tokio"] }
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
+cognitive_complexity = "warn"
 
 [workspace.lints.rust]
 missing_docs = "warn"

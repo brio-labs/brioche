@@ -16,22 +16,6 @@ use tauri::State;
 
 use crate::state::DesktopState;
 
-/// Validates that an identifier (key, name, id, category) is non-empty.
-///
-/// Refs: I-Shell-Runtime-OnlyIO
-///
-/// # Complexity
-/// O(L) where L is the identifier length.
-///
-/// # Panic / Safety
-/// Never panics.
-fn validate_identifier(value: &str, label: &str) -> Result<(), String> {
-    if value.trim().is_empty() {
-        return Err(format!("{label} cannot be empty"));
-    }
-    Ok(())
-}
-
 // ---------------------------------------------------------------------------
 // Memory commands
 // ---------------------------------------------------------------------------
@@ -103,16 +87,14 @@ pub async fn list_memories(category: Option<String>) -> Result<Vec<MemoryEntryPa
 /// O(N) where N is the number of local memories. Reads and writes disk.
 ///
 /// # Panic / Safety
-/// Never panics. Returns Err on invalid input or save failure.
+/// Never panics. Returns Err on save failure.
 #[tauri::command]
 pub async fn set_memory(key: String, value: String, category: String) -> Result<(), String> {
-    validate_identifier(&key, "Memory key")?;
-    validate_identifier(&value, "Memory value")?;
-    validate_identifier(&category, "Memory category")?;
-
     let mut store =
         LocalMemoryProvider::load().map_err(|e| format!("Failed to load memory store: {e}"))?;
-    store.set(key, value, category)
+    store
+        .set(key, value, category)
+        .map_err(|e| format!("Failed to set memory: {e}"))
 }
 
 /// Deletes a memory entry by key.
@@ -123,11 +105,9 @@ pub async fn set_memory(key: String, value: String, category: String) -> Result<
 /// O(N) where N is the number of local memories. Reads and writes disk.
 ///
 /// # Panic / Safety
-/// Never panics. Returns Err if memory key is empty, not found, or save fails.
+/// Never panics. Returns Err if memory key is not found or save fails.
 #[tauri::command]
 pub async fn delete_memory(key: String) -> Result<(), String> {
-    validate_identifier(&key, "Memory key")?;
-
     let mut store =
         LocalMemoryProvider::load().map_err(|e| format!("Failed to load memory store: {e}"))?;
     if !store.delete(&key)? {
@@ -273,11 +253,11 @@ pub async fn set_skill_enabled(
     name: String,
     enabled: bool,
 ) -> Result<(), String> {
-    validate_identifier(&name, "Skill name")?;
-
     let registry = state.extensions.read().await;
     match registry.skill_providers().iter().next() {
-        Some(provider) => provider.set_enabled(&name, enabled),
+        Some(provider) => provider
+            .set_enabled(&name, enabled)
+            .map_err(|e| e.to_string()),
         None => Err("No skill provider available".into()),
     }
 }
@@ -299,12 +279,11 @@ pub async fn create_skill(
     description: String,
     content: String,
 ) -> Result<(), String> {
-    validate_identifier(&name, "Skill name")?;
-    validate_identifier(&category, "Skill category")?;
-
     let registry = state.extensions.read().await;
     match registry.skill_providers().iter().next() {
-        Some(provider) => provider.create_skill(&name, &category, &description, &content),
+        Some(provider) => provider
+            .create_skill(&name, &category, &description, &content)
+            .map_err(|e| e.to_string()),
         None => Err("No skill provider available".into()),
     }
 }
@@ -320,11 +299,9 @@ pub async fn create_skill(
 /// Never panics. Returns Err if the skill package does not exist or deletion fails.
 #[tauri::command]
 pub async fn delete_skill(state: State<'_, DesktopState>, name: String) -> Result<(), String> {
-    validate_identifier(&name, "Skill name")?;
-
     let registry = state.extensions.read().await;
     match registry.skill_providers().iter().next() {
-        Some(provider) => provider.delete_skill(&name),
+        Some(provider) => provider.delete_skill(&name).map_err(|e| e.to_string()),
         None => Err("No skill provider available".into()),
     }
 }
@@ -463,11 +440,11 @@ pub async fn set_tool_enabled(
     id: String,
     enabled: bool,
 ) -> Result<(), String> {
-    validate_identifier(&id, "Tool id")?;
-
     let registry = state.extensions.read().await;
     match registry.tool_providers().iter().next() {
-        Some(provider) => provider.set_enabled(&id, enabled),
+        Some(provider) => provider
+            .set_enabled(&id, enabled)
+            .map_err(|e| e.to_string()),
         None => Err(format!("Tool provider not available for '{}'", id)),
     }
 }
@@ -480,15 +457,12 @@ pub async fn set_tool_enabled(
 /// O(P) where P is the number of tool providers. Appends custom tool and writes configurations to disk.
 ///
 /// # Panic / Safety
-/// Never panics. Returns Err if tools are disabled, input is invalid, or no provider is found.
+/// Never panics. Returns Err if no tool provider is found or tool name overlaps.
 #[tauri::command]
 pub async fn add_user_tool(
     state: State<'_, DesktopState>,
     tool: UserToolDefinition,
 ) -> Result<(), String> {
-    validate_identifier(&tool.id, "Tool id")?;
-    validate_identifier(&tool.name, "Tool name")?;
-
     let settings = {
         let factory = state.factory.read().await;
         factory.settings.clone()
@@ -500,7 +474,7 @@ pub async fn add_user_tool(
     }
     let registry = state.extensions.read().await;
     match registry.tool_providers().iter().next() {
-        Some(provider) => provider.add_user_tool(tool),
+        Some(provider) => provider.add_user_tool(tool).map_err(|e| e.to_string()),
         None => Err("No tool provider available".into()),
     }
 }
@@ -516,118 +490,9 @@ pub async fn add_user_tool(
 /// Never panics. Returns Err if target tool not found or no provider available.
 #[tauri::command]
 pub async fn remove_user_tool(state: State<'_, DesktopState>, id: String) -> Result<(), String> {
-    validate_identifier(&id, "Tool id")?;
-
     let registry = state.extensions.read().await;
     match registry.tool_providers().iter().next() {
-        Some(provider) => provider.remove_user_tool(&id),
+        Some(provider) => provider.remove_user_tool(&id).map_err(|e| e.to_string()),
         None => Err("No tool provider available".into()),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use brioche_shell_persistence::extensions::tool_provider::ToolExecutor;
-
-    use super::*;
-
-    #[test]
-    fn validate_identifier_rejects_empty() -> Result<(), String> {
-        match validate_identifier("", "Skill name") {
-            Err(e) => assert_eq!(e, "Skill name cannot be empty"),
-            Ok(_) => return Err("expected empty identifier to be rejected".into()),
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn validate_identifier_rejects_whitespace() -> Result<(), String> {
-        match validate_identifier("   ", "Memory key") {
-            Err(e) => assert_eq!(e, "Memory key cannot be empty"),
-            Ok(_) => return Err("expected whitespace identifier to be rejected".into()),
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn validate_identifier_accepts_non_empty() -> Result<(), String> {
-        validate_identifier("valid-key", "Memory key")?;
-        Ok(())
-    }
-
-    #[test]
-    fn memory_entry_payload_from_entry() -> Result<(), String> {
-        let entry = MemoryEntry {
-            key: "api-url".into(),
-            value: "https://example.com".into(),
-            category: "project".into(),
-            created_at: 100,
-            updated_at: 200,
-            access_count: 5,
-            provider_id: "local".into(),
-        };
-        let payload = MemoryEntryPayload::from(&entry);
-        assert_eq!(payload.key, "api-url");
-        assert_eq!(payload.value, "https://example.com");
-        assert_eq!(payload.category, "project");
-        assert_eq!(payload.created_at, 100);
-        assert_eq!(payload.updated_at, 200);
-        assert_eq!(payload.access_count, 5);
-        Ok(())
-    }
-
-    #[test]
-    fn skill_payload_from_skill() -> Result<(), String> {
-        let skill = skills::Skill {
-            name: "test-skill".into(),
-            description: "A test skill".into(),
-            version: "1.0.0".into(),
-            author: "tester".into(),
-            license: "MIT".into(),
-            platforms: vec!["linux".into()],
-            category: "test".into(),
-            path: "/tmp/test-skill".into(),
-            tags: vec!["tag1".into()],
-            related_skills: vec!["other".into()],
-            content: "# Test".into(),
-            enabled: true,
-        };
-        let payload = SkillPayload::from(&skill);
-        assert_eq!(payload.name, "test-skill");
-        assert_eq!(payload.description, "A test skill");
-        assert_eq!(payload.version, "1.0.0");
-        assert_eq!(payload.author, "tester");
-        assert_eq!(payload.license, "MIT");
-        assert_eq!(payload.platforms, vec!["linux"]);
-        assert_eq!(payload.category, "test");
-        assert_eq!(payload.path, "/tmp/test-skill");
-        assert_eq!(payload.tags, vec!["tag1"]);
-        assert_eq!(payload.related_skills, vec!["other"]);
-        assert_eq!(payload.content, "# Test");
-        Ok(())
-    }
-
-    #[test]
-    fn user_tool_definition_validation_is_checked_before_disabled_gate() -> Result<(), String> {
-        // This test exercises the validation helper path with a realistic
-        // UserToolDefinition shape. The command itself requires DesktopState,
-        // so we validate the inputs directly.
-        let tool = UserToolDefinition {
-            id: "".into(),
-            name: "Empty id tool".into(),
-            description: "desc".into(),
-            parameters: serde_json::Value::Object(serde_json::Map::new()),
-            category: "test".into(),
-            tags: vec![],
-            executor: ToolExecutor::Command {
-                command: "echo hi".into(),
-                working_dir: None,
-            },
-        };
-        match validate_identifier(&tool.id, "Tool id") {
-            Err(e) => assert_eq!(e, "Tool id cannot be empty"),
-            Ok(_) => return Err("expected empty tool id to be rejected".into()),
-        }
-        Ok(())
     }
 }

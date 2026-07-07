@@ -110,9 +110,13 @@ pub struct SessionHeadDTO {
     /// Extension cold snapshots: `ext_id` -> binary blob.
     pub extensions: BTreeMap<String, Vec<u8>>,
     /// Number of messages already persisted (delta protocol watermark).
-    pub persisted_msg_count: usize,
+    pub persisted_msg_count: u64,
     /// Opportunistic GC watermark (Sprint 13).
     pub compaction_index: u32,
+    /// CRC32 checksum of the serialized DTO (excluding this field).
+    ///
+    /// `None` for legacy blobs; validation is skipped when absent.
+    pub checksum: Option<u32>,
 }
 
 impl SessionHeadDTO {
@@ -139,6 +143,7 @@ impl SessionHeadDTO {
             extensions: session.extensions.cold_snapshot().clone(),
             persisted_msg_count: session.persisted_msg_count,
             compaction_index: 0,
+            checksum: None,
         }
     }
 

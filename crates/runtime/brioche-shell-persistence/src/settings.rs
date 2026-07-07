@@ -10,8 +10,11 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use brioche_shell_runtime::util::{load_json, save_json};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+use crate::secrets::{protect_secret, reveal_secret};
 
 /// A configured AMP-compatible memory endpoint.
 ///
@@ -207,17 +210,18 @@ impl Settings {
     /// Never panics. Returns defaults if file reading or parsing fails.
     pub fn load() -> Self {
         let path = settings_path();
-        if let Ok(data) = std::fs::read_to_string(&path)
-            && let Ok(mut settings) = serde_json::from_str::<Settings>(&data)
-        {
-            // Merge missing default module values so upgrades keep working.
-            let defaults = Self::default();
-            for (key, value) in defaults.modules {
-                settings.modules.entry(key).or_insert(value);
+        match load_json::<_, Settings>(&path, "settings") {
+            Ok(mut settings) => {
+                // Merge missing default module values so upgrades keep working.
+                let defaults = Self::default();
+                for (key, value) in defaults.modules {
+                    settings.modules.entry(key).or_insert(value);
+                }
+                settings.reveal_api_keys();
+                settings
             }
-            return settings;
+            Err(_) => Self::default(),
         }
-        Self::default()
     }
 
     /// Saves settings to disk.
@@ -230,14 +234,22 @@ impl Settings {
     /// # Panic / Safety
     /// Never panics. Returns error string if serialization or write fails.
     pub fn save(&self) -> Result<(), String> {
-        let path = settings_path();
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create config dir: {e}"))?;
-        }
-        let data = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("Failed to serialize settings: {e}"))?;
-        std::fs::write(&path, data).map_err(|e| format!("Failed to write settings: {e}"))
+        let mut persisted = self.clone();
+        persisted.protect_api_keys()?;
+        save_json(settings_path(), &persisted, "settings")
+    }
+
+    fn reveal_api_keys(&mut self) {
+        reveal_secret_at(&mut self.modules, &["chat", "api_key"]);
+        reveal_secret_array_field(&mut self.modules, &["chat", "fallback_models"], "api_key");
+        reveal_secret_array_field(&mut self.modules, &["memory", "endpoints"], "api_key");
+    }
+
+    fn protect_api_keys(&mut self) -> Result<(), String> {
+        protect_secret_at(&mut self.modules, &["chat", "api_key"])?;
+        protect_secret_array_field(&mut self.modules, &["chat", "fallback_models"], "api_key")?;
+        protect_secret_array_field(&mut self.modules, &["memory", "endpoints"], "api_key")?;
+        Ok(())
     }
 
     /// Returns a module object, creating it with an empty object if missing.
@@ -352,7 +364,7 @@ impl Settings {
     /// Refs: I-Shell-Runtime-OnlyIO
     pub fn api_key(&self) -> String {
         match self.get("chat.api_key") {
-            Some(Value::String(s)) => s,
+            Some(Value::String(s)) => reveal_secret(&s).map_or(String::new(), |secret| secret),
             _ => String::new(),
         }
     }
@@ -421,6 +433,12 @@ impl Settings {
             Some(Value::Array(arr)) => arr
                 .iter()
                 .filter_map(|v| serde_json::from_value::<MemoryEndpoint>(v.clone()).ok())
+                .map(|mut endpoint| {
+                    if let Some(api_key) = endpoint.api_key.take() {
+                        endpoint.api_key = reveal_secret(&api_key).ok();
+                    }
+                    endpoint
+                })
                 .collect(),
             _ => Vec::new(),
         }
@@ -431,7 +449,17 @@ impl Settings {
     /// Refs: I-Shell-Runtime-OnlyIO
     pub fn fallback_models(&self) -> Vec<FallbackModel> {
         self.get("chat.fallback_models").map_or(Vec::new(), |v| {
-            serde_json::from_value::<Vec<FallbackModel>>(v).map_or(Vec::new(), |m| m)
+            serde_json::from_value::<Vec<FallbackModel>>(v).map_or(Vec::new(), |models| {
+                models
+                    .into_iter()
+                    .map(|mut model| {
+                        if let Some(api_key) = model.api_key.take() {
+                            model.api_key = reveal_secret(&api_key).ok();
+                        }
+                        model
+                    })
+                    .collect()
+            })
         })
     }
 
@@ -568,6 +596,63 @@ impl Settings {
     }
 }
 
+fn reveal_secret_at(modules: &mut BTreeMap<String, Value>, path: &[&str]) {
+    if let Some(Value::String(secret)) = value_at_mut(modules, path)
+        && let Ok(revealed) = reveal_secret(secret)
+    {
+        *secret = revealed;
+    }
+}
+
+fn protect_secret_at(modules: &mut BTreeMap<String, Value>, path: &[&str]) -> Result<(), String> {
+    if let Some(Value::String(secret)) = value_at_mut(modules, path) {
+        *secret = protect_secret(secret)?;
+    }
+    Ok(())
+}
+
+fn reveal_secret_array_field(modules: &mut BTreeMap<String, Value>, path: &[&str], field: &str) {
+    if let Some(Value::Array(items)) = value_at_mut(modules, path) {
+        for item in items {
+            if let Value::Object(object) = item
+                && let Some(Value::String(secret)) = object.get_mut(field)
+                && let Ok(revealed) = reveal_secret(secret)
+            {
+                *secret = revealed;
+            }
+        }
+    }
+}
+
+fn protect_secret_array_field(
+    modules: &mut BTreeMap<String, Value>,
+    path: &[&str],
+    field: &str,
+) -> Result<(), String> {
+    if let Some(Value::Array(items)) = value_at_mut(modules, path) {
+        for item in items {
+            if let Value::Object(object) = item
+                && let Some(Value::String(secret)) = object.get_mut(field)
+            {
+                *secret = protect_secret(secret)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn value_at_mut<'a>(
+    modules: &'a mut BTreeMap<String, Value>,
+    path: &[&str],
+) -> Option<&'a mut Value> {
+    let (module, fields) = path.split_first()?;
+    let mut current = modules.get_mut(*module)?;
+    for field in fields {
+        current = current.get_mut(*field)?;
+    }
+    Some(current)
+}
+
 /// Returns the platform-appropriate settings file path.
 fn settings_path() -> PathBuf {
     let config_dir = match dirs::config_dir() {
@@ -673,6 +758,40 @@ mod tests {
                 .is_err_and(|err| err.contains("target_percentage")),
             "target > trigger should fail"
         );
+    }
+
+    #[test]
+    fn settings_api_keys_are_protected_for_persistence() -> Result<(), String> {
+        let mut settings = Settings::default();
+        settings.set("chat.api_key", Value::String("sk-chat-secret".into()))?;
+        settings.set(
+            "chat.fallback_models",
+            Value::Array(vec![Value::Object(
+                [
+                    ("provider".into(), Value::String("openai".into())),
+                    ("model".into(), Value::String("gpt-4o".into())),
+                    ("api_key".into(), Value::String("sk-fallback-secret".into())),
+                ]
+                .into_iter()
+                .collect(),
+            )]),
+        )?;
+
+        settings.protect_api_keys()?;
+        let persisted = serde_json::to_string(&settings).map_err(|err| err.to_string())?;
+
+        assert!(persisted.contains("brioche-secret:v1:"));
+        assert!(!persisted.contains("sk-chat-secret"));
+        assert!(!persisted.contains("sk-fallback-secret"));
+        settings.reveal_api_keys();
+        assert_eq!(settings.api_key(), "sk-chat-secret");
+        let fallback = settings
+            .fallback_models()
+            .into_iter()
+            .next()
+            .ok_or_else(|| "missing fallback model".to_string())?;
+        assert_eq!(fallback.api_key.as_deref(), Some("sk-fallback-secret"));
+        Ok(())
     }
 
     #[test]

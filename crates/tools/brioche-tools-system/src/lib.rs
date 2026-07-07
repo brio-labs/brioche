@@ -18,4 +18,7 @@ pub mod tools;
 pub use registry::{
     AllowList, ConfirmHandler, SandboxPolicy, SystemTool, SystemToolExecutor, ToolError,
 };
-pub use tools::{ExecuteCommandTool, FetchUrlTool, ListDirTool, ReadFileTool, WriteFileTool};
+pub use tools::filesystem::FileSystemSandbox;
+pub use tools::{
+    ExecuteCommandTool, FetchUrlTool, ListDirTool, ReadFileTool, WriteFileTool, post_json,
+};

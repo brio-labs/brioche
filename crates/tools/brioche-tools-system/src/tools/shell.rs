@@ -1,4 +1,4 @@
-//! Sandboxed shell command execution tool.
+//! Sandboxed command execution tool.
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
@@ -8,8 +8,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::registry::{AllowList, ConfirmHandler, SandboxPolicy, SystemTool, ToolError};
 
-/// Executes a shell command with a sandbox policy.
-/// Refs: docs/SPECS.md §Book III-C
+/// Executes a command with a sandbox policy.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
 pub struct ExecuteCommandTool {
     policy: SandboxPolicy,
     confirm_handler: Option<ConfirmHandler>,
@@ -17,8 +18,9 @@ pub struct ExecuteCommandTool {
 }
 
 impl ExecuteCommandTool {
-    /// Creates a new shell command tool with default sandbox policy.
-    /// Refs: docs/SPECS.md §Book III-C
+    /// Creates a new command tool with default sandbox policy.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn new() -> Self {
         Self {
             policy: SandboxPolicy::default(),
@@ -28,21 +30,24 @@ impl ExecuteCommandTool {
     }
 
     /// Sets the sandbox policy explicitly.
-    /// Refs: docs/SPECS.md §Book III-C
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn with_policy(mut self, policy: SandboxPolicy) -> Self {
         self.policy = policy;
         self
     }
 
     /// Sets a default working directory.
-    /// Refs: docs/SPECS.md §Book III-C
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn with_default_cwd(mut self, cwd: impl Into<String>) -> Self {
         self.default_cwd = Some(cwd.into());
         self
     }
 
     /// Creates the tool with an explicit allow-list.
-    /// Refs: docs/SPECS.md §Book III-C
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn with_allow_list(list: AllowList) -> Self {
         Self {
             policy: SandboxPolicy::AllowList(list),
@@ -56,7 +61,8 @@ impl ExecuteCommandTool {
     /// When a command is outside the allow-list (or in
     /// `Interactive` mode), the handler is called inside
     /// `spawn_blocking` to ask the user for confirmation.
-    /// Refs: docs/SPECS.md §Book III-C
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
     pub fn with_confirm_handler(mut self, handler: ConfirmHandler) -> Self {
         self.confirm_handler = Some(handler);
         self
@@ -76,7 +82,7 @@ impl SystemTool for ExecuteCommandTool {
     }
 
     fn description(&self) -> String {
-        "Execute a shell command. Only allowed commands are permitted by default.".into()
+        "Execute a command. Only allowed commands are permitted by default.".into()
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -86,7 +92,7 @@ impl SystemTool for ExecuteCommandTool {
         command.insert("type".into(), serde_json::Value::String("string".into()));
         command.insert(
             "description".into(),
-            serde_json::Value::String("The shell command to execute".into()),
+            serde_json::Value::String("The command to execute".into()),
         );
         props.insert("command".into(), serde_json::Value::Object(command));
 
@@ -117,13 +123,19 @@ impl SystemTool for ExecuteCommandTool {
             .as_str()
             .ok_or_else(|| ToolError::InvalidArgs("missing 'command'".into()))?;
 
+        validate_no_shell_metacharacters(command)?;
+        let argv = split_command(command)?;
+        let program = argv
+            .first()
+            .ok_or_else(|| ToolError::InvalidArgs("command is empty".into()))?;
+
         match &self.policy {
             SandboxPolicy::Permissive => {
-                tracing::warn!(command, "executing command in permissive sandbox");
+                tracing::warn!(command, program, "executing command in permissive sandbox");
             }
             SandboxPolicy::AllowList(list) => {
-                if !list.is_allowed(command) {
-                    if let Some(ref handler) = self.confirm_handler {
+                if !list.is_allowed(program) {
+                    if let Some(handler) = &self.confirm_handler {
                         let cmd = command.to_string();
                         let handler = Arc::clone(handler);
                         let confirmed = tokio::task::spawn_blocking(move || handler(&cmd))
@@ -146,7 +158,7 @@ impl SystemTool for ExecuteCommandTool {
                 }
             }
             SandboxPolicy::Interactive => {
-                if let Some(ref handler) = self.confirm_handler {
+                if let Some(handler) = &self.confirm_handler {
                     let cmd = command.to_string();
                     let handler = Arc::clone(handler);
                     let confirmed = tokio::task::spawn_blocking(move || handler(&cmd))
@@ -169,12 +181,16 @@ impl SystemTool for ExecuteCommandTool {
             }
         }
 
-        let mut cmd = tokio::process::Command::new("sh");
-        cmd.arg("-c").arg(command);
+        let mut cmd = tokio::process::Command::new(program);
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+        for arg in argv.iter().skip(1) {
+            cmd.arg(arg);
+        }
 
         if let Some(cwd) = args["cwd"].as_str() {
             cmd.current_dir(cwd);
-        } else if let Some(ref default_cwd) = self.default_cwd {
+        } else if let Some(default_cwd) = &self.default_cwd {
             cmd.current_dir(default_cwd);
         }
 
@@ -223,4 +239,87 @@ impl SystemTool for ExecuteCommandTool {
 
         Ok(result)
     }
+}
+
+/// Rejects commands that contain shell metacharacters.
+///
+/// Because `ExecuteCommandTool` no longer invokes `/bin/sh -c`,
+/// metacharacters are not interpreted; rejecting them defends against
+/// accidental or malicious shell syntax in user input.
+fn validate_no_shell_metacharacters(command: &str) -> Result<(), ToolError> {
+    for c in command.chars() {
+        if matches!(
+            c,
+            ';' | '|' | '&' | '$' | '`' | '\n' | '\r' | '<' | '>' | '(' | ')' | '{' | '}'
+        ) {
+            return Err(ToolError::InvalidArgs(format!(
+                "command contains shell metacharacter: {c}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Splits a command string into an argv vector.
+///
+/// Supports single and double quotes and backslash escaping outside
+/// single quotes. Returns `ToolError::InvalidArgs` on unclosed quotes
+/// or a trailing backslash.
+fn split_command(command: &str) -> Result<Vec<String>, ToolError> {
+    let mut argv = Vec::new();
+    let mut current = String::new();
+    let mut chars = command.chars().peekable();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut in_token = false;
+
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' if !in_double_quote => {
+                in_single_quote = !in_single_quote;
+                in_token = true;
+            }
+            '"' if !in_single_quote => {
+                in_double_quote = !in_double_quote;
+                in_token = true;
+            }
+            '\\' if !in_single_quote => match chars.next() {
+                Some(next) => {
+                    current.push(next);
+                    in_token = true;
+                }
+                None => {
+                    return Err(ToolError::InvalidArgs(
+                        "command ends with a backslash".into(),
+                    ));
+                }
+            },
+            c if c.is_whitespace() && !in_single_quote && !in_double_quote => {
+                if in_token {
+                    argv.push(std::mem::take(&mut current));
+                    in_token = false;
+                }
+            }
+            c => {
+                current.push(c);
+                in_token = true;
+            }
+        }
+    }
+
+    if in_single_quote || in_double_quote {
+        return Err(ToolError::InvalidArgs(
+            "command has an unclosed quote".into(),
+        ));
+    }
+
+    if in_token {
+        argv.push(current);
+    }
+
+    if argv.is_empty() {
+        return Err(ToolError::InvalidArgs("command is empty".into()));
+    }
+
+    Ok(argv)
 }

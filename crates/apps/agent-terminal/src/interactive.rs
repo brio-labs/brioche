@@ -16,7 +16,7 @@ use reedline::ExternalPrinter;
 use tokio::sync::{RwLock, mpsc};
 use tokio_util::sync::CancellationToken;
 
-use crate::shell_builder::build_shell;
+use crate::shell_builder::{ShellMode, build_shell};
 use crate::{CliConfig, bridge};
 
 /// Launches the full interactive mode.
@@ -28,14 +28,23 @@ use crate::{CliConfig, bridge};
 pub async fn run(cli_config: CliConfig, redb_storage: RedbStorage, session_store: SessionStore) {
     print_banner();
 
-    let (shell, llm_client, llm_rx, _history) = build_shell(
+    let (shell, llm_client, llm_rx, _history) = match build_shell(
         "cli-session",
         &cli_config,
+        ShellMode::Interactive,
         redb_storage.clone(),
         Arc::clone(&session_store),
         None,
         None,
-    );
+    )
+    .await
+    {
+        Ok(tuple) => tuple,
+        Err(err) => {
+            eprintln!("Failed to build shell: {err}");
+            return;
+        }
+    };
 
     let manager = Arc::new(RwLock::new(SessionManager::new("cli-session", shell)));
 

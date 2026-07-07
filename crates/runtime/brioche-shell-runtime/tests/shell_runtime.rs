@@ -14,16 +14,19 @@ use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
 use brioche_core::{
-    ActiveToolCall, BriocheEngineBuilder, ChatMessage, EngineInput, Session, SignalDrainOrder,
-    SystemSignal, ToolResultDTO,
+    ActiveToolCall, AgentState, BriocheEngineBuilder, ChatMessage, Effect, EngineInput,
+    ExtensionStorage, OnInput, PluginError, PluginResult, PolicyDecision, Session,
+    SignalDrainOrder, SystemSignal, ToolResultDTO,
 };
 use brioche_governance_default::{LexicographicDecisionAggregator, SubRoutineCleanupGuard};
 use brioche_shell_runtime::{
     AsyncTaskResultAdapter, BackpressureRegulator, BriocheShell, DefaultEffectExecutor, DropPolicy,
     EchoToolExecutor, EngineWatchdog, EngineWatchdogHandle, GovernanceNotificationAdapter,
-    MockLlmClient, NoopPersistence, RecoveryProcedure, ShellConfig, SignalMultiplexer,
-    SystemSignalAdapter, TelemetryChannel, TickEmitter, ToolExecutor, UnifiedEventBus,
+    MockLlmClient, NoopPersistence, Persistence, RecoveryProcedure, SessionCallback, ShellConfig,
+    ShellError, SignalMultiplexer, SystemSignalAdapter, TelemetryChannel, TickEmitter,
+    ToolExecutor, UnifiedEventBus,
 };
+use tokio::sync::{Notify, oneshot};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -48,12 +51,157 @@ fn build_shell() -> BriocheShell {
 }
 
 // ---------------------------------------------------------------------------
+// Session snapshot recorder
+// ---------------------------------------------------------------------------
+
+/// Captured view of `Session` state after each transition.
+///
+/// Used to verify effect-loop ordering and final observable state without
+/// accessing the `!Send` `Session` from the async test thread.
+#[derive(Clone, Debug, PartialEq)]
+struct SessionView {
+    state: AgentState,
+    generation_id: Option<u64>,
+    stack_depth: usize,
+    history: Vec<ChatMessage>,
+}
+
+/// Returns a `SessionCallback` and a handle to the recorded snapshots.
+///
+/// The callback runs on the engine thread after every transition.
+fn session_recorder() -> (SessionCallback, Arc<std::sync::Mutex<Vec<SessionView>>>) {
+    let views = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let views_clone = Arc::clone(&views);
+    let callback: SessionCallback = Box::new(move |session| {
+        if let Ok(mut guard) = views_clone.lock() {
+            guard.push(SessionView {
+                state: session.state.clone(),
+                generation_id: match session.state {
+                    AgentState::Predicting { generation_id }
+                    | AgentState::ExecutingTools { generation_id } => Some(generation_id),
+                    _ => None,
+                },
+                stack_depth: session.state_stack.len(),
+                history: session.history.clone(),
+            });
+        }
+    });
+    (callback, views)
+}
+
+/// Clone the currently recorded views.
+///
+/// Returns an empty vector if the mutex is poisoned, which will cause the
+/// calling assertions to fail visibly.
+fn recorded_views(views: &Arc<std::sync::Mutex<Vec<SessionView>>>) -> Vec<SessionView> {
+    match views.lock() {
+        Ok(guard) => guard.clone(),
+        Err(_) => Vec::new(),
+    }
+}
+
+fn is_predicting(state: &AgentState, generation_id: u64) -> bool {
+    matches!(state, AgentState::Predicting { generation_id: g } if *g == generation_id)
+}
+
+fn is_executing_tools(state: &AgentState, generation_id: u64) -> bool {
+    matches!(state, AgentState::ExecutingTools { generation_id: g } if *g == generation_id)
+}
+
+fn is_idle(state: &AgentState) -> bool {
+    matches!(state, AgentState::Idle)
+}
+
+/// Build a shell that records `SessionView`s after every transition.
+fn build_shell_with_recorder() -> (BriocheShell, Arc<std::sync::Mutex<Vec<SessionView>>>) {
+    let (callback, views) = session_recorder();
+    let executor =
+        DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), NoopPersistence);
+    let shell = BriocheShell::new(
+        || (build_minimal_engine(), Session::new("test")),
+        ShellConfig::default(),
+        executor,
+        Some(callback),
+    );
+    (shell, views)
+}
+
+struct SaveSessionOnInput;
+
+impl OnInput for SaveSessionOnInput {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = PluginError;
+    type PolicyDecision = PolicyDecision;
+
+    fn name(&self) -> &'static str {
+        "save_session_on_input"
+    }
+
+    fn priority(&self) -> i16 {
+        0
+    }
+
+    fn on_input(
+        &self,
+        input: &EngineInput,
+        _ext: &mut ExtensionStorage,
+    ) -> PluginResult<PolicyDecision> {
+        if matches!(input, EngineInput::UserMessage(_)) {
+            Ok(PolicyDecision::RequestEffect(Effect::SaveSession))
+        } else {
+            Ok(PolicyDecision::Allow)
+        }
+    }
+}
+
+#[derive(Clone)]
+struct BlockingSavePersistence {
+    started: Arc<std::sync::Mutex<Option<oneshot::Sender<()>>>>,
+    release: Arc<Notify>,
+}
+
+impl BlockingSavePersistence {
+    fn new(started: oneshot::Sender<()>) -> Self {
+        Self {
+            started: Arc::new(std::sync::Mutex::new(Some(started))),
+            release: Arc::new(Notify::new()),
+        }
+    }
+
+    fn release(&self) {
+        self.release.notify_waiters();
+    }
+}
+
+#[async_trait::async_trait]
+impl Persistence for BlockingSavePersistence {
+    async fn save_session(&self, _session_id: &str) -> Result<(), ShellError> {
+        if let Ok(mut guard) = self.started.lock()
+            && let Some(started) = guard.take()
+        {
+            let _ = started.send(());
+        }
+        self.release.notified().await;
+        Ok(())
+    }
+
+    async fn save_plugin_blob(&self, _plugin_id: &str, _data: Vec<u8>) -> Result<(), ShellError> {
+        Ok(())
+    }
+
+    async fn gc(&self, _session_id: &str) -> Result<u64, ShellError> {
+        Ok(0)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn shell_dispatches_user_message() {
-    let shell = build_shell();
+    let (shell, views) = build_shell_with_recorder();
 
     assert!(
         shell
@@ -63,17 +211,56 @@ async fn shell_dispatches_user_message() {
         "input send should succeed"
     );
 
-    // Allow the engine thread to process and the effect loop to run.
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    // Allow the engine thread to process the full mock stream.
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
-    // The engine should have produced CallLlmNetwork + SaveSession effects.
-    // Since the effect executor is async, we verify the shell stays alive.
+    let views = recorded_views(&views);
+    assert!(!views.is_empty(), "expected transition snapshots");
+
+    let first = &views[0];
+    assert!(
+        is_predicting(&first.state, 1),
+        "first transition should enter Predicting"
+    );
+    assert_eq!(first.history.len(), 1);
+    assert!(
+        matches!(
+            &first.history[0],
+            ChatMessage::User { content } if content == "hello"
+        ),
+        "user message should be first history entry"
+    );
+
+    // Invariants: no lost transitions, generation id stays consistent.
+    for view in &views {
+        if let AgentState::Predicting { generation_id }
+        | AgentState::ExecutingTools { generation_id } = view.state
+        {
+            assert_eq!(generation_id, 1, "generation_id should remain 1");
+        }
+    }
+
+    let last = &views[views.len() - 1];
+    assert!(is_idle(&last.state), "final state should be Idle");
+    assert_eq!(
+        last.history.len(),
+        2,
+        "final history should contain the user message and assistant reply"
+    );
+    assert!(
+        matches!(
+            &last.history[1],
+            ChatMessage::Assistant { content, .. } if content == "Hello world"
+        ),
+        "assistant reply should be accumulated from streamed chunks"
+    );
+
     assert!(shell.ready().await.is_ok());
 }
 
 #[tokio::test]
 async fn shell_routes_system_signal() {
-    let shell = build_shell();
+    let (shell, views) = build_shell_with_recorder();
 
     assert!(
         shell
@@ -83,8 +270,30 @@ async fn shell_routes_system_signal() {
         "signal send should succeed"
     );
 
-    // Signal should be drained into the engine thread's local adapter.
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    // Trigger a transition so the shell drains the signal buffer.
+    assert!(
+        shell
+            .send_input(EngineInput::UserMessage("hello".into()))
+            .await
+            .is_ok(),
+        "input send should succeed"
+    );
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let views = recorded_views(&views);
+    assert!(!views.is_empty(), "expected transition snapshots");
+
+    let first = &views[0];
+    assert!(
+        is_predicting(&first.state, 1),
+        "user message should still transition to Predicting"
+    );
+    assert_eq!(first.history.len(), 1);
+
+    let last = &views[views.len() - 1];
+    assert!(is_idle(&last.state), "final state should be Idle");
+    assert_eq!(last.history.len(), 2);
 
     assert!(shell.ready().await.is_ok());
 }
@@ -93,7 +302,8 @@ async fn shell_routes_system_signal() {
 async fn backpressure_conservative_drops_text_chunks() {
     let (regulator, mut rx) = BackpressureRegulator::new(2, DropPolicy::Conservative);
 
-    // Fill the channel.
+    assert_eq!(regulator.capacity(), 2, "capacity should match constructor");
+
     assert!(
         regulator
             .send(EngineInput::UserMessage("a".into()))
@@ -105,6 +315,12 @@ async fn backpressure_conservative_drops_text_chunks() {
             .send(EngineInput::UserMessage("b".into()))
             .await
             .is_ok()
+    );
+
+    // The channel must never exceed its configured capacity.
+    assert!(
+        rx.len() <= 2,
+        "conservative mode must keep the channel within capacity"
     );
 
     // A text chunk under pressure should be dropped (returns Ok without blocking).
@@ -134,6 +350,8 @@ async fn backpressure_conservative_drops_text_chunks() {
 async fn backpressure_strict_blocks_until_capacity() {
     let (regulator, mut rx) = BackpressureRegulator::new(2, DropPolicy::Strict);
 
+    assert_eq!(regulator.capacity(), 2, "capacity should match constructor");
+
     assert!(
         regulator
             .send(EngineInput::UserMessage("a".into()))
@@ -145,6 +363,12 @@ async fn backpressure_strict_blocks_until_capacity() {
             .send(EngineInput::UserMessage("b".into()))
             .await
             .is_ok()
+    );
+
+    assert_eq!(
+        rx.len(),
+        2,
+        "strict mode should fill the channel to capacity"
     );
 
     // In strict mode, the third send should block until we drain.
@@ -161,6 +385,13 @@ async fn backpressure_strict_blocks_until_capacity() {
         .await
         .is_ok();
     assert!(completed, "send should complete after capacity is freed");
+
+    // Drain the remaining messages.
+    let mut count = 0;
+    while let Ok(Some(_)) = tokio::time::timeout(Duration::from_millis(10), rx.recv()).await {
+        count += 1;
+    }
+    assert_eq!(count, 2, "strict mode should deliver all three messages");
 }
 
 #[tokio::test]
@@ -187,39 +418,221 @@ async fn tool_executor_echo_returns_success() {
 
 #[tokio::test]
 async fn effect_executor_tools_parallel() {
-    let executor =
-        DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), NoopPersistence);
+    /// LLM client that does nothing, letting the test drive the stream manually.
+    #[derive(Clone, Debug, Default)]
+    struct NoopLlmClient;
+
+    #[async_trait::async_trait]
+    impl brioche_shell_runtime::LlmClient for NoopLlmClient {
+        async fn call_llm(
+            &self,
+            _shell: &BriocheShell,
+        ) -> Result<(), brioche_shell_runtime::ShellError> {
+            Ok(())
+        }
+
+        async fn push_tool_results(&self, _results: &[ToolResultDTO]) {}
+
+        async fn summarize(
+            &self,
+            _shell: &BriocheShell,
+            _messages: &[ChatMessage],
+        ) -> Result<ChatMessage, brioche_shell_runtime::ShellError> {
+            Ok(ChatMessage::System {
+                content: "noop summary".into(),
+            })
+        }
+    }
+
+    let (callback, views) = session_recorder();
+    let executor = DefaultEffectExecutor::new(EchoToolExecutor, NoopLlmClient, NoopPersistence);
     let shell = BriocheShell::new(
         || (build_minimal_engine(), Session::new("test")),
         ShellConfig::default(),
-        executor.clone(),
-        None,
+        executor,
+        Some(callback),
     );
 
-    // Push a user message so the engine enters Predicting.
+    // Start a prediction.
     assert!(
         shell
             .send_input(EngineInput::UserMessage("call tools".into()))
             .await
-            .is_ok(),
-        "input send should succeed"
+            .is_ok()
+    );
+
+    // Inject a tool call stream.
+    assert!(
+        shell
+            .send_input(EngineInput::LlmStream(
+                brioche_core::StreamEvent::ToolCallStart {
+                    path: Default::default(),
+                    id: "tc1".into(),
+                    name: "calc".into(),
+                }
+            ))
+            .await
+            .is_ok()
+    );
+    assert!(
+        shell
+            .send_input(EngineInput::LlmStream(
+                brioche_core::StreamEvent::ToolArgumentChunk {
+                    path: Default::default(),
+                    id: "tc1".into(),
+                    chunk: bytes::Bytes::from_static(b"{\"x\":1}"),
+                }
+            ))
+            .await
+            .is_ok()
+    );
+    assert!(
+        shell
+            .send_input(EngineInput::LlmStream(
+                brioche_core::StreamEvent::ToolCallDone {
+                    path: Default::default(),
+                }
+            ))
+            .await
+            .is_ok()
+    );
+
+    // Wait for the ExecuteTools effect and the ToolCallsResult loopback.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // End the prediction.
+    assert!(
+        shell
+            .send_input(EngineInput::LlmStream(brioche_core::StreamEvent::Done))
+            .await
+            .is_ok()
     );
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    // Shell should still be healthy after parallel tool execution.
-    assert!(shell.ready().await.is_ok());
+    let views = recorded_views(&views);
+    assert!(!views.is_empty(), "expected transition snapshots");
+
+    // Verify the effect loop did not drop or reorder the tool-execution transition.
+    assert!(
+        views.iter().any(|v| is_executing_tools(&v.state, 1)),
+        "should have entered ExecutingTools after ToolCallDone"
+    );
+
+    let last = &views[views.len() - 1];
+    assert!(
+        is_predicting(&last.state, 1),
+        "final state should be Predicting with generation_id 1, got {:?}",
+        last.state
+    );
+    assert_eq!(
+        last.generation_id,
+        Some(1),
+        "generation_id should stay consistent"
+    );
+    assert_eq!(last.history.len(), 2);
+    assert!(
+        matches!(
+            &last.history[0],
+            ChatMessage::User { content } if content == "call tools"
+        ),
+        "user message should be preserved"
+    );
+    assert!(
+        matches!(
+            &last.history[1],
+            ChatMessage::ToolResult { id, content } if id == "tc1" && content == "{\"x\":1}"
+        ),
+        "tool result should be injected into history"
+    );
 }
 
 #[tokio::test]
 async fn shell_graceful_shutdown() {
     let shell = build_shell();
 
-    shell.shutdown();
+    assert!(
+        shell.ready().await.is_ok(),
+        "shell should be ready before shutdown"
+    );
+    assert!(
+        shell.health_check(),
+        "shell should be healthy before shutdown"
+    );
 
-    // After shutdown, sending should eventually fail.
-    // The exact timing depends on the engine thread noticing the
-    // closed channel, so we just verify the method exists and runs.
+    shell.shutdown().await;
+
+    assert!(
+        shell.ready().await.is_err(),
+        "shell should reject input readiness after shutdown"
+    );
+    assert!(
+        shell.health_check(),
+        "shutdown should leave no unhealthy tracked task handles"
+    );
+}
+
+#[tokio::test]
+async fn shell_shutdown_awaits_in_flight_effect_tasks_and_rejects_later_inputs() {
+    let (started_tx, started_rx) = oneshot::channel();
+    let persistence = BlockingSavePersistence::new(started_tx);
+    let executor = DefaultEffectExecutor::new(
+        EchoToolExecutor,
+        MockLlmClient::default(),
+        persistence.clone(),
+    );
+    let shell = BriocheShell::new(
+        || {
+            let engine = BriocheEngineBuilder::new()
+                .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
+                .with_subroutine_lifecycle_guard(Box::new(SubRoutineCleanupGuard))
+                .with_on_input(Box::new(SaveSessionOnInput))
+                .build();
+            (engine, Session::new("shutdown-awaits-effects"))
+        },
+        ShellConfig::default(),
+        executor,
+        None,
+    );
+
+    assert!(
+        shell
+            .send_input(EngineInput::UserMessage("persist before shutdown".into()))
+            .await
+            .is_ok()
+    );
+    let save_started = tokio::time::timeout(Duration::from_millis(500), started_rx).await;
+    assert!(
+        matches!(save_started, Ok(Ok(()))),
+        "SaveSession effect should start before shutdown"
+    );
+
+    let shell_for_shutdown = shell.clone();
+    let mut shutdown = tokio::spawn(async move {
+        shell_for_shutdown.shutdown().await;
+    });
+
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), &mut shutdown)
+            .await
+            .is_err(),
+        "shutdown must wait for the shell-owned save task"
+    );
+
+    persistence.release();
+
+    let shutdown_result = tokio::time::timeout(Duration::from_millis(500), shutdown).await;
+    assert!(
+        matches!(shutdown_result, Ok(Ok(()))),
+        "shutdown should complete after the in-flight effect task completes"
+    );
+    assert!(
+        shell
+            .send_input(EngineInput::UserMessage("after shutdown".into()))
+            .await
+            .is_err(),
+        "shutdown should make the shell reject later inputs"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -412,6 +825,41 @@ async fn telemetry_channel_emits_and_subscribes() {
         brioche_shell_runtime::TelemetryLevel::Info
     ));
 }
+#[tokio::test]
+async fn telemetry_payload_secret_is_redacted() -> Result<(), Box<dyn std::error::Error>> {
+    use brioche_shell_runtime::TelemetryPayload;
+
+    let channel = brioche_shell_runtime::TelemetryChannel::new(16);
+    let mut rx = channel.subscribe();
+
+    let secret_value: serde_json::Value =
+        serde_json::from_str(r#"{"api_key":"super-secret-token"}"#)?;
+    channel.emit(
+        brioche_shell_runtime::TelemetryLevel::Info,
+        "test_source",
+        "hello telemetry",
+        Some(TelemetryPayload::secret(secret_value.clone())),
+    );
+
+    let event = match tokio::time::timeout(Duration::from_millis(100), rx.recv()).await {
+        Ok(Ok(ev)) => ev,
+        Ok(Err(_)) => unreachable!("broadcast channel closed"),
+        Err(_) => unreachable!("should receive event within timeout"),
+    };
+
+    let payload = event.payload.ok_or("payload should be present")?;
+    assert_eq!(
+        payload.expose_secret(),
+        Some(&secret_value),
+        "secret payload should preserve the original value internally"
+    );
+    let serialized = serde_json::to_string(&payload)?;
+    assert!(
+        serialized.contains("[REDACTED]"),
+        "secret payload should serialize as redacted, got {serialized}"
+    );
+    Ok(())
+}
 
 #[tokio::test]
 async fn tick_emitter_produces_ticks() {
@@ -434,17 +882,14 @@ async fn tick_emitter_produces_ticks() {
 
 #[tokio::test]
 async fn shell_injects_signal_buffer_before_transition() {
-    let shell = build_shell();
+    let (shell, views) = build_shell_with_recorder();
 
-    // Send a system signal before the user message.
     assert!(
         shell
             .send_system_signal(brioche_core::SystemSignal::Tick { elapsed_ms: 1234 })
             .await
             .is_ok()
     );
-
-    // Send a governance notification.
     assert!(
         shell
             .send_governance_notification(brioche_core::GovernanceNotification::PluginFaulted {
@@ -457,8 +902,6 @@ async fn shell_injects_signal_buffer_before_transition() {
             .await
             .is_ok()
     );
-
-    // Send an async task result.
     assert!(
         shell
             .send_async_task_result(brioche_core::AsyncTaskResult::CpuTaskDone {
@@ -469,7 +912,6 @@ async fn shell_injects_signal_buffer_before_transition() {
             .is_ok()
     );
 
-    // Now send a user message to trigger a transition cycle.
     assert!(
         shell
             .send_input(EngineInput::UserMessage("hello".into()))
@@ -479,7 +921,19 @@ async fn shell_injects_signal_buffer_before_transition() {
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    // Shell should still be healthy after draining all signals.
+    let views = recorded_views(&views);
+    assert!(!views.is_empty(), "expected transition snapshots");
+
+    let first = &views[0];
+    assert!(
+        is_predicting(&first.state, 1),
+        "buffered signals should not prevent the user message transition"
+    );
+
+    let last = &views[views.len() - 1];
+    assert!(is_idle(&last.state), "final state should be Idle");
+    assert_eq!(last.history.len(), 2);
+
     assert!(shell.ready().await.is_ok());
 }
 
@@ -490,19 +944,8 @@ async fn shell_injects_signal_buffer_before_transition() {
 
 #[tokio::test]
 async fn transition_journal_persists_inputs() {
-    use brioche_shell_runtime::TransitionJournal;
+    let (shell, views) = build_shell_with_recorder();
 
-    let journal = Arc::new(TransitionJournal::new());
-    let journal_clone = Arc::clone(&journal);
-
-    let shell = BriocheShell::new(
-        || (build_minimal_engine(), Session::new("test")),
-        ShellConfig::default(),
-        DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), NoopPersistence),
-        None,
-    );
-
-    // Send inputs through the shell.
     assert!(
         shell
             .send_input(EngineInput::UserMessage("first".into()))
@@ -516,29 +959,47 @@ async fn transition_journal_persists_inputs() {
             .is_ok()
     );
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
 
-    // The TransitionJournal is owned by the engine thread, so we
-    // verify indirectly by checking the shell remains healthy.
-    // Direct journal read tests are in `transition_journal::tests`.
+    let views = recorded_views(&views);
+    assert!(!views.is_empty(), "expected transition snapshots");
+
+    let last = &views[views.len() - 1];
+    assert!(is_idle(&last.state), "final state should be Idle");
+    assert_eq!(
+        last.history.len(),
+        4,
+        "both user messages and both assistant replies should be present"
+    );
+    assert!(matches!(
+        &last.history[0],
+        ChatMessage::User { content } if content == "first"
+    ));
+    assert!(matches!(
+        &last.history[1],
+        ChatMessage::User { content } if content == "second"
+    ));
+    assert!(matches!(
+        &last.history[2],
+        ChatMessage::Assistant { content, .. } if content == "Hello world"
+    ));
+    assert!(matches!(
+        &last.history[3],
+        ChatMessage::Assistant { content, .. } if content == "Hello world"
+    ));
+
     assert!(shell.ready().await.is_ok());
-
-    // Verify the journal_clone (if wired) would have entries.
-    // In the current architecture the journal is internal; this test
-    // primarily validates that enabling the journal does not break
-    // the dispatch path.
-    let _ = journal_clone;
 }
 
 #[tokio::test]
 async fn persistence_mode_sync_blocks_on_save() {
     use brioche_shell_runtime::PersistenceMode;
 
+    let (callback, views) = session_recorder();
     let config = ShellConfig {
         persistence_mode: PersistenceMode::Sync,
         ..Default::default()
     };
-
     let executor =
         DefaultEffectExecutor::new(EchoToolExecutor, MockLlmClient::default(), NoopPersistence)
             .with_persistence_mode(PersistenceMode::Sync);
@@ -547,7 +1008,7 @@ async fn persistence_mode_sync_blocks_on_save() {
         || (build_minimal_engine(), Session::new("test")),
         config,
         executor,
-        None,
+        Some(callback),
     );
 
     assert!(
@@ -557,7 +1018,19 @@ async fn persistence_mode_sync_blocks_on_save() {
             .is_ok()
     );
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let views = recorded_views(&views);
+    assert!(!views.is_empty(), "expected transition snapshots");
+
+    let last = &views[views.len() - 1];
+    assert!(is_idle(&last.state), "final state should be Idle");
+    assert_eq!(last.history.len(), 2);
+    assert!(matches!(
+        &last.history[0],
+        ChatMessage::User { content } if content == "sync save"
+    ));
+
     assert!(shell.ready().await.is_ok());
 }
 
@@ -565,7 +1038,6 @@ async fn persistence_mode_sync_blocks_on_save() {
 async fn network_recovery_emits_system_signal_on_exhaustion() {
     use brioche_shell_runtime::ExponentialBackoff;
 
-    // A mock LLM client that always fails.
     #[derive(Clone, Debug)]
     struct FailingLlmClient;
 
@@ -600,17 +1072,16 @@ async fn network_recovery_emits_system_signal_on_exhaustion() {
         max_delay_ms: 50,
     };
 
+    let (callback, views) = session_recorder();
     let executor = DefaultEffectExecutor::new(EchoToolExecutor, FailingLlmClient, NoopPersistence)
         .with_network_recovery(recovery);
-
     let shell = BriocheShell::new(
         || (build_minimal_engine(), Session::new("test")),
         ShellConfig::default(),
         executor,
-        None,
+        Some(callback),
     );
 
-    // Trigger a CallLlmNetwork effect by sending a user message.
     assert!(
         shell
             .send_input(EngineInput::UserMessage("trigger llm".into()))
@@ -618,34 +1089,54 @@ async fn network_recovery_emits_system_signal_on_exhaustion() {
             .is_ok()
     );
 
-    // Wait for retries to exhaust and SystemSignal::NetworkUnavailable
-    // to be emitted.
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    tokio::time::sleep(Duration::from_millis(400)).await;
+
+    let views = recorded_views(&views);
+    assert!(!views.is_empty(), "expected transition snapshots");
+
+    // Recovery does not produce a new transition on its own; the engine stays Predicting.
+    let last = &views[views.len() - 1];
+    assert!(
+        is_predicting(&last.state, 1),
+        "engine should remain Predicting until recovery resolves"
+    );
+    assert_eq!(last.history.len(), 1);
+    assert!(matches!(
+        &last.history[0],
+        ChatMessage::User { content } if content == "trigger llm"
+    ));
 
     assert!(shell.ready().await.is_ok());
 }
 
 #[tokio::test]
 async fn rebuild_routes_blocks_new_inputs() {
-    let shell = build_shell();
+    let (shell, views) = build_shell_with_recorder();
 
-    // Manually set the rebuild flag by sending a rebuild command.
-    // In practice this is triggered by Effect::RebuildRoutes from
-    // QuarantineManager.  Here we verify the barrier behavior.
+    // In the current architecture the rebuild barrier can only be triggered
+    // internally (e.g. by a QuarantineManager effect). We verify that normal
+    // inputs still flow to completion while the barrier is not raised.
     let result = shell
         .send_input(EngineInput::UserMessage("before rebuild".into()))
         .await;
     assert!(result.is_ok());
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let views = recorded_views(&views);
+    assert!(!views.is_empty(), "expected transition snapshots");
+
+    let last = &views[views.len() - 1];
+    assert!(is_idle(&last.state), "final state should be Idle");
+    assert_eq!(last.history.len(), 2);
+
     assert!(shell.ready().await.is_ok());
 }
 
 #[tokio::test]
 async fn plugin_fault_propagates_to_governance_channel() {
-    let shell = build_shell();
+    let (shell, views) = build_shell_with_recorder();
 
-    // Send a governance notification directly to verify the channel path.
     assert!(
         shell
             .send_governance_notification(brioche_core::GovernanceNotification::PluginFaulted {
@@ -659,7 +1150,6 @@ async fn plugin_fault_propagates_to_governance_channel() {
             .is_ok()
     );
 
-    // Send a user message so the engine drains the governance channel.
     assert!(
         shell
             .send_input(EngineInput::UserMessage("after fault".into()))
@@ -667,19 +1157,26 @@ async fn plugin_fault_propagates_to_governance_channel() {
             .is_ok()
     );
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let views = recorded_views(&views);
+    assert!(!views.is_empty(), "expected transition snapshots");
+
+    let last = &views[views.len() - 1];
+    assert!(is_idle(&last.state), "final state should be Idle");
+    assert_eq!(last.history.len(), 2);
+    assert!(matches!(
+        &last.history[0],
+        ChatMessage::User { content } if content == "after fault"
+    ));
+
     assert!(shell.ready().await.is_ok());
 }
 
 #[tokio::test]
 async fn shell_startup_procedure_completes() {
-    // Verify that the full 9-step startup procedure succeeds:
-    // 1. Engine init, 2. Redb deferred, 3. Session load deferred,
-    // 4. Telemetry, 5. TransitionJournal, 6. Adapters, 7. Watchdog,
-    // 8. Tick emitter, 9. Effect loop.
-    let shell = build_shell();
+    let (shell, views) = build_shell_with_recorder();
 
-    // If startup had failed, send_input would error immediately.
     assert!(
         shell
             .send_input(EngineInput::UserMessage("startup ok".into()))
@@ -687,6 +1184,14 @@ async fn shell_startup_procedure_completes() {
             .is_ok()
     );
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let views = recorded_views(&views);
+    assert!(!views.is_empty(), "expected transition snapshots");
+
+    let last = &views[views.len() - 1];
+    assert!(is_idle(&last.state), "final state should be Idle");
+    assert_eq!(last.history.len(), 2);
+
     assert!(shell.ready().await.is_ok());
 }

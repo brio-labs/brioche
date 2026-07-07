@@ -22,6 +22,7 @@ use brioche_provider_openai::{LlmChunk, OpenAiLlmClient};
 use brioche_shell_persistence::{
     ExtensionRegistry, RedbStorage, SessionStore, Settings, new_session_store,
 };
+use brioche_shell_runtime::util::{load_json, save_json, system_time_secs};
 use brioche_shell_runtime::{BriocheShell, Persistence};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{RwLock, broadcast};
@@ -49,7 +50,7 @@ pub struct SessionEntry {
     pub llm_rx: Option<broadcast::Receiver<LlmChunk>>,
 }
 
-/// Session metadata persisted alongside each session.
+/// Persistent metadata for a session.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -58,11 +59,6 @@ pub struct SessionMetadata {
     pub id: String,
     /// Creation timestamp in seconds since the UNIX epoch.
     pub created_at: u64,
-    /// Last activity timestamp in seconds since the UNIX epoch.
-    ///
-    /// Defaults to `created_at` for sessions saved before this field was added.
-    #[serde(default)]
-    pub updated_at: u64,
     /// Workspace / working directory associated with the session.
     pub workspace: String,
 }
@@ -78,22 +74,14 @@ impl SessionMetadata {
     /// # Panic / Safety
     /// Never panics. Timestamps before the UNIX epoch are clamped to 0.
     pub fn new(id: impl Into<String>, workspace: impl Into<String>) -> Self {
-        let now = system_time_secs();
         Self {
             id: id.into(),
-            created_at: now,
-            updated_at: now,
+            created_at: system_time_secs(),
             workspace: workspace.into(),
         }
     }
 }
 
-fn system_time_secs() -> u64 {
-    match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-        Ok(d) => d.as_secs(),
-        Err(_) => 0,
-    }
-}
 /// Returns the platform-appropriate persistent storage path for desktop sessions.
 ///
 /// Uses `dirs::config_dir()` so session history survives reboots. The
@@ -344,30 +332,11 @@ impl SessionManager {
     /// # Panic / Safety
     /// Never panics. Returns Err if the file cannot be read or parsed.
     pub fn load_metadata() -> Result<BTreeMap<String, SessionMetadata>, String> {
-        let path = Self::metadata_path();
-        let data = std::fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read session metadata: {e}"))?;
-        serde_json::from_str::<BTreeMap<String, SessionMetadata>>(&data)
-            .map(|mut metadata| {
-                for meta in metadata.values_mut() {
-                    if meta.updated_at == 0 {
-                        meta.updated_at = meta.created_at;
-                    }
-                }
-                metadata
-            })
-            .map_err(|e| format!("Failed to parse session metadata: {e}"))
+        load_json(Self::metadata_path(), "session metadata")
     }
 
     fn save_metadata(metadata: &BTreeMap<String, SessionMetadata>) -> Result<(), String> {
-        let path = Self::metadata_path();
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create session metadata dir: {e}"))?;
-        }
-        let data = serde_json::to_string_pretty(metadata)
-            .map_err(|e| format!("Failed to serialize session metadata: {e}"))?;
-        std::fs::write(&path, data).map_err(|e| format!("Failed to write session metadata: {e}"))
+        save_json(Self::metadata_path(), metadata, "session metadata")
     }
 
     fn metadata_path() -> PathBuf {
@@ -386,8 +355,7 @@ impl SessionManager {
 /// thread-safe access.
 ///
 /// The session manager is initialized lazily on first access so that
-/// `build_shell` (which spawns Tokio tasks) runs inside an async
-/// runtime context.
+/// `build_shell` runs inside an async runtime context.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
 pub struct DesktopState {
@@ -481,7 +449,9 @@ impl DesktopState {
         let mut mgr = self.manager.write().await;
         if mgr.is_none() {
             let factory = self.factory.read().await.clone();
-            let handle = build_shell("desktop-session", &factory).await;
+            let handle = build_shell("desktop-session", &factory)
+                .await
+                .map_err(|e| e.to_string())?;
             let workspace = factory.settings.working_dir();
             Self::initialize_memory_providers(&factory, "desktop-session", &workspace)?;
             *mgr = Some(SessionManager::new(
@@ -559,9 +529,6 @@ pub async fn persist_session(state: &DesktopState) -> Result<(), String> {
         .map_err(|e| format!("Failed to persist session {session_id}: {e}"))?;
 
     // Refresh metadata so the session remains discoverable after a crash.
-    // Also bump the activity timestamp so the sidebar can show recency.
-    let mut metadata = metadata;
-    metadata.updated_at = system_time_secs();
     let mut manager_guard = state.manager.write().await;
     if let Some(manager) = manager_guard.as_mut() {
         manager.insert_metadata(metadata)?;

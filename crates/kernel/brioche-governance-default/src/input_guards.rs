@@ -9,8 +9,8 @@
 use std::collections::BTreeMap;
 
 use brioche_core::{
-    AgentStateTag, BriochePlugin, Effect, EngineInput, ErrorCode, ErrorDetail, ExtensionStorage,
-    PluginCapabilities, PluginResult, PolicyDecision, SessionSnapshot, StreamAction, StreamEvent,
+    AgentStateTag, Effect, EngineInput, ErrorCode, ErrorDetail, ExtensionStorage, OnInput,
+    OnStreamEvent, PluginResult, PolicyDecision, SessionSnapshot, StreamAction, StreamEvent,
 };
 
 use crate::Priority;
@@ -72,21 +72,22 @@ impl Default for DepthGuard {
 ///
 /// Refs: I-Gov-TraitAtomic
 /// Refs: I-Comp-Pure-Logic
-pub fn calculate_depth(stack_depth: usize, current_state: AgentStateTag) -> u64 {
+pub fn calculate_depth(stack_depth: u64, current_state: AgentStateTag) -> u64 {
     if current_state == AgentStateTag::SubRoutine {
-        stack_depth as u64 + 1
+        stack_depth + 1
     } else {
-        stack_depth as u64
+        stack_depth
     }
 }
 
-impl BriochePlugin for DepthGuard {
+impl OnInput for DepthGuard {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         "depth_guard"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
     }
 
     fn priority(&self) -> i16 {
@@ -106,7 +107,12 @@ impl BriochePlugin for DepthGuard {
             return Ok(PolicyDecision::Allow);
         }
 
-        let snapshot = ext.get_or_insert_default::<SessionSnapshot>();
+        let Some(snapshot) = ext.get::<SessionSnapshot>() else {
+            return Err(brioche_core::PluginError::Fatal {
+                plugin_name: self.name().into(),
+                message: "missing SessionSnapshot".into(),
+            });
+        };
         let current_depth = calculate_depth(snapshot.state_stack_depth, snapshot.current_state);
 
         let state = ext.get_or_insert_default::<DepthState>();
@@ -189,13 +195,14 @@ impl Default for JsonArgumentAccumulator {
     }
 }
 
-impl BriochePlugin for JsonArgumentAccumulator {
+impl OnStreamEvent for JsonArgumentAccumulator {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type StreamAction = StreamAction;
+    type StreamEvent = StreamEvent;
+
     fn name(&self) -> &'static str {
         "json_argument_accumulator"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_STREAM_EVENT
     }
 
     fn priority(&self) -> i16 {
@@ -232,5 +239,121 @@ impl BriochePlugin for JsonArgumentAccumulator {
         }
 
         Ok(StreamAction::Pass)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use brioche_core::{
+        AgentStateTag, EngineInput, ExtensionStorage, PluginError, SessionSnapshot,
+    };
+
+    use super::*;
+
+    #[test]
+    fn calculate_depth_adds_one_in_subroutine() {
+        assert_eq!(calculate_depth(5, AgentStateTag::SubRoutine), 6);
+    }
+
+    #[test]
+    fn calculate_depth_matches_stack_for_other_states() {
+        assert_eq!(calculate_depth(5, AgentStateTag::Idle), 5);
+        assert_eq!(calculate_depth(5, AgentStateTag::Predicting), 5);
+        assert_eq!(calculate_depth(5, AgentStateTag::ExecutingTools), 5);
+        assert_eq!(calculate_depth(5, AgentStateTag::Failure), 5);
+    }
+
+    #[test]
+    fn depth_guard_blocks_at_limit() -> Result<(), PluginError> {
+        let guard = DepthGuard::with_max_depth(5);
+        let mut ext = ExtensionStorage::new();
+        {
+            let snapshot = ext.get_or_insert_default::<SessionSnapshot>();
+            snapshot.state_stack_depth = 4;
+            snapshot.current_state = AgentStateTag::SubRoutine;
+        }
+
+        let decision = guard.on_input(&EngineInput::UserMessage("deep".into()), &mut ext)?;
+
+        assert!(
+            matches!(decision, PolicyDecision::OverrideTransition(_)),
+            "depth guard should override transition when limit reached"
+        );
+
+        let state = ext.get_or_insert_default::<DepthState>();
+        assert_eq!(state.current_depth, 5);
+        Ok(())
+    }
+
+    #[test]
+    fn depth_guard_allows_below_limit() -> Result<(), PluginError> {
+        let guard = DepthGuard::with_max_depth(5);
+        let mut ext = ExtensionStorage::new();
+        {
+            let snapshot = ext.get_or_insert_default::<SessionSnapshot>();
+            snapshot.state_stack_depth = 3;
+            snapshot.current_state = AgentStateTag::SubRoutine;
+        }
+
+        let decision = guard.on_input(&EngineInput::UserMessage("ok".into()), &mut ext)?;
+
+        assert!(matches!(decision, PolicyDecision::Allow));
+
+        let state = ext.get_or_insert_default::<DepthState>();
+        assert_eq!(state.current_depth, 4);
+        Ok(())
+    }
+
+    #[test]
+    fn json_argument_accumulator_collects_fragments() -> Result<(), PluginError> {
+        let accumulator = JsonArgumentAccumulator::new();
+        let mut ext = ExtensionStorage::new();
+        let path = brioche_core::ExecutionPath::default();
+
+        let events = vec![
+            StreamEvent::ToolArgumentChunk {
+                path: path.clone(),
+                id: "tc1".into(),
+                chunk: From::from(&b"{"[..]),
+            },
+            StreamEvent::ToolArgumentChunk {
+                path,
+                id: "tc1".into(),
+                chunk: From::from(&b"\"x\":1}"[..]),
+            },
+        ];
+
+        for event in &events {
+            let action = accumulator.on_stream_event(event, &mut ext)?;
+            assert!(matches!(action, StreamAction::Pass));
+        }
+
+        let state = ext.get_or_insert_default::<JsonArgumentAccumulatorState>();
+        assert_eq!(state.accumulated.get("tc1"), Some(&"{\"x\":1}".to_string()));
+        assert_eq!(state.total_fragments, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn json_argument_accumulator_clears_on_done() -> Result<(), PluginError> {
+        let accumulator = JsonArgumentAccumulator::new();
+        let mut ext = ExtensionStorage::new();
+
+        let chunk = StreamEvent::ToolArgumentChunk {
+            path: brioche_core::ExecutionPath::default(),
+            id: "tc1".into(),
+            chunk: From::from(&b"{}"[..]),
+        };
+        let _ = accumulator.on_stream_event(&chunk, &mut ext);
+
+        let done = StreamEvent::ToolCallDone {
+            path: brioche_core::ExecutionPath::default(),
+        };
+        let action = accumulator.on_stream_event(&done, &mut ext)?;
+
+        assert!(matches!(action, StreamAction::Pass));
+        let state = ext.get_or_insert_default::<JsonArgumentAccumulatorState>();
+        assert!(state.accumulated.is_empty());
+        Ok(())
     }
 }

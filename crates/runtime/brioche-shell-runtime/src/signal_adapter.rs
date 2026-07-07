@@ -212,6 +212,8 @@ impl SignalMultiplexer {
 }
 
 impl SignalDrainOrder for SignalMultiplexer {
+    type SignalDrainBatch = SignalDrainBatch;
+
     /// Drain all three channels in canonical order.
     ///
     /// # Invariants

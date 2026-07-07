@@ -1,0 +1,23 @@
+[package]
+name = "brioche-lint-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shared infrastructure for Brioche linting tools"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { workspace = true }
+walkdir = "2"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+[lints.rust]
+missing_docs = "deny"

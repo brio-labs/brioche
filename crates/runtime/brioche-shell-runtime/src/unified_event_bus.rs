@@ -12,7 +12,7 @@ use brioche_core::{
     AsyncTaskResult, EngineInput, GovernanceNotification, SignalDrainBatch, SignalDrainOrder,
     SystemSignal,
 };
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex, mpsc};
 
 /// Unified envelope type for all events entering the engine thread.
 ///
@@ -44,9 +44,9 @@ pub enum EngineEnvelope {
 pub struct UnifiedEventBus {
     envelope_tx: mpsc::Sender<Vec<EngineEnvelope>>,
     envelope_rx: std::sync::Mutex<mpsc::Receiver<Vec<EngineEnvelope>>>,
-    system_rx: std::sync::Mutex<mpsc::Receiver<SystemSignal>>,
-    governance_rx: std::sync::Mutex<mpsc::Receiver<GovernanceNotification>>,
-    async_rx: std::sync::Mutex<mpsc::Receiver<AsyncTaskResult>>,
+    system_rx: Mutex<mpsc::Receiver<SystemSignal>>,
+    governance_rx: Mutex<mpsc::Receiver<GovernanceNotification>>,
+    async_rx: Mutex<mpsc::Receiver<AsyncTaskResult>>,
 }
 
 impl UnifiedEventBus {
@@ -64,9 +64,9 @@ impl UnifiedEventBus {
         let bus = Self {
             envelope_tx: envelope_tx.clone(),
             envelope_rx: std::sync::Mutex::new(envelope_rx),
-            system_rx: std::sync::Mutex::new(system_rx),
-            governance_rx: std::sync::Mutex::new(governance_rx),
-            async_rx: std::sync::Mutex::new(async_rx),
+            system_rx: Mutex::new(system_rx),
+            governance_rx: Mutex::new(governance_rx),
+            async_rx: Mutex::new(async_rx),
         };
         (bus, envelope_tx)
     }
@@ -83,35 +83,46 @@ impl UnifiedEventBus {
     /// # Cancel safety
     /// This loop holds only a local `Vec` across await points. Dropping
     /// it discards the in-progress batch; source channels remain intact.
-    pub async fn producer_loop(
-        &self,
-        mut system_rx: mpsc::Receiver<SystemSignal>,
-        mut governance_rx: mpsc::Receiver<GovernanceNotification>,
-        mut async_rx: mpsc::Receiver<AsyncTaskResult>,
-    ) {
+    pub async fn producer_loop(&self) {
         loop {
-            let mut batch = Vec::new();
+            // Acquire all source receivers. Holding the locks while
+            // waiting in `tokio::select!` prevents `drain()` from racing
+            // the producer on the same receiver, which is safe because
+            // an idle producer means the source channels are empty.
+            let mut system_guard = self.system_rx.lock().await;
+            let mut governance_guard = self.governance_rx.lock().await;
+            let mut async_guard = self.async_rx.lock().await;
 
-            // Drain system signals.
-            while let Ok(signal) = system_rx.try_recv() {
+            // Wait for at least one event on any channel.
+            let first = tokio::select! {
+                signal = system_guard.recv() => signal.map(EngineEnvelope::Signal),
+                notification = governance_guard.recv() => {
+                    notification.map(EngineEnvelope::Governance)
+                }
+                result = async_guard.recv() => result.map(EngineEnvelope::TaskResult),
+            };
+
+            let Some(first) = first else {
+                // All source channels closed.
+                break;
+            };
+
+            // Batch all remaining pending events in canonical order.
+            let mut batch = vec![first];
+            while let Ok(signal) = system_guard.try_recv() {
                 batch.push(EngineEnvelope::Signal(signal));
             }
-
-            // Drain governance notifications.
-            while let Ok(notification) = governance_rx.try_recv() {
+            while let Ok(notification) = governance_guard.try_recv() {
                 batch.push(EngineEnvelope::Governance(notification));
             }
-
-            // Drain async task results.
-            while let Ok(result) = async_rx.try_recv() {
+            while let Ok(result) = async_guard.try_recv() {
                 batch.push(EngineEnvelope::TaskResult(result));
             }
 
-            if batch.is_empty() {
-                // No events this cycle — yield to avoid busy-waiting.
-                tokio::task::yield_now().await;
-                continue;
-            }
+            // Release the source receivers before the bounded send.
+            drop(system_guard);
+            drop(governance_guard);
+            drop(async_guard);
 
             if self.envelope_tx.send(batch).await.is_err() {
                 break;
@@ -121,6 +132,8 @@ impl UnifiedEventBus {
 }
 
 impl SignalDrainOrder for UnifiedEventBus {
+    type SignalDrainBatch = SignalDrainBatch;
+
     /// Drain with fast-path bypass.
     ///
     /// If the internal unified channel has pending batches, they are
@@ -145,17 +158,17 @@ impl SignalDrainOrder for UnifiedEventBus {
         };
 
         if !has_unified_pending {
-            if let Ok(mut rx) = self.system_rx.lock() {
+            if let Ok(mut rx) = self.system_rx.try_lock() {
                 while let Ok(signal) = rx.try_recv() {
                     system_signals.push(signal);
                 }
             }
-            if let Ok(mut rx) = self.governance_rx.lock() {
+            if let Ok(mut rx) = self.governance_rx.try_lock() {
                 while let Ok(notification) = rx.try_recv() {
                     governance_notifications.push(notification);
                 }
             }
-            if let Ok(mut rx) = self.async_rx.lock() {
+            if let Ok(mut rx) = self.async_rx.try_lock() {
                 while let Ok(result) = rx.try_recv() {
                     async_task_results.push(result);
                 }
@@ -190,5 +203,78 @@ impl SignalDrainOrder for UnifiedEventBus {
             governance_notifications,
             async_task_results,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use brioche_core::{
+        AsyncTaskResult, GovernanceNotification, PluginError, SignalDrainOrder, SystemSignal,
+    };
+    use tokio::sync::mpsc;
+
+    use super::UnifiedEventBus;
+
+    #[tokio::test]
+    async fn producer_loop_forwards_events_in_canonical_order() {
+        let (system_tx, system_rx) = mpsc::channel(16);
+        let (governance_tx, governance_rx) = mpsc::channel(16);
+        let (async_tx, async_rx) = mpsc::channel(16);
+
+        let (bus, _producer_tx) = UnifiedEventBus::new(system_rx, governance_rx, async_rx);
+        let bus = Arc::new(bus);
+
+        let producer = tokio::spawn({
+            let bus = Arc::clone(&bus);
+            async move { bus.producer_loop().await }
+        });
+
+        // Send events in reverse canonical order.
+        assert!(
+            async_tx
+                .send(AsyncTaskResult::CpuTaskDone {
+                    task_id: "cpu1".into(),
+                    result: vec![1, 2, 3],
+                })
+                .await
+                .is_ok()
+        );
+        assert!(
+            governance_tx
+                .send(GovernanceNotification::PluginFaulted {
+                    plugin_name: "p".into(),
+                    error: PluginError::Soft {
+                        plugin_name: "p".into(),
+                        message: "e".into(),
+                    },
+                })
+                .await
+                .is_ok()
+        );
+        assert!(
+            system_tx
+                .send(SystemSignal::Tick { elapsed_ms: 42 })
+                .await
+                .is_ok()
+        );
+
+        // Give the producer time to batch and forward.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let batch = bus.drain();
+
+        assert_eq!(batch.system_signals.len(), 1);
+        assert_eq!(batch.governance_notifications.len(), 1);
+        assert_eq!(batch.async_task_results.len(), 1);
+
+        // Close all source channels to stop the producer.
+        drop(system_tx);
+        drop(governance_tx);
+        drop(async_tx);
+
+        assert!(producer.await.is_ok());
     }
 }

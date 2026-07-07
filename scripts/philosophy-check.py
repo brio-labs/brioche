@@ -70,7 +70,6 @@ HOT_PATH_MODULES = [
     "crates/kernel/brioche-core/src/types/trace.rs",
     "crates/kernel/brioche-core/src/types/runtime.rs",
     "crates/kernel/brioche-core/src/plugin.rs",
-    "crates/kernel/brioche-governance/src/lib.rs",
 ]
 
 COMPLEXITY_KEYWORDS = [
@@ -213,7 +212,6 @@ INVARIANT_CRATES = [
     "crates/kernel/brioche-core/src",
     "crates/kernel/brioche-macro/src",
     # Book II — Governance
-    "crates/kernel/brioche-governance/src",
     "crates/kernel/brioche-governance-default/src",
     # Book III-A — Shell Runtime
     "crates/runtime/brioche-shell-runtime/src",
@@ -405,7 +403,6 @@ DETERMINISM_FORBIDDEN = [
 
 DETERMINISM_CRATES = [
     "crates/kernel/brioche-core/src",
-    "crates/kernel/brioche-governance/src",
     "crates/kernel/brioche-governance-default/src",
 ]
 
@@ -436,6 +433,61 @@ def check_determinism() -> CheckResult:
 
     return result
 
+# ---------------------------------------------------------------------------
+# 4c. Output conventions — println!/eprintln! are only allowed in app crates.
+#     PHILOSOPHY.md §10.4: println!/eprintln! are allowed only in app crates.
+#     Library source files (including those in non-app binary crates) must use
+#     `tracing` instead. Binary entry points (`src/main.rs` and `src/bin/*.rs`)
+#     are permitted to print because they are CLI dispatchers, not reusable
+#     library code.
+# ---------------------------------------------------------------------------
+
+PRINT_MACRO_RE = re.compile(r"(?:^|[^\"'])\b(println!|eprintln!)\(")
+
+
+def check_print_macros() -> CheckResult:
+    result = CheckResult("Library print macros")
+
+    crates_dir = PROJECT_ROOT / "crates"
+    if not crates_dir.exists():
+        return result
+
+    for cargo_toml in crates_dir.rglob("Cargo.toml"):
+        crate_path = cargo_toml.parent
+        rel_parts = crate_path.relative_to(crates_dir).parts
+        if rel_parts and rel_parts[0] == "apps":
+            continue
+
+        src = crate_path / "src"
+        if not src.exists():
+            continue
+
+        for path in src.rglob("*.rs"):
+            if "tests" in path.parts or "benches" in path.parts or "examples" in path.parts:
+                continue
+            if path.name.startswith("fail_") or path.name.startswith("pass_"):
+                continue
+            if path.name == "main.rs":
+                continue
+            if "bin" in path.parts:
+                continue
+
+            content = path.read_text()
+            lines = content.split("\n")
+
+            for i, line in enumerate(lines):
+                stripped = line.strip()
+                if stripped.startswith(("//", "///", "//!", "*")):
+                    continue
+                if PRINT_MACRO_RE.search(line):
+                    result.add(
+                        path,
+                        i + 1,
+                        "println!/eprintln! are only allowed in app crates — "
+                        "use `tracing` (PHILOSOPHY.md §10.4)",
+                    )
+
+    return result
 
 # ---------------------------------------------------------------------------
 # 4b. Vtable / dyn trait usage in Core transition hot path
@@ -802,7 +854,6 @@ def check_invariant_format() -> CheckResult:
 COHESION_CRATES = [
     "crates/kernel/brioche-core/src",
     "crates/kernel/brioche-governance-default/src",
-    "crates/kernel/brioche-governance/src",
 ]
 
 COHESION_MIN_LOGIC_LINES = 60
@@ -930,7 +981,6 @@ def check_trivial_state_structs() -> CheckResult:
 
     for rel in [
         "crates/kernel/brioche-governance-default/src",
-        "crates/kernel/brioche-governance/src",
     ]:
         crate_src = PROJECT_ROOT / rel
         if not crate_src.exists():
@@ -1164,7 +1214,6 @@ def check_module_doc_visibility() -> CheckResult:
 MODULE_DOC_CRATES = [
     "crates/kernel/brioche-core/src",
     "crates/kernel/brioche-macro/src",
-    "crates/kernel/brioche-governance/src",
     "crates/kernel/brioche-governance-default/src",
     "crates/runtime/brioche-shell-runtime/src",
     "crates/runtime/brioche-shell-persistence/src",
@@ -1382,7 +1431,6 @@ def check_critical_state() -> CheckResult:
 TODO_FORBIDDEN_CRATES = {
     "crates/kernel/brioche-core/src",
     "crates/kernel/brioche-macro/src",
-    "crates/kernel/brioche-governance/src",
     "crates/kernel/brioche-governance-default/src",
 }
 
@@ -1463,7 +1511,6 @@ def check_async_cancel_safety() -> CheckResult:
 
 INDEXING_FORBIDDEN_CRATES = [
     "crates/kernel/brioche-core/src",
-    "crates/kernel/brioche-governance/src",
     "crates/kernel/brioche-governance-default/src",
     "crates/runtime/brioche-shell-runtime/src",
     "crates/runtime/brioche-shell-persistence/src",
@@ -1606,6 +1653,7 @@ CHECKS = [
     check_invariant_refs,
     check_extension_type_docs,
     check_determinism,
+    check_print_macros,
     check_panic_guards,
     check_vtable_in_core,
     check_trait_hierarchies,

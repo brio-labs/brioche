@@ -20,10 +20,11 @@
 //! Refs: docs/SPECS.md §4, §5; PHILOSOPHY.md §1, §2, §7
 
 use crate::{
-    ConsistencyVerifier, CycleRollbackPolicy, DecisionAggregator, Effect, EngineInput,
-    EpochInterceptor, ErrorCode, ErrorDetail, GovernanceFailoverHandler, HookEffectConstraint,
-    PluginSource, Session, SessionRegistry, SubRoutineHandle, SubRoutineHandler,
-    SubRoutineHydrator, SubRoutineLifecycleGuard,
+    AgentState, ConsistencyVerifierPlugin, CycleRollbackPolicyPlugin, DecisionAggregatorPlugin,
+    Effect, EngineInput, EpochInterceptorPlugin, ErrorCode, ErrorDetail,
+    GovernanceFailoverHandlerPlugin, HookEffectConstraint, PluginSource, Session, SessionRegistry,
+    SubRoutineHandle, SubRoutineHandlerPlugin, SubRoutineHydratorPlugin,
+    SubRoutineLifecycleGuardPlugin,
 };
 
 mod builder;
@@ -48,28 +49,28 @@ pub use router::{PluginRouter, UnifiedRoutingTable};
 /// Holds all injectable policy traits and their orchestration state.
 ///
 /// ## Architectural Note
-/// Each optional trait is stored as `Box<dyn>`. This introduces one vtable
-/// indirection per access. PHILOSOPHY.md §1 recommends pre-routing tables,
-/// but governance traits have heterogeneous signatures that cannot be
-/// flattened into a uniform table without erasing type safety.
+/// Most optional traits are stored as `Box<dyn>`. Epoch interceptors are
+/// stored as an ordered vector so independent pre-delegation guards can be
+/// composed without wrapper types.
 ///
 /// # Complexity
-/// O(1) field access per governance phase. No allocation in `transition()`.
+/// O(1) field access per governance phase except epoch interception, which is
+/// O(e) for e registered interceptors. No allocation in `transition()`.
 ///
 /// # Panics
-/// Never panics. All fields are `Option`; absent traits are silently skipped.
+/// Never panics. Empty/absent traits are silently skipped.
 ///
 /// Refs: I-Comp-Epoch-First, I-Gov-Decision-Required
 pub struct GovernanceKernel {
-    pub(crate) epoch_interceptor: Option<Box<dyn EpochInterceptor>>,
-    pub(crate) subroutine_handler: Option<Box<dyn SubRoutineHandler>>,
-    pub(crate) subroutine_hydrator: Option<Box<dyn SubRoutineHydrator>>,
-    pub(crate) consistency_verifier: Option<Box<dyn ConsistencyVerifier>>,
-    pub(crate) decision_aggregator: Option<Box<dyn DecisionAggregator>>,
+    pub(crate) epoch_interceptors: Vec<Box<EpochInterceptorPlugin>>,
+    pub(crate) subroutine_handler: Option<Box<SubRoutineHandlerPlugin>>,
+    pub(crate) subroutine_hydrator: Option<Box<SubRoutineHydratorPlugin>>,
+    pub(crate) consistency_verifier: Option<Box<ConsistencyVerifierPlugin>>,
+    pub(crate) decision_aggregator: Option<Box<DecisionAggregatorPlugin>>,
     pub(crate) hook_effect_constraint: Option<Box<dyn HookEffectConstraint>>,
-    pub(crate) cycle_rollback_policy: Option<Box<dyn CycleRollbackPolicy>>,
-    pub(crate) subroutine_lifecycle_guard: Option<Box<dyn SubRoutineLifecycleGuard>>,
-    pub(crate) governance_failover_handler: Option<Box<dyn GovernanceFailoverHandler>>,
+    pub(crate) cycle_rollback_policy: Option<Box<CycleRollbackPolicyPlugin>>,
+    pub(crate) subroutine_lifecycle_guard: Option<Box<SubRoutineLifecycleGuardPlugin>>,
+    pub(crate) governance_failover_handler: Option<Box<GovernanceFailoverHandlerPlugin>>,
     pub(crate) default_tool_timeout_ms: u64,
 }
 
@@ -177,8 +178,15 @@ pub struct BriocheEngine {
 impl std::fmt::Debug for BriocheEngine {
     /// Debug representation — non-exhaustive to avoid leaking governance internals.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let plugin_count = self.router.on_input_plugins.len()
+            + self.router.before_prediction_plugins.len()
+            + self.router.on_stream_event_plugins.len()
+            + self.router.after_prediction_plugins.len()
+            + self.router.on_tool_calls_plugins.len()
+            + self.router.on_tool_result_plugins.len()
+            + self.router.on_error_plugins.len();
         f.debug_struct("BriocheEngine")
-            .field("plugin_count", &self.router.plugins.len())
+            .field("plugin_count", &plugin_count)
             .field("next_generation_id", &self.routines.next_generation_id)
             .finish_non_exhaustive()
     }
@@ -199,13 +207,34 @@ impl BriocheEngine {
     ///
     /// Refs: I-Core-NoPanic, I-Core-RetVecEffect, I-Core-StreamNoBranch
     pub fn transition(&mut self, session: &mut Session, input: &EngineInput) -> Vec<Effect> {
+        // Failure is a terminal state: reject further inputs without panic.
+        if matches!(session.state, AgentState::Failure) {
+            return vec![
+                Effect::Error {
+                    code: ErrorCode::StateInconsistency,
+                    detail: ErrorDetail::TransitionFailed {
+                        reason: "session is in Failure state".into(),
+                    },
+                },
+                Effect::SystemIdle,
+            ];
+        }
+
         // Capture sub-routine state before any mutation.
         let pre = self.capture_pre_transition_state(session);
 
         // Inject a shared snapshot for all pre-mutation hooks.
-        session.extensions.insert(session.snapshot());
-
         let mut effects = Vec::new();
+        if let Err(err) = session.extensions.insert(session.snapshot()) {
+            effects.push(Effect::Error {
+                code: ErrorCode::StateInconsistency,
+                detail: ErrorDetail::TransitionFailed {
+                    reason: err.to_string(),
+                },
+            });
+            self.finalize_transition(session, pre, &mut effects);
+            return effects;
+        }
 
         // EpochInterceptor (optional, but evaluated first if present).
         if self
@@ -273,6 +302,17 @@ impl BriocheEngine {
         effects
     }
 
+    /// Access the current pre-computed routing table.
+    ///
+    /// Complexity: O(1). Returns a reference; no allocation.
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Core-StreamNoBranch
+    pub fn routing_table(&self) -> &UnifiedRoutingTable {
+        &self.router.routing_table
+    }
+
     /// Access the internal `SessionRegistry`.
     ///
     /// Refs: I-Shell-Session-NoSend
@@ -316,15 +356,7 @@ impl BriocheEngine {
     ///
     /// Refs: I-Gov-Rebuild-Barrier
     pub fn rebuild_routes(&mut self, active_mask: &[bool]) {
-        let active_indices: Vec<usize> = (0..self.router.plugins.len())
-            .filter(|i| match active_mask.get(*i) {
-                Some(&b) => b,
-                None => true,
-            })
-            .collect();
-
-        self.router.routing_table =
-            UnifiedRoutingTable::from_plugins_filtered(&self.router.plugins, &active_indices);
+        self.router.rebuild_routes_by_mask(active_mask);
     }
 
     /// The default tool timeout applied when a descriptor omits `timeout_ms`.

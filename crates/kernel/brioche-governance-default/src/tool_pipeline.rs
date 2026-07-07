@@ -10,8 +10,8 @@
 use std::collections::BTreeMap;
 
 use brioche_core::{
-    BriochePlugin, ExtensionStorage, PluginCapabilities, PluginError, PluginResult,
-    ToolCallDescriptor, ToolOutcome, ToolResultDTO, TruncatedToolResult, tool_outcome_to_string,
+    ExtensionStorage, OnToolCalls, OnToolResult, PluginError, PluginResult, ToolCallDescriptor,
+    ToolOutcome, ToolResultDTO, TruncatedToolResult, tool_outcome_to_string,
 };
 
 use crate::Priority;
@@ -35,7 +35,7 @@ use crate::Priority;
 )]
 pub struct ToolResultFormatterState {
     /// Maximum size of a JSON result in bytes (0 = no limit).
-    pub max_result_bytes: usize,
+    pub max_result_bytes: u64,
     /// Total number of formatted results.
     pub formatted_count: u64,
 }
@@ -55,7 +55,7 @@ impl Default for ToolResultFormatterState {
 ///
 /// Refs: I-Core-ActiveToolCall
 pub struct ToolResultFormatter {
-    max_result_bytes: usize,
+    max_result_bytes: u64,
 }
 
 impl ToolResultFormatter {
@@ -70,7 +70,7 @@ impl ToolResultFormatter {
 
     /// Creates an instance with a custom size limit.
     /// Refs: I-Gov-TraitAtomic
-    pub fn with_max_result_bytes(max_result_bytes: usize) -> Self {
+    pub fn with_max_result_bytes(max_result_bytes: u64) -> Self {
         Self { max_result_bytes }
     }
 }
@@ -81,13 +81,13 @@ impl Default for ToolResultFormatter {
     }
 }
 
-impl BriochePlugin for ToolResultFormatter {
+impl OnToolResult for ToolResultFormatter {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = PluginError;
+    type ToolResultDto = ToolResultDTO;
+
     fn name(&self) -> &'static str {
         "tool_result_formatter"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_TOOL_RESULT
     }
 
     fn priority(&self) -> i16 {
@@ -105,8 +105,9 @@ impl BriochePlugin for ToolResultFormatter {
         for result in results {
             let content = tool_outcome_to_string(&result.outcome);
 
-            if self.max_result_bytes > 0 && content.len() > self.max_result_bytes {
-                let meta = TruncatedToolResult::from_content(&content, self.max_result_bytes);
+            if self.max_result_bytes > 0 && content.len() > self.max_result_bytes as usize {
+                let meta =
+                    TruncatedToolResult::from_content(&content, self.max_result_bytes as usize);
                 let json = meta.to_json().map_err(|e| PluginError::Soft {
                     plugin_name: "tool_result_formatter".into(),
                     message: format!("JSON serialization failed: {e}"),
@@ -181,13 +182,13 @@ impl Default for ToolExecutionTracker {
     }
 }
 
-impl BriochePlugin for ToolExecutionTracker {
+impl OnToolCalls for ToolExecutionTracker {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = PluginError;
+    type ToolCallDescriptor = ToolCallDescriptor;
+
     fn name(&self) -> &'static str {
         "tool_execution_tracker"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_TOOL_CALLS | PluginCapabilities::ON_TOOL_RESULT
     }
 
     /// Records start timestamps for each call.
@@ -205,6 +206,20 @@ impl BriochePlugin for ToolExecutionTracker {
             state.start_timestamps.insert(call.tool_id.clone(), now);
         }
         Ok(())
+    }
+}
+
+impl OnToolResult for ToolExecutionTracker {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = PluginError;
+    type ToolResultDto = ToolResultDTO;
+
+    fn name(&self) -> &'static str {
+        "tool_execution_tracker"
+    }
+
+    fn priority(&self) -> i16 {
+        Priority::TOOL_TIMEOUT
     }
 
     fn on_tool_result(

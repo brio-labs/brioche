@@ -1,14 +1,17 @@
 //! Book I — Sprint 3 integration tests: Session, AgentState, SessionRegistry,
-//! SessionSnapshot, and `seal()`.
+//! SessionSnapshot, `seal()`, and `HistoryEdit`.
 //!
 //! Invariants verified:
 //! - I-Core-Pure: deterministic construction and transitions.
 //! - I-Core-NoPanic: invalid transitions produce `BriocheError`, never panics.
 //! - I-Core-ActiveToolCall: `seal()` maps `ToolCallDescriptor` exhaustively.
+//! - I-Gov-Decision-Isolation: `HistoryEdit` indices are validated before mutation.
 
+use brioche_core::types::HistoryOperation;
 use brioche_core::{
-    AgentState, AgentStateTag, BriocheError, DEFAULT_TOOL_TIMEOUT_MS, ExtensionStorage, Session,
-    SessionRegistry, SessionSnapshot, SubRoutineHandle, ToolCallDescriptor, seal,
+    AgentState, AgentStateTag, BriocheError, ChatMessage, DEFAULT_TOOL_TIMEOUT_MS,
+    ExtensionStorage, HistoryEdit, Session, SessionRegistry, SessionSnapshot, SubRoutineHandle,
+    ToolCallDescriptor, seal,
 };
 
 // ---------------------------------------------------------------------------
@@ -119,17 +122,6 @@ fn registry_remove_unknown_returns_none() {
 }
 
 #[test]
-fn registry_exit_count_increments() {
-    let mut registry = SessionRegistry::new();
-    let handle = SubRoutineHandle::new("sub-4");
-    assert_eq!(registry.get_exit_count(&handle), 0);
-    registry.increment_exit_count(&handle);
-    assert_eq!(registry.get_exit_count(&handle), 1);
-    registry.increment_exit_count(&handle);
-    assert_eq!(registry.get_exit_count(&handle), 2);
-}
-
-#[test]
 fn registry_handles_iterates_keys() {
     let mut registry = SessionRegistry::new();
     let h1 = SubRoutineHandle::new("a");
@@ -206,7 +198,7 @@ fn snapshot_as_extension_type_roundtrip() {
         current_state: AgentStateTag::ExecutingTools,
         state_stack_depth: 3,
     };
-    storage.insert(snap.clone());
+    assert!(storage.insert(snap.clone()).is_ok());
 
     let retrieved = storage.get_mut::<SessionSnapshot>();
     if let Some(snap) = retrieved {
@@ -251,4 +243,207 @@ fn deterministic_state_machine_sequence() {
     assert!(session.pop_state().is_ok());
     assert!(matches!(session.state, AgentState::Idle));
     assert!(session.state_stack.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// History edits
+// ---------------------------------------------------------------------------
+
+#[test]
+fn history_replace_valid() {
+    let mut session = Session::new("s");
+    let first = ChatMessage::User {
+        content: "first".into(),
+    };
+    let second = ChatMessage::User {
+        content: "second".into(),
+    };
+    let replacement = ChatMessage::User {
+        content: "replaced".into(),
+    };
+
+    session.history.push(first.clone());
+    session.history.push(second.clone());
+
+    let result = session.apply_history_edits(&[HistoryEdit::Replace {
+        index: 1,
+        message: replacement.clone(),
+    }]);
+    assert!(result.is_ok());
+    assert_eq!(session.history.len(), 2);
+    assert_eq!(session.history[0], first);
+    assert_eq!(session.history[1], replacement);
+}
+
+#[test]
+fn history_replace_out_of_bounds() {
+    let mut session = Session::new("s");
+    session.history.push(ChatMessage::User {
+        content: "only".into(),
+    });
+
+    let result = session.apply_history_edits(&[HistoryEdit::Replace {
+        index: 1,
+        message: ChatMessage::User {
+            content: "x".into(),
+        },
+    }]);
+    assert!(matches!(
+        result,
+        Err(BriocheError::HistoryIndexOutOfBounds {
+            operation: HistoryOperation::Replace,
+            index: 1,
+            len: 1,
+        })
+    ));
+}
+
+#[test]
+fn history_replace_empty_history() {
+    let mut session = Session::new("s");
+
+    let result = session.apply_history_edits(&[HistoryEdit::Replace {
+        index: 0,
+        message: ChatMessage::User {
+            content: "x".into(),
+        },
+    }]);
+    assert!(matches!(
+        result,
+        Err(BriocheError::HistoryIndexOutOfBounds {
+            operation: HistoryOperation::Replace,
+            index: 0,
+            len: 0,
+        })
+    ));
+}
+
+#[test]
+fn history_truncate_valid() {
+    let mut session = Session::new("s");
+    session.history.push(ChatMessage::User {
+        content: "a".into(),
+    });
+    session.history.push(ChatMessage::User {
+        content: "b".into(),
+    });
+    session.history.push(ChatMessage::User {
+        content: "c".into(),
+    });
+
+    let result = session.apply_history_edits(&[HistoryEdit::Truncate { keep_last: 2 }]);
+    assert!(result.is_ok());
+    assert_eq!(session.history.len(), 2);
+    assert_eq!(
+        session.history[0],
+        ChatMessage::User {
+            content: "b".into(),
+        }
+    );
+    assert_eq!(
+        session.history[1],
+        ChatMessage::User {
+            content: "c".into(),
+        }
+    );
+}
+
+#[test]
+fn history_truncate_keep_zero() {
+    let mut session = Session::new("s");
+    session.history.push(ChatMessage::User {
+        content: "a".into(),
+    });
+
+    let result = session.apply_history_edits(&[HistoryEdit::Truncate { keep_last: 0 }]);
+    assert!(result.is_ok());
+    assert!(session.history.is_empty());
+}
+
+#[test]
+fn history_truncate_out_of_bounds_is_lenient() {
+    let mut session = Session::new("s");
+    session.history.push(ChatMessage::User {
+        content: "a".into(),
+    });
+    session.history.push(ChatMessage::User {
+        content: "b".into(),
+    });
+
+    let result = session.apply_history_edits(&[HistoryEdit::Truncate { keep_last: 10 }]);
+    assert!(result.is_ok());
+    assert_eq!(session.history.len(), 2);
+}
+
+#[test]
+fn history_truncate_empty_history() {
+    let mut session = Session::new("s");
+
+    let result = session.apply_history_edits(&[HistoryEdit::Truncate { keep_last: 5 }]);
+    assert!(result.is_ok());
+    assert!(session.history.is_empty());
+}
+
+#[test]
+fn history_insert_out_of_bounds_returns_error() {
+    let mut session = Session::new("s");
+    session.history.push(ChatMessage::User {
+        content: "a".into(),
+    });
+
+    let result = session.apply_history_edits(&[HistoryEdit::Insert {
+        index: 2,
+        message: ChatMessage::User {
+            content: "x".into(),
+        },
+    }]);
+    assert!(matches!(
+        result,
+        Err(BriocheError::HistoryIndexOutOfBounds {
+            operation: HistoryOperation::Insert,
+            index: 2,
+            len: 1,
+        })
+    ));
+}
+
+#[test]
+fn history_empty_edits_is_no_op() {
+    let mut session = Session::new("s");
+    session.history.push(ChatMessage::User {
+        content: "a".into(),
+    });
+
+    let result = session.apply_history_edits(&[]);
+    assert!(result.is_ok());
+    assert_eq!(session.history.len(), 1);
+}
+
+#[test]
+fn history_multiple_edits_apply_sequentially() {
+    let mut session = Session::new("s");
+    session.history.push(ChatMessage::User {
+        content: "a".into(),
+    });
+    session.history.push(ChatMessage::User {
+        content: "b".into(),
+    });
+
+    let result = session.apply_history_edits(&[
+        HistoryEdit::Replace {
+            index: 0,
+            message: ChatMessage::User {
+                content: "a2".into(),
+            },
+        },
+        HistoryEdit::Truncate { keep_last: 1 },
+    ]);
+    assert!(result.is_ok());
+    assert_eq!(session.history.len(), 1);
+    assert_eq!(
+        session.history[0],
+        ChatMessage::User {
+            content: "b".into(),
+        }
+    );
 }

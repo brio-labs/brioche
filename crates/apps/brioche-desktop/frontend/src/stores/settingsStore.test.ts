@@ -7,8 +7,7 @@ vi.mock('../ipc', () => ({
     listSettingsSections: vi.fn(),
 }));
 
-import { useSettingsStore, getWorkingDir } from './settingsStore';
-import { FALLBACK_SECTIONS } from './settingsSections';
+import { useSettingsStore, FALLBACK_SECTIONS, getWorkingDir } from './settingsStore';
 import { getSettings, setSettings, listSettingsSections } from '../ipc';
 
 const mockedGetSettings = vi.mocked(getSettings);

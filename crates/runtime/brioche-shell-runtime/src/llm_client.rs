@@ -79,6 +79,11 @@ pub trait LlmClient: Send + Sync {
     /// 3. Send each chunk as `EngineInput::LlmStream(StreamEvent::TextChunk { ... })`.
     /// 4. On network failure, send `SystemSignal::NetworkUnavailable` via the shell.
     ///
+    /// # Cancel safety
+    /// This future may await network I/O. Dropping it before completion leaves the
+    /// underlying request running until the provider or transport times out; any
+    /// chunks already emitted remain in the shell's input queue.
+    ///
     /// Refs: I-Core-ChunkBudget
     async fn call_llm(&self, shell: &BriocheShell) -> Result<(), crate::ShellError>;
 
@@ -86,6 +91,11 @@ pub trait LlmClient: Send + Sync {
     ///
     /// This is used by context compression: the returned system message
     /// replaces the summarized messages in the conversation history.
+    ///
+    /// # Cancel safety
+    /// This future may await network I/O. Dropping it before completion discards
+    /// the in-flight request; no history is modified because the caller persists
+    /// the returned summary.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     async fn summarize(
@@ -99,6 +109,11 @@ pub trait LlmClient: Send + Sync {
     /// `ActiveToolCall`s (i.e. the order of `tool_calls` in the
     /// assistant message). Some providers reject requests where
     /// tool results appear in a different order.
+    ///
+    /// # Cancel safety
+    /// This future may modify the shared history mirror. Dropping it before
+    /// completion may leave the mirror partially updated; callers should retry
+    /// the full slice on recovery.
     ///
     /// Refs: I-Shell-ToolResult-PassThrough
     async fn push_tool_results(&self, results: &[ToolResultDTO]);

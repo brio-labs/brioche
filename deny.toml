@@ -26,9 +26,11 @@ allow = [
   "CC0-1.0",
   "Zlib",
   "CDLA-Permissive-2.0",
+  "MIT-0",
 ]
 
 [advisories]
+# next review: 2026-10-03
 ignore = [
   "RUSTSEC-2025-0080", # unic-common unmaintained, inherited transitively by Tauri
   "RUSTSEC-2025-0100", # unic-ucd-ident unmaintained, inherited transitively by Tauri
@@ -46,10 +48,15 @@ ignore = [
   "RUSTSEC-2024-0413", # atk unmaintained, inherited transitively by Tauri
   "RUSTSEC-2024-0412", # atk-sys unmaintained, inherited transitively by Tauri
   "RUSTSEC-2024-0411", # gdkwayland-sys unmaintained, inherited transitively by Tauri
+  "RUSTSEC-2026-0194", # quick-xml quadratic duplicate check, inherited transitively by Tauri (plist) - review quarterly
+  "RUSTSEC-2026-0195", # quick-xml unbounded namespace allocation, inherited transitively by Tauri (plist) - review quarterly
 ]
 
 [bans]
 multiple-versions = "warn"
+# cargo-deny 0.19.x flags `{ workspace = true }` dependencies as wildcards due to
+# an unresolved-workspace-dependency bug, so we keep `allow` here. Revisit once
+# cargo-deny correctly resolves workspace-inherited internal dependencies.
 wildcards = "allow"
 highlight = "all"
 workspace-default-features = "allow"
@@ -57,8 +64,8 @@ external-default-features = "allow"
 allow-workspace = false
 
 [sources]
-unknown-registry = "warn"
-unknown-git = "warn"
+unknown-registry = "deny"
+unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = []
 

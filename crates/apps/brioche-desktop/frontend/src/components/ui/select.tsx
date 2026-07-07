@@ -17,40 +17,26 @@ const Select = SelectPrimitive.Root;
 const SelectGroup = SelectPrimitive.Group;
 const SelectValue = SelectPrimitive.Value;
 
-/// Trigger for the single-select dropdown. Renders a button with a visible
-/// focus state and a chevron indicator.
-///
-/// Refs: I-Shell-Runtime-OnlyIO
 export const SelectTrigger = React.forwardRef<
 	React.ElementRef<typeof SelectPrimitive.Trigger>,
 	React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>
 >(({ className, children, ...props }, ref) => (
 	<SelectPrimitive.Trigger
 		ref={ref}
-		type="button"
 		className={cn(
-			"flex w-full items-center justify-between cursor-pointer",
-			"rounded-md border border-border bg-bg-elevated",
-			"px-3 py-2 text-sm font-mono text-fg-primary",
-			"outline-none focus:border-accent-dim focus:bg-bg-highlight focus:ring-1 focus:ring-accent-glow",
-			"disabled:cursor-not-allowed disabled:opacity-50",
-			"hover:border-border-hover hover:bg-bg-highlight",
-			"transition-all",
+			"flex w-full items-center justify-between rounded border border-border bg-bg-2 px-3 py-2 text-[13px] font-mono text-text-primary outline-none transition-all focus:border-accent-dim focus:bg-bg-3 focus:ring-1 focus:ring-accent-glow disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer",
 			className,
 		)}
 		{...props}
 	>
 		{children}
 		<SelectPrimitive.Icon asChild>
-			<ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+			<ChevronDown className="h-4 w-4 opacity-50 shrink-0" />
 		</SelectPrimitive.Icon>
 	</SelectPrimitive.Trigger>
 ));
 SelectTrigger.displayName = SelectPrimitive.Trigger.displayName;
 
-/// Dropdown content container for the single-select dropdown.
-///
-/// Refs: I-Shell-Runtime-OnlyIO
 export const SelectContent = React.forwardRef<
 	React.ElementRef<typeof SelectPrimitive.Content>,
 	React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
@@ -59,10 +45,7 @@ export const SelectContent = React.forwardRef<
 		<SelectPrimitive.Content
 			ref={ref}
 			className={cn(
-				"relative z-[3000] overflow-hidden rounded-[8px] border border-border bg-bg-surface shadow-md",
-				"max-h-96 min-w-32",
-				"text-fg-primary",
-				"animate-fadeIn",
+				"relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded border border-border bg-bg-1 text-text-primary shadow-md animate-fadeIn",
 				position === "popper" &&
 					"data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
 				className,
@@ -84,9 +67,6 @@ export const SelectContent = React.forwardRef<
 ));
 SelectContent.displayName = SelectPrimitive.Content.displayName;
 
-/// Selectable item inside a single-select dropdown.
-///
-/// Refs: I-Shell-Runtime-OnlyIO
 export const SelectItem = React.forwardRef<
 	React.ElementRef<typeof SelectPrimitive.Item>,
 	React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item>
@@ -94,10 +74,7 @@ export const SelectItem = React.forwardRef<
 	<SelectPrimitive.Item
 		ref={ref}
 		className={cn(
-			"relative flex w-full cursor-pointer select-none items-center rounded-md",
-			"py-2 pl-2 pr-8 text-sm text-fg-secondary",
-			"outline-none focus:bg-bg-elevated focus:text-fg-primary",
-			"hover:bg-bg-highlight hover:text-fg-primary",
+			"relative flex w-full cursor-pointer select-none items-center rounded py-1.5 pl-2 pr-8 text-[13px] text-text-secondary outline-none focus:bg-bg-2 focus:text-text-primary",
 			className,
 		)}
 		{...props}
@@ -112,9 +89,6 @@ export const SelectItem = React.forwardRef<
 ));
 SelectItem.displayName = SelectPrimitive.Item.displayName;
 
-/// Visual separator between groups inside a single-select dropdown.
-///
-/// Refs: I-Shell-Runtime-OnlyIO
 export const SelectSeparator = React.forwardRef<
 	React.ElementRef<typeof SelectPrimitive.Separator>,
 	React.ComponentPropsWithoutRef<typeof SelectPrimitive.Separator>
@@ -129,35 +103,23 @@ SelectSeparator.displayName = SelectPrimitive.Separator.displayName;
 
 export { Select, SelectGroup, SelectValue };
 
-/// Option entry used by the MultiSelect popover.
-///
-/// Refs: I-Shell-Runtime-OnlyIO
 export interface MultiSelectOption {
 	value: string;
 	label: string;
 }
 
-/// Props for the MultiSelect popover.
-///
-/// Refs: I-Shell-Runtime-OnlyIO
 export interface MultiSelectProps {
 	value: string[];
 	options: MultiSelectOption[];
 	placeholder?: string;
 	onChange: (value: string[]) => void;
-	className?: string;
 }
 
-/// Popover-based multi-select control. Displays selected option labels in the
-/// trigger and renders a checkbox list inside the popover.
-///
-/// Refs: I-Shell-Runtime-OnlyIO
 export function MultiSelect({
 	value,
 	options,
 	placeholder = "Select options...",
 	onChange,
-	className,
 }: MultiSelectProps) {
 	const toggle = (optionValue: string) => {
 		const next = value.includes(optionValue)
@@ -180,39 +142,26 @@ export function MultiSelect({
 				<button
 					type="button"
 					className={cn(
-						"flex w-full items-center justify-between cursor-pointer",
-						"rounded-md border border-border bg-bg-elevated",
-						"px-3 py-2 text-sm font-mono",
-						"outline-none focus:border-accent-dim focus:bg-bg-highlight focus:ring-1 focus:ring-accent-glow",
-						"hover:border-border-hover hover:bg-bg-highlight",
-						"transition-all",
-						value.length === 0 && "text-fg-muted",
-						value.length > 0 && "text-fg-primary",
-						className,
+						"flex w-full items-center justify-between rounded border border-border bg-bg-2 px-3 py-2 text-[13px] font-mono outline-none transition-all focus:border-accent-dim focus:bg-bg-3 focus:ring-1 focus:ring-accent-glow cursor-pointer",
+						value.length === 0 && "text-text-muted",
+						value.length > 0 && "text-text-primary",
 					)}
 				>
 					<span className="truncate">{label}</span>
-					<ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+					<ChevronDown className="h-4 w-4 opacity-50 shrink-0" />
 				</button>
 			</PopoverPrimitive.Trigger>
 			<PopoverPrimitive.Portal>
 				<PopoverPrimitive.Content
 					align="start"
 					sideOffset={4}
-					className={cn(
-						"z-[3000] min-w-[var(--radix-popover-trigger-width)] rounded-[8px] border border-border bg-bg-surface p-1 shadow-md",
-						"animate-fadeIn",
-					)}
+					className="z-50 min-w-[var(--radix-popover-trigger-width)] rounded border border-border bg-bg-1 p-1 shadow-md animate-fadeIn"
 				>
 					<div className="flex flex-col gap-0.5">
 						{options.map((option) => (
 							<label
 								key={option.value}
-								className={cn(
-									"flex cursor-pointer items-center gap-2 rounded-md",
-									"px-2 py-2 text-sm text-fg-secondary",
-									"hover:bg-bg-elevated hover:text-fg-primary",
-								)}
+								className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-[13px] text-text-secondary hover:bg-bg-2 hover:text-text-primary"
 							>
 								<Checkbox
 									checked={value.includes(option.value)}

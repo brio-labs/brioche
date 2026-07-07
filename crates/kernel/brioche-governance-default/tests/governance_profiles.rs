@@ -8,9 +8,10 @@
 //! - I-Gov-Tiered-Rollback: TieredUndoFrameGuard respects critical types.
 
 use brioche_core::{
-    AgentState, BriocheEngineBuilder, BriocheExtensionType, BriochePlugin, CycleRollbackPolicy,
-    DecisionAggregator, Effect, EngineInput, ErrorCode, ExtensionStorage, PluginError,
-    PolicyDecision, Session, StreamEvent, SubRoutineHandle, ToolCallDescriptor,
+    AfterPrediction, AgentState, BriocheEngineBuilder, BriocheExtensionType, CycleRollbackPolicy,
+    DecisionAggregator, Effect, EngineInput, ErrorCode, ExtensionStorage, OnError, OnStreamEvent,
+    OnToolCalls, PluginError, PolicyDecision, Session, StreamEvent, SubRoutineHandle,
+    ToolCallDescriptor,
 };
 use brioche_governance_default::{
     AdaptiveUndoFrameGuard, BriocheEngineBuilderExt, GovernanceCompatibilityMatrix,
@@ -176,9 +177,12 @@ fn telemetry_plugin_observes_after_prediction() {
 fn tiered_undo_frame_guard_restores_critical_type() {
     let mut guard = TieredUndoFrameGuard::new();
     let mut ext = ExtensionStorage::new();
-    ext.insert(brioche_core::EpochState {
-        current_generation: 42,
-    });
+    assert!(
+        ext.insert(brioche_core::EpochState {
+            current_generation: 42,
+        })
+        .is_ok()
+    );
 
     guard.begin_hook("on_input");
 
@@ -257,9 +261,12 @@ fn compatibility_matrix_lookup_epoch_guard_subroutine_orchestrator() {
 fn adaptive_undo_frame_guard_restores_on_budget() {
     let mut guard = AdaptiveUndoFrameGuard::new();
     let mut ext = ExtensionStorage::new();
-    ext.insert(brioche_core::EpochState {
-        current_generation: 7,
-    });
+    assert!(
+        ext.insert(brioche_core::EpochState {
+            current_generation: 7,
+        })
+        .is_ok()
+    );
 
     guard.begin_hook("on_input");
 

@@ -8,8 +8,8 @@
 //! Refs: I-Core-ActiveToolCall, I-Gov-OverrideTrace, I-Gov-Rollback-BestEffort
 
 use brioche_core::{
-    BriochePlugin, ExtensionStorage, PluginCapabilities, PluginResult, RollbackEventLog,
-    StreamAction, StreamEvent, SupersededTransitionTraceLog, ToolCallDescriptor,
+    AfterPrediction, ExtensionStorage, OnStreamEvent, PluginResult, RollbackEventLog, StreamAction,
+    StreamEvent, SupersededTransitionTraceLog,
 };
 
 use crate::Priority;
@@ -115,15 +115,14 @@ impl Default for TelemetryPlugin {
     }
 }
 
-impl BriochePlugin for TelemetryPlugin {
+impl OnStreamEvent for TelemetryPlugin {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type StreamAction = StreamAction;
+    type StreamEvent = StreamEvent;
+
     fn name(&self) -> &'static str {
         "telemetry_plugin"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_STREAM_EVENT
-            | PluginCapabilities::AFTER_PREDICTION
-            | PluginCapabilities::ON_TOOL_CALLS
     }
 
     fn priority(&self) -> i16 {
@@ -152,6 +151,19 @@ impl BriochePlugin for TelemetryPlugin {
         }
 
         Ok(StreamAction::Pass)
+    }
+}
+
+impl AfterPrediction for TelemetryPlugin {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+
+    fn name(&self) -> &'static str {
+        "telemetry_plugin"
+    }
+
+    fn priority(&self) -> i16 {
+        Priority::TELEMETRY
     }
 
     /// Archives transition conflicts and aggregates rollback metrics.
@@ -186,7 +198,7 @@ impl BriochePlugin for TelemetryPlugin {
             if event.was_rollback {
                 if event.budget_exceeded {
                     state.abandoned_count += 1;
-                    state.abandoned_weight_total += event.frame_weight as u64;
+                    state.abandoned_weight_total += event.frame_weight;
                 } else {
                     state.restored_count += 1;
                 }
@@ -220,19 +232,6 @@ impl BriochePlugin for TelemetryPlugin {
             }
         }
 
-        Ok(())
-    }
-
-    /// Counts tool calls.
-    fn on_tool_calls(
-        &self,
-        _calls: &mut Vec<ToolCallDescriptor>,
-        _ext: &mut ExtensionStorage,
-    ) -> PluginResult<()> {
-        // Tool call counting is handled by `ToolExecutionTracker` in
-        // `tool_pipeline.rs` to preserve the "one concern per plugin" rule.
-        // TelemetryPlugin only observes stream events, transition conflicts,
-        // and rollback metrics.
         Ok(())
     }
 }

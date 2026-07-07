@@ -8,10 +8,11 @@
 //! Refs: I-Core-NoPanic, I-Core-Pure
 
 use brioche_core::{
-    AgentState, BriocheEngineBuilder, BriochePlugin, ChatMessage, DecisionAggregator, Effect,
-    EngineInput, ExecutionPath, ExtensionStorage, PluginCapabilities, PluginResult, PolicyDecision,
-    Session, StreamAction, StreamEvent, SubRoutineLifecycleGuard, ToolCallDescriptor,
-    ToolResultDTO,
+    AfterPrediction, AgentState, BeforePrediction, BriocheEngineBuilder, ChatMessage,
+    DecisionAggregator, Effect, EngineInput, ExecutionPath, ExtensionStorage,
+    MAX_STATE_STACK_DEPTH, OnInput, OnStreamEvent, OnToolCalls, OnToolResult, PluginResult,
+    PolicyDecision, Session, StreamAction, StreamEvent, SubRoutineHandle, SubRoutineLifecycleGuard,
+    ToolCallDescriptor, ToolResultDTO,
 };
 use proptest::prelude::*;
 
@@ -21,6 +22,10 @@ use proptest::prelude::*;
 
 struct MockDecisionAggregator;
 impl DecisionAggregator for MockDecisionAggregator {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn aggregate_decisions(
         &self,
         _decisions: Vec<PolicyDecision>,
@@ -32,6 +37,12 @@ impl DecisionAggregator for MockDecisionAggregator {
 
 struct MockSubRoutineLifecycleGuard;
 impl SubRoutineLifecycleGuard for MockSubRoutineLifecycleGuard {
+    type Effect = Effect;
+    type PluginError = brioche_core::PluginError;
+    type Session = Session;
+    type SessionRegistry = brioche_core::SessionRegistry;
+    type SubRoutineHandle = SubRoutineHandle;
+
     fn on_exit(
         &self,
         _handle: brioche_core::SubRoutineHandle,
@@ -56,13 +67,11 @@ fn build_engine_with_plugins(a_first: bool) -> brioche_core::BriocheEngine {
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard));
 
     if a_first {
-        builder = builder
-            .with_plugin(Box::new(PurePluginA))
-            .with_plugin(Box::new(PurePluginB));
+        builder = register_pure_plugin_a(builder);
+        builder = register_pure_plugin_b(builder);
     } else {
-        builder = builder
-            .with_plugin(Box::new(PurePluginB))
-            .with_plugin(Box::new(PurePluginA));
+        builder = register_pure_plugin_b(builder);
+        builder = register_pure_plugin_a(builder);
     }
     builder.build()
 }
@@ -74,22 +83,14 @@ fn build_engine_with_plugins(a_first: bool) -> brioche_core::BriocheEngine {
 /// Pure plugin A — always Allow, no side effects.
 struct PurePluginA;
 
-impl BriochePlugin for PurePluginA {
+impl OnInput for PurePluginA {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         "pure_a"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
-            | PluginCapabilities::BEFORE_PREDICTION
-            | PluginCapabilities::ON_STREAM_EVENT
-            | PluginCapabilities::AFTER_PREDICTION
-            | PluginCapabilities::ON_TOOL_CALLS
-            | PluginCapabilities::ON_TOOL_RESULT
-    }
-
-    fn priority(&self) -> i16 {
-        0
     }
 
     fn on_input(
@@ -99,6 +100,17 @@ impl BriochePlugin for PurePluginA {
     ) -> PluginResult<PolicyDecision> {
         Ok(PolicyDecision::Allow)
     }
+}
+
+impl BeforePrediction for PurePluginA {
+    type ChatMessage = ChatMessage;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
+    fn name(&self) -> &'static str {
+        "pure_a"
+    }
 
     fn before_prediction(
         &self,
@@ -106,6 +118,17 @@ impl BriochePlugin for PurePluginA {
         _ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
         Ok(PolicyDecision::Allow)
+    }
+}
+
+impl OnStreamEvent for PurePluginA {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type StreamAction = StreamAction;
+    type StreamEvent = StreamEvent;
+
+    fn name(&self) -> &'static str {
+        "pure_a"
     }
 
     fn on_stream_event(
@@ -115,9 +138,28 @@ impl BriochePlugin for PurePluginA {
     ) -> PluginResult<StreamAction> {
         Ok(StreamAction::Pass)
     }
+}
+
+impl AfterPrediction for PurePluginA {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+
+    fn name(&self) -> &'static str {
+        "pure_a"
+    }
 
     fn after_prediction(&self, _ext: &mut ExtensionStorage) -> PluginResult<()> {
         Ok(())
+    }
+}
+
+impl OnToolCalls for PurePluginA {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type ToolCallDescriptor = ToolCallDescriptor;
+
+    fn name(&self) -> &'static str {
+        "pure_a"
     }
 
     fn on_tool_calls(
@@ -126,6 +168,16 @@ impl BriochePlugin for PurePluginA {
         _ext: &mut ExtensionStorage,
     ) -> PluginResult<()> {
         Ok(())
+    }
+}
+
+impl OnToolResult for PurePluginA {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type ToolResultDto = ToolResultDTO;
+
+    fn name(&self) -> &'static str {
+        "pure_a"
     }
 
     fn on_tool_result(
@@ -140,22 +192,14 @@ impl BriochePlugin for PurePluginA {
 /// Pure plugin B — always Allow, no side effects.
 struct PurePluginB;
 
-impl BriochePlugin for PurePluginB {
+impl OnInput for PurePluginB {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         "pure_b"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
-            | PluginCapabilities::BEFORE_PREDICTION
-            | PluginCapabilities::ON_STREAM_EVENT
-            | PluginCapabilities::AFTER_PREDICTION
-            | PluginCapabilities::ON_TOOL_CALLS
-            | PluginCapabilities::ON_TOOL_RESULT
-    }
-
-    fn priority(&self) -> i16 {
-        0
     }
 
     fn on_input(
@@ -165,6 +209,17 @@ impl BriochePlugin for PurePluginB {
     ) -> PluginResult<PolicyDecision> {
         Ok(PolicyDecision::Allow)
     }
+}
+
+impl BeforePrediction for PurePluginB {
+    type ChatMessage = ChatMessage;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
+    fn name(&self) -> &'static str {
+        "pure_b"
+    }
 
     fn before_prediction(
         &self,
@@ -172,6 +227,17 @@ impl BriochePlugin for PurePluginB {
         _ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
         Ok(PolicyDecision::Allow)
+    }
+}
+
+impl OnStreamEvent for PurePluginB {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type StreamAction = StreamAction;
+    type StreamEvent = StreamEvent;
+
+    fn name(&self) -> &'static str {
+        "pure_b"
     }
 
     fn on_stream_event(
@@ -181,9 +247,28 @@ impl BriochePlugin for PurePluginB {
     ) -> PluginResult<StreamAction> {
         Ok(StreamAction::Pass)
     }
+}
+
+impl AfterPrediction for PurePluginB {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+
+    fn name(&self) -> &'static str {
+        "pure_b"
+    }
 
     fn after_prediction(&self, _ext: &mut ExtensionStorage) -> PluginResult<()> {
         Ok(())
+    }
+}
+
+impl OnToolCalls for PurePluginB {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type ToolCallDescriptor = ToolCallDescriptor;
+
+    fn name(&self) -> &'static str {
+        "pure_b"
     }
 
     fn on_tool_calls(
@@ -193,6 +278,16 @@ impl BriochePlugin for PurePluginB {
     ) -> PluginResult<()> {
         Ok(())
     }
+}
+
+impl OnToolResult for PurePluginB {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type ToolResultDto = ToolResultDTO;
+
+    fn name(&self) -> &'static str {
+        "pure_b"
+    }
 
     fn on_tool_result(
         &self,
@@ -201,6 +296,30 @@ impl BriochePlugin for PurePluginB {
     ) -> PluginResult<()> {
         Ok(())
     }
+}
+
+fn register_pure_plugin_a<DA, LG>(
+    builder: BriocheEngineBuilder<DA, LG>,
+) -> BriocheEngineBuilder<DA, LG> {
+    builder
+        .with_on_input(Box::new(PurePluginA))
+        .with_before_prediction(Box::new(PurePluginA))
+        .with_on_stream_event(Box::new(PurePluginA))
+        .with_after_prediction(Box::new(PurePluginA))
+        .with_on_tool_calls(Box::new(PurePluginA))
+        .with_on_tool_result(Box::new(PurePluginA))
+}
+
+fn register_pure_plugin_b<DA, LG>(
+    builder: BriocheEngineBuilder<DA, LG>,
+) -> BriocheEngineBuilder<DA, LG> {
+    builder
+        .with_on_input(Box::new(PurePluginB))
+        .with_before_prediction(Box::new(PurePluginB))
+        .with_on_stream_event(Box::new(PurePluginB))
+        .with_after_prediction(Box::new(PurePluginB))
+        .with_on_tool_calls(Box::new(PurePluginB))
+        .with_on_tool_result(Box::new(PurePluginB))
 }
 
 // ---------------------------------------------------------------------------
@@ -382,5 +501,189 @@ proptest! {
                 session.state
             );
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AgentState sequence property tests
+// ---------------------------------------------------------------------------
+
+/// A single operation in a randomized `AgentState` sequence.
+///
+/// Sequences mix Core mechanism calls (`push_state`, `pop_state`, direct
+/// state replacement) with full engine transitions. This exposes
+/// interactions that isolated unit tests cannot reach.
+#[derive(Debug, Clone)]
+enum AgentStateOp {
+    /// Push a state onto the hierarchical stack.
+    Push(AgentState),
+    /// Pop the top state from the stack.
+    Pop,
+    /// Replace the current state without touching the stack.
+    Replace(AgentState),
+    /// Run a full `EngineInput` transition.
+    Transition(EngineInput),
+}
+
+fn agent_state_strategy() -> impl Strategy<Value = AgentState> {
+    prop_oneof![
+        Just(AgentState::Idle),
+        (1u64..100u64).prop_map(|generation_id| AgentState::Predicting { generation_id }),
+        (1u64..100u64).prop_map(|generation_id| AgentState::ExecutingTools { generation_id }),
+        "[a-z0-9]{1,8}".prop_map(|id| AgentState::SubRoutine(SubRoutineHandle::new(id))),
+        Just(AgentState::Failure),
+    ]
+}
+
+fn agent_state_op_strategy() -> impl Strategy<Value = AgentStateOp> {
+    prop_oneof![
+        agent_state_strategy().prop_map(AgentStateOp::Push),
+        Just(AgentStateOp::Pop),
+        agent_state_strategy().prop_map(AgentStateOp::Replace),
+        engine_input_strategy().prop_map(AgentStateOp::Transition),
+    ]
+}
+
+/// Parse a base-10 non-negative integer at compile time.
+const fn parse_u32(s: &str) -> Option<u32> {
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    let mut value: u32 = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b < b'0' || b > b'9' {
+            return None;
+        }
+        value = value.wrapping_mul(10).wrapping_add((b - b'0') as u32);
+        i += 1;
+    }
+    Some(value)
+}
+
+/// Configurable case count for the AgentState sequence proptests.
+///
+/// Defaults to 1,000 cases and can be overridden via the
+/// `AGENTSTATE_PROPTEST_CASES` environment variable at compile time.
+const AGENTSTATE_PROPTEST_CASES: u32 = match option_env!("AGENTSTATE_PROPTEST_CASES") {
+    Some(s) => match parse_u32(s) {
+        Some(n) => n,
+        None => 1_000,
+    },
+    None => 1_000,
+};
+
+/// Apply a sequence of operations and check every listed invariant.
+///
+/// Invariants verified:
+/// - Stack depth never exceeds `MAX_STATE_STACK_DEPTH`.
+/// - `generation_id` is monotonically non-decreasing across valid
+///   `UserMessage` transitions that reach `Predicting`.
+/// - `AgentState::Failure` rejects further engine inputs.
+/// - `pop_state` on an empty stack returns `Err`, never panics.
+fn run_agent_state_sequence(
+    engine: &mut brioche_core::BriocheEngine,
+    session: &mut Session,
+    ops: &[AgentStateOp],
+) -> Result<(), TestCaseError> {
+    let mut max_observed_generation: Option<u64> = None;
+
+    for op in ops {
+        match op {
+            AgentStateOp::Push(state) => {
+                let prev_depth = session.state_stack.len();
+                let result = session.push_state(state.clone());
+                prop_assert!(
+                    session.state_stack.len() <= MAX_STATE_STACK_DEPTH,
+                    "stack depth {} exceeds maximum {}",
+                    session.state_stack.len(),
+                    MAX_STATE_STACK_DEPTH
+                );
+                if result.is_ok() {
+                    prop_assert_eq!(
+                        session.state_stack.len(),
+                        prev_depth + 1,
+                        "successful push must increase depth by one"
+                    );
+                }
+            }
+            AgentStateOp::Pop => {
+                let prev_depth = session.state_stack.len();
+                let result = session.pop_state();
+                if prev_depth == 0 {
+                    prop_assert!(result.is_err(), "pop on empty stack must return Err");
+                } else {
+                    prop_assert!(result.is_ok(), "pop on non-empty stack must succeed");
+                    prop_assert_eq!(
+                        session.state_stack.len(),
+                        prev_depth - 1,
+                        "successful pop must decrease depth by one"
+                    );
+                }
+            }
+            AgentStateOp::Replace(state) => {
+                session.state = state.clone();
+            }
+            AgentStateOp::Transition(input) => {
+                let was_failure = matches!(session.state, AgentState::Failure);
+                let effects = engine.transition(session, input);
+
+                if was_failure {
+                    prop_assert!(
+                        matches!(session.state, AgentState::Failure),
+                        "Failure state must reject further inputs, got {:?}",
+                        session.state
+                    );
+                    prop_assert!(
+                        effects
+                            .iter()
+                            .any(|effect| matches!(effect, Effect::Error { .. })),
+                        "Failure rejection must emit an error effect"
+                    );
+                    continue;
+                }
+
+                // Track generation_id monotonicity across UserMessage transitions.
+                if matches!(input, EngineInput::UserMessage(_))
+                    && let AgentState::Predicting { generation_id } = session.state
+                {
+                    if let Some(max_gen) = max_observed_generation {
+                        prop_assert!(
+                            generation_id >= max_gen,
+                            "generation_id {} decreased below previous maximum {}",
+                            generation_id,
+                            max_gen
+                        );
+                    }
+                    let next_max = match max_observed_generation {
+                        Some(max_gen) => max_gen.max(generation_id),
+                        None => generation_id,
+                    };
+                    max_observed_generation = Some(next_max);
+                }
+            }
+        }
+
+        // Global invariant: depth is always bounded, regardless of operation.
+        prop_assert!(
+            session.state_stack.len() <= MAX_STATE_STACK_DEPTH,
+            "stack depth {} exceeds maximum {}",
+            session.state_stack.len(),
+            MAX_STATE_STACK_DEPTH
+        );
+    }
+
+    Ok(())
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(AGENTSTATE_PROPTEST_CASES))]
+
+    #[test]
+    fn prop_agent_state_sequence_invariants(
+        ops in prop::collection::vec(agent_state_op_strategy(), 0..32)
+    ) {
+        let mut engine = build_engine();
+        let mut session = Session::new("prop-agent-state");
+        run_agent_state_sequence(&mut engine, &mut session, &ops)?;
     }
 }

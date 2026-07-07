@@ -1,20 +1,10 @@
 import { useMemo } from 'react';
 
-/**
- * Props for {@link MarkdownRenderer}.
- */
 interface MarkdownRendererProps {
     content: string;
 }
 
-/**
- * Renders a Markdown string as sanitized HTML without external dependencies.
- *
- * Supports fenced code blocks, inline code, headers, lists, links, and emphasis.
- * Code blocks include a copy-to-clipboard button.
- *
- * Refs: I-Ui-MarkdownRendering
- */
+// Simple markdown parser - no external dependencies
 export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
     const html = useMemo(() => {
         return parseMarkdown(content);
@@ -28,9 +18,6 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
     );
 }
 
-/**
- * Parses a Markdown string into HTML, escaping raw HTML first.
- */
 function parseMarkdown(text: string): string {
     let html = escapeHtml(text);
 
@@ -43,7 +30,7 @@ function parseMarkdown(text: string): string {
             return `<div class="code-block-wrapper">
                 <div class="code-block-header">
                     <span class="lang-label">${language}</span>
-                    <button type="button" class="copy-btn focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent" onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.textContent).then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)})">Copy</button>
+                    <button class="copy-btn" onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.textContent).then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)})">Copy</button>
                 </div>
                 <pre><code>${escapedCode}</code></pre>
             </div>`;
@@ -94,9 +81,6 @@ function parseMarkdown(text: string): string {
     return paragraphs.join('\n');
 }
 
-/**
- * Escapes HTML special characters in a plain text string.
- */
 function escapeHtml(text: string): string {
     return text
         .replace(/&/g, '&amp;')

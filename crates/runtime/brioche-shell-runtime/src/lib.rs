@@ -27,11 +27,12 @@ pub mod signal_adapter;
 pub mod telemetry;
 pub mod transition_journal;
 pub mod unified_event_bus;
+pub mod util;
 
 // Re-export channel types from core so consumers need only one import.
 pub use brioche_core::{
-    AsyncTaskResult, BriocheEngine, BriocheEngineBuilder, BriochePlugin, ChatMessage, Effect,
-    EngineInput, GovernanceNotification, Session, SystemSignal,
+    AsyncTaskResult, BriocheEngine, BriocheEngineBuilder, ChatMessage, Effect, EngineInput,
+    GovernanceNotification, Session, SystemSignal,
 };
 pub use effect_executor::{DefaultEffectExecutor, EffectExecutor, NoopPersistence, Persistence};
 pub use engine_watchdog::{
@@ -46,6 +47,9 @@ pub use shell::{
 pub use signal_adapter::{
     AsyncTaskResultAdapter, GovernanceNotificationAdapter, SignalMultiplexer, SystemSignalAdapter,
 };
-pub use telemetry::{TelemetryChannel, TelemetryEvent, TelemetryLevel, install_default_subscriber};
+pub use telemetry::{
+    Secret, TelemetryChannel, TelemetryEvent, TelemetryLevel, TelemetryPayload,
+    install_default_subscriber,
+};
 pub use transition_journal::{JournalEntry, TransitionJournal};
 pub use unified_event_bus::{EngineEnvelope, UnifiedEventBus};

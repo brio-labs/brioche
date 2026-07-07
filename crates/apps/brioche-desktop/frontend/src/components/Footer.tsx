@@ -1,65 +1,52 @@
+import { useEffect, useState } from "react";
+import { getFooterMetrics } from "../ipc";
+import type { FooterMetric } from "../ipc";
 import { useTauriEvent } from "../hooks/useTauriSync";
-import Tooltip from "./Tooltip";
-import { MessageSquare, MessageCircle, Folder } from "lucide-react";
-import { cn } from "./ui/lib";
 
-interface PanelState {
-  left: boolean;
-  center: boolean;
-  right: boolean;
-}
+export default function Footer() {
+	const [metrics, setMetrics] = useState<FooterMetric[]>([]);
 
-interface FooterProps {
-  panels: PanelState;
-  onToggleLeft: () => void;
-  onToggleRight: () => void;
-}
+	const load = async () => {
+		try {
+			const data = await getFooterMetrics();
+			setMetrics(data);
+		} catch (err) {
+			console.error("Failed to load footer metrics:", err);
+		}
+	};
 
-function FooterSeparator() {
-  return (
-    <div
-      className="w-px h-full bg-fg-muted/50 self-center mx-1 shrink-0"
-      aria-hidden="true"
-    />
-  );
-}
+	useEffect(() => {
+		void load();
+		const interval = setInterval(() => {
+			void load();
+		}, 1000);
+		return () => clearInterval(interval);
+	}, []);
 
-export default function Footer({
-  panels,
-  onToggleLeft,
-  onToggleRight,
-}: FooterProps) {
-  // Kept for future reactive footer state; chat-message listener is a no-op for now.
-  useTauriEvent("chat-message", () => {});
+	// Reactively refresh footer metrics on new chat messages
+	useTauriEvent("chat-message", () => {
+		void load();
+	});
 
-  return (
-    <footer className="flex items-center h-10 bg-bg-base/80 backdrop-blur-md border-t border-border text-fg-muted shrink-0 select-none z-10">
-      <Tooltip label="Sessions">
-        <button
-          type="button"
-          onClick={onToggleLeft}
-          className={cn("dock-button", panels.left && "dock-button-active")}
-          aria-pressed={panels.left}
-          aria-label="Sessions"
-        >
-          <MessageSquare className="w-4 h-4" />
-        </button>
-      </Tooltip>
-      <FooterSeparator />
-
-      <div className="flex-1 flex items-center justify-end">
-        <Tooltip label="Explorer">
-          <button
-            type="button"
-            onClick={onToggleRight}
-            className={cn("dock-button", panels.right && "dock-button-active")}
-            aria-pressed={panels.right}
-            aria-label="Explorer"
-          >
-            <Folder className="w-4 h-4" />
-          </button>
-        </Tooltip>
-      </div>
-    </footer>
-  );
+	return (
+		<footer className="flex items-center justify-end gap-4 px-4 bg-bg-0/90 border-t border-border text-[11px] text-text-muted shrink-0 select-none h-7 z-10">
+			{metrics.length === 0 ? (
+				<div className="flex items-center gap-1">
+					<span className="font-medium">Brioche</span>
+					<span className="font-mono text-text-secondary">0.1.0</span>
+				</div>
+			) : (
+				metrics.map((m) => (
+					<div
+						key={m.id}
+						className="flex items-center gap-1"
+						title={m.tooltip || undefined}
+					>
+						<span className="font-medium">{m.label}</span>
+						<span className="font-mono text-text-secondary">{m.value}</span>
+					</div>
+				))
+			)}
+		</footer>
+	);
 }

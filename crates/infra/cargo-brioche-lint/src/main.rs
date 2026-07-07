@@ -7,16 +7,16 @@
 //!
 //! ## Usage
 //! ```text
-//! cargo brioche-lint --path crates/my-plugin
+//! cargo brioche-lint --root crates/my-plugin
 //! ```
 //!
 //! Refs: docs/SPECS.md §Book IV Ch 3 §3.5
 
 use std::fs;
-use std::path::PathBuf;
 
+use brioche_lint_core::cli::RootArgs;
+use brioche_lint_core::walk::source_files;
 use clap::Parser;
-use walkdir::WalkDir;
 
 /// CLI arguments.
 ///
@@ -25,9 +25,9 @@ use walkdir::WalkDir;
 #[command(name = "cargo-brioche-lint")]
 #[command(about = "Lint Brioche plugins for forbidden patterns")]
 struct Cli {
-    /// Path to the plugin crate.
-    #[arg(long, short, default_value = ".")]
-    path: PathBuf,
+    /// Root directory to scan.
+    #[command(flatten)]
+    args: RootArgs,
 }
 
 /// A single lint violation.
@@ -45,7 +45,7 @@ struct Violation {
 /// Refs: docs/SPECS.md §Book IV Ch 3 §3.5
 fn main() {
     let cli = Cli::parse();
-    let violations = lint_directory(&cli.path);
+    let violations = lint_directory(&cli.args.root);
 
     if violations.is_empty() {
         println!("No violations found ✓");
@@ -65,28 +65,16 @@ fn main() {
 /// O(n · m) where n = files scanned, m = lines per file.
 ///
 /// Refs: docs/SPECS.md §Book IV Ch 3 §3.5
-fn lint_directory(root: &PathBuf) -> Vec<Violation> {
+fn lint_directory(root: &std::path::Path) -> Vec<Violation> {
     let mut violations = Vec::new();
 
-    for entry in WalkDir::new(root)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            let p = e.path();
-            p.extension().is_some_and(|ext| ext == "rs")
-                && !p.components().any(|c| {
-                    let s = c.as_os_str().to_string_lossy();
-                    s == "target" || s == ".git"
-                })
-        })
-    {
-        let path = entry.path();
-        let contents = match fs::read_to_string(path) {
+    for path in source_files(root, &["rs"]) {
+        let contents = match fs::read_to_string(&path) {
             Ok(c) => c,
             Err(_) => continue,
         };
 
-        lint_file_contents(path, &contents, &mut violations);
+        lint_file_contents(&path, &contents, &mut violations);
     }
 
     violations

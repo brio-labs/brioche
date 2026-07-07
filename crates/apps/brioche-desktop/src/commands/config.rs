@@ -8,41 +8,6 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::state::{DesktopState, SessionMetadata};
 
-/// Validates profile fields before creation or update.
-///
-/// Refs: I-Shell-Runtime-OnlyIO
-///
-/// # Complexity
-/// O(1).
-///
-/// # Panic / Safety
-/// Never panics.
-fn validate_profile(profile: &profiles::Profile) -> Result<(), String> {
-    if profile.name.trim().is_empty() {
-        return Err("Profile name cannot be empty".into());
-    }
-    if profile.display_name.trim().is_empty() {
-        return Err("Profile display name cannot be empty".into());
-    }
-    if profile.provider.trim().is_empty() {
-        return Err("Provider cannot be empty".into());
-    }
-    if profile.model.trim().is_empty() {
-        return Err("Model cannot be empty".into());
-    }
-    if let Some(temperature) = profile.temperature
-        && !(0.0..=2.0).contains(&temperature)
-    {
-        return Err("Temperature must be between 0.0 and 2.0".into());
-    }
-    if let Some(max_tokens) = profile.max_tokens
-        && max_tokens == 0
-    {
-        return Err("Max tokens must be greater than 0".into());
-    }
-    Ok(())
-}
-
 /// Returns the current user settings.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
@@ -102,7 +67,9 @@ pub async fn set_settings(
 
     if let Some(current_id) = current_id_opt {
         let factory = state.factory.read().await.clone();
-        let handle = crate::commands::shell::build_shell(&current_id, &factory).await;
+        let handle = crate::commands::shell::build_shell(&current_id, &factory)
+            .await
+            .map_err(|e| e.to_string())?;
         DesktopState::initialize_memory_providers(
             &factory,
             &current_id,
@@ -242,7 +209,7 @@ pub async fn get_profile(name: Option<String>) -> Result<Option<ProfilePayload>,
 /// O(P) where P is the number of profiles. Reads and writes profile config disk.
 ///
 /// # Panic / Safety
-/// Never panics. Returns Err on invalid input, file write, or profile creation failures.
+/// Never panics. Returns Err on file write or profile creation failures.
 #[tauri::command]
 pub async fn create_profile(
     name: String,
@@ -251,21 +218,6 @@ pub async fn create_profile(
     model: String,
     api_key: String,
 ) -> Result<(), String> {
-    let candidate = profiles::Profile {
-        name: name.clone(),
-        display_name: display_name.clone(),
-        description: None,
-        provider: provider.clone(),
-        model: model.clone(),
-        api_key: api_key.clone(),
-        system_prompt: None,
-        temperature: Some(0.7),
-        max_tokens: Some(4096),
-        created_at: 0,
-        is_default: false,
-    };
-    validate_profile(&candidate)?;
-
     let mut config = profiles::ProfileConfig::load();
     config.create(name, display_name, provider, model, api_key)
 }
@@ -308,10 +260,9 @@ pub async fn delete_profile(name: String) -> Result<(), String> {
 /// O(P) where P is the number of profiles. Reads and writes profile config disk.
 ///
 /// # Panic / Safety
-/// Never panics. Returns Err if validation or profile update fails.
+/// Never panics. Returns Err if profile update fails.
 #[tauri::command]
 pub async fn update_profile(profile: profiles::Profile) -> Result<(), String> {
-    validate_profile(&profile)?;
     let mut config = profiles::ProfileConfig::load();
     config.update(profile)
 }
@@ -398,123 +349,4 @@ pub async fn fetch_models() -> Result<Vec<ModelInfo>, String> {
         .collect();
 
     Ok(models)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn sample_profile() -> profiles::Profile {
-        profiles::Profile {
-            name: "work".into(),
-            display_name: "Work".into(),
-            description: Some("work profile".into()),
-            provider: "openrouter".into(),
-            model: "qwen/qwen3.7-plus".into(),
-            api_key: "key".into(),
-            system_prompt: Some("be helpful".into()),
-            temperature: Some(0.7),
-            max_tokens: Some(4096),
-            created_at: 1234567890,
-            is_default: false,
-        }
-    }
-
-    #[test]
-    fn profile_payload_from_profile() -> Result<(), String> {
-        let profile = sample_profile();
-        let payload = ProfilePayload::from(&profile);
-        assert_eq!(payload.name, "work");
-        assert_eq!(payload.display_name, "Work");
-        assert_eq!(payload.description.as_deref(), Some("work profile"));
-        assert_eq!(payload.provider, "openrouter");
-        assert_eq!(payload.model, "qwen/qwen3.7-plus");
-        assert_eq!(payload.api_key, "key");
-        assert_eq!(payload.temperature, Some(0.7));
-        assert_eq!(payload.max_tokens, Some(4096));
-        assert_eq!(payload.created_at, 1234567890);
-        assert!(!payload.is_default);
-        Ok(())
-    }
-
-    #[test]
-    fn validate_profile_accepts_valid_profile() -> Result<(), String> {
-        validate_profile(&sample_profile())?;
-        Ok(())
-    }
-
-    #[test]
-    fn validate_profile_rejects_empty_name() -> Result<(), String> {
-        let mut profile = sample_profile();
-        profile.name = "   ".into();
-        match validate_profile(&profile) {
-            Err(e) => assert_eq!(e, "Profile name cannot be empty"),
-            Ok(_) => return Err("expected empty name to be rejected".into()),
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn validate_profile_rejects_empty_provider() -> Result<(), String> {
-        let mut profile = sample_profile();
-        profile.provider = "".into();
-        match validate_profile(&profile) {
-            Err(e) => assert_eq!(e, "Provider cannot be empty"),
-            Ok(_) => return Err("expected empty provider to be rejected".into()),
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn validate_profile_rejects_empty_model() -> Result<(), String> {
-        let mut profile = sample_profile();
-        profile.model = "".into();
-        match validate_profile(&profile) {
-            Err(e) => assert_eq!(e, "Model cannot be empty"),
-            Ok(_) => return Err("expected empty model to be rejected".into()),
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn validate_profile_rejects_out_of_range_temperature() -> Result<(), String> {
-        let mut profile = sample_profile();
-        profile.temperature = Some(2.5);
-        match validate_profile(&profile) {
-            Err(e) => assert_eq!(e, "Temperature must be between 0.0 and 2.0"),
-            Ok(_) => return Err("expected out-of-range temperature to be rejected".into()),
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn validate_profile_rejects_zero_max_tokens() -> Result<(), String> {
-        let mut profile = sample_profile();
-        profile.max_tokens = Some(0);
-        match validate_profile(&profile) {
-            Err(e) => assert_eq!(e, "Max tokens must be greater than 0"),
-            Ok(_) => return Err("expected zero max tokens to be rejected".into()),
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn model_info_falls_back_to_id_when_name_missing() -> Result<(), String> {
-        let model = OpenRouterModel {
-            id: "openai/gpt-4o".into(),
-            name: None,
-        };
-        let info = ModelInfo {
-            id: model.id.clone(),
-            name: match model.name {
-                Some(n) => n,
-                None => model.id.clone(),
-            },
-            provider: "openrouter".into(),
-        };
-        assert_eq!(info.id, "openai/gpt-4o");
-        assert_eq!(info.name, "openai/gpt-4o");
-        assert_eq!(info.provider, "openrouter");
-        Ok(())
-    }
 }

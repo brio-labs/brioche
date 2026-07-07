@@ -11,8 +11,8 @@
 
 use super::{BriocheEngine, PreTransitionState};
 use crate::{
-    ActiveToolCall, AgentState, Effect, EngineInput, EpochAction, ErrorCode, ErrorDetail,
-    PluginError, PluginSource, Session,
+    ActiveToolCall, AgentState, CycleRollbackPolicyPlugin, Effect, EngineInput, EpochAction,
+    ErrorCode, ErrorDetail, PluginError, PluginSource, Session,
 };
 
 impl BriocheEngine {
@@ -40,16 +40,17 @@ impl BriocheEngine {
         }
     }
 
-    /// Apply `EpochInterceptor` if configured.
+    /// Apply registered `EpochInterceptor`s.
     ///
-    /// Returns `Some(())` when the interceptor produces a terminal action
+    /// Returns `Some(())` when an interceptor produces a terminal action
     /// (Block), in which case `effects` has been populated and the caller
-    /// should return early.
+    /// should return early. Interceptors run in registration order; the first
+    /// block wins.
     ///
     /// Refs: I-Comp-Epoch-First
     ///
     /// # Complexity
-    /// O(1). One optional lookup + one trait call.
+    /// O(e) where e = registered epoch interceptors.
     ///
     /// # Panics
     /// Never panics.
@@ -59,25 +60,26 @@ impl BriocheEngine {
         input: &EngineInput,
         effects: &mut Vec<Effect>,
     ) -> Option<()> {
-        let interceptor = self.governance.epoch_interceptor.as_ref()?;
-
-        match interceptor.intercept_epoch(input, &mut session.extensions) {
-            Ok(EpochAction::Block { reason }) => {
-                effects.push(Effect::Error {
-                    code: ErrorCode::EpochMismatch,
-                    detail: ErrorDetail::EpochGuardRejected {
-                        reason: reason.clone(),
-                    },
-                });
-                effects.push(Effect::SystemIdle);
-                Some(())
-            }
-            Ok(EpochAction::Proceed) => None,
-            Err(err) => {
-                effects.push(Self::plugin_fault("epoch_interceptor", err));
-                None
+        for interceptor in &self.governance.epoch_interceptors {
+            match interceptor.intercept_epoch(input, &mut session.extensions) {
+                Ok(EpochAction::Block { reason }) => {
+                    effects.push(Effect::Error {
+                        code: ErrorCode::EpochMismatch,
+                        detail: ErrorDetail::EpochGuardRejected {
+                            reason: reason.clone(),
+                        },
+                    });
+                    effects.push(Effect::SystemIdle);
+                    return Some(());
+                }
+                Ok(EpochAction::Proceed) => {}
+                Err(err) => {
+                    effects.push(Self::plugin_fault("epoch_interceptor", err));
+                }
             }
         }
+
+        None
     }
 
     /// Apply `SubRoutineHandler` if configured and session is in sub-routine state.
@@ -98,22 +100,39 @@ impl BriocheEngine {
         input: &EngineInput,
         effects: &mut Vec<Effect>,
     ) -> Option<()> {
-        let handler = self.governance.subroutine_handler.as_ref()?;
+        let _ = self.governance.subroutine_handler.as_ref()?;
+
         let handle = match &session.state {
-            AgentState::SubRoutine(h) => h,
+            AgentState::SubRoutine(h) => h.clone(),
             _ => return None,
         };
-        let child = self.routines.registry.get_mut(handle)?;
 
-        match handler.handle_subroutine(session, child, input) {
+        if matches!(input, EngineInput::RestoreSubRoutine { .. }) {
+            return None;
+        }
+
+        let mut child = self.routines.registry.remove(&handle)?;
+
+        let mut child_effects = self.transition(&mut child, input);
+        effects.append(&mut child_effects);
+
+        let result = if let Some(handler) = self.governance.subroutine_handler.as_ref() {
+            handler.handle_subroutine(session, &mut child, input)
+        } else {
+            Ok(None)
+        };
+
+        self.routines.registry.insert(handle, child);
+
+        match result {
             Ok(Some(sub_effects)) => {
                 effects.extend(sub_effects);
                 Some(())
             }
-            Ok(None) => None,
+            Ok(None) => Some(()),
             Err(err) => {
                 effects.push(Self::plugin_fault("subroutine_handler", err));
-                None
+                Some(())
             }
         }
     }
@@ -139,12 +158,12 @@ impl BriocheEngine {
     /// # Panics
     /// Never panics.
     pub(crate) fn with_rollback<R>(
-        &mut self,
+        rollback_policy: &mut Option<Box<CycleRollbackPolicyPlugin>>,
         session: &mut Session,
         hook_name: &'static str,
-        f: impl FnOnce(&mut Self, &mut Session) -> R,
+        f: impl FnOnce(&mut Session) -> R,
     ) -> R {
-        let mut policy = self.governance.cycle_rollback_policy.take();
+        let mut policy = rollback_policy.take();
         if let Some(p) = &mut policy {
             p.begin_hook(hook_name);
         }
@@ -153,7 +172,7 @@ impl BriocheEngine {
             session.extensions.attach_rollback_policy(p);
         }
 
-        let result = f(self, session);
+        let result = f(session);
 
         let mut policy = session.extensions.detach_rollback_policy();
 
@@ -165,7 +184,7 @@ impl BriocheEngine {
             }
         }
 
-        self.governance.cycle_rollback_policy = policy;
+        *rollback_policy = policy;
         result
     }
 
@@ -213,7 +232,16 @@ impl BriocheEngine {
     /// Refs: I-Core-RetVecEffect, I-Core-ActiveToolCall
     ///
     /// # Complexity
-    /// O(1). One Vec push + clone of active_tools.
+    /// O(t * a) where t = number of active tool calls and a = average length
+    /// of their JSON argument strings. `Effect` values are owned, so the
+    /// `ExecuteTools` variant clones `session.active_tools` once per transition.
+    ///
+    /// This clone is not on the per-token streaming hot path; it runs once
+    /// when the engine leaves the `ExecutingTools` state. Benchmarks show the
+    /// cost is dominated by tool-argument serialization elsewhere, so the
+    /// kernel keeps `String` arguments rather than adding `Arc<str>` indirection.
+    /// If future workloads carry very large argument blobs, switch to
+    /// `Arc<str>` or `Arc<[u8]>` here first.
     ///
     /// # Panics
     /// Never panics.
@@ -264,7 +292,9 @@ impl BriocheEngine {
             pos,
             Effect::Error {
                 code: ErrorCode::StateInconsistency,
-                detail: ErrorDetail::EffectsDroppedAfterRebuildRoutes { count: dropped },
+                detail: ErrorDetail::EffectsDroppedAfterRebuildRoutes {
+                    count: dropped as u64,
+                },
             },
         );
         effects.truncate(pos + 2);

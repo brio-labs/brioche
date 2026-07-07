@@ -2,20 +2,13 @@ import { create } from "zustand";
 import { listSessions, switchSession, deleteSession, newSession } from "../ipc";
 import type { SessionSort } from "../ipc";
 
-/// A Brioche session as displayed in the desktop UI.
-///
-/// Refs: I-Ui-Session
 export interface Session {
 	id: string;
 	active: boolean;
 	created_at?: number;
-	updated_at?: number;
 	workspace?: string;
 }
 
-/// State and actions for the session list sidebar.
-///
-/// Refs: I-Ui-SessionStore
 interface SessionStore {
 	sessions: Session[];
 	currentSessionId: string | null;
@@ -29,31 +22,25 @@ interface SessionStore {
 	setSessions: (sessions: Session[]) => void;
 }
 
-/// Zustand store that owns the session list, sort mode, and active session id.
-///
-/// Refs: I-Ui-SessionStore
 export const useSessionStore = create<SessionStore>((set, get) => ({
 	sessions: [],
 	currentSessionId: null,
 	sortMode: "date",
 	isLoading: false,
-
 	loadSessions: async () => {
 		try {
 			const sessions = await listSessions(get().sortMode);
 			const current = sessions.find((s) => s.active);
 			set({ sessions, currentSessionId: current?.id ?? null });
-		} catch (err: unknown) {
+		} catch (err) {
 			console.error("Failed to load sessions:", err);
 		}
 	},
-
-	setSortMode: (sort: SessionSort) => {
+	setSortMode: (sort) => {
 		set({ sortMode: sort });
 		get().loadSessions();
 	},
-
-	switchToSession: async (id: string) => {
+	switchToSession: async (id) => {
 		try {
 			await switchSession(id);
 			set((state) => ({
@@ -63,45 +50,33 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 				})),
 				currentSessionId: id,
 			}));
-		} catch (err: unknown) {
+		} catch (err) {
 			console.error("Failed to switch session:", err);
 		}
 	},
-
-	deleteSession: async (id: string) => {
+	deleteSession: async (id) => {
 		try {
 			await deleteSession(id);
 			set((state) => ({
 				sessions: state.sessions.filter((s) => s.id !== id),
 			}));
-		} catch (err: unknown) {
+		} catch (err) {
 			console.error("Failed to delete session:", err);
 		}
 	},
-
 	createSession: async () => {
 		try {
 			const id = await newSession();
-
-			// The backend may need a moment to persist the session before it
-			// appears in listSessions. Retry up to 3 times with a short delay.
-			let sessions: Awaited<ReturnType<typeof listSessions>> = [];
-			for (let attempt = 0; attempt < 3; attempt++) {
-				sessions = await listSessions(get().sortMode);
-				if (sessions.some((s) => s.id === id)) break;
-				await new Promise((r) => setTimeout(r, 150));
-			}
-
+			const sessions = await listSessions(get().sortMode);
 			const current = sessions.find((s) => s.active);
 			set({ sessions, currentSessionId: current?.id ?? null });
 			return id;
-		} catch (err: unknown) {
+		} catch (err) {
 			console.error("Failed to create session:", err);
 			return null;
 		}
 	},
-
-	setSessions: (sessions: Session[]) => {
+	setSessions: (sessions) => {
 		const current = sessions.find((s) => s.active);
 		set({ sessions, currentSessionId: current?.id ?? null });
 	},

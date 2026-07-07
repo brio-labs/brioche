@@ -12,7 +12,7 @@ description = "OpenAI-compatible LLM provider for Brioche Shell Runtime"
 brioche-core = { workspace = true }
 brioche-shell-runtime = { workspace = true }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
-reqwest = { version = "0.13", default-features = false, features = [
+reqwest = { workspace = true, features = [
   "json",
   "stream",
   "native-tls",
@@ -20,13 +20,18 @@ reqwest = { version = "0.13", default-features = false, features = [
 serde_json = { workspace = true }
 tokio = { workspace = true }
 bytes = { workspace = true }
+thiserror = "2"
 
 tracing = "0.1"
 async-trait = { workspace = true }
-
 [lints]
 workspace = true
 
 [dev-dependencies]
 brioche-governance-default.workspace = true
 wiremock = "0.6.5"
+criterion = { workspace = true }
+
+[[bench]]
+name = "sse_parsing"
+harness = false

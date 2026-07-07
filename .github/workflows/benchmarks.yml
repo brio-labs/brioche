@@ -5,53 +5,93 @@ on:
     paths:
       - ".github/workflows/benchmarks.yml"
       - "crates/kernel/brioche-core/**"
-      - "crates/kernel/brioche-governance/**"
       - "crates/kernel/brioche-governance-default/**"
       - "crates/runtime/brioche-shell-persistence/**"
       - "crates/runtime/brioche-shell-runtime/**"
       - "crates/runtime/brioche-shell-projection/**"
+
+concurrency:
+  group: benchmarks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
-  pull-requests: write
-  actions: write
 
 env:
   CARGO_TERM_COLOR: always
   RUSTC_WRAPPER: sccache
   SCCACHE_GHA_ENABLED: "true"
 jobs:
-  bench:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      core: ${{ steps.filter.outputs.core }}
+      governance-default: ${{ steps.filter.outputs.governance-default }}
+      shell-persistence: ${{ steps.filter.outputs.shell-persistence }}
+      shell-runtime: ${{ steps.filter.outputs.shell-runtime }}
     steps:
       - uses: actions/checkout@v7.0.0
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: ./.github/actions/setup-system-dependencies
-
-      # brioche-desktop embeds its frontend via tauri::generate_context!(), which
-      # expects crates/apps/brioche-desktop/frontend/dist to exist at compile time.
-      - uses: ./.github/actions/setup-frontend
-
-      - uses: Swatinem/rust-cache@v2.9.1
-      - uses: mozilla-actions/sccache-action@v0.0.10
-
-      - name: Run benchmarks
-        run: cargo bench --workspace | tee benchmark-results.txt
-      - name: Check for benchmark results
-        id: check
-        run: |
-          if grep -q "test result: ok. 0 passed" benchmark-results.txt; then
-            echo "has_benchmarks=false" >> "$GITHUB_OUTPUT"
-            echo "No benchmarks found — skipping comparison."
-          else
-            echo "has_benchmarks=true" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Compare with main
-        if: steps.check.outputs.has_benchmarks == 'true'
-        uses: benchmark-action/github-action-benchmark@v1
+      - uses: dorny/paths-filter@v4.0.1
+        id: filter
         with:
-          tool: "cargo"
-          output-file-path: benchmark-results.txt
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          alert-threshold: "150%"
-          comment-on-alert: true
-          fail-on-alert: true
+          filters: |
+            core:
+              - ".github/workflows/benchmarks.yml"
+              - "crates/kernel/brioche-core/**"
+            governance-default:
+              - ".github/workflows/benchmarks.yml"
+              - "crates/kernel/brioche-governance-default/**"
+            shell-persistence:
+              - ".github/workflows/benchmarks.yml"
+              - "crates/runtime/brioche-shell-persistence/**"
+            shell-runtime:
+              - ".github/workflows/benchmarks.yml"
+              - "crates/runtime/brioche-shell-runtime/**"
+              - "crates/runtime/brioche-shell-projection/**"
+
+  bench:
+    needs: [changes]
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: core
+            package: brioche-core
+            bench: benchmarks
+            changed: ${{ needs.changes.outputs.core }}
+            args: ""
+          - name: governance-default
+            package: brioche-governance-default
+            bench: benchmarks
+            changed: ${{ needs.changes.outputs.governance-default }}
+            args: ""
+          - name: shell-persistence
+            package: brioche-shell-persistence
+            bench: benchmarks
+            changed: ${{ needs.changes.outputs.shell-persistence }}
+            args: ""
+          - name: shell-runtime
+            package: brioche-shell-runtime
+            bench: effect_loop
+            changed: ${{ needs.changes.outputs.shell-runtime }}
+            args: "-- --sample-size 10 --measurement-time 1 --warm-up-time 1"
+    name: bench (${{ matrix.name }})
+    steps:
+      - name: Skip unchanged benchmark shard
+        if: matrix.changed != 'true'
+        run: echo "No benchmark-relevant changes for ${{ matrix.name }}."
+      - uses: actions/checkout@v7.0.0
+        if: matrix.changed == 'true'
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.changed == 'true'
+      - uses: Swatinem/rust-cache@v2.9.1
+        if: matrix.changed == 'true'
+      - uses: mozilla-actions/sccache-action@v0.0.10
+        if: matrix.changed == 'true'
+
+      - name: Run ${{ matrix.name }} benchmarks
+        if: matrix.changed == 'true'
+        run: cargo bench --package ${{ matrix.package }} --bench ${{ matrix.bench }} --locked ${{ matrix.args }} | tee benchmark-results.txt

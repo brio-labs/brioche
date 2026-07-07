@@ -10,7 +10,7 @@
 use std::any::{Any, TypeId};
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::CycleRollbackPolicy;
+use crate::{BriocheError, CycleRollbackPolicyPlugin};
 
 /// Snapshot strategy for COW rollback.
 ///
@@ -38,12 +38,15 @@ pub enum SnapshotStrategy {
 /// # Complexity
 /// O(serialization cost). Deterministic for `BriocheExtensionType`s.
 ///
+/// # Errors
+/// Returns `Err` if the instance cannot be serialized. Persisting an
+/// empty blob on failure is forbidden; callers must surface the error.
+///
 /// # Panics
-/// Never panics. Implementations must return an empty blob or map
-/// errors rather than panic.
+/// Never panics. Implementations must return `Err` rather than panic.
 ///
 /// Refs: I-Core-VTableClone
-pub type SerializeFn = fn(&dyn Any) -> Vec<u8>;
+pub type SerializeFn = fn(&dyn Any) -> Result<Vec<u8>, String>;
 
 /// Deserialize a binary blob into a type-erased instance.
 ///
@@ -265,7 +268,7 @@ pub struct ExtensionStorage {
     /// Owned `CycleRollbackPolicy` temporarily attached during a monitored hook.
     /// The engine moves the policy into storage before each hook and retrieves
     /// it afterward. No raw pointers, no `unsafe`.
-    rollback_policy: Option<Box<dyn CycleRollbackPolicy>>,
+    rollback_policy: Option<Box<CycleRollbackPolicyPlugin>>,
     /// Types already snapshotted in the current hook. Prevents duplicate COW
     /// clones when a plugin calls `get_mut` multiple times for the same type.
     snapshotted_this_hook: BTreeSet<TypeId>,
@@ -319,16 +322,21 @@ impl ExtensionStorage {
 
     /// Insert a typed value into storage.
     ///
-    /// The value is serialized to a binary blob (via `ExtVTable::serialize`)
-    /// and stored in `cold_snapshot`, then placed in `hot_map` for fast
-    /// access.
+    /// The value is placed in `hot_map` for fast access. Types marked
+    /// `#[brioche(no_snapshot)]` skip the `cold_snapshot` write because
+    /// they are reconstructed every cycle and never rolled back.
     ///
-    /// Complexity: O(serialization cost). Two `BTreeMap` insertions.
+    /// Complexity: O(serialization cost) for snapshot types; O(log n) for
+    /// `NoSnapshot` types. Two `BTreeMap` insertions in the worst case.
+    /// # Errors
+    /// Returns `BriocheError::Serialization` if the value cannot be
+    /// serialized to the cold snapshot. On error, `hot_map` is not
+    /// updated, preserving the previous persisted state.
     /// # Panics
     /// Never panics.
     ///
     /// Refs: I-Core-Pure
-    pub fn insert<T>(&mut self, value: T)
+    pub fn insert<T>(&mut self, value: T) -> Result<(), BriocheError>
     where
         T: BriocheExtensionType + 'static,
     {
@@ -337,12 +345,38 @@ impl ExtensionStorage {
             self.register::<T>();
         }
         if let Some(vtable) = self.registry.get(&type_id) {
-            let blob = (vtable.serialize)(&value);
-            self.cold_snapshot.insert(vtable.ext_id.to_string(), blob);
+            if vtable.snapshot_strategy != SnapshotStrategy::NoSnapshot {
+                let blob = (vtable.serialize)(&value).map_err(BriocheError::Serialization)?;
+                self.cold_snapshot.insert(vtable.ext_id.to_string(), blob);
+            }
             self.hot_map.insert(type_id, Box::new(value));
+            Ok(())
+        } else {
+            // Defensive: vtable should have been registered just above.
+            // If it is missing, report a storage access error rather than
+            // silently dropping the value.
+            Err(BriocheError::StorageAccess(format!(
+                "missing vtable for {}",
+                T::EXT_ID
+            )))
         }
-        // Defensive: if vtable is missing, value is silently dropped.
-        // This should never happen because register was called above.
+    }
+
+    /// Get a read-only reference to a typed extension.
+    ///
+    /// Complexity: O(log n). One `BTreeMap` lookup plus `downcast_ref`.
+    /// # Panics
+    /// Never panics.
+    ///
+    /// Refs: I-Core-ExtO1
+    pub fn get<T>(&self) -> Option<&T>
+    where
+        T: BriocheExtensionType + 'static,
+    {
+        let type_id = TypeId::of::<T>();
+        self.hot_map
+            .get(&type_id)
+            .and_then(|any| any.downcast_ref::<T>())
     }
 
     /// Get a mutable reference to a typed extension, if present.
@@ -485,7 +519,7 @@ impl ExtensionStorage {
     /// Never panics.
     ///
     /// Refs: I-Gov-Rollback-BestEffort
-    pub fn attach_rollback_policy(&mut self, policy: Box<dyn CycleRollbackPolicy>) {
+    pub fn attach_rollback_policy(&mut self, policy: Box<CycleRollbackPolicyPlugin>) {
         self.rollback_policy = Some(policy);
         self.snapshotted_this_hook.clear();
     }
@@ -497,7 +531,7 @@ impl ExtensionStorage {
     /// Never panics.
     ///
     /// Refs: I-Gov-Rollback-BestEffort
-    pub fn detach_rollback_policy(&mut self) -> Option<Box<dyn CycleRollbackPolicy>> {
+    pub fn detach_rollback_policy(&mut self) -> Option<Box<CycleRollbackPolicyPlugin>> {
         self.snapshotted_this_hook.clear();
         self.rollback_policy.take()
     }

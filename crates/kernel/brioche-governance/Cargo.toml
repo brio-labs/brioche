@@ -6,9 +6,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Governance traits and policy contracts"
-
-[dependencies]
+description = "Book II governance trait contracts"
 
 [lints.clippy]
 unwrap_used = "deny"

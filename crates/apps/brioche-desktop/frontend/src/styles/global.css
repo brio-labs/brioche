@@ -1,528 +1,379 @@
 @import "tailwindcss";
 
-@source "./src/**/*.{ts,tsx,html}";
-
-/* ========================================================================
-   Brioche Desktop Theme System
-   ========================================================================
-   Tokens are derived from the Brio corporate palette (https://brio.build/):
-   - void:    #0a0808  deepest background
-   - bg:      #1a1614  primary surface
-   - foam:    #f5e6d3  primary text
-   - clay:    #bd6532  accent
-   - sand:    #ffddb3  accent highlight
-
-   Tailwind v4 best practices:
-   - Design tokens live in @theme and generate Tailwind utilities.
-   - Keyframes & animations are declared inside @theme to generate utilities.
-   - Reusable component-like styles compose Tailwind utility classes using @apply.
-   ======================================================================== */
-
 @theme {
-    /* Runtime themes set a tiny source palette; semantic colors derive from it. */
-    --color-brio-void: var(--theme-bg-base);
-    --color-brio-bg: var(--theme-bg-surface);
-    --color-brio-foam: var(--theme-fg-primary);
-    --color-brio-muted: var(--theme-fg-secondary);
-    --color-brio-clay: var(--theme-accent);
-    --color-brio-sand: var(--theme-fg-primary);
+  --color-bg-0: #0a0a0f;
+  --color-bg-1: #0f0f14;
+  --color-bg-2: #141419;
+  --color-bg-3: #1a1a22;
+  --color-bg-4: #22222c;
+  --color-bg-5: #2a2a36;
+  --color-bg-6: #333340;
 
-    --color-bg-base: var(--theme-bg-base);
-    --color-bg-surface: var(--theme-bg-surface);
-    --color-bg-elevated: color-mix(in oklab, var(--theme-bg-surface), var(--theme-fg-primary) 6%);
-    --color-bg-highlight: color-mix(in oklab, var(--theme-bg-surface), var(--theme-fg-primary) 10%);
-    --color-bg-subtle: color-mix(in oklab, var(--theme-bg-surface), var(--theme-fg-primary) 15%);
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #c0c0d0;
+  --color-text-tertiary: #808090;
+  --color-text-muted: #505060;
+  --color-text-dim: #303040;
 
-    --color-fg-primary: var(--theme-fg-primary);
-    --color-fg-secondary: color-mix(in oklab, var(--theme-fg-primary), var(--theme-bg-base) 18%);
-    --color-fg-tertiary: color-mix(in oklab, var(--theme-fg-primary), var(--theme-bg-base) 38%);
-    --color-fg-muted: color-mix(in oklab, var(--theme-fg-primary), var(--theme-bg-base) 58%);
-    --color-fg-dim: color-mix(in oklab, var(--theme-fg-primary), var(--theme-bg-base) 76%);
+  --color-accent: #8b1a2b;
+  --color-accent-hover: #a02035;
+  --color-accent-dim: #5a0f1a;
+  --color-accent-glow: rgba(139, 26, 43, 0.3);
+  --color-accent-glow-strong: rgba(139, 26, 43, 0.5);
 
-    --color-accent: var(--theme-accent);
-    --color-accent-hover: color-mix(in oklab, var(--theme-accent), var(--theme-fg-primary) 14%);
-    --color-accent-dim: color-mix(in oklab, var(--theme-accent), var(--theme-bg-base) 38%);
-    --color-accent-glow: color-mix(in oklab, var(--theme-accent), transparent 70%);
-    --color-accent-glow-strong: color-mix(in oklab, var(--theme-accent), transparent 50%);
-    --color-accent-text: var(--theme-fg-primary);
+  --color-border: #1a1a24;
+  --color-border-hover: #2a2a38;
+  --color-user-bg: #151520;
+  --color-assistant-bg: #111118;
+  --color-system-bg: #16161e;
+  --color-error-bg: #1a0a0e;
+  --color-error-border: #3a1518;
+  --color-success: #1a2e1a;
+  --color-warning: #2a2010;
 
-    --color-border: color-mix(in oklab, var(--theme-fg-primary), transparent 86%);
-    --color-border-hover: color-mix(in oklab, var(--theme-fg-primary), transparent 78%);
-    --color-border-accent: color-mix(in oklab, var(--theme-accent), transparent 58%);
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-mono: "SF Mono", "Monaco", "Inconsolata", "Fira Code", "Consolas", monospace;
 
-    --color-user-bg: color-mix(in oklab, var(--theme-fg-primary), transparent 88%);
-    --color-assistant-bg: color-mix(in oklab, var(--theme-bg-surface), transparent 32%);
-    --color-system-bg: color-mix(in oklab, var(--theme-fg-primary), transparent 90%);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
 
-    --color-error-bg: color-mix(in oklab, var(--theme-error), var(--theme-bg-base) 82%);
-    --color-error-border: color-mix(in oklab, var(--theme-error), transparent 62%);
-    --color-error-text: var(--theme-error);
-    --color-success-bg: color-mix(in oklab, var(--theme-success), var(--theme-bg-base) 84%);
-    --color-success-border: color-mix(in oklab, var(--theme-success), transparent 64%);
-    --color-success-text: var(--theme-success);
-    --color-warning-bg: color-mix(in oklab, var(--theme-warning), var(--theme-bg-base) 84%);
-    --color-warning-border: color-mix(in oklab, var(--theme-warning), transparent 62%);
-    --color-warning-text: var(--theme-warning);
-
-    --font-ui:
-        -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
-        sans-serif;
-    --font-mono:
-        "SF Mono", Monaco, Inconsolata, "Fira Code", Consolas, monospace;
-
-    --spacing: 0.25rem;
-    --space-1: 4px;
-    --space-2: 8px;
-    --space-3: 12px;
-    --space-4: 16px;
-    --space-5: 24px;
-    --space-6: 32px;
-
-    --radius-sm: 4px;
-    --radius-md: 6px;
-    --radius: 8px;
-    --radius-lg: 12px;
-
-    --animate-fadeIn: fadeIn 0.15s ease-out forwards;
-    --animate-slideDown: slideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-    --animate-slideUp: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-
-    @keyframes fadeIn {
-        from {
-            opacity: 0;
-        }
-        to {
-            opacity: 1;
-        }
-    }
-    @keyframes slideDown {
-        from {
-            opacity: 0;
-            transform: translateY(-12px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-    @keyframes slideUp {
-        from {
-            opacity: 0;
-            transform: translateY(12px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-    @keyframes ambientPulse {
-        0%,
-        100% {
-            opacity: 0.4;
-        }
-        50% {
-            opacity: 0.8;
-        }
-    }
-
-    --color-bg-0: var(--color-bg-base);
-    --color-bg-1: var(--color-bg-surface);
-    --color-bg-2: var(--color-bg-elevated);
-    --color-bg-3: var(--color-bg-highlight);
-    --color-bg-4: var(--color-bg-subtle);
-    --color-bg-5: color-mix(in oklab, var(--theme-bg-surface), var(--theme-fg-primary) 20%);
-    --color-bg-6: color-mix(in oklab, var(--theme-bg-surface), var(--theme-fg-primary) 25%);
-
-    --color-text-primary: var(--color-fg-primary);
-    --color-text-secondary: var(--color-fg-secondary);
-    --color-text-tertiary: var(--color-fg-tertiary);
-    --color-text-muted: var(--color-fg-muted);
-    --color-text-dim: var(--color-fg-dim);
+  --radius-sm: 4px;
 }
 
-:root,
-:root[data-theme="brio"] {
-    color-scheme: dark;
-    --theme-bg-base: #0a0808;
-    --theme-bg-surface: #15110f;
-    --theme-fg-primary: #f5e6d3;
-    --theme-fg-secondary: #e6d8c8;
-    --theme-accent: #bd6532;
-    --theme-error: #e8a0a0;
-    --theme-success: #b7d9ba;
-    --theme-warning: #f0c674;
-}
 
-:root[data-theme="catppuccin-mocha"] {
-    color-scheme: dark;
-    --theme-bg-base: #1e1e2e;
-    --theme-bg-surface: #242438;
-    --theme-fg-primary: #cdd6f4;
-    --theme-fg-secondary: #bac2de;
-    --theme-accent: #cba6f7;
-    --theme-error: #f38ba8;
-    --theme-success: #a6e3a1;
-    --theme-warning: #f9e2af;
+* {
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0;
 }
 
 :root {
-    --brio-void: var(--color-brio-void);
-    --brio-bg: var(--color-brio-bg);
-    --brio-foam: var(--color-brio-foam);
-    --brio-muted: var(--color-brio-muted);
-    --brio-clay: var(--color-brio-clay);
-    --brio-sand: var(--color-brio-sand);
+	--bg-0: #0a0a0f;
+	--bg-1: #0f0f14;
+	--bg-2: #141419;
+	--bg-3: #1a1a22;
+	--bg-4: #22222c;
+	--bg-5: #2a2a36;
+	--bg-6: #333340;
 
-    --bg-base: var(--color-bg-base);
-    --bg-surface: var(--color-bg-surface);
-    --bg-elevated: var(--color-bg-elevated);
-    --bg-highlight: var(--color-bg-highlight);
-    --bg-subtle: var(--color-bg-subtle);
+	--text-primary: #ffffff;
+	--text-secondary: #c0c0d0;
+	--text-tertiary: #808090;
+	--text-muted: #505060;
+	--text-dim: #303040;
 
-    --fg-primary: var(--color-fg-primary);
-    --fg-secondary: var(--color-fg-secondary);
-    --fg-tertiary: var(--color-fg-tertiary);
-    --fg-muted: var(--color-fg-muted);
-    --fg-dim: var(--color-fg-dim);
+	--accent: #8b1a2b;
+	--accent-hover: #a02035;
+	--accent-dim: #5a0f1a;
+	--accent-glow: rgba(139, 26, 43, 0.3);
+	--accent-glow-strong: rgba(139, 26, 43, 0.5);
 
-    --accent: var(--color-accent);
-    --accent-hover: var(--color-accent-hover);
-    --accent-dim: var(--color-accent-dim);
-    --accent-glow: var(--color-accent-glow);
-    --accent-glow-strong: var(--color-accent-glow-strong);
-    --accent-text: var(--color-accent-text);
+	--border: #1a1a24;
+	--border-hover: #2a2a38;
+	--user-bg: #151520;
+	--assistant-bg: #111118;
+	--system-bg: #16161e;
+	--error-bg: #1a0a0e;
+	--error-border: #3a1518;
+	--success: #1a2e1a;
+	--warning: #2a2010;
 
-    --border: var(--color-border);
-    --border-hover: var(--color-border-hover);
-    --border-accent: var(--color-border-accent);
+	--font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+	--font-mono: "SF Mono", "Monaco", "Inconsolata", "Fira Code", "Consolas", monospace;
 
-    --user-bg: var(--color-user-bg);
-    --assistant-bg: var(--color-assistant-bg);
-    --system-bg: var(--color-system-bg);
-
-    --error-bg: var(--color-error-bg);
-    --error-border: var(--color-error-border);
-    --error-text: var(--color-error-text);
-    --success-bg: var(--color-success-bg);
-    --success-border: var(--color-success-border);
-    --success-text: var(--color-success-text);
-    --warning-bg: var(--color-warning-bg);
-    --warning-border: var(--color-warning-border);
-    --warning-text: var(--color-warning-text);
-
-    --font-ui: var(--font-ui);
-    --font-mono: var(--font-mono);
-
-    --space-1: 4px;
-    --space-2: 8px;
-    --space-3: 12px;
-    --space-4: 16px;
-    --space-5: 24px;
-    --space-6: 32px;
-
-    --radius: 8px;
-    --radius-sm: 4px;
-    --radius-md: 6px;
-    --radius-lg: 12px;
-
-    --bg-0: var(--color-bg-base);
-    --bg-1: var(--color-bg-surface);
-    --bg-2: var(--color-bg-elevated);
-    --bg-3: var(--color-bg-highlight);
-    --bg-4: var(--color-bg-subtle);
-    --bg-5: var(--color-bg-5);
-    --bg-6: var(--color-bg-6);
-
-    --text-primary: var(--color-fg-primary);
-    --text-secondary: var(--color-fg-secondary);
-    --text-tertiary: var(--color-fg-tertiary);
-    --text-muted: var(--color-fg-muted);
-    --text-dim: var(--color-fg-dim);
+	--space-1: 4px;
+	--space-2: 8px;
+	--space-3: 12px;
+	--space-4: 16px;
+	--space-5: 24px;
+	--space-6: 32px;
+	--radius: 8px;
+	--radius-sm: 4px;
 }
 
-@layer base {
-    * {
-        box-sizing: border-box;
-        margin: 0;
-        padding: 0;
-    }
-
-    body {
-        @apply bg-bg-base text-fg-primary h-screen overflow-hidden antialiased;
-        font-family: var(--font-ui);
-    }
+body {
+	font-family: var(--font-ui);
+	background: var(--bg-0);
+	color: var(--text-primary);
+	height: 100vh;
+	overflow: hidden;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
 }
 
-/* ========================================================================
-   Reusable composed Tailwind component classes / utilities
-   ======================================================================== */
-
-@utility btn-icon {
-    @apply inline-flex items-center justify-center rounded-md transition-all duration-200 cursor-pointer text-fg-muted hover:text-fg-secondary hover:bg-bg-highlight active:bg-bg-subtle focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-glow;
-}
-
-@utility dock-button {
-    @apply inline-flex items-center justify-center w-7 h-7 rounded-md border border-transparent bg-transparent transition-all duration-200 cursor-pointer text-fg-muted hover:text-fg-secondary hover:bg-bg-highlight active:bg-bg-subtle focus-visible:outline-none focus-visible:border-border-accent focus-visible:ring-1 focus-visible:ring-accent-glow;
-}
-
-@utility dock-button-active {
-    @apply text-accent hover:text-accent-hover;
-}
-
-@utility title-bar {
-    @apply flex flex-row items-center shrink-0 h-10 border-b border-border select-none cursor-default bg-bg-surface/70 backdrop-blur-md;
-}
-
-@utility top-bar-button {
-    @apply inline-flex items-center justify-center w-10 h-10 p-2 bg-transparent border border-transparent rounded-none transition-all duration-200 cursor-pointer text-fg-muted hover:text-fg-primary hover:bg-bg-highlight hover:border-border active:bg-bg-subtle focus-visible:outline-none focus-visible:bg-bg-highlight focus-visible:border-border focus-visible:ring-inset focus-visible:ring-1 focus-visible:ring-accent-glow;
-
-    &[data-close]:hover {
-        @apply text-error-text bg-error-bg border-error-border;
-    }
-
-    &[data-close]:active {
-        @apply bg-error-bg;
-    }
-}
-
-@utility panel {
-    @apply bg-bg-surface border border-border rounded-lg flex flex-col overflow-hidden shadow-2xl animate-slideUp;
-}
-
-.panel-transition {
-    transition:
-        flex-grow 350ms cubic-bezier(0.16, 1, 0.3, 1),
-        flex-basis 350ms cubic-bezier(0.16, 1, 0.3, 1) !important;
-}
-
-@utility panel-backdrop {
-    @apply fixed inset-0 bg-bg-base/75 flex items-center justify-center z-[1000] animate-fadeIn;
-}
-
-@utility panel-header {
-    @apply flex items-center justify-between px-5 py-4 border-b border-border bg-bg-surface;
-}
-
-@utility input-field {
-    @apply flex w-full rounded-md border border-border bg-bg-elevated px-3 py-2 text-[13px] font-mono text-fg-primary outline-none transition-all duration-200 placeholder:text-fg-muted hover:border-border-hover focus:border-accent-dim focus:bg-bg-highlight focus:ring-1 focus:ring-accent-glow disabled:cursor-not-allowed disabled:opacity-50;
-}
-
-@utility textarea-field {
-    @apply flex w-full rounded-md border border-border bg-bg-elevated px-3 py-2 font-mono text-[12px] text-fg-primary outline-none transition-all duration-200 min-h-[80px] resize-y placeholder:text-fg-muted hover:border-border-hover focus:border-accent-dim focus:bg-bg-highlight focus:ring-1 focus:ring-accent-glow disabled:cursor-not-allowed disabled:opacity-50;
-}
-
-/* ========================================================================
-   App shell background
-   ======================================================================== */
-
+/* === AMBIENT BACKGROUND SHADER EFFECT === */
 .app {
-    background:
-        linear-gradient(
-            color-mix(in oklab, var(--theme-bg-base), transparent 38%),
-            color-mix(in oklab, var(--theme-bg-base), transparent 12%)
-        ),
-        radial-gradient(
-            ellipse 80% 50% at 0% 0%,
-            color-mix(in oklab, var(--theme-accent), transparent 86%) 0%,
-            transparent 50%
-        ),
-        radial-gradient(
-            ellipse 70% 60% at 100% 100%,
-            color-mix(in oklab, var(--theme-accent), transparent 90%) 0%,
-            transparent 50%
-        ),
-        url("../assets/brand/hero-bg.webp") center / cover no-repeat,
-        var(--bg-base);
+	background: 
+		radial-gradient(
+			ellipse 80% 50% at 0% 0%,
+			rgba(139, 26, 43, 0.08) 0%,
+			transparent 60%
+		),
+		radial-gradient(
+			ellipse 60% 40% at 100% 100%,
+			rgba(139, 26, 43, 0.04) 0%,
+			transparent 50%
+		),
+		radial-gradient(
+			ellipse 50% 50% at 50% 50%,
+			rgba(20, 20, 30, 0.5) 0%,
+			transparent 70%
+		),
+		var(--bg-0);
 }
 
 .app::before {
-    content: "";
-    @apply absolute inset-0 pointer-events-none z-0;
-    background:
-        radial-gradient(
-            ellipse at 50% 0%,
-            color-mix(in oklab, var(--theme-fg-primary), transparent 96%) 0%,
-            transparent 60%
-        ),
-        linear-gradient(
-            90deg,
-            color-mix(in oklab, var(--theme-bg-base), transparent 16%) 0%,
-            color-mix(in oklab, var(--theme-bg-base), transparent 50%) 45%,
-            color-mix(in oklab, var(--theme-bg-base), transparent 22%) 100%
-        );
-    animation: ambientPulse 8s ease-in-out infinite;
+	content: "";
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background:
+		radial-gradient(
+			circle at 20% 30%,
+			rgba(139, 26, 43, 0.03) 0%,
+			transparent 40%
+		),
+		radial-gradient(
+			circle at 80% 70%,
+			rgba(139, 26, 43, 0.02) 0%,
+			transparent 40%
+		);
+	animation: ambientPulse 8s ease-in-out infinite;
+	pointer-events: none;
+	z-index: 0;
 }
 
-/* ========================================================================
-   Scrollbars
-   ======================================================================== */
+@keyframes ambientPulse {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.7; }
+}
 
+/* Custom global animations */
+.animate-fadeIn {
+	animation: fadeIn 0.15s ease-out forwards;
+}
+
+.animate-slideDown {
+	animation: slideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slideUp {
+	animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes fadeIn {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
+
+@keyframes slideDown {
+	from { opacity: 0; transform: translateY(-12px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideUp {
+	from { opacity: 0; transform: translateY(12px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+
+/* Global scrollbars */
 ::-webkit-scrollbar {
-    @apply w-1.5 h-1.5;
+	width: 4px;
+	height: 4px;
 }
-
 ::-webkit-scrollbar-track {
-    @apply bg-transparent;
+	background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
-    @apply bg-bg-subtle rounded-[2px];
+	background: var(--bg-5);
+	border-radius: 2px;
 }
-
 ::-webkit-scrollbar-thumb:hover {
-    @apply bg-fg-muted;
+	background: var(--text-muted);
 }
 
-/* ========================================================================
-   Markdown content styled with Tailwind @apply rules
-   ======================================================================== */
-
-.message-content {
-    & h1,
-    & h2,
-    & h3,
-    & h4 {
-        @apply font-semibold text-fg-primary mt-3 mb-2;
-    }
-    & h1 {
-        @apply text-[18px];
-    }
-    & h2 {
-        @apply text-[16px];
-    }
-    & h3 {
-        @apply text-[14px];
-    }
-    & h4 {
-        @apply text-[13px];
-    }
-
-    & p {
-        @apply my-2 leading-relaxed;
-    }
-    & ul,
-    & ol {
-        @apply my-2 pl-4;
-    }
-    & li {
-        @apply my-1;
-    }
-
-    & code {
-        @apply font-mono text-[12px] bg-accent/10 px-1.5 py-0.5 rounded-sm text-accent-text;
-    }
-
-    & pre {
-        @apply bg-bg-surface border border-border rounded-lg p-3 my-2 overflow-x-auto relative;
-    }
-
-    & pre code {
-        @apply bg-transparent p-0 text-fg-secondary text-[12px] leading-relaxed;
-    }
-
-    & pre:has(+ .code-block-header),
-    & .code-block-header + pre {
-        @apply rounded-t-none;
-    }
-
-    & blockquote {
-        @apply border-l-3 border-accent my-2 px-3 py-2 bg-accent/5 rounded-r-sm text-fg-secondary;
-    }
-
-    & a {
-        @apply text-accent no-underline border-b border-transparent transition-all duration-150 hover:border-accent;
-    }
-
-    & table {
-        @apply w-full border-collapse my-2 text-[13px];
-    }
-
-    & th,
-    & td {
-        @apply px-3 py-2 border border-border text-left;
-    }
-
-    & th {
-        @apply bg-bg-elevated font-semibold text-fg-primary;
-    }
-
-    & td {
-        @apply text-fg-secondary;
-    }
-
-    & hr {
-        @apply border-none border-t border-border my-3;
-    }
-
-    &.loading {
-        @apply min-h-[1.5em];
-    }
+/* === MARKDOWN NESTED STYLING === */
+.message-content h1,
+.message-content h2,
+.message-content h3,
+.message-content h4 {
+	margin: var(--space-3) 0 var(--space-2);
+	font-weight: 600;
+	color: var(--text-primary);
 }
 
+.message-content h1 { font-size: 18px; }
+.message-content h2 { font-size: 16px; }
+.message-content h3 { font-size: 14px; }
+.message-content h4 { font-size: 13px; }
+
+.message-content p {
+	margin: var(--space-2) 0;
+	line-height: 1.7;
+}
+
+.message-content ul,
+.message-content ol {
+	margin: var(--space-2) 0;
+	padding-left: var(--space-4);
+}
+
+.message-content li {
+	margin: var(--space-1) 0;
+}
+
+.message-content code {
+	font-family: var(--font-mono);
+	font-size: 12px;
+	background: rgba(139, 26, 43, 0.1);
+	padding: 2px 6px;
+	border-radius: 4px;
+	color: #e0a0a0;
+	border: 1px solid rgba(139, 26, 43, 0.15);
+}
+
+.message-content pre {
+	background: var(--bg-1);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	padding: var(--space-3);
+	overflow-x: auto;
+	margin: var(--space-2) 0;
+	position: relative;
+}
+
+.message-content pre code {
+	background: transparent;
+	border: none;
+	padding: 0;
+	color: var(--text-secondary);
+	font-size: 12px;
+	line-height: 1.6;
+}
+
+/* Code block wrapper/header formatting */
 .code-block-header {
-    @apply flex items-center justify-between px-3 py-1.5 bg-bg-elevated border border-border border-b-0 rounded-t-lg text-[11px] font-mono text-fg-muted;
-
-    & .lang-label {
-        @apply lowercase;
-    }
-
-    & .copy-btn {
-        @apply bg-transparent border-none text-fg-muted cursor-pointer text-[11px] px-2 py-0.5 rounded-sm transition-all duration-150 hover:bg-bg-highlight hover:text-fg-secondary;
-    }
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 6px 12px;
+	background: var(--bg-2);
+	border: 1px solid var(--border);
+	border-bottom: none;
+	border-radius: var(--radius) var(--radius) 0 0;
+	font-size: 11px;
+	font-family: var(--font-mono);
+	color: var(--text-muted);
 }
 
-/* ========================================================================
-   Streaming cursor & loading dots
-   ======================================================================== */
+.code-block-header .lang-label {
+	text-transform: lowercase;
+}
 
+.code-block-header .copy-btn {
+	background: transparent;
+	border: none;
+	color: var(--text-muted);
+	cursor: pointer;
+	padding: 2px 6px;
+	border-radius: var(--radius-sm);
+	font-size: 10px;
+	transition: all 0.15s ease;
+}
+
+.code-block-header .copy-btn:hover {
+	color: var(--text-secondary);
+	background: var(--bg-3);
+}
+
+.message-content blockquote {
+	border-left: 3px solid var(--accent);
+	margin: var(--space-2) 0;
+	padding: var(--space-2) var(--space-3);
+	background: rgba(139, 26, 43, 0.05);
+	border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+	color: var(--text-secondary);
+}
+
+.message-content a {
+	color: var(--accent-hover);
+	text-decoration: none;
+	border-bottom: 1px solid rgba(139, 26, 43, 0.3);
+	transition: all 0.15s ease;
+}
+
+.message-content a:hover {
+	border-bottom-color: var(--accent);
+	color: var(--text-primary);
+}
+
+.message-content table {
+	border-collapse: collapse;
+	margin: var(--space-2) 0;
+	font-size: 13px;
+	width: 100%;
+}
+
+.message-content th,
+.message-content td {
+	border: 1px solid var(--border);
+	padding: 6px 10px;
+	text-align: left;
+}
+
+.message-content th {
+	background: var(--bg-2);
+	font-weight: 600;
+	color: var(--text-secondary);
+}
+
+.message-content td {
+	color: var(--text-secondary);
+}
+
+.message-content hr {
+	border: none;
+	border-top: 1px solid var(--border);
+	margin: var(--space-3) 0;
+}
+
+/* === STREAMING CURSOR === */
 .streaming-cursor {
-    @apply inline-block w-0.5 h-[1em] bg-accent ml-0.5 align-middle;
-    animation: cursorBlink 1s step-end infinite;
+	display: inline-block;
+	width: 2px;
+	height: 1.2em;
+	background: var(--accent);
+	margin-left: 2px;
+	vertical-align: text-bottom;
+	animation: cursorBlink 1s step-end infinite;
+	box-shadow: 0 0 4px var(--accent-glow);
 }
 
 @keyframes cursorBlink {
-    0%,
-    100% {
-        opacity: 1;
-    }
-    50% {
-        opacity: 0;
-    }
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0; }
+}
+
+/* === LOADING STATES === */
+.message-content.loading {
+	color: var(--text-muted);
+	font-style: italic;
 }
 
 .loading-dots::after {
-    content: "";
-    animation: dots 1.5s steps(4, end) infinite;
+	content: "";
+	animation: dots 1.5s infinite;
 }
 
 @keyframes dots {
-    0% {
-        content: "";
-    }
-    25% {
-        content: ".";
-    }
-    50% {
-        content: "..";
-    }
-    75% {
-        content: "...";
-    }
-    100% {
-        content: "";
-    }
-}
-
-/* ========================================================================
-   Reduced motion
-   ======================================================================== */
-
-@media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-        animation-duration: 0.01ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 0.01ms !important;
-    }
+	0% { content: ""; }
+	33% { content: "."; }
+	66% { content: ".."; }
+	100% { content: "..."; }
 }

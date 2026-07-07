@@ -8,9 +8,9 @@
 //! Refs: docs/SPECS.md §Book IV Ch 1
 
 use brioche_core::{
-    AgentState, BriocheEngineBuilder, BriochePlugin, ChatMessage, Effect, EngineInput,
-    ExtensionStorage, PolicyDecision, Session, StreamEvent, ToolCallDescriptor, ToolOutcome,
-    ToolResultDTO,
+    AfterPrediction, AgentState, BeforePrediction, BriocheEngineBuilder, ChatMessage, Effect,
+    EngineInput, ExtensionStorage, OnInput, OnToolCalls, OnToolResult, PolicyDecision, Session,
+    StreamEvent, ToolCallDescriptor, ToolOutcome, ToolResultDTO,
 };
 use brioche_governance_default::{
     LexicographicDecisionAggregator, SubRoutineCleanupGuard, ToolResultFormatter,
@@ -373,10 +373,13 @@ fn gc_policy_counts_cycles() {
 
     for _ in 0..5 {
         // Inject a non-idle snapshot so GC doesn't trigger early.
-        ext.insert(brioche_core::SessionSnapshot {
-            current_state: brioche_core::AgentStateTag::Predicting,
-            state_stack_depth: 0,
-        });
+        assert!(
+            ext.insert(brioche_core::SessionSnapshot {
+                current_state: brioche_core::AgentStateTag::Predicting,
+                state_stack_depth: 0,
+            })
+            .is_ok()
+        );
         assert!(
             policy.after_prediction(&mut ext).is_ok(),
             "after_prediction should succeed"
@@ -404,10 +407,13 @@ fn gc_policy_respects_idle_flag() {
     assert_eq!(state.gcs_triggered, 0);
 
     // Second cycle: simulate idle by injecting SessionSnapshot.
-    ext.insert(brioche_core::SessionSnapshot {
-        current_state: brioche_core::AgentStateTag::Idle,
-        state_stack_depth: 0,
-    });
+    assert!(
+        ext.insert(brioche_core::SessionSnapshot {
+            current_state: brioche_core::AgentStateTag::Idle,
+            state_stack_depth: 0,
+        })
+        .is_ok()
+    );
     assert!(
         policy.after_prediction(&mut ext).is_ok(),
         "after_prediction should succeed"
@@ -487,14 +493,17 @@ fn audit_logger_sequences_entries() {
 #[test]
 fn engine_with_all_std_plugins_runs_user_message() {
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(CircuitBreaker::default()))
-        .with_plugin(Box::new(TokenTracker::new()))
-        .with_plugin(Box::new(ContextOptimizer::default()))
-        .with_plugin(Box::new(ToolTimeoutPolicy::default()))
-        .with_plugin(Box::new(ToolResultFormatter::default()))
-        .with_plugin(Box::new(PendingTaskManager::default()))
-        .with_plugin(Box::new(GcPolicy::default()))
-        .with_plugin(Box::new(AuditLogger::default()))
+        .with_before_prediction(Box::new(CircuitBreaker::default()))
+        .with_before_prediction(Box::new(TokenTracker::new()))
+        .with_after_prediction(Box::new(TokenTracker::new()))
+        .with_before_prediction(Box::new(ContextOptimizer::default()))
+        .with_on_tool_calls(Box::new(ToolTimeoutPolicy::default()))
+        .with_on_tool_result(Box::new(ToolResultFormatter::default()))
+        .with_on_tool_result(Box::new(PendingTaskManager::default()))
+        .with_on_input(Box::new(PendingTaskManager::default()))
+        .with_before_prediction(Box::new(GcPolicy::default()))
+        .with_after_prediction(Box::new(GcPolicy::default()))
+        .with_on_input(Box::new(AuditLogger::default()))
         .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(SubRoutineCleanupGuard::new()))
         .build();
@@ -509,8 +518,10 @@ fn engine_with_all_std_plugins_runs_user_message() {
 #[test]
 fn engine_after_prediction_hooks_fire_on_stream_done() {
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(TokenTracker::new()))
-        .with_plugin(Box::new(GcPolicy::default()))
+        .with_before_prediction(Box::new(TokenTracker::new()))
+        .with_after_prediction(Box::new(TokenTracker::new()))
+        .with_before_prediction(Box::new(GcPolicy::default()))
+        .with_after_prediction(Box::new(GcPolicy::default()))
         .with_decision_aggregator(Box::new(LexicographicDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(SubRoutineCleanupGuard::new()))
         .build();

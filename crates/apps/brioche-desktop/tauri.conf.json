@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "identifier": "com.brioche.desktop",
   "build": {
-    "beforeDevCommand": "cd $(git rev-parse --show-toplevel)/crates/apps/brioche-desktop/frontend && pnpm dev",
-    "beforeBuildCommand": "cd $(git rev-parse --show-toplevel)/crates/apps/brioche-desktop/frontend && pnpm build",
+    "beforeDevCommand": "cd frontend && pnpm dev",
+    "beforeBuildCommand": "cd frontend && pnpm build",
     "frontendDist": "./frontend/dist",
-    "devUrl": "http://localhost:5174"
+    "devUrl": "http://localhost:5173"
   },
   "app": {
     "windows": [
@@ -19,8 +19,7 @@
         "minWidth": 480,
         "minHeight": 500,
         "resizable": true,
-        "fullscreen": false,
-        "decorations": false
+        "fullscreen": false
       }
     ],
     "security": {

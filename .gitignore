@@ -1,26 +1,5 @@
-/target/
-
-# Editor / IDE
-*.swp
-*.swo
-*~
 .DS_Store
-.idea/
-.vscode/
-*.iml
-
-# Environment
-.env
-.env.local
-
-# Logs
-*.log
-
-# Ruff cache
-.ruff_cache/
-
-# Rust backup files
-**/*.rs.bk
-
-# trybuild temporary output
-**/wip/
+/target/
+/.worktrees/
+/.agents/
+/skills-lock.json

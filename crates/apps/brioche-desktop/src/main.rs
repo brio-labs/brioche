@@ -5,12 +5,12 @@
 //! Refs: I-Shell-Runtime-OnlyIO
 
 use brioche_desktop_lib::DesktopState;
-#[cfg(not(clippy))]
+#[cfg(not(any(clippy, doc)))]
 use brioche_desktop_lib::commands;
-#[cfg(not(clippy))]
+#[cfg(not(any(clippy, doc)))]
 use tauri::Manager;
 
-#[cfg(not(clippy))]
+#[cfg(not(any(clippy, doc)))]
 fn run_app(state: DesktopState) {
     let app = match tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -32,8 +32,6 @@ fn run_app(state: DesktopState) {
             commands::delete_file,
             commands::create_file,
             commands::create_directory,
-            commands::rename_path,
-            commands::copy_path,
             // Memory commands
             commands::list_memories,
             commands::set_memory,
@@ -88,7 +86,7 @@ fn run_app(state: DesktopState) {
     });
 }
 
-#[cfg(clippy)]
+#[cfg(any(clippy, doc))]
 fn run_app(_state: DesktopState) {}
 
 fn main() {

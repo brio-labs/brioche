@@ -7,17 +7,22 @@
 //! Refs: I-Eco-ExtensionOverMod, I-Eco-OrderedCollections
 
 use brioche_core::{
-    BriocheExtensionType, BriochePlugin, Effect, EngineInput, ExtensionStorage, PluginCapabilities,
-    PluginResult, PolicyDecision,
+    BriocheExtensionType, Effect, EngineInput, ExtensionStorage, OnInput, PluginResult,
+    PolicyDecision,
 };
 
 use crate::Priority;
 
 /// Single audit log entry.
 ///
+/// ## Snapshot strategy
+/// COW: full clone. Weight is two `u64` scalars plus one `String` for the serialized input.
+///
 /// # Invariants
 /// - Refs: I-Eco-OrderedCollections: Sequence numbers are monotonic.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, BriocheExtensionType,
+)]
 pub struct AuditEntry {
     /// Sequence number (monotonically increasing).
     pub sequence: u64,
@@ -46,7 +51,7 @@ pub struct AuditLoggerState {
     /// Sequence counter.
     pub next_sequence: u64,
     /// Flush batch size.
-    pub batch_size: usize,
+    pub batch_size: u64,
 }
 
 /// Deterministic audit logger.
@@ -56,14 +61,14 @@ pub struct AuditLoggerState {
 ///
 /// Refs: I-Eco-ExtensionOverMod
 pub struct AuditLogger {
-    batch_size: usize,
+    batch_size: u64,
 }
 
 impl AuditLogger {
     /// Creates a logger with a batch size.
     ///
     /// Refs: I-Eco-ExtensionOverMod
-    pub fn with_batch_size(batch_size: usize) -> Self {
+    pub fn with_batch_size(batch_size: u64) -> Self {
         Self { batch_size }
     }
 }
@@ -74,13 +79,14 @@ impl Default for AuditLogger {
     }
 }
 
-impl BriochePlugin for AuditLogger {
+impl OnInput for AuditLogger {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         "audit_logger"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
     }
 
     fn priority(&self) -> i16 {
@@ -125,7 +131,7 @@ impl BriochePlugin for AuditLogger {
         state.total_logged += 1;
         state.pending.push(entry);
 
-        if state.pending.len() >= self.batch_size {
+        if state.pending.len() >= self.batch_size as usize {
             let result = brioche_core::postcard::to_allocvec(&state.pending);
             let blob = result.map_or(Vec::new(), |v| v);
             state.pending.clear();

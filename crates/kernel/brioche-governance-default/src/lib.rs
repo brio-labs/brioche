@@ -1,7 +1,7 @@
 //! # Brioche Governance Default — Book II (Implementations)
 //!
 //! Reference implementations of governance traits defined in
-//! `brioche-governance`. These are the default plugins shipped with
+//! `brioche-core`. These are the default plugins shipped with
 //! Brioche.
 //!
 //! ## Public interface
@@ -85,7 +85,7 @@ pub use tree_decision_aggregator::{
 
 // GovernanceProfile is re-exported at crate root for one-line bootstrap.
 mod profile;
-pub use profile::{BriocheEngineBuilderExt, GovernanceProfile};
+pub use profile::{BriocheEngineBuilderExt, GovernanceError, GovernanceProfile};
 
 // ---------------------------------------------------------------------------
 // Priority constants

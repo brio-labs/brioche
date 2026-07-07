@@ -35,7 +35,12 @@ pub struct {{ProjectName}}State {
 pub struct {{ProjectName}};
 
 #[brioche_plugin(name = "{{project-name}}", capabilities = "ON_INPUT")]
-impl BriochePlugin for {{ProjectName}} {
+impl OnInput for {{ProjectName}} {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PolicyDecision = PolicyDecision;
+    type PluginError = PluginError;
+
     #[hook(on_input)]
     fn on_input(
         &self,
@@ -47,7 +52,7 @@ impl BriochePlugin for {{ProjectName}} {
 
         match input {
             EngineInput::UserMessage(msg) => {
-                println!("[{{project-name}}] received user message: {msg}");
+                tracing::info!("[{{project-name}}] received user message: {msg}");
             }
             _ => {}
         }

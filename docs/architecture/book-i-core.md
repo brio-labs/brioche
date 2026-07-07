@@ -231,15 +231,16 @@ pub struct ExtVTable {
 
 `#[derive(BriocheExtensionType)]` mechanically guarantees extension compliance.
 
-**Static verifications:**
 1. **Presence of `EXT_ID`** — auto-generated from `module_path!()` + type name; respects `crate::type_name` format
 2. **Prohibition of `HashMap`/`HashSet`** — recursive field analysis; compilation fails if persisted fields contain these types
 3. **Absence of UI types** — detects `tauri`, `vue`, `dom` crate imports in struct fields
 4. **Determinism of `Vec`s** — on stable Rust the macro emits `compile_error!` for any `Vec<T>` field not annotated with `#[brioche(deterministic_order)]`. (When `compile_warning!` stabilizes, this will become a warning that is deny-by-default under the `strict-determinism` feature.)
-5. **`clone_box` generation** — requires `Clone`; compilation fails if type cannot derive/impl `Clone`
-6. **`estimated_weight_bytes` generation** — estimates weight via binary serialization
-7. **`snapshot_strategy` generation** — `FullClone` by default; `#[brioche(no_snapshot)]`, `#[brioche(incremental_snapshot)]`, `#[brioche(critical_state)]` annotations modify this
-8. **Sealed trait** — `BriocheExtensionType` is sealed; only the proc-macro can emit implementations
+5. **Determinism of `IndexMap`s** — same treatment as `Vec`: an `IndexMap<K, V>` field must carry `#[brioche(deterministic_order)]` to certify deterministic insertion order, or the macro emits `compile_error!`.
+6. **Nested carrier assertion** — fields annotated with `#[brioche(nested_carrier)]` cause the macro to emit a const assertion requiring the extracted carrier type to implement `BriocheExtensionType`. This guarantees nested persisted carriers are explicitly typed and deterministic.
+7. **`clone_box` generation** — requires `Clone`; compilation fails if type cannot derive/impl `Clone`
+8. **`estimated_weight_bytes` generation** — estimates weight via binary serialization
+9. **`snapshot_strategy` generation** — `FullClone` by default; `#[brioche(no_snapshot)]`, `#[brioche(incremental_snapshot)]`, `#[brioche(critical_state)]` annotations modify this
+10. **Sealed trait** — `BriocheExtensionType` is sealed; only the proc-macro can emit implementations
 
 ### 3.3 Standard extension types
 
@@ -256,47 +257,34 @@ Business types (e.g., `TokenTrackerState`) do not carry `critical_state` by defa
 
 ## Chapter 4: Plugin interface
 
-### 4.1 `BriochePlugin` trait and `PluginCapabilities`
+### 4.1 Atomic hook traits
 
-Plugins declare their hook subscriptions via a bitmask. At engine initialization, the `UnifiedRoutingTable` pre-computes routes for each capability, eliminating runtime mask checks in the hot path.
-
-```rust
-pub struct PluginCapabilities(pub u16);
-
-impl PluginCapabilities {
-    pub const NONE: Self = Self(0);
-    pub const ON_INPUT: Self = Self(1 << 0);
-    pub const BEFORE_PREDICTION: Self = Self(1 << 1);
-    pub const ON_STREAM_EVENT: Self = Self(1 << 2);
-    pub const AFTER_PREDICTION: Self = Self(1 << 3);
-    pub const ON_TOOL_CALLS: Self = Self(1 << 4);
-    pub const ON_TOOL_RESULT: Self = Self(1 << 5);
-    pub const ON_ERROR: Self = Self(1 << 6);
-}
-```
+Plugins declare hook subscriptions by implementing one atomic capability trait per lifecycle hook. At engine initialization, each capability is stored in its own vector and the `UnifiedRoutingTable` pre-computes routes for that vector, eliminating runtime mask checks in the hot path.
 
 ```rust
-pub trait BriochePlugin: Send + Sync {
+pub trait OnInput: Send + Sync {
     fn name(&self) -> &'static str;
-    fn capabilities(&self) -> PluginCapabilities;
     fn priority(&self) -> i16 { 0 }
     fn on_input(&self, input: &EngineInput, ext: &mut ExtensionStorage)
         -> PluginResult<PolicyDecision>;
+}
+
+pub trait BeforePrediction: Send + Sync {
+    fn name(&self) -> &'static str;
+    fn priority(&self) -> i16 { 0 }
     fn before_prediction(&self, history: &[ChatMessage], ext: &mut ExtensionStorage)
         -> PluginResult<PolicyDecision>;
+}
+
+pub trait OnStreamEvent: Send + Sync {
+    fn name(&self) -> &'static str;
+    fn priority(&self) -> i16 { 0 }
     fn on_stream_event(&self, event: &StreamEvent, ext: &mut ExtensionStorage)
         -> PluginResult<StreamAction>;
-    fn after_prediction(&self, ext: &mut ExtensionStorage) -> PluginResult<()>;
-    fn on_tool_calls(&self, calls: &mut Vec<ToolCallDescriptor>, ext: &mut ExtensionStorage)
-        -> PluginResult<()>;
-    fn on_tool_result(&self, results: &mut Vec<ToolResultDTO>, ext: &mut ExtensionStorage)
-        -> PluginResult<()>;
-    fn on_error(&self, error: &PluginError, ext: &mut ExtensionStorage)
-        -> PluginResult<PolicyDecision>;
 }
 ```
 
-All hooks have default implementations returning "allow/pass/ok", so a plugin only overrides the hooks it cares about.
+`AfterPrediction`, `OnToolCalls`, `OnToolResult`, and `OnError` follow the same shape: `name`, `priority`, and exactly one lifecycle hook.
 
 ### 4.2 Policy decisions
 
@@ -322,9 +310,10 @@ The kernel exposes `SessionSnapshot` in `ExtensionStorage` before each transitio
 
 **1. Inject `SessionSnapshot`** before each hook.
 
-**2. `EpochInterceptor`** (optional, evaluated first):
-- `Block { reason }` → return `Error(EpochMismatch)` + `SystemIdle`
-- `Proceed` → continue
+**2. `EpochInterceptor` chain** (optional, evaluated first):
+- Registered interceptors run in builder-registration order.
+- First `Block { reason }` → return `Error(EpochMismatch)` + `SystemIdle`.
+- `Proceed` from every interceptor → continue.
 
 **3. `SubRoutineHandler`** (optional):
 - If `session.state` is `SubRoutine(handle)`, resolve child via `SessionRegistry`
@@ -384,11 +373,13 @@ Plugins are sorted by ascending `priority`, then by `name` lexicographically for
 
 ### 5.3 Governance traits (anchor points)
 
-The kernel defines 10 governance trait slots:
+The kernel defines 10 governance trait slots. The `EpochInterceptor` slot is an
+ordered chain so independent pre-delegation barriers can compose without moving
+policy into Core:
 
 | # | Trait | Mandatory | Role |
 |---|-------|-----------|------|
-| 1 | `EpochInterceptor` | No | Temporal barrier — rejects stale epochs |
+| 1 | `EpochInterceptor` | No | Temporal barrier chain — rejects stale epochs and other pre-delegation barriers |
 | 2 | `SubRoutineHandler` | No | Delegates sub-routine input resolution |
 | 3 | `ConsistencyVerifier` | No | Post-transition mechanical validation |
 | 4 | `DecisionAggregator` | **Yes** | Merges `before_prediction` decisions |
@@ -408,7 +399,8 @@ pub struct BriocheEngineBuilder { ... }
 
 impl BriocheEngineBuilder {
     pub fn new() -> Self;
-    pub fn with_plugin(self, plugin: Box<dyn BriochePlugin>) -> Self;
+    pub fn with_on_input(self, plugin: Box<dyn OnInput>) -> Self;
+    /// Appends an interceptor to the ordered pre-delegation chain.
     pub fn with_epoch_interceptor(self, interceptor: Box<dyn EpochInterceptor>) -> Self;
     pub fn with_subroutine_handler(self, handler: Box<dyn SubRoutineHandler>) -> Self;
     pub fn with_consistency_verifier(self, verifier: Box<dyn ConsistencyVerifier>) -> Self;

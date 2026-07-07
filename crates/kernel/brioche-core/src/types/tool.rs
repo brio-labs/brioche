@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::fundamental::BriocheError;
+use crate::BriocheExtensionType;
 
 // Tool descriptors
 // ---------------------------------------------------------------------------
@@ -14,12 +15,15 @@ use super::fundamental::BriocheError;
 /// Plugins inspect and mutate `ToolCallDescriptor` via the `on_tool_calls`
 /// hook. The kernel converts these into `ActiveToolCall` via `seal()`.
 ///
+/// ## Snapshot strategy
+/// COW: full clone. Weight is three `String` fields plus one optional `u64`.
+///
 /// Refs: I-Core-ActiveToolCall
 /// # Complexity
 /// O(1) for construction and field/variant access.
 /// # Panics
 /// Never panics.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 pub struct ToolCallDescriptor {
     /// Opaque identifier assigned by the LLM provider.
     pub tool_id: String,
@@ -37,12 +41,15 @@ pub struct ToolCallDescriptor {
 /// This type is **not** constructible by plugins. It is produced exclusively
 /// by the kernel's `seal()` function after the `on_tool_calls` hook.
 ///
+/// ## Snapshot strategy
+/// COW: full clone. Weight is three `String` fields plus one `u64`.
+///
 /// Refs: I-Core-ActiveToolCall
 /// # Complexity
 /// O(1) for construction and field/variant access.
 /// # Panics
 /// Never panics.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 pub struct ActiveToolCall {
     /// Opaque identifier assigned by the LLM provider.
     pub tool_id: String,
@@ -143,7 +150,7 @@ pub fn tool_outcome_to_string(outcome: &ToolOutcome) -> String {
 /// O(1). No heap allocation.
 /// # Panics
 /// Never panics.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BriocheExtensionType)]
 #[non_exhaustive]
 pub enum ToolOutcome {
     /// Tool completed successfully. Result injected into history.
@@ -157,6 +164,12 @@ pub enum ToolOutcome {
         /// Partial output.
         partial_output: Option<String>,
     },
+}
+
+impl Default for ToolOutcome {
+    fn default() -> Self {
+        Self::Success(String::new())
+    }
 }
 
 /// Structured result returned from the shell to the kernel after tool execution.

@@ -8,8 +8,8 @@
 use std::collections::BTreeMap;
 
 use brioche_core::{
-    AgentStateTag, BriochePlugin, EngineInput, ExtensionStorage, PluginCapabilities, PluginResult,
-    PolicyDecision, SessionSnapshot, ToolCallDescriptor,
+    AgentStateTag, EngineInput, EpochAction, EpochInterceptor, ExtensionStorage, OnInput,
+    OnToolCalls, PluginResult, PolicyDecision, SessionSnapshot, ToolCallDescriptor,
 };
 
 use crate::Priority;
@@ -59,13 +59,13 @@ impl Default for ToolTimeoutPolicy {
     }
 }
 
-impl BriochePlugin for ToolTimeoutPolicy {
+impl OnToolCalls for ToolTimeoutPolicy {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type ToolCallDescriptor = ToolCallDescriptor;
+
     fn name(&self) -> &'static str {
         "tool_timeout_policy"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_TOOL_CALLS
     }
 
     fn priority(&self) -> i16 {
@@ -127,9 +127,10 @@ pub struct SubRoutineTimerState {
 
 /// Sub-routine timeout policy.
 ///
-/// On `on_input`, verifies if any active sub-routine has exceeded its
-/// timeout limit stored in `SubRoutineTimerState`.
-/// Refs: I-Gov-TraitAtomic
+/// Checks run through `EpochInterceptor`, which is evaluated before
+/// sub-routine delegation. The `on_input` implementation remains for
+/// compatibility with engines that do not short-circuit through a child
+/// session.
 ///
 /// Refs: I-Gov-SubRoutineLifecycle-Guard, I-Comp-Pure-Logic
 pub struct SubRoutineTimeoutPolicy;
@@ -148,26 +149,6 @@ impl SubRoutineTimeoutPolicy {
     pub fn with_default_timeout(_default_timeout_ms: u64) -> Self {
         Self::new()
     }
-}
-
-impl Default for SubRoutineTimeoutPolicy {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl BriochePlugin for SubRoutineTimeoutPolicy {
-    fn name(&self) -> &'static str {
-        "subroutine_timeout_policy"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
-    }
-
-    fn priority(&self) -> i16 {
-        Priority::SUBROUTINE_TIMEOUT
-    }
 
     /// Checks active sub-routine timers for expiry.
     ///
@@ -176,13 +157,14 @@ impl BriochePlugin for SubRoutineTimeoutPolicy {
     ///
     /// # Complexity
     /// O(n) where n = number of tracked timers. Linear scan.
-    fn on_input(
-        &self,
-        _input: &EngineInput,
-        ext: &mut ExtensionStorage,
-    ) -> PluginResult<PolicyDecision> {
+    fn evaluate(&self, ext: &mut ExtensionStorage) -> PluginResult<PolicyDecision> {
         let is_subroutine = {
-            let snapshot = ext.get_or_insert_default::<SessionSnapshot>();
+            let Some(snapshot) = ext.get::<SessionSnapshot>() else {
+                return Err(brioche_core::PluginError::Fatal {
+                    plugin_name: "subroutine_timeout_policy".into(),
+                    message: "missing SessionSnapshot".into(),
+                });
+            };
             snapshot.current_state == AgentStateTag::SubRoutine
         };
 
@@ -227,5 +209,182 @@ impl BriochePlugin for SubRoutineTimeoutPolicy {
         }
 
         Ok(PolicyDecision::Allow)
+    }
+}
+
+impl EpochInterceptor for SubRoutineTimeoutPolicy {
+    type EngineInput = EngineInput;
+    type EpochAction = EpochAction;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+
+    fn intercept_epoch(
+        &self,
+        _input: &EngineInput,
+        ext: &mut ExtensionStorage,
+    ) -> PluginResult<EpochAction> {
+        match self.evaluate(ext)? {
+            PolicyDecision::Allow => Ok(EpochAction::Proceed),
+            PolicyDecision::Block { reason } => Ok(EpochAction::Block { reason }),
+            _ => Ok(EpochAction::Proceed),
+        }
+    }
+}
+
+impl Default for SubRoutineTimeoutPolicy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl OnInput for SubRoutineTimeoutPolicy {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
+    fn name(&self) -> &'static str {
+        "subroutine_timeout_policy"
+    }
+
+    fn priority(&self) -> i16 {
+        Priority::SUBROUTINE_TIMEOUT
+    }
+
+    /// Compatibility path for engines that run `on_input` on the parent.
+    ///
+    /// Active sub-routine transitions use [`EpochInterceptor`] instead because
+    /// child delegation short-circuits this hook.
+    fn on_input(
+        &self,
+        _input: &EngineInput,
+        ext: &mut ExtensionStorage,
+    ) -> PluginResult<PolicyDecision> {
+        self.evaluate(ext)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use brioche_core::{
+        AgentStateTag, EngineInput, ExtensionStorage, PluginError, SessionSnapshot, SignalBuffer,
+        SubRoutineHandle, SystemSignal, ToolCallDescriptor,
+    };
+
+    use super::*;
+
+    #[test]
+    fn tool_timeout_policy_applies_default_when_missing() -> Result<(), PluginError> {
+        let policy = ToolTimeoutPolicy::with_default_timeout(15000);
+        let mut ext = ExtensionStorage::new();
+        let mut calls = vec![ToolCallDescriptor {
+            tool_id: "t1".into(),
+            tool_name: "calc".into(),
+            arguments: "{}".into(),
+            timeout_ms: None,
+        }];
+
+        policy.on_tool_calls(&mut calls, &mut ext)?;
+        assert_eq!(calls[0].timeout_ms, Some(15000));
+        Ok(())
+    }
+
+    #[test]
+    fn tool_timeout_policy_caps_to_max() -> Result<(), PluginError> {
+        let policy = ToolTimeoutPolicy::with_bounds(10000, 20000);
+        let mut ext = ExtensionStorage::new();
+        let mut calls = vec![ToolCallDescriptor {
+            tool_id: "t1".into(),
+            tool_name: "calc".into(),
+            arguments: "{}".into(),
+            timeout_ms: Some(50000),
+        }];
+
+        policy.on_tool_calls(&mut calls, &mut ext)?;
+        assert_eq!(calls[0].timeout_ms, Some(20000));
+        Ok(())
+    }
+
+    fn subroutine_snapshot(ext: &mut ExtensionStorage) {
+        let snapshot = ext.get_or_insert_default::<SessionSnapshot>();
+        snapshot.current_state = AgentStateTag::SubRoutine;
+    }
+
+    fn tick_at(ext: &mut ExtensionStorage, elapsed_ms: u64) {
+        let buffer = ext.get_or_insert_default::<SignalBuffer>();
+        buffer
+            .system_signals
+            .push(SystemSignal::Tick { elapsed_ms });
+    }
+
+    #[test]
+    fn subroutine_timeout_policy_flags_expired_timer() -> Result<(), PluginError> {
+        let policy = SubRoutineTimeoutPolicy::new();
+        let mut ext = ExtensionStorage::new();
+        let handle = SubRoutineHandle::new("sub");
+
+        subroutine_snapshot(&mut ext);
+        tick_at(&mut ext, 101);
+        {
+            let state = ext.get_or_insert_default::<SubRoutineTimerState>();
+            state.last_tick_ms = 0;
+            state.timers.insert(handle.clone(), (0, 100));
+        }
+
+        let decision = policy.on_input(&EngineInput::UserMessage("tick".into()), &mut ext)?;
+
+        assert!(
+            matches!(decision, PolicyDecision::Block { .. }),
+            "expired sub-routine should be blocked"
+        );
+
+        let state = ext.get_or_insert_default::<SubRoutineTimerState>();
+        assert!(!state.timers.contains_key(&handle));
+        assert_eq!(state.last_tick_ms, 101);
+        Ok(())
+    }
+
+    #[test]
+    fn subroutine_timeout_policy_allows_active_timer() -> Result<(), PluginError> {
+        let policy = SubRoutineTimeoutPolicy::new();
+        let mut ext = ExtensionStorage::new();
+        let handle = SubRoutineHandle::new("sub");
+
+        subroutine_snapshot(&mut ext);
+        tick_at(&mut ext, 50);
+        {
+            let state = ext.get_or_insert_default::<SubRoutineTimerState>();
+            state.timers.insert(handle.clone(), (0, 100));
+        }
+
+        let decision = policy.on_input(&EngineInput::UserMessage("tick".into()), &mut ext)?;
+
+        assert!(matches!(decision, PolicyDecision::Allow));
+
+        let state = ext.get_or_insert_default::<SubRoutineTimerState>();
+        assert!(state.timers.contains_key(&handle));
+        Ok(())
+    }
+
+    #[test]
+    fn subroutine_timeout_policy_clears_timers_outside_subroutine() -> Result<(), PluginError> {
+        let policy = SubRoutineTimeoutPolicy::new();
+        let mut ext = ExtensionStorage::new();
+        let handle = SubRoutineHandle::new("sub");
+
+        {
+            let snapshot = ext.get_or_insert_default::<SessionSnapshot>();
+            snapshot.current_state = AgentStateTag::Idle;
+            let state = ext.get_or_insert_default::<SubRoutineTimerState>();
+            state.timers.insert(handle.clone(), (0, 100));
+        }
+
+        let decision = policy.on_input(&EngineInput::UserMessage("exit".into()), &mut ext)?;
+
+        assert!(matches!(decision, PolicyDecision::Allow));
+
+        let state = ext.get_or_insert_default::<SubRoutineTimerState>();
+        assert!(state.timers.is_empty());
+        Ok(())
     }
 }

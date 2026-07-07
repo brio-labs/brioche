@@ -8,10 +8,11 @@
 //! - I-Core-RetVecEffect: all side effects are returned as `Effect`.
 
 use brioche_core::{
-    AgentState, BriocheEngineBuilder, BriocheExtensionType, BriochePlugin, ChatMessage,
-    ConsistencyVerifier, CycleRollbackPolicy, DecisionAggregator, Effect, EngineInput, EpochAction,
-    EpochInterceptor, ErrorCode, ErrorDetail, ExecutionPath, ExtensionStorage, HistoryEdit,
-    PluginCapabilities, PluginResult, PolicyDecision, Session, SessionRegistry, StreamEvent,
+    ActiveToolCall, AgentState, BeforePrediction, BriocheEngineBuilder, BriocheExtensionType,
+    ChatMessage, ConsistencyVerifier, CycleRollbackPolicy, DecisionAggregator, Effect, EngineInput,
+    EpochAction, EpochInterceptor, ErrorCode, ErrorDetail, ExecutionPath, ExtensionStorage,
+    HistoryEdit, OnError, OnInput, OnInputPlugin, OnStreamEvent, OnStreamEventPlugin, OnToolCalls,
+    OnToolResult, PluginResult, PolicyDecision, Session, SessionRegistry, StreamEvent,
     SubRoutineHandle, SubRoutineLifecycleGuard, ToolCallDescriptor, ToolResultDTO,
     UnifiedRoutingTable,
 };
@@ -23,6 +24,10 @@ use brioche_core::{
 struct MockDecisionAggregator;
 
 impl DecisionAggregator for MockDecisionAggregator {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn aggregate_decisions(
         &self,
         decisions: Vec<PolicyDecision>,
@@ -59,13 +64,18 @@ impl DecisionAggregator for MockDecisionAggregator {
 struct MockSubRoutineLifecycleGuard;
 
 impl SubRoutineLifecycleGuard for MockSubRoutineLifecycleGuard {
+    type Effect = Effect;
+    type PluginError = brioche_core::PluginError;
+    type Session = Session;
+    type SessionRegistry = SessionRegistry;
+    type SubRoutineHandle = SubRoutineHandle;
+
     fn on_exit(
         &self,
         _handle: SubRoutineHandle,
         _parent: &mut Session,
-        registry: &mut SessionRegistry,
+        _registry: &mut SessionRegistry,
     ) -> PluginResult<Vec<Effect>> {
-        registry.increment_exit_count(&SubRoutineHandle::new("mock"));
         Ok(vec![])
     }
 }
@@ -88,17 +98,13 @@ fn transition_user_message_to_predicting() {
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
 
-    // State should be Predicting.
-    assert!(matches!(session.state, AgentState::Predicting { .. }));
+    assert_eq!(session.state, AgentState::Predicting { generation_id: 1 });
     assert_eq!(session.history.len(), 1);
     assert!(matches!(
         &session.history[0],
         ChatMessage::User { content } if content == "hello"
     ));
-
-    // Effects should include CallLlmNetwork and SaveSession.
-    assert!(effects.iter().any(|e| matches!(e, Effect::CallLlmNetwork)));
-    assert!(effects.iter().any(|e| matches!(e, Effect::SaveSession)));
+    assert_eq!(effects, vec![Effect::SaveSession, Effect::CallLlmNetwork]);
 }
 
 #[test]
@@ -109,33 +115,20 @@ fn transition_user_message_generates_generation_id() {
         .build();
 
     let mut session = Session::new("test");
-    engine.transition(&mut session, &EngineInput::UserMessage("a".into()));
+    let effects_a = engine.transition(&mut session, &EngineInput::UserMessage("a".into()));
 
-    let gen_a = match session.state {
-        AgentState::Predicting { generation_id } => generation_id,
-        _ => {
-            assert_eq!(1, 0, "expected Predicting");
-            return;
-        }
-    };
+    assert_eq!(session.state, AgentState::Predicting { generation_id: 1 });
+    assert_eq!(effects_a, vec![Effect::SaveSession, Effect::CallLlmNetwork]);
 
-    // Pop state to Idle so next transition works.
     let pop_result = session.pop_state();
     assert!(pop_result.is_ok());
+    assert_eq!(session.state, AgentState::Idle);
 
-    engine.transition(&mut session, &EngineInput::UserMessage("b".into()));
-    let gen_b = match session.state {
-        AgentState::Predicting { generation_id } => generation_id,
-        _ => {
-            assert_eq!(1, 0, "expected Predicting");
-            return;
-        }
-    };
+    let effects_b = engine.transition(&mut session, &EngineInput::UserMessage("b".into()));
 
-    assert!(
-        gen_b > gen_a,
-        "generation_id should be monotonically increasing"
-    );
+    assert_eq!(session.state, AgentState::Predicting { generation_id: 2 });
+    assert_eq!(effects_b, vec![Effect::SaveSession, Effect::CallLlmNetwork]);
+    assert_eq!(session.history.len(), 2);
 }
 
 // ---------------------------------------------------------------------------
@@ -159,7 +152,9 @@ fn transition_llm_stream_in_predicting_routes_plugins() {
     };
     let effects = engine.transition(&mut session, &EngineInput::LlmStream(event));
 
-    // No plugins registered, so no effects besides defaults.
+    assert_eq!(session.state, AgentState::Predicting { generation_id: 1 });
+    assert!(session.history.is_empty());
+    assert_eq!(session.pending_assistant_text, "hi");
     assert!(effects.is_empty());
 }
 
@@ -177,6 +172,8 @@ fn transition_llm_stream_not_predicting_returns_empty() {
     };
     let effects = engine.transition(&mut session, &EngineInput::LlmStream(event));
 
+    assert_eq!(session.state, AgentState::Idle);
+    assert!(session.history.is_empty());
     assert!(effects.is_empty());
 }
 
@@ -191,7 +188,6 @@ fn transition_llm_stream_accumulates_assistant_text() {
     let push_result = session.push_state(AgentState::Predicting { generation_id: 1 });
     assert!(push_result.is_ok());
 
-    // Simulate streaming: two text chunks then Done.
     let chunk1 = StreamEvent::TextChunk {
         path: Default::default(),
         chunk: bytes::Bytes::from_static(b"Hello "),
@@ -206,24 +202,21 @@ fn transition_llm_stream_accumulates_assistant_text() {
     let effects2 = engine.transition(&mut session, &EngineInput::LlmStream(chunk2));
     let effects3 = engine.transition(&mut session, &EngineInput::LlmStream(done));
 
-    // No effects from chunks themselves; Done triggers SystemIdle + SaveSession.
     assert!(effects1.is_empty());
     assert!(effects2.is_empty());
-    assert!(effects3.iter().any(|e| matches!(e, Effect::SystemIdle)));
-    assert!(effects3.iter().any(|e| matches!(e, Effect::SaveSession)));
+    assert_eq!(effects3, vec![Effect::SaveSession, Effect::SystemIdle]);
 
-    // Buffer should be empty after Done.
     assert!(session.pending_assistant_text.is_empty());
-
-    // Assistant message should be in history.
     assert_eq!(session.history.len(), 1);
-    assert!(matches!(
-        &session.history[0],
-        ChatMessage::Assistant { content, .. } if content == "Hello world"
-    ));
-
-    // State should have popped back to Idle.
-    assert!(matches!(session.state, AgentState::Idle));
+    assert_eq!(
+        session.history[0],
+        ChatMessage::Assistant {
+            content: "Hello world".into(),
+            reasoning: None,
+            tool_calls: vec![],
+        }
+    );
+    assert_eq!(session.state, AgentState::Idle);
 }
 
 #[test]
@@ -238,7 +231,6 @@ fn transition_llm_stream_tool_call_done_persists_preceding_text() {
     let push_result = session.push_state(AgentState::Predicting { generation_id: 1 });
     assert!(push_result.is_ok());
 
-    // Assistant says something, then calls a tool.
     let text = StreamEvent::TextChunk {
         path: Default::default(),
         chunk: bytes::Bytes::from_static(b"Let me check"),
@@ -256,22 +248,48 @@ fn transition_llm_stream_tool_call_done_persists_preceding_text() {
     engine.transition(&mut session, &EngineInput::LlmStream(start));
     let effects = engine.transition(&mut session, &EngineInput::LlmStream(done));
 
-    // Preceding text should be persisted as Assistant message.
     assert_eq!(session.history.len(), 1);
-    assert!(matches!(
-        &session.history[0],
-        ChatMessage::Assistant { content, .. } if content == "Let me check"
-    ));
-
-    // Buffer cleared.
+    assert_eq!(
+        session.history[0],
+        ChatMessage::Assistant {
+            content: "Let me check".into(),
+            reasoning: None,
+            tool_calls: vec![],
+        }
+    );
     assert!(session.pending_assistant_text.is_empty());
-
-    // State transitions to ExecutingTools.
-    assert!(matches!(
+    assert_eq!(
         session.state,
         AgentState::ExecutingTools { generation_id: 1 }
-    ));
-    assert!(effects.iter().any(|e| matches!(e, Effect::ExecuteTools(_))));
+    );
+    assert_eq!(session.active_tools.len(), 1);
+    assert_eq!(
+        session.active_tools[0],
+        ActiveToolCall {
+            tool_id: "tc1".into(),
+            tool_name: "calc".into(),
+            arguments: "".into(),
+            timeout_ms: 1000,
+        }
+    );
+    assert_eq!(
+        effects,
+        vec![
+            Effect::Error {
+                code: ErrorCode::StateInconsistency,
+                detail: ErrorDetail::MissingToolTimeout {
+                    default_timeout_ms: 1000,
+                },
+            },
+            Effect::SaveSession,
+            Effect::ExecuteTools(vec![ActiveToolCall {
+                tool_id: "tc1".into(),
+                tool_name: "calc".into(),
+                arguments: "".into(),
+                timeout_ms: 1000,
+            }]),
+        ]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -304,15 +322,18 @@ fn transition_tool_calls_result_pops_state() {
         },
     );
 
-    // Should pop back to Predicting.
-    assert!(matches!(session.state, AgentState::Predicting { .. }));
-    // History should contain the tool result.
-    assert!(session.history.iter().any(|m| matches!(
-        m, ChatMessage::ToolResult { id, .. } if id == "t1"
-    )));
-    // Effects should include CallLlmNetwork + SaveSession.
-    assert!(effects.iter().any(|e| matches!(e, Effect::CallLlmNetwork)));
-    assert!(effects.iter().any(|e| matches!(e, Effect::SaveSession)));
+    assert_eq!(session.state, AgentState::Predicting { generation_id: 1 });
+    assert!(session.active_tools.is_empty());
+    assert_eq!(session.history.len(), 1);
+    assert_eq!(
+        session.history[0],
+        ChatMessage::ToolResult {
+            id: "t1".into(),
+            content: "42".into(),
+        }
+    );
+    assert_eq!(session.state_stack.len(), 2);
+    assert_eq!(effects, vec![Effect::SaveSession, Effect::CallLlmNetwork]);
 }
 
 // ---------------------------------------------------------------------------
@@ -337,10 +358,17 @@ fn transition_restore_subroutine_registers_in_registry() {
     );
 
     assert!(engine.session_registry().contains(&handle));
-    assert!(effects.iter().any(|e| matches!(
-        e, Effect::SubRoutineRestored { handle: h } if h == &handle
-    )));
-    assert!(effects.iter().any(|e| matches!(e, Effect::SaveSession)));
+    assert_eq!(session.state, AgentState::Idle);
+    assert!(session.history.is_empty());
+    assert_eq!(
+        effects,
+        vec![
+            Effect::SubRoutineRestored {
+                handle: handle.clone(),
+            },
+            Effect::SaveSession,
+        ]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -350,44 +378,72 @@ fn transition_restore_subroutine_registers_in_registry() {
 struct PriorityTestPlugin {
     name: &'static str,
     priority: i16,
-    cap: PluginCapabilities,
 }
 
-impl BriochePlugin for PriorityTestPlugin {
+impl OnInput for PriorityTestPlugin {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         self.name
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        self.cap
     }
 
     fn priority(&self) -> i16 {
         self.priority
     }
+
+    fn on_input(
+        &self,
+        _input: &EngineInput,
+        _ext: &mut ExtensionStorage,
+    ) -> PluginResult<PolicyDecision> {
+        Ok(PolicyDecision::Allow)
+    }
+}
+
+impl OnStreamEvent for PriorityTestPlugin {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type StreamAction = brioche_core::StreamAction;
+    type StreamEvent = StreamEvent;
+
+    fn name(&self) -> &'static str {
+        self.name
+    }
+
+    fn priority(&self) -> i16 {
+        self.priority
+    }
+
+    fn on_stream_event(
+        &self,
+        _event: &StreamEvent,
+        _ext: &mut ExtensionStorage,
+    ) -> PluginResult<brioche_core::StreamAction> {
+        Ok(brioche_core::StreamAction::Pass)
+    }
 }
 
 #[test]
 fn routing_table_orders_by_priority_then_name() {
-    let plugins: Vec<Box<dyn BriochePlugin>> = vec![
+    let on_input: Vec<Box<OnInputPlugin>> = vec![
         Box::new(PriorityTestPlugin {
             name: "beta",
             priority: 0,
-            cap: PluginCapabilities::ON_INPUT,
         }),
         Box::new(PriorityTestPlugin {
             name: "alpha",
             priority: 0,
-            cap: PluginCapabilities::ON_INPUT,
         }),
         Box::new(PriorityTestPlugin {
             name: "gamma",
             priority: -1,
-            cap: PluginCapabilities::ON_INPUT,
         }),
     ];
 
-    let table = UnifiedRoutingTable::from_plugins(&plugins);
+    let table = UnifiedRoutingTable::from_hooks(&on_input, &[], &[], &[], &[], &[], &[]);
 
     // Expected order: gamma (-1), alpha (0, "alpha" < "beta"), beta (0).
     assert_eq!(table.route_on_input, vec![2, 1, 0]);
@@ -395,23 +451,20 @@ fn routing_table_orders_by_priority_then_name() {
 
 #[test]
 fn routing_table_filters_by_capability() {
-    let plugins: Vec<Box<dyn BriochePlugin>> = vec![
-        Box::new(PriorityTestPlugin {
-            name: "input_only",
-            priority: 0,
-            cap: PluginCapabilities::ON_INPUT,
-        }),
-        Box::new(PriorityTestPlugin {
-            name: "stream_only",
-            priority: 0,
-            cap: PluginCapabilities::ON_STREAM_EVENT,
-        }),
-    ];
+    let on_input: Vec<Box<OnInputPlugin>> = vec![Box::new(PriorityTestPlugin {
+        name: "input_only",
+        priority: 0,
+    })];
+    let on_stream_event: Vec<Box<OnStreamEventPlugin>> = vec![Box::new(PriorityTestPlugin {
+        name: "stream_only",
+        priority: 0,
+    })];
 
-    let table = UnifiedRoutingTable::from_plugins(&plugins);
+    let table =
+        UnifiedRoutingTable::from_hooks(&on_input, &[], &on_stream_event, &[], &[], &[], &[]);
 
     assert_eq!(table.route_on_input, vec![0]);
-    assert_eq!(table.route_on_stream_event, vec![1]);
+    assert_eq!(table.route_on_stream_event, vec![0]);
     assert!(table.route_before_prediction.is_empty());
 }
 
@@ -421,13 +474,14 @@ fn routing_table_filters_by_capability() {
 
 struct OverrideInputPlugin;
 
-impl BriochePlugin for OverrideInputPlugin {
+impl OnInput for OverrideInputPlugin {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         "override_input"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
     }
 
     fn on_input(
@@ -446,7 +500,7 @@ impl BriochePlugin for OverrideInputPlugin {
 #[test]
 fn transition_override_input_short_circuits() {
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(OverrideInputPlugin))
+        .with_on_input(Box::new(OverrideInputPlugin))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
         .build();
@@ -454,22 +508,26 @@ fn transition_override_input_short_circuits() {
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
 
-    // Should NOT transition to Predicting because on_input short-circuited.
-    assert!(matches!(session.state, AgentState::Idle));
-    assert!(effects.iter().any(|e| matches!(
-        e, Effect::ForwardToUi(widget) if widget.widget_type() == "test"
-    )));
+    assert_eq!(session.state, AgentState::Idle);
+    assert!(session.history.is_empty());
+    assert_eq!(
+        effects,
+        vec![Effect::ForwardToUi(brioche_core::UiWidget::Test {
+            msg: "overridden".to_string(),
+        })]
+    );
 }
 
 struct BlockInputPlugin;
 
-impl BriochePlugin for BlockInputPlugin {
+impl OnInput for BlockInputPlugin {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         "block_input"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
     }
 
     fn on_input(
@@ -486,7 +544,7 @@ impl BriochePlugin for BlockInputPlugin {
 #[test]
 fn transition_block_input_returns_error_and_idle() {
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(BlockInputPlugin))
+        .with_on_input(Box::new(BlockInputPlugin))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
         .build();
@@ -494,11 +552,20 @@ fn transition_block_input_returns_error_and_idle() {
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
 
-    assert!(matches!(session.state, AgentState::Idle));
-    assert!(effects.iter().any(|e| matches!(
-        e, Effect::Error { code, .. } if *code == ErrorCode::StateInconsistency
-    )));
-    assert!(effects.iter().any(|e| matches!(e, Effect::SystemIdle)));
+    assert_eq!(session.state, AgentState::Idle);
+    assert!(session.history.is_empty());
+    assert_eq!(
+        effects,
+        vec![
+            Effect::Error {
+                code: ErrorCode::StateInconsistency,
+                detail: ErrorDetail::HookConstraintFailed {
+                    reason: "blocked".into(),
+                },
+            },
+            Effect::SystemIdle,
+        ]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -508,6 +575,11 @@ fn transition_block_input_returns_error_and_idle() {
 struct BlockEpochInterceptor;
 
 impl EpochInterceptor for BlockEpochInterceptor {
+    type EngineInput = EngineInput;
+    type EpochAction = EpochAction;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+
     fn intercept_epoch(
         &self,
         _input: &EngineInput,
@@ -530,10 +602,20 @@ fn transition_epoch_block_returns_error_idle() {
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
 
-    assert!(effects.iter().any(|e| matches!(
-        e, Effect::Error { code, .. } if *code == ErrorCode::EpochMismatch
-    )));
-    assert!(effects.iter().any(|e| matches!(e, Effect::SystemIdle)));
+    assert_eq!(session.state, AgentState::Idle);
+    assert!(session.history.is_empty());
+    assert_eq!(
+        effects,
+        vec![
+            Effect::Error {
+                code: ErrorCode::EpochMismatch,
+                detail: ErrorDetail::EpochGuardRejected {
+                    reason: "epoch stale".into(),
+                },
+            },
+            Effect::SystemIdle,
+        ]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -570,13 +652,18 @@ fn transition_is_deterministic() {
 fn transition_exits_subroutine_triggers_lifecycle_guard() {
     struct CountingLifecycleGuard;
     impl SubRoutineLifecycleGuard for CountingLifecycleGuard {
+        type Effect = Effect;
+        type PluginError = brioche_core::PluginError;
+        type Session = Session;
+        type SessionRegistry = SessionRegistry;
+        type SubRoutineHandle = SubRoutineHandle;
+
         fn on_exit(
             &self,
             _handle: SubRoutineHandle,
             _parent: &mut Session,
-            registry: &mut SessionRegistry,
+            _registry: &mut SessionRegistry,
         ) -> PluginResult<Vec<Effect>> {
-            registry.increment_exit_count(&SubRoutineHandle::new("counted"));
             Ok(vec![Effect::SaveSession])
         }
     }
@@ -591,7 +678,6 @@ fn transition_exits_subroutine_triggers_lifecycle_guard() {
     assert!(r.is_ok());
     session.state = AgentState::SubRoutine(SubRoutineHandle::new("sub-1"));
 
-    // Simulate a ToolCallsResult that pops state back to Idle.
     let effects = engine.transition(
         &mut session,
         &EngineInput::ToolCallsResult {
@@ -600,8 +686,16 @@ fn transition_exits_subroutine_triggers_lifecycle_guard() {
         },
     );
 
-    // Lifecycle guard should have been called (added SaveSession).
-    assert!(effects.iter().any(|e| matches!(e, Effect::SaveSession)));
+    assert_eq!(session.state, AgentState::Predicting { generation_id: 1 });
+    assert!(session.history.is_empty());
+    assert_eq!(
+        effects,
+        vec![
+            Effect::SaveSession,
+            Effect::CallLlmNetwork,
+            Effect::SaveSession
+        ]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -612,8 +706,12 @@ fn transition_exits_subroutine_triggers_lifecycle_guard() {
 fn transition_consistency_verifier_effects_appended() {
     struct ForcingVerifier;
     impl ConsistencyVerifier for ForcingVerifier {
-        fn verify_consistency(&self, _session: &mut Session) -> PluginResult<Option<Vec<Effect>>> {
-            Ok(Some(vec![Effect::SystemIdle]))
+        type PluginError = brioche_core::PluginError;
+        type PolicyDecision = PolicyDecision;
+        type Session = Session;
+
+        fn verify_consistency(&self, _session: &Session) -> PluginResult<Option<PolicyDecision>> {
+            Ok(Some(PolicyDecision::RequestEffect(Effect::SystemIdle)))
         }
     }
 
@@ -626,7 +724,58 @@ fn transition_consistency_verifier_effects_appended() {
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
 
-    assert!(effects.iter().any(|e| matches!(e, Effect::SystemIdle)));
+    assert_eq!(session.state, AgentState::Predicting { generation_id: 1 });
+    assert_eq!(session.history.len(), 1);
+    assert!(matches!(
+        &session.history[0],
+        ChatMessage::User { content } if content == "hello"
+    ));
+    assert_eq!(
+        effects,
+        vec![
+            Effect::SaveSession,
+            Effect::CallLlmNetwork,
+            Effect::SystemIdle
+        ]
+    );
+}
+
+#[test]
+fn transition_consistency_override_transition_applies_recovery() {
+    struct RecoveryVerifier;
+    impl ConsistencyVerifier for RecoveryVerifier {
+        type PluginError = brioche_core::PluginError;
+        type PolicyDecision = PolicyDecision;
+        type Session = Session;
+
+        fn verify_consistency(&self, _session: &Session) -> PluginResult<Option<PolicyDecision>> {
+            Ok(Some(PolicyDecision::OverrideTransition(vec![
+                Effect::SystemIdle,
+            ])))
+        }
+    }
+
+    let mut engine = BriocheEngineBuilder::new()
+        .with_consistency_verifier(Box::new(RecoveryVerifier))
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .build();
+
+    let mut session = Session::new("test");
+    let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
+
+    // The verifier's OverrideTransition forced recovery to Idle.
+    assert_eq!(session.state, AgentState::Idle);
+    assert!(session.state_stack.is_empty());
+    assert!(session.active_tools.is_empty());
+    assert_eq!(
+        effects,
+        vec![
+            Effect::SaveSession,
+            Effect::CallLlmNetwork,
+            Effect::SystemIdle,
+        ]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -636,13 +785,14 @@ fn transition_consistency_verifier_effects_appended() {
 #[test]
 fn transition_rebuildroutes_is_last() {
     struct RebuildPlugin;
-    impl BriochePlugin for RebuildPlugin {
+    impl OnInput for RebuildPlugin {
+        type EngineInput = EngineInput;
+        type ExtensionStorage = ExtensionStorage;
+        type PluginError = brioche_core::PluginError;
+        type PolicyDecision = PolicyDecision;
+
         fn name(&self) -> &'static str {
             "rebuild"
-        }
-
-        fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::ON_INPUT
         }
 
         fn on_input(
@@ -658,7 +808,7 @@ fn transition_rebuildroutes_is_last() {
     }
 
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(RebuildPlugin))
+        .with_on_input(Box::new(RebuildPlugin))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
         .build();
@@ -666,15 +816,18 @@ fn transition_rebuildroutes_is_last() {
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
 
-    assert!(matches!(effects.last(), Some(Effect::RebuildRoutes)));
-    assert_eq!(effects.len(), 2);
-    assert!(matches!(
-        effects.first(),
-        Some(Effect::Error {
-            code: ErrorCode::StateInconsistency,
-            ..
-        })
-    ));
+    assert_eq!(session.state, AgentState::Idle);
+    assert!(session.history.is_empty());
+    assert_eq!(
+        effects,
+        vec![
+            Effect::Error {
+                code: ErrorCode::StateInconsistency,
+                detail: ErrorDetail::EffectsDroppedAfterRebuildRoutes { count: 1 },
+            },
+            Effect::RebuildRoutes,
+        ]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -684,13 +837,14 @@ fn transition_rebuildroutes_is_last() {
 #[test]
 fn transition_history_edit_insert_and_truncate() {
     struct EditPlugin;
-    impl BriochePlugin for EditPlugin {
+    impl BeforePrediction for EditPlugin {
+        type ChatMessage = ChatMessage;
+        type ExtensionStorage = ExtensionStorage;
+        type PluginError = brioche_core::PluginError;
+        type PolicyDecision = PolicyDecision;
+
         fn name(&self) -> &'static str {
             "edit"
-        }
-
-        fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::BEFORE_PREDICTION
         }
 
         fn before_prediction(
@@ -708,7 +862,7 @@ fn transition_history_edit_insert_and_truncate() {
     }
 
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(EditPlugin))
+        .with_before_prediction(Box::new(EditPlugin))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
         .build();
@@ -716,16 +870,19 @@ fn transition_history_edit_insert_and_truncate() {
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
 
-    assert!(effects.iter().any(|e| matches!(e, Effect::CallLlmNetwork)));
-    assert_eq!(session.history.len(), 2);
-    assert!(matches!(
-        &session.history[0],
-        ChatMessage::System { content } if content == "injected"
-    ));
-    assert!(matches!(
-        &session.history[1],
-        ChatMessage::User { content } if content == "hello"
-    ));
+    assert_eq!(session.state, AgentState::Predicting { generation_id: 1 });
+    assert_eq!(
+        session.history,
+        vec![
+            ChatMessage::System {
+                content: "injected".into(),
+            },
+            ChatMessage::User {
+                content: "hello".into(),
+            },
+        ]
+    );
+    assert_eq!(effects, vec![Effect::SaveSession, Effect::CallLlmNetwork]);
 }
 
 // ---------------------------------------------------------------------------
@@ -745,7 +902,6 @@ fn transition_llm_stream_tool_call_materialization() {
     let push_result = session.push_state(AgentState::Predicting { generation_id: 7 });
     assert!(push_result.is_ok());
 
-    // Send ToolCallStart
     let start = StreamEvent::ToolCallStart {
         path: ExecutionPath::default(),
         id: "tc1".into(),
@@ -753,9 +909,8 @@ fn transition_llm_stream_tool_call_materialization() {
     };
     let effects = engine.transition(&mut session, &EngineInput::LlmStream(start));
     assert!(effects.is_empty());
-    assert!(matches!(session.state, AgentState::Predicting { .. }));
+    assert_eq!(session.state, AgentState::Predicting { generation_id: 7 });
 
-    // Send argument chunk
     let arg = StreamEvent::ToolArgumentChunk {
         path: ExecutionPath::default(),
         id: "tc1".into(),
@@ -764,28 +919,44 @@ fn transition_llm_stream_tool_call_materialization() {
     let effects = engine.transition(&mut session, &EngineInput::LlmStream(arg));
     assert!(effects.is_empty());
 
-    // Send ToolCallDone -> materialization
     let done = StreamEvent::ToolCallDone {
         path: ExecutionPath::default(),
     };
     let effects = engine.transition(&mut session, &EngineInput::LlmStream(done));
 
-    // State should transition to ExecutingTools.
-    assert!(matches!(
+    assert_eq!(
         session.state,
         AgentState::ExecutingTools { generation_id: 7 }
-    ));
-
-    // active_tools should contain the sealed call.
+    );
+    assert!(session.history.is_empty());
     assert_eq!(session.active_tools.len(), 1);
-    assert_eq!(session.active_tools[0].tool_id, "tc1");
-    assert_eq!(session.active_tools[0].tool_name, "calc");
-    assert_eq!(session.active_tools[0].arguments, "{\"x\":1}");
-    assert_eq!(session.active_tools[0].timeout_ms, 5000);
-
-    // Effects should include ExecuteTools and SaveSession.
-    assert!(effects.iter().any(|e| matches!(e, Effect::ExecuteTools(_))));
-    assert!(effects.iter().any(|e| matches!(e, Effect::SaveSession)));
+    assert_eq!(
+        session.active_tools[0],
+        ActiveToolCall {
+            tool_id: "tc1".into(),
+            tool_name: "calc".into(),
+            arguments: "{\"x\":1}".into(),
+            timeout_ms: 5000,
+        }
+    );
+    assert_eq!(
+        effects,
+        vec![
+            Effect::Error {
+                code: ErrorCode::StateInconsistency,
+                detail: ErrorDetail::MissingToolTimeout {
+                    default_timeout_ms: 5000,
+                },
+            },
+            Effect::SaveSession,
+            Effect::ExecuteTools(vec![ActiveToolCall {
+                tool_id: "tc1".into(),
+                tool_name: "calc".into(),
+                arguments: "{\"x\":1}".into(),
+                timeout_ms: 5000,
+            }]),
+        ]
+    );
 }
 
 #[test]
@@ -812,25 +983,42 @@ fn transition_llm_stream_missing_timeout_applies_default() {
     };
     let effects = engine.transition(&mut session, &EngineInput::LlmStream(done));
 
-    // Default timeout applied.
+    assert_eq!(
+        session.state,
+        AgentState::ExecutingTools { generation_id: 1 }
+    );
+    assert_eq!(session.active_tools.len(), 1);
     assert_eq!(session.active_tools[0].timeout_ms, 3000);
-
-    // Error effect emitted because timeout was missing.
-    assert!(effects.iter().any(|e| matches!(
-        e, Effect::Error { code, detail: ErrorDetail::MissingToolTimeout { .. } } if *code == ErrorCode::StateInconsistency
-    )));
+    assert_eq!(
+        effects,
+        vec![
+            Effect::Error {
+                code: ErrorCode::StateInconsistency,
+                detail: ErrorDetail::MissingToolTimeout {
+                    default_timeout_ms: 3000,
+                },
+            },
+            Effect::SaveSession,
+            Effect::ExecuteTools(vec![ActiveToolCall {
+                tool_id: "t1".into(),
+                tool_name: "grep".into(),
+                arguments: "".into(),
+                timeout_ms: 3000,
+            }]),
+        ]
+    );
 }
 
 #[test]
 fn transition_llm_stream_on_tool_calls_mutates_timeout() {
     struct TimeoutMutatorPlugin;
-    impl BriochePlugin for TimeoutMutatorPlugin {
+    impl OnToolCalls for TimeoutMutatorPlugin {
+        type ExtensionStorage = ExtensionStorage;
+        type PluginError = brioche_core::PluginError;
+        type ToolCallDescriptor = ToolCallDescriptor;
+
         fn name(&self) -> &'static str {
             "timeout_mutator"
-        }
-
-        fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::ON_TOOL_CALLS
         }
 
         fn on_tool_calls(
@@ -846,7 +1034,7 @@ fn transition_llm_stream_on_tool_calls_mutates_timeout() {
     }
 
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(TimeoutMutatorPlugin))
+        .with_on_tool_calls(Box::new(TimeoutMutatorPlugin))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
         .with_default_tool_timeout_ms(1000)
@@ -868,17 +1056,24 @@ fn transition_llm_stream_on_tool_calls_mutates_timeout() {
     };
     let effects = engine.transition(&mut session, &EngineInput::LlmStream(done));
 
-    // Plugin should have mutated timeout to 9999.
+    assert_eq!(
+        session.state,
+        AgentState::ExecutingTools { generation_id: 2 }
+    );
+    assert_eq!(session.active_tools.len(), 1);
     assert_eq!(session.active_tools[0].timeout_ms, 9999);
-
-    // No error effect because timeout was provided by plugin.
-    assert!(!effects.iter().any(|e| matches!(
-        e,
-        Effect::Error {
-            detail: ErrorDetail::MissingToolTimeout { .. },
-            ..
-        }
-    )));
+    assert_eq!(
+        effects,
+        vec![
+            Effect::SaveSession,
+            Effect::ExecuteTools(vec![ActiveToolCall {
+                tool_id: "t2".into(),
+                tool_name: "calc".into(),
+                arguments: "".into(),
+                timeout_ms: 9999,
+            }]),
+        ]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -896,10 +1091,14 @@ fn transition_with_epoch_guard_blocks_stale_generation() {
         .build();
 
     let mut session = Session::new("test");
-    // Simulate an advanced epoch
-    session.extensions.insert(brioche_core::EpochState {
-        current_generation: 5,
-    });
+    assert!(
+        session
+            .extensions
+            .insert(brioche_core::EpochState {
+                current_generation: 5,
+            })
+            .is_ok()
+    );
 
     let effects = engine.transition(
         &mut session,
@@ -909,10 +1108,20 @@ fn transition_with_epoch_guard_blocks_stale_generation() {
         },
     );
 
-    assert!(effects.iter().any(|e| matches!(
-        e, Effect::Error { code, .. } if *code == ErrorCode::EpochMismatch
-    )));
-    assert!(effects.iter().any(|e| matches!(e, Effect::SystemIdle)));
+    assert_eq!(session.state, AgentState::Idle);
+    assert!(session.history.is_empty());
+    assert_eq!(
+        effects,
+        vec![
+            Effect::Error {
+                code: ErrorCode::EpochMismatch,
+                detail: ErrorDetail::EpochGuardRejected {
+                    reason: "epoch mismatch: expected 5, got 3".into(),
+                },
+            },
+            Effect::SystemIdle,
+        ]
+    );
 }
 
 #[test]
@@ -926,9 +1135,14 @@ fn transition_with_epoch_guard_allows_current_generation() {
         .build();
 
     let mut session = Session::new("test");
-    session.extensions.insert(brioche_core::EpochState {
-        current_generation: 7,
-    });
+    assert!(
+        session
+            .extensions
+            .insert(brioche_core::EpochState {
+                current_generation: 7,
+            })
+            .is_ok()
+    );
 
     let r1 = session.push_state(AgentState::Predicting { generation_id: 7 });
     assert!(r1.is_ok());
@@ -943,10 +1157,63 @@ fn transition_with_epoch_guard_allows_current_generation() {
         },
     );
 
-    // No epoch error — normal processing continues.
-    assert!(!effects.iter().any(|e| matches!(
-        e, Effect::Error { code, .. } if *code == ErrorCode::EpochMismatch
-    )));
+    assert_eq!(session.state, AgentState::Predicting { generation_id: 7 });
+    assert!(session.active_tools.is_empty());
+    assert!(session.history.is_empty());
+    assert_eq!(effects, vec![Effect::SaveSession, Effect::CallLlmNetwork]);
+}
+
+#[test]
+fn transition_with_subroutine_timeout_intercepts_before_child_delegation() {
+    use brioche_governance_default::{
+        EpochGuard, SubRoutineOrchestrator, SubRoutineTimeoutPolicy, SubRoutineTimerState,
+    };
+
+    let mut engine = BriocheEngineBuilder::new()
+        .with_epoch_interceptor(Box::new(EpochGuard))
+        .with_epoch_interceptor(Box::new(SubRoutineTimeoutPolicy::new()))
+        .with_subroutine_handler(Box::new(SubRoutineOrchestrator::new()))
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .build();
+
+    let handle = SubRoutineHandle::new("sub-1");
+    let mut session = Session::new("parent");
+    let pushed = session.push_state(AgentState::SubRoutine(handle.clone()));
+    assert!(pushed.is_ok());
+
+    {
+        let buffer = session
+            .extensions
+            .get_or_insert_default::<brioche_core::SignalBuffer>();
+        buffer
+            .system_signals
+            .push(brioche_core::SystemSignal::Tick { elapsed_ms: 101 });
+
+        let state = session
+            .extensions
+            .get_or_insert_default::<SubRoutineTimerState>();
+        state.timers.insert(handle.clone(), (0, 100));
+    }
+
+    engine.create_subroutine(handle.clone(), Session::new("child"));
+
+    let effects = engine.transition(&mut session, &EngineInput::UserMessage("continue".into()));
+
+    assert_eq!(session.state, AgentState::SubRoutine(handle.clone()));
+    assert!(engine.session_registry().contains(&handle));
+    assert_eq!(
+        effects,
+        vec![
+            Effect::Error {
+                code: ErrorCode::EpochMismatch,
+                detail: ErrorDetail::EpochGuardRejected {
+                    reason: "sub-routine SubRoutineHandle(\"sub-1\") exceeded timeout".into(),
+                },
+            },
+            Effect::SystemIdle,
+        ]
+    );
 }
 
 #[test]
@@ -961,8 +1228,13 @@ fn transition_with_policy_aggregator_allows() {
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
 
-    assert!(effects.iter().any(|e| matches!(e, Effect::CallLlmNetwork)));
-    assert!(matches!(session.state, AgentState::Predicting { .. }));
+    assert_eq!(session.state, AgentState::Predicting { generation_id: 1 });
+    assert_eq!(session.history.len(), 1);
+    assert!(matches!(
+        &session.history[0],
+        ChatMessage::User { content } if content == "hello"
+    ));
+    assert_eq!(effects, vec![Effect::SaveSession, Effect::CallLlmNetwork]);
 }
 
 #[test]
@@ -979,7 +1251,6 @@ fn transition_with_subroutine_cleanup_guard_removes_child() {
     assert!(r.is_ok());
     session.state = AgentState::SubRoutine(SubRoutineHandle::new("sub-1"));
 
-    // Register the sub-routine in the registry
     engine.create_subroutine(SubRoutineHandle::new("sub-1"), Session::new("sub-1"));
 
     let effects = engine.transition(
@@ -990,13 +1261,21 @@ fn transition_with_subroutine_cleanup_guard_removes_child() {
         },
     );
 
-    // The sub-routine should have been removed from the registry.
     assert!(
         !engine
             .session_registry()
             .contains(&SubRoutineHandle::new("sub-1"))
     );
-    assert!(effects.iter().any(|e| matches!(e, Effect::SaveSession)));
+    assert_eq!(session.state, AgentState::Predicting { generation_id: 1 });
+    assert!(session.history.is_empty());
+    assert_eq!(
+        effects,
+        vec![
+            Effect::SaveSession,
+            Effect::CallLlmNetwork,
+            Effect::SaveSession
+        ]
+    );
 }
 
 #[test]
@@ -1010,20 +1289,32 @@ fn transition_with_state_consistency_guard_fixes_inconsistent_state() {
         .build();
 
     let mut session = Session::new("test");
-    // Force an inconsistent state: Predicting without stack.
     session.state = AgentState::Predicting { generation_id: 1 };
 
-    // LlmStream does not modify the stack when already in Predicting.
     let event = StreamEvent::TextChunk {
         path: ExecutionPath::default(),
         chunk: bytes::Bytes::from_static(b"x"),
     };
     let effects = engine.transition(&mut session, &EngineInput::LlmStream(event));
 
-    // The guard should have forced a return to Idle.
-    assert!(matches!(session.state, AgentState::Idle));
+    assert_eq!(session.state, AgentState::Idle);
     assert!(session.state_stack.is_empty());
-    assert!(effects.iter().any(|e| matches!(e, Effect::SystemIdle)));
+    assert!(session.history.is_empty());
+    assert_eq!(
+        effects,
+        vec![
+            Effect::Error {
+                code: ErrorCode::StateInconsistency,
+                detail: ErrorDetail::StateInconsistent {
+                    source: brioche_core::types::InconsistencySource::Kernel {
+                        module: "guards::consistency_verifier".to_string(),
+                    },
+                },
+            },
+            Effect::SaveSession,
+            Effect::SystemIdle,
+        ]
+    );
 }
 
 #[test]
@@ -1032,13 +1323,14 @@ fn transition_with_fast_hook_effect_constraint_blocks_disallowed_effect() {
     use brioche_governance_default::FastHookEffectConstraint;
 
     struct LlmRequestingPlugin;
-    impl BriochePlugin for LlmRequestingPlugin {
+    impl OnInput for LlmRequestingPlugin {
+        type EngineInput = EngineInput;
+        type ExtensionStorage = ExtensionStorage;
+        type PluginError = brioche_core::PluginError;
+        type PolicyDecision = PolicyDecision;
+
         fn name(&self) -> &'static str {
             "llm_requester"
-        }
-
-        fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::ON_INPUT
         }
 
         fn priority(&self) -> i16 {
@@ -1054,13 +1346,12 @@ fn transition_with_fast_hook_effect_constraint_blocks_disallowed_effect() {
         }
     }
 
-    // Block all effects on hook index 0 (on_input) except Error and SystemIdle.
     let mut masks = [0u64; 8];
     masks[0] = EffectBit::ERROR | EffectBit::SYSTEM_IDLE;
     let constraint = FastHookEffectConstraint::new(masks);
 
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(LlmRequestingPlugin))
+        .with_on_input(Box::new(LlmRequestingPlugin))
         .with_hook_effect_constraint(Box::new(constraint))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
@@ -1069,24 +1360,36 @@ fn transition_with_fast_hook_effect_constraint_blocks_disallowed_effect() {
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
 
-    // RebuildRoutes should be replaced by an error because it is disallowed.
-    assert!(!effects.iter().any(|e| matches!(e, Effect::RebuildRoutes)));
-    assert!(effects.iter().any(|e| matches!(
-        e, Effect::Error { code, .. } if *code == ErrorCode::StateInconsistency
-    )));
+    assert_eq!(session.state, AgentState::Predicting { generation_id: 1 });
+    assert_eq!(session.history.len(), 1);
+    assert_eq!(
+        effects,
+        vec![
+            Effect::Error {
+                code: ErrorCode::StateInconsistency,
+                detail: ErrorDetail::EffectNotAllowed {
+                    hook: "on_input".into(),
+                    effect_variant: "Discriminant(11)".into(),
+                },
+            },
+            Effect::SaveSession,
+            Effect::CallLlmNetwork,
+        ]
+    );
 }
 #[test]
 fn transition_with_system_failover_guard_replaces_fault() {
     use brioche_governance_default::SystemFailoverGuard;
 
     struct FaultyPlugin;
-    impl BriochePlugin for FaultyPlugin {
+    impl OnInput for FaultyPlugin {
+        type EngineInput = EngineInput;
+        type ExtensionStorage = ExtensionStorage;
+        type PluginError = brioche_core::PluginError;
+        type PolicyDecision = PolicyDecision;
+
         fn name(&self) -> &'static str {
             "faulty"
-        }
-
-        fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::ON_INPUT
         }
 
         fn on_input(
@@ -1102,7 +1405,7 @@ fn transition_with_system_failover_guard_replaces_fault() {
     }
 
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(FaultyPlugin))
+        .with_on_input(Box::new(FaultyPlugin))
         .with_governance_failover_handler(Box::new(SystemFailoverGuard::new()))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
@@ -1111,10 +1414,105 @@ fn transition_with_system_failover_guard_replaces_fault() {
     let mut session = Session::new("test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
 
-    // The failover should have replaced the fault with ForwardToUi + SystemIdle.
-    assert!(effects.iter().any(|e| matches!(
-        e, Effect::ForwardToUi(widget) if widget.widget_type() == "critical_error"
-    )));
+    assert_eq!(session.state, AgentState::Predicting { generation_id: 1 });
+    assert_eq!(session.history.len(), 1);
+    assert!(matches!(
+        &session.history[0],
+        ChatMessage::User { content } if content == "hello"
+    ));
+    assert_eq!(
+        effects,
+        vec![
+            Effect::ForwardToUi(brioche_core::UiWidget::CriticalError {
+                component: "faulty".into(),
+                detail: Some("governance component failed; system degraded".into()),
+            }),
+            Effect::SaveSession,
+            Effect::SystemIdle,
+            Effect::SaveSession,
+            Effect::CallLlmNetwork,
+        ]
+    );
+}
+#[test]
+fn governance_failover_preserves_non_fault_effects() {
+    use brioche_core::{GovernanceFailoverHandler, PluginSource};
+
+    struct WrapFaultHandler;
+
+    impl GovernanceFailoverHandler for WrapFaultHandler {
+        type Effect = Effect;
+        type PluginError = brioche_core::PluginError;
+        type Session = Session;
+
+        fn handle_failure(
+            &self,
+            _session: &mut Session,
+            fault: &Effect,
+        ) -> PluginResult<Option<Vec<Effect>>> {
+            Ok(Some(vec![
+                Effect::SaveSession,
+                fault.clone(),
+                Effect::SaveSession,
+            ]))
+        }
+    }
+
+    struct FaultyPlugin;
+    impl OnInput for FaultyPlugin {
+        type EngineInput = EngineInput;
+        type ExtensionStorage = ExtensionStorage;
+        type PluginError = brioche_core::PluginError;
+        type PolicyDecision = PolicyDecision;
+
+        fn name(&self) -> &'static str {
+            "faulty"
+        }
+
+        fn on_input(
+            &self,
+            _input: &EngineInput,
+            _ext: &mut ExtensionStorage,
+        ) -> PluginResult<PolicyDecision> {
+            Err(brioche_core::PluginError::Fatal {
+                plugin_name: "faulty".into(),
+                message: "boom".into(),
+            })
+        }
+    }
+
+    let mut engine = BriocheEngineBuilder::new()
+        .with_on_input(Box::new(FaultyPlugin))
+        .with_governance_failover_handler(Box::new(WrapFaultHandler))
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .build();
+
+    let mut session = Session::new("test");
+    let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
+
+    assert_eq!(session.state, AgentState::Predicting { generation_id: 1 });
+    assert_eq!(session.history.len(), 1);
+    assert!(matches!(
+        &session.history[0],
+        ChatMessage::User { content } if content == "hello"
+    ));
+    assert_eq!(
+        effects,
+        vec![
+            Effect::SaveSession,
+            Effect::PluginFault {
+                plugin_name: PluginSource("faulty".into()),
+                error: brioche_core::PluginError::Fatal {
+                    plugin_name: "faulty".into(),
+                    message: "boom".into(),
+                },
+            },
+            Effect::SaveSession,
+            Effect::SaveSession,
+            Effect::CallLlmNetwork,
+        ]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1144,9 +1542,12 @@ fn adaptive_undo_frame_guard_restores_mutated_extension() {
 
     let mut guard = AdaptiveUndoFrameGuard::new();
     let mut ext = ExtensionStorage::new();
-    ext.insert(brioche_core::EpochState {
-        current_generation: 42,
-    });
+    assert!(
+        ext.insert(brioche_core::EpochState {
+            current_generation: 42,
+        })
+        .is_ok()
+    );
 
     guard.begin_hook("on_input");
 
@@ -1172,7 +1573,7 @@ fn adaptive_undo_frame_guard_abandons_past_threshold() {
 
     let mut guard = AdaptiveUndoFrameGuard::new(); // budget will likely be exceeded by TestCowState
     let mut ext = ExtensionStorage::new();
-    ext.insert(TestCowState { value: 7 });
+    assert!(ext.insert(TestCowState { value: 7 }).is_ok());
 
     guard.begin_hook("on_input");
 
@@ -1210,13 +1611,14 @@ struct RollbackTypeB {
 }
 struct MutatingPlugin;
 
-impl BriochePlugin for MutatingPlugin {
+impl OnInput for MutatingPlugin {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         "mutating"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
     }
 
     fn priority(&self) -> i16 {
@@ -1251,15 +1653,15 @@ fn engine_rolls_back_extensions_when_cow_budget_exceeded() {
     let guard = brioche_governance_default::UndoFrameGuard::with_max_cow_bytes(weight_a + weight_b);
 
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(MutatingPlugin))
+        .with_on_input(Box::new(MutatingPlugin))
         .with_cycle_rollback_policy(Box::new(guard))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
         .build();
 
     let mut session = Session::new("rollback-test");
-    session.extensions.insert(snapshot_a);
-    session.extensions.insert(snapshot_b);
+    assert!(session.extensions.insert(snapshot_a).is_ok());
+    assert!(session.extensions.insert(snapshot_b).is_ok());
 
     let _effects = engine.transition(&mut session, &EngineInput::UserMessage("go".into()));
 
@@ -1281,13 +1683,14 @@ fn engine_rolls_back_extensions_when_cow_budget_exceeded() {
 }
 struct FaultingPlugin;
 
-impl BriochePlugin for FaultingPlugin {
+impl OnInput for FaultingPlugin {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         "faulting"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_INPUT
     }
 
     fn priority(&self) -> i16 {
@@ -1308,13 +1711,13 @@ impl BriochePlugin for FaultingPlugin {
 
 struct ErrorRecorderPlugin;
 
-impl BriochePlugin for ErrorRecorderPlugin {
+impl OnError for ErrorRecorderPlugin {
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
     fn name(&self) -> &'static str {
         "recorder"
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ON_ERROR
     }
 
     fn priority(&self) -> i16 {
@@ -1338,8 +1741,8 @@ impl BriochePlugin for ErrorRecorderPlugin {
 #[test]
 fn engine_invokes_on_error_hook_for_plugin_faults() {
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(FaultingPlugin))
-        .with_plugin(Box::new(ErrorRecorderPlugin))
+        .with_on_input(Box::new(FaultingPlugin))
+        .with_on_error(Box::new(ErrorRecorderPlugin))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
         .build();
@@ -1347,15 +1750,29 @@ fn engine_invokes_on_error_hook_for_plugin_faults() {
     let mut session = Session::new("on-error-test");
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("go".into()));
 
-    assert!(
-        effects.iter().any(|e| matches!(
-            e,
-            brioche_core::Effect::SavePluginBlob {
-                plugin_id: brioche_core::PluginSource(name),
-                data,
-            } if name == "recorder" && data == &[0xab]
-        )),
-        "on_error hook should emit the recorder effect"
+    assert_eq!(session.state, AgentState::Predicting { generation_id: 1 });
+    assert_eq!(session.history.len(), 1);
+    assert!(matches!(
+        &session.history[0],
+        ChatMessage::User { content } if content == "go"
+    ));
+    assert_eq!(
+        effects,
+        vec![
+            Effect::SavePluginBlob {
+                plugin_id: brioche_core::PluginSource("recorder".into()),
+                data: vec![0xab],
+            },
+            Effect::PluginFault {
+                plugin_name: brioche_core::PluginSource("faulting".into()),
+                error: brioche_core::PluginError::Fatal {
+                    plugin_name: "faulting".into(),
+                    message: "intentional fault".into(),
+                },
+            },
+            Effect::SaveSession,
+            Effect::CallLlmNetwork,
+        ]
     );
 }
 
@@ -1414,13 +1831,14 @@ fn engine_with_adaptive_undo_frame_guard_instruments_hooks() {
     use brioche_governance_default::AdaptiveUndoFrameGuard;
 
     struct MutatingPlugin;
-    impl BriochePlugin for MutatingPlugin {
+    impl OnInput for MutatingPlugin {
+        type EngineInput = EngineInput;
+        type ExtensionStorage = ExtensionStorage;
+        type PluginError = brioche_core::PluginError;
+        type PolicyDecision = PolicyDecision;
+
         fn name(&self) -> &'static str {
             "mutating"
-        }
-
-        fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::ON_INPUT
         }
 
         fn on_input(
@@ -1435,27 +1853,369 @@ fn engine_with_adaptive_undo_frame_guard_instruments_hooks() {
     }
 
     let mut engine = BriocheEngineBuilder::new()
-        .with_plugin(Box::new(MutatingPlugin))
+        .with_on_input(Box::new(MutatingPlugin))
         .with_cycle_rollback_policy(Box::new(AdaptiveUndoFrameGuard::new()))
         .with_decision_aggregator(Box::new(MockDecisionAggregator))
         .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
         .build();
 
     let mut session = Session::new("test");
-    session.extensions.insert(brioche_core::EpochState {
-        current_generation: 1,
-    });
+    assert!(
+        session
+            .extensions
+            .insert(brioche_core::EpochState {
+                current_generation: 1,
+            })
+            .is_ok()
+    );
 
-    // The hook mutates EpochState; COW instrumentation should not interfere
-    // with normal operation (commit_hook is called when budget is respected).
     let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
 
-    assert!(matches!(session.state, AgentState::Predicting { .. }));
-    assert!(effects.iter().any(|e| matches!(e, Effect::CallLlmNetwork)));
+    assert_eq!(session.state, AgentState::Predicting { generation_id: 1 });
+    assert_eq!(session.history.len(), 1);
+    assert!(matches!(
+        &session.history[0],
+        ChatMessage::User { content } if content == "hello"
+    ));
+    assert_eq!(effects, vec![Effect::SaveSession, Effect::CallLlmNetwork]);
 
-    // The mutation should have been committed (not rolled back).
     let state = session
         .extensions
         .get_or_insert_default::<brioche_core::EpochState>();
     assert_eq!(state.current_generation, 999);
+}
+
+// ---------------------------------------------------------------------------
+// Direct public method tests
+// ---------------------------------------------------------------------------
+
+struct RebuildRoutesPlugin {
+    name: &'static str,
+    priority: i16,
+}
+
+impl OnInput for RebuildRoutesPlugin {
+    type EngineInput = EngineInput;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
+    fn name(&self) -> &'static str {
+        self.name
+    }
+
+    fn priority(&self) -> i16 {
+        self.priority
+    }
+
+    fn on_input(
+        &self,
+        _input: &EngineInput,
+        _ext: &mut ExtensionStorage,
+    ) -> PluginResult<PolicyDecision> {
+        Ok(PolicyDecision::Allow)
+    }
+}
+
+struct RebuildRoutesBeforePredictionPlugin {
+    name: &'static str,
+    priority: i16,
+}
+
+impl BeforePrediction for RebuildRoutesBeforePredictionPlugin {
+    type ChatMessage = ChatMessage;
+    type ExtensionStorage = ExtensionStorage;
+    type PluginError = brioche_core::PluginError;
+    type PolicyDecision = PolicyDecision;
+
+    fn name(&self) -> &'static str {
+        self.name
+    }
+
+    fn priority(&self) -> i16 {
+        self.priority
+    }
+
+    fn before_prediction(
+        &self,
+        _history: &[ChatMessage],
+        _ext: &mut ExtensionStorage,
+    ) -> PluginResult<PolicyDecision> {
+        Ok(PolicyDecision::Allow)
+    }
+}
+
+#[test]
+fn rebuild_routes_filters_and_reorders_active_plugins() {
+    let mut engine = BriocheEngineBuilder::new()
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .with_on_input(Box::new(RebuildRoutesPlugin {
+            name: "alpha",
+            priority: 0,
+        }))
+        .with_on_input(Box::new(RebuildRoutesPlugin {
+            name: "beta",
+            priority: 1,
+        }))
+        .with_before_prediction(Box::new(RebuildRoutesBeforePredictionPlugin {
+            name: "gamma",
+            priority: 0,
+        }))
+        .build();
+
+    assert_eq!(engine.routing_table().route_on_input, vec![0, 1]);
+    assert_eq!(engine.routing_table().route_before_prediction, vec![0]);
+
+    // Disable plugin alpha (index 0); beta and gamma remain active.
+    engine.rebuild_routes(&[false, true, true]);
+
+    assert_eq!(engine.routing_table().route_on_input, vec![1]);
+    assert_eq!(engine.routing_table().route_before_prediction, vec![0]);
+
+    // Re-enable all, then omit later mask entries; missing entries default
+    // to active so the full route is restored.
+    engine.rebuild_routes(&[true, true, true]);
+    assert_eq!(engine.routing_table().route_on_input, vec![0, 1]);
+    assert_eq!(engine.routing_table().route_before_prediction, vec![0]);
+
+    engine.rebuild_routes(&[false]);
+    assert_eq!(engine.routing_table().route_on_input, vec![1]);
+    assert_eq!(engine.routing_table().route_before_prediction, vec![0]);
+}
+
+#[test]
+fn remove_subroutine_returns_session_and_second_remove_returns_none() {
+    let mut engine = BriocheEngineBuilder::new()
+        .with_decision_aggregator(Box::new(MockDecisionAggregator))
+        .with_subroutine_lifecycle_guard(Box::new(MockSubRoutineLifecycleGuard))
+        .build();
+
+    let handle = SubRoutineHandle::new("sub-1");
+    let mut subroutine = Session::new("sub-1");
+    subroutine.state = AgentState::Predicting { generation_id: 42 };
+
+    engine.create_subroutine(handle.clone(), subroutine);
+
+    let removed = engine.remove_subroutine(&handle);
+    assert!(removed.is_some(), "expected subroutine to be removed");
+    if let Some(removed) = removed {
+        assert_eq!(removed.id, "sub-1");
+        assert_eq!(removed.state, AgentState::Predicting { generation_id: 42 });
+    }
+
+    let second = engine.remove_subroutine(&handle);
+    assert!(second.is_none(), "second remove should return None");
+}
+
+// ---------------------------------------------------------------------------
+// Production profile wiring tests
+// ---------------------------------------------------------------------------
+
+/// Parallel suite exercising real governance profiles instead of mock traits.
+///
+/// These tests verify that `GovernanceProfile::Standard` and `Strict` wire
+/// the production aggregator and lifecycle guard correctly, and that the
+/// resulting engine still drives the full user-message → predict → tool
+/// execution → response lifecycle.
+///
+/// Refs: I-Gov-Profile-Agnostic
+mod production_profile_tests {
+    use brioche_governance_default::{BriocheEngineBuilderExt, GovernanceProfile};
+
+    use super::*;
+
+    /// Build an engine wired with the given production governance profile.
+    fn engine_with_profile(profile: GovernanceProfile) -> brioche_core::BriocheEngine {
+        BriocheEngineBuilder::new().with_profile(profile).build()
+    }
+
+    #[test]
+    fn standard_profile_user_message_transitions_to_predicting() {
+        let mut engine = engine_with_profile(GovernanceProfile::Standard);
+        let mut session = Session::new("test");
+
+        let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
+
+        assert!(matches!(session.state, AgentState::Predicting { .. }));
+        assert_eq!(session.history.len(), 1);
+        assert!(matches!(
+            &session.history[0],
+            ChatMessage::User { content } if content == "hello"
+        ));
+        assert!(effects.iter().any(|e| matches!(e, Effect::CallLlmNetwork)));
+        assert!(effects.iter().any(|e| matches!(e, Effect::SaveSession)));
+    }
+
+    #[test]
+    fn strict_profile_user_message_transitions_to_predicting() {
+        let mut engine = engine_with_profile(GovernanceProfile::Strict);
+        let mut session = Session::new("test");
+
+        let effects = engine.transition(&mut session, &EngineInput::UserMessage("hello".into()));
+
+        assert!(matches!(session.state, AgentState::Predicting { .. }));
+        assert_eq!(session.history.len(), 1);
+        assert!(matches!(
+            &session.history[0],
+            ChatMessage::User { content } if content == "hello"
+        ));
+        assert!(effects.iter().any(|e| matches!(e, Effect::CallLlmNetwork)));
+        assert!(effects.iter().any(|e| matches!(e, Effect::SaveSession)));
+    }
+
+    #[test]
+    fn standard_profile_stream_done_persists_assistant_response() {
+        let mut engine = engine_with_profile(GovernanceProfile::Standard);
+        let mut session = Session::new("test");
+        let r = session.push_state(AgentState::Predicting { generation_id: 1 });
+        assert!(r.is_ok());
+
+        let chunk1 = StreamEvent::TextChunk {
+            path: Default::default(),
+            chunk: bytes::Bytes::from_static(b"Hello "),
+        };
+        let chunk2 = StreamEvent::TextChunk {
+            path: Default::default(),
+            chunk: bytes::Bytes::from_static(b"world"),
+        };
+        let done = StreamEvent::Done;
+
+        let effects1 = engine.transition(&mut session, &EngineInput::LlmStream(chunk1));
+        let effects2 = engine.transition(&mut session, &EngineInput::LlmStream(chunk2));
+        let effects3 = engine.transition(&mut session, &EngineInput::LlmStream(done));
+
+        assert!(effects1.is_empty());
+        assert!(effects2.is_empty());
+        assert!(effects3.iter().any(|e| matches!(e, Effect::SystemIdle)));
+        assert!(effects3.iter().any(|e| matches!(e, Effect::SaveSession)));
+
+        assert!(matches!(session.state, AgentState::Idle));
+        assert!(session.pending_assistant_text.is_empty());
+        assert_eq!(session.history.len(), 1);
+        assert!(matches!(
+            &session.history[0],
+            ChatMessage::Assistant { content, .. } if content == "Hello world"
+        ));
+    }
+
+    #[test]
+    fn standard_profile_tool_call_lifecycle_predict_execute_respond() {
+        let mut engine = engine_with_profile(GovernanceProfile::Standard);
+        let mut session = Session::new("test");
+        assert!(
+            session
+                .extensions
+                .insert(brioche_core::EpochState {
+                    current_generation: 1,
+                })
+                .is_ok()
+        );
+        let r = session.push_state(AgentState::Predicting { generation_id: 1 });
+        assert!(r.is_ok());
+
+        let text = StreamEvent::TextChunk {
+            path: Default::default(),
+            chunk: bytes::Bytes::from_static(b"Let me check"),
+        };
+        let start = StreamEvent::ToolCallStart {
+            path: Default::default(),
+            id: "tc1".into(),
+            name: "calc".into(),
+        };
+        let arg = StreamEvent::ToolArgumentChunk {
+            path: Default::default(),
+            id: "tc1".into(),
+            chunk: bytes::Bytes::from_static(b"{\"x\":1}"),
+        };
+        let done = StreamEvent::ToolCallDone {
+            path: Default::default(),
+        };
+
+        engine.transition(&mut session, &EngineInput::LlmStream(text));
+        engine.transition(&mut session, &EngineInput::LlmStream(start));
+        engine.transition(&mut session, &EngineInput::LlmStream(arg));
+        let effects = engine.transition(&mut session, &EngineInput::LlmStream(done));
+
+        // Preceding text persisted as Assistant message.
+        assert_eq!(session.history.len(), 1);
+        assert!(matches!(
+            &session.history[0],
+            ChatMessage::Assistant { content, .. } if content == "Let me check"
+        ));
+
+        // State transitions to ExecutingTools; Standard default timeout is 30s.
+        assert!(matches!(
+            session.state,
+            AgentState::ExecutingTools { generation_id: 1 }
+        ));
+        assert_eq!(session.active_tools.len(), 1);
+        assert_eq!(session.active_tools[0].tool_id, "tc1");
+        assert_eq!(session.active_tools[0].tool_name, "calc");
+        assert_eq!(session.active_tools[0].arguments, "{\"x\":1}");
+        assert_eq!(session.active_tools[0].timeout_ms, 30000);
+
+        assert!(effects.iter().any(|e| matches!(e, Effect::ExecuteTools(_))));
+        assert!(effects.iter().any(|e| matches!(e, Effect::SaveSession)));
+
+        // Tool result returns to Predicting to continue the response loop.
+        let result = ToolResultDTO {
+            tool_id: "tc1".into(),
+            tool_name: "calc".into(),
+            outcome: brioche_core::ToolOutcome::Success("42".into()),
+        };
+        let effects = engine.transition(
+            &mut session,
+            &EngineInput::ToolCallsResult {
+                generation_id: 1,
+                results: vec![result],
+            },
+        );
+
+        assert!(matches!(session.state, AgentState::Predicting { .. }));
+        assert!(session.history.iter().any(|m| matches!(
+            m, ChatMessage::ToolResult { id, .. } if id == "tc1"
+        )));
+        assert!(effects.iter().any(|e| matches!(e, Effect::CallLlmNetwork)));
+        assert!(effects.iter().any(|e| matches!(e, Effect::SaveSession)));
+    }
+
+    #[test]
+    fn strict_profile_tool_call_lifecycle_uses_stricter_timeout() {
+        let mut engine = engine_with_profile(GovernanceProfile::Strict);
+        let mut session = Session::new("test");
+        assert!(
+            session
+                .extensions
+                .insert(brioche_core::EpochState {
+                    current_generation: 1,
+                })
+                .is_ok()
+        );
+        let r = session.push_state(AgentState::Predicting { generation_id: 1 });
+        assert!(r.is_ok());
+
+        let start = StreamEvent::ToolCallStart {
+            path: Default::default(),
+            id: "tc1".into(),
+            name: "calc".into(),
+        };
+        let done = StreamEvent::ToolCallDone {
+            path: Default::default(),
+        };
+
+        engine.transition(&mut session, &EngineInput::LlmStream(start));
+        let effects = engine.transition(&mut session, &EngineInput::LlmStream(done));
+
+        // Strict profile default timeout is 10s.
+        assert!(matches!(
+            session.state,
+            AgentState::ExecutingTools { generation_id: 1 }
+        ));
+        assert_eq!(session.active_tools.len(), 1);
+        assert_eq!(session.active_tools[0].timeout_ms, 10000);
+
+        assert!(effects.iter().any(|e| matches!(e, Effect::ExecuteTools(_))));
+        assert!(effects.iter().any(|e| matches!(e, Effect::SaveSession)));
+    }
 }
