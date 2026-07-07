@@ -60,22 +60,28 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # github-action-benchmark's cargo parser handles Criterion output only.
+          # Divan shards still run, but skip comparison until a parser is available.
           - name: core
             package: brioche-core
             bench: benchmarks
             changed: ${{ needs.changes.outputs.core }}
+            compare: "false"
           - name: governance-default
             package: brioche-governance-default
             bench: benchmarks
             changed: ${{ needs.changes.outputs.governance-default }}
+            compare: "false"
           - name: shell-persistence
             package: brioche-shell-persistence
             bench: benchmarks
             changed: ${{ needs.changes.outputs.shell-persistence }}
+            compare: "false"
           - name: shell-runtime
             package: brioche-shell-runtime
             bench: effect_loop
             changed: ${{ needs.changes.outputs.shell-runtime }}
+            compare: "true"
     name: bench (${{ matrix.name }})
     steps:
       - name: Skip unchanged benchmark shard
@@ -95,16 +101,16 @@ jobs:
         run: cargo bench --package ${{ matrix.package }} --bench ${{ matrix.bench }} --locked | tee benchmark-results.txt
       - name: Check for benchmark results
         id: check
-        if: matrix.changed == 'true'
+        if: matrix.changed == 'true' && matrix.compare == 'true'
         run: |
-          if grep -Eq "time:|fastest|benchmarks" benchmark-results.txt; then
+          if grep -Eq "time:" benchmark-results.txt; then
             echo "has_benchmarks=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_benchmarks=false" >> "$GITHUB_OUTPUT"
             echo "No benchmark results found — skipping comparison."
           fi
       - name: Compare with main
-        if: matrix.changed == 'true' && steps.check.outputs.has_benchmarks == 'true'
+        if: matrix.changed == 'true' && matrix.compare == 'true' && steps.check.outputs.has_benchmarks == 'true'
         uses: benchmark-action/github-action-benchmark@v1
         with:
           tool: "cargo"
