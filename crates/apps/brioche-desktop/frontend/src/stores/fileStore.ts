@@ -1,8 +1,11 @@
 import { create } from 'zustand';
-import { readDirectory, createFile, deleteFile, writeFile, createDirectory } from '../ipc';
+import { readDirectory, createFile, deleteFile, writeFile, createDirectory, renamePath, copyPath } from '../ipc';
 import type { DirEntry } from '../ipc';
 import { useSettingsStore, getWorkingDir } from './settingsStore';
 
+/// State and actions for the file explorer panel.
+///
+/// Refs: I-Ui-FileStore
 interface FileStore {
     currentPath: string;
     entries: DirEntry[];
@@ -14,23 +17,30 @@ interface FileStore {
     createNewFolder: (path: string) => Promise<void>;
     deleteExistingFile: (path: string) => Promise<void>;
     writeExistingFile: (path: string, content: string) => Promise<void>;
+    renamePath: (source: string, destination: string) => Promise<void>;
+    copyPath: (source: string, destination: string) => Promise<void>;
 }
 
+/// Zustand store that owns the current directory path and its entries.
+///
+/// Refs: I-Ui-FileStore
 export const useFileStore = create<FileStore>((set, get) => ({
     currentPath: '',
     entries: [],
     isLoading: false,
-    loadDirectory: async (path) => {
+
+    loadDirectory: async (path: string) => {
         if (!path) return;
         try {
             set({ isLoading: true });
             const entries = await readDirectory(path);
             set({ currentPath: path, entries, isLoading: false });
-        } catch (err) {
+        } catch (err: unknown) {
             console.error('Failed to load directory:', err);
             set({ isLoading: false });
         }
     },
+
     navigateUp: async () => {
         const { currentPath } = get();
         if (!currentPath) return;
@@ -39,41 +49,66 @@ export const useFileStore = create<FileStore>((set, get) => ({
         const parent = currentPath.split('/').slice(0, -1).join('/') || '/';
         await get().loadDirectory(parent);
     },
-    navigateTo: async (path) => {
+
+    navigateTo: async (path: string) => {
         await get().loadDirectory(path);
     },
-    createNewFile: async (path) => {
+
+    createNewFile: async (path: string) => {
         try {
             await createFile(path);
             await get().loadDirectory(get().currentPath);
-        } catch (err) {
+        } catch (err: unknown) {
             console.error('Failed to create file:', err);
             throw err;
         }
     },
-    createNewFolder: async (path) => {
+
+    createNewFolder: async (path: string) => {
         try {
             await createDirectory(path);
             await get().loadDirectory(get().currentPath);
-        } catch (err) {
+        } catch (err: unknown) {
             console.error('Failed to create folder:', err);
             throw err;
         }
     },
-    deleteExistingFile: async (path) => {
+
+    deleteExistingFile: async (path: string) => {
         try {
             await deleteFile(path);
             await get().loadDirectory(get().currentPath);
-        } catch (err) {
+        } catch (err: unknown) {
             console.error('Failed to delete file:', err);
             throw err;
         }
     },
-    writeExistingFile: async (path, content) => {
+
+    writeExistingFile: async (path: string, content: string) => {
         try {
             await writeFile(path, content);
-        } catch (err) {
+        } catch (err: unknown) {
             console.error('Failed to write file:', err);
+            throw err;
+        }
+    },
+
+    renamePath: async (source: string, destination: string) => {
+        try {
+            await renamePath(source, destination);
+            await get().loadDirectory(get().currentPath);
+        } catch (err: unknown) {
+            console.error('Failed to rename path:', err);
+            throw err;
+        }
+    },
+
+    copyPath: async (source: string, destination: string) => {
+        try {
+            await copyPath(source, destination);
+            await get().loadDirectory(get().currentPath);
+        } catch (err: unknown) {
+            console.error('Failed to copy path:', err);
             throw err;
         }
     },
