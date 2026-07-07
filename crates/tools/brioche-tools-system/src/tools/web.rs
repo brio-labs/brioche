@@ -2,6 +2,8 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
+use brioche_shell_runtime::{ToolSchemaProperty, ToolSchemaPropertyType, tool_parameters_schema};
+
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::time::Duration;
@@ -49,24 +51,12 @@ impl SystemTool for FetchUrlTool {
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
-        let mut props = serde_json::Map::new();
-
-        let mut url = serde_json::Map::new();
-        url.insert("type".into(), serde_json::Value::String("string".into()));
-        url.insert(
-            "description".into(),
-            serde_json::Value::String("URL to fetch".into()),
-        );
-        props.insert("url".into(), serde_json::Value::Object(url));
-
-        let mut schema = serde_json::Map::new();
-        schema.insert("type".into(), serde_json::Value::String("object".into()));
-        schema.insert("properties".into(), serde_json::Value::Object(props));
-        schema.insert(
-            "required".into(),
-            serde_json::Value::Array(vec![serde_json::Value::String("url".into())]),
-        );
-        serde_json::Value::Object(schema)
+        tool_parameters_schema(&[ToolSchemaProperty::new(
+            "url",
+            ToolSchemaPropertyType::String,
+            "URL to fetch",
+            true,
+        )])
     }
 
     async fn run(
@@ -285,6 +275,19 @@ mod tests {
             Ok(_) => ToolError::InvalidArgs(format!("expected error: {context}")),
             Err(err) => err,
         }
+    }
+
+    #[test]
+    fn fetch_url_schema_preserves_owned_shape() {
+        let tool = FetchUrlTool;
+        let schema = tool.parameters_schema();
+        assert_eq!(schema["type"], "object");
+        assert_eq!(schema["properties"]["url"]["type"], "string");
+        assert_eq!(schema["properties"]["url"]["description"], "URL to fetch");
+        assert_eq!(
+            schema["required"],
+            serde_json::Value::Array(vec![serde_json::Value::String("url".into())])
+        );
     }
 
     #[test]

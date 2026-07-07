@@ -2,6 +2,8 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
+use brioche_shell_runtime::{ToolSchemaProperty, ToolSchemaPropertyType, tool_parameters_schema};
+
 use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
@@ -86,32 +88,20 @@ impl SystemTool for ExecuteCommandTool {
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
-        let mut props = serde_json::Map::new();
-
-        let mut command = serde_json::Map::new();
-        command.insert("type".into(), serde_json::Value::String("string".into()));
-        command.insert(
-            "description".into(),
-            serde_json::Value::String("The command to execute".into()),
-        );
-        props.insert("command".into(), serde_json::Value::Object(command));
-
-        let mut cwd = serde_json::Map::new();
-        cwd.insert("type".into(), serde_json::Value::String("string".into()));
-        cwd.insert(
-            "description".into(),
-            serde_json::Value::String("Working directory (optional)".into()),
-        );
-        props.insert("cwd".into(), serde_json::Value::Object(cwd));
-
-        let mut schema = serde_json::Map::new();
-        schema.insert("type".into(), serde_json::Value::String("object".into()));
-        schema.insert("properties".into(), serde_json::Value::Object(props));
-        schema.insert(
-            "required".into(),
-            serde_json::Value::Array(vec![serde_json::Value::String("command".into())]),
-        );
-        serde_json::Value::Object(schema)
+        tool_parameters_schema(&[
+            ToolSchemaProperty::new(
+                "command",
+                ToolSchemaPropertyType::String,
+                "The command to execute",
+                true,
+            ),
+            ToolSchemaProperty::new(
+                "cwd",
+                ToolSchemaPropertyType::String,
+                "Working directory (optional)",
+                false,
+            ),
+        ])
     }
 
     async fn run(
@@ -322,4 +312,22 @@ fn split_command(command: &str) -> Result<Vec<String>, ToolError> {
     }
 
     Ok(argv)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn execute_command_schema_preserves_owned_shape() {
+        let tool = ExecuteCommandTool::default();
+        let schema = tool.parameters_schema();
+        assert_eq!(schema["type"], "object");
+        assert_eq!(schema["properties"]["command"]["type"], "string");
+        assert_eq!(schema["properties"]["cwd"]["type"], "string");
+        assert_eq!(
+            schema["required"],
+            serde_json::Value::Array(vec![serde_json::Value::String("command".into())])
+        );
+    }
 }

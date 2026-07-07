@@ -83,7 +83,7 @@ fn build_request_body_includes_tools_when_provided() {
     tool.insert("type".into(), serde_json::Value::String("function".into()));
     tool.insert("function".into(), serde_json::Value::Object(tool_func));
     let tools = vec![serde_json::Value::Object(tool)];
-    let body = build_request_body("gpt-4o", messages, 4096, None, Some(&tools), true);
+    let body = build_request_body("gpt-4o", messages, 4096, None, Some(tools), true);
     assert!(body.get("tools").is_some());
     assert_eq!(body["tool_choice"], "auto");
 }
