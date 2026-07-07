@@ -1,52 +1,10 @@
 import { motion } from "framer-motion";
-import {
-  Sparkles,
-  FileText,
-  FileSpreadsheet,
-  FileArchive,
-  FileAudio,
-  FileVideo,
-  FileCode,
-  File,
-} from "lucide-react";
+import { Sparkles } from "lucide-react";
+import FileTypeIcon from "./FileTypeIcon";
 import MarkdownRenderer from "../MarkdownRenderer";
 import ToolCallMessage from "../ToolCallMessage";
 import type { ChatMessage } from "../../store";
 
-function getFileIcon(ext: string) {
-  switch (ext) {
-    case "pdf":
-      return <FileText className="h-7 w-7 text-red-400 shrink-0" />;
-    case "xlsx":
-    case "xls":
-    case "csv":
-      return <FileSpreadsheet className="h-7 w-7 text-emerald-400 shrink-0" />;
-    case "zip":
-    case "tar":
-    case "gz":
-    case "rar":
-      return <FileArchive className="h-7 w-7 text-amber-400 shrink-0" />;
-    case "mp3":
-    case "wav":
-    case "ogg":
-      return <FileAudio className="h-7 w-7 text-sky-400 shrink-0" />;
-    case "mp4":
-    case "mkv":
-    case "avi":
-    case "mov":
-      return <FileVideo className="h-7 w-7 text-indigo-400 shrink-0" />;
-    case "js":
-    case "ts":
-    case "tsx":
-    case "jsx":
-    case "html":
-    case "css":
-    case "json":
-      return <FileCode className="h-7 w-7 text-violet-400 shrink-0" />;
-    default:
-      return <File className="h-7 w-7 text-fg-muted shrink-0" />;
-  }
-}
 
 function AttachmentCard({ content }: { content: string }) {
   const filePath = content.substring("Attached: ".length).trim();
@@ -54,7 +12,7 @@ function AttachmentCard({ content }: { content: string }) {
   const ext = fileName.split(".").pop()?.toLowerCase() || "";
   return (
     <div className="flex items-center gap-3 rounded-md border border-border bg-fg-primary/5 px-3 py-2.5 mt-1 max-w-xs">
-      {getFileIcon(ext)}
+      <FileTypeIcon extension={ext} className="h-7 w-7 shrink-0" />
       <div className="flex flex-col min-w-0">
         <span
           className="truncate text-[12px] font-semibold text-fg-primary"

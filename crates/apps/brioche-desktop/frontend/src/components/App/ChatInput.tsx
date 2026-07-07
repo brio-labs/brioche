@@ -1,19 +1,8 @@
 import { useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Tooltip from "../Tooltip";
-import {
-  Paperclip,
-  Send,
-  Square,
-  FileText,
-  FileSpreadsheet,
-  FileArchive,
-  FileAudio,
-  FileVideo,
-  FileCode,
-  File,
-  X,
-} from "lucide-react";
+import { Paperclip, Send, Square, X } from "lucide-react";
+import FileTypeIcon from "./FileTypeIcon";
 import type { Attachment } from "../../hooks/app/useChatActions";
 
 interface ChatInputProps {
@@ -28,46 +17,6 @@ interface ChatInputProps {
   removeAttachment: (id: string) => void;
 }
 
-function getFileIcon(extension: string) {
-  switch (extension) {
-    case "pdf":
-      return <FileText className="h-4 w-4 text-red-400 shrink-0" />;
-    case "xlsx":
-    case "xls":
-    case "csv":
-    case "ods":
-      return <FileSpreadsheet className="h-4 w-4 text-emerald-400 shrink-0" />;
-    case "zip":
-    case "tar":
-    case "gz":
-    case "rar":
-    case "7z":
-      return <FileArchive className="h-4 w-4 text-amber-400 shrink-0" />;
-    case "mp3":
-    case "wav":
-    case "ogg":
-    case "aac":
-      return <FileAudio className="h-4 w-4 text-sky-400 shrink-0" />;
-    case "mp4":
-    case "mkv":
-    case "avi":
-    case "mov":
-      return <FileVideo className="h-4 w-4 text-indigo-400 shrink-0" />;
-    case "js":
-    case "ts":
-    case "tsx":
-    case "jsx":
-    case "html":
-    case "css":
-    case "py":
-    case "rs":
-    case "go":
-    case "json":
-      return <FileCode className="h-4 w-4 text-violet-400 shrink-0" />;
-    default:
-      return <File className="h-4 w-4 text-fg-muted shrink-0" />;
-  }
-}
 
 export default function ChatInput({
   input,
@@ -122,9 +71,10 @@ export default function ChatInput({
                       />
                     ) : (
                       <div className="flex flex-col items-center justify-center h-full w-full p-1">
-                        {getFileIcon(
-                          att.name.split(".").pop()?.toLowerCase() || "",
-                        )}
+                        <FileTypeIcon
+                          extension={att.name.split(".").pop()?.toLowerCase() || ""}
+                          className="h-4 w-4 shrink-0"
+                        />
                         <span className="text-[7px] font-bold text-accent mt-0.5 tracking-wider font-mono uppercase">
                           {att.name.split(".").pop() || "file"}
                         </span>
