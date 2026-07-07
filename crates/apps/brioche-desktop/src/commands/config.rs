@@ -79,7 +79,7 @@ pub async fn set_settings(
         if let Some(manager) = mgr.as_mut() {
             // Get all messages from the old shell/client
             let mut old_messages = Vec::new();
-            if let Some(entry) = manager.sessions.get(&current_id) {
+            if let Some(entry) = manager.get(&current_id) {
                 old_messages = entry.history.read().await.clone();
             }
 

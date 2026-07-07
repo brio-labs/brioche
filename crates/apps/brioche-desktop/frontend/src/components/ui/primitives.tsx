@@ -146,3 +146,166 @@ export const Separator = React.forwardRef<
 	),
 );
 Separator.displayName = SeparatorPrimitive.Root.displayName;
+
+export interface SidePanelProps extends React.HTMLAttributes<HTMLDivElement> {
+	open: boolean;
+	side: "left" | "right";
+}
+
+export function SidePanel({
+	open,
+	side,
+	className,
+	children,
+	...props
+}: SidePanelProps) {
+	return (
+		<div
+			className={cn(
+				"flex flex-col bg-bg-1/85 backdrop-blur-md overflow-hidden transition-all duration-300 ease-out z-[1] max-[900px]:absolute max-[900px]:top-0 max-[900px]:bottom-0 max-[900px]:z-10",
+				side === "left" && "border-r border-border max-[900px]:left-0",
+				side === "right" && "border-l border-border max-[900px]:right-0",
+				open
+					? "w-[280px] min-w-[280px] opacity-100"
+					: "w-0 min-w-0 opacity-0 pointer-events-none",
+				!open && side === "left" && "border-r-0",
+				!open && side === "right" && "border-l-0",
+				className,
+			)}
+			{...props}
+		>
+			{children}
+		</div>
+	);
+}
+
+export interface ToolbarButtonProps extends ButtonProps {
+	active?: boolean;
+}
+
+export function ToolbarButton({
+	active = false,
+	className,
+	children,
+	...props
+}: ToolbarButtonProps) {
+	return (
+		<Button
+			variant="ghost"
+			className={cn(
+				"flex items-center gap-2 px-3 py-2 bg-transparent text-text-muted hover:text-text-secondary rounded text-[11px] font-medium tracking-wider transition-all duration-200",
+				active && "bg-bg-3 text-text-secondary",
+				className,
+			)}
+			{...props}
+		>
+			{children}
+		</Button>
+	);
+}
+
+export function IconToolbarButton({
+	className,
+	children,
+	...props
+}: ButtonProps) {
+	return (
+		<Button
+			variant="ghost"
+			size="icon"
+			className={cn(
+				"rounded bg-transparent text-text-muted hover:text-text-secondary hover:bg-bg-3 active:bg-bg-4 transition-all duration-200",
+				className,
+			)}
+			{...props}
+		>
+			{children}
+		</Button>
+	);
+}
+
+export function FormFieldStack({
+	className,
+	children,
+	...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+	return (
+		<div
+			className={cn(
+				"flex flex-col gap-2.5 p-3.5 bg-bg-2/30 border border-border rounded-lg",
+				"[&_input]:bg-bg-2 [&_input]:border [&_input]:border-border [&_input]:text-text-primary [&_input]:text-xs [&_input]:px-2.5 [&_input]:py-1.5 [&_input]:rounded [&_input]:outline-none [&_input]:focus:border-accent-dim/60",
+				"[&_textarea]:bg-bg-2 [&_textarea]:border [&_textarea]:border-border [&_textarea]:text-text-primary [&_textarea]:text-xs [&_textarea]:px-2.5 [&_textarea]:py-1.5 [&_textarea]:rounded [&_textarea]:outline-none [&_textarea]:focus:border-accent-dim/60",
+				"[&_select]:bg-bg-2 [&_select]:border [&_select]:border-border [&_select]:text-text-primary [&_select]:text-xs [&_select]:px-2.5 [&_select]:py-1.5 [&_select]:rounded [&_select]:outline-none",
+				className,
+			)}
+			{...props}
+		>
+			{children}
+		</div>
+	);
+}
+
+export function ActionRow({
+	className,
+	children,
+	...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+	return (
+		<div
+			className={cn(
+				"flex justify-end gap-2 [&_button]:px-3 [&_button]:py-1.5 [&_button]:text-xs [&_button]:font-medium [&_button]:rounded [&_button]:cursor-pointer [&_button:first-child]:bg-accent [&_button:first-child]:hover:bg-accent-hover [&_button:first-child]:text-white [&_button:last-child]:bg-transparent [&_button:last-child]:border [&_button:last-child]:border-border [&_button:last-child]:text-text-secondary [&_button:last-child]:hover:bg-bg-2",
+				className,
+			)}
+			{...props}
+		>
+			{children}
+		</div>
+	);
+}
+
+export interface ContextMenuItemProps extends React.HTMLAttributes<HTMLDivElement> {
+	variant?: "default" | "danger";
+}
+
+export function ContextMenuItem({
+	variant = "default",
+	className,
+	children,
+	...props
+}: ContextMenuItemProps) {
+	return (
+		<div
+			className={cn(
+				"px-4 py-2 text-[13px] cursor-pointer flex items-center gap-[var(--space-2)] transition-colors duration-150",
+				variant === "default" &&
+					"text-[var(--text-primary)] hover:bg-[var(--accent-dim)] hover:text-white",
+				variant === "danger" &&
+					"text-[#ff5555] hover:bg-[var(--error-bg)] hover:text-[#ff8888]",
+				className,
+			)}
+			{...props}
+		>
+			{children}
+		</div>
+	);
+}
+
+export function ProtectedSettingsCard({
+	protected: isProtected,
+	className,
+	children,
+	...props
+}: React.HTMLAttributes<HTMLDivElement> & { protected?: boolean }) {
+	return (
+		<div
+			className={cn(
+				"flex flex-col gap-2",
+				isProtected && "p-3.5 bg-bg-2/20 border border-border/50 rounded-lg",
+				className,
+			)}
+			{...props}
+		>
+			{children}
+		</div>
+	);
+}

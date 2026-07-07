@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useMemoryStore } from "../stores/panelStores";
 import PanelOverlay, { SearchBar, CategoryFilter } from "./PanelOverlay";
+import { ActionRow, FormFieldStack } from "./ui";
 
 interface MemoryPanelProps {
 	onClose: () => void;
@@ -121,7 +122,7 @@ export default function MemoryPanel({ onClose }: MemoryPanelProps) {
 
 				<div className="shrink-0 pt-2 border-t border-border/30">
 					{isAdding ? (
-						<div className="flex flex-col gap-2.5 p-3.5 bg-bg-2/30 border border-border rounded-lg [&_input]:bg-bg-2 [&_input]:border [&_input]:border-border [&_input]:text-text-primary [&_input]:text-xs [&_input]:px-2.5 [&_input]:py-1.5 [&_input]:rounded [&_input]:outline-none [&_input]:focus:border-accent-dim/60 [&_textarea]:bg-bg-2 [&_textarea]:border [&_textarea]:border-border [&_textarea]:text-text-primary [&_textarea]:text-xs [&_textarea]:px-2.5 [&_textarea]:py-1.5 [&_textarea]:rounded [&_textarea]:outline-none [&_textarea]:focus:border-accent-dim/60 [&_textarea]:resize-none [&_select]:bg-bg-2 [&_select]:border [&_select]:border-border [&_select]:text-text-primary [&_select]:text-xs [&_select]:px-2.5 [&_select]:py-1.5 [&_select]:rounded [&_select]:outline-none [&_select]:focus:border-accent-dim/60 [&_select]:appearance-none [&_select]:cursor-pointer">
+						<FormFieldStack>
 							<input
 								type="text"
 								placeholder="Key (e.g., user_name)"
@@ -144,11 +145,11 @@ export default function MemoryPanel({ onClose }: MemoryPanelProps) {
 									</option>
 								))}
 							</select>
-							<div className="flex justify-end gap-2 [&_button]:px-3 [&_button]:py-1.5 [&_button]:text-xs [&_button]:font-medium [&_button]:rounded [&_button]:cursor-pointer [&_button:first-child]:bg-accent [&_button:first-child]:hover:bg-accent-hover [&_button:first-child]:text-white [&_button:last-child]:bg-transparent [&_button:last-child]:border [&_button:last-child]:border-border [&_button:last-child]:text-text-secondary [&_button:last-child]:hover:bg-bg-2">
+							<ActionRow>
 								<button onClick={handleAdd}>Save</button>
 								<button onClick={() => setIsAdding(false)}>Cancel</button>
-							</div>
-						</div>
+							</ActionRow>
+						</FormFieldStack>
 					) : (
 						<button className="w-full py-2 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded cursor-pointer transition-colors flex items-center justify-center gap-1 shadow-sm shadow-accent-glow/10" onClick={() => setIsAdding(true)}>
 							+ Add Memory

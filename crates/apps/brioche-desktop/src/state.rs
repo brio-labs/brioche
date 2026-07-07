@@ -106,8 +106,8 @@ fn desktop_storage_path() -> Result<PathBuf, String> {
 /// Refs: I-Shell-Runtime-OnlyIO
 pub struct SessionManager {
     current: String,
-    /// All sessions keyed by ID.
-    pub sessions: BTreeMap<String, SessionEntry>,
+    /// All sessions keyed by ID. Mutated through lifecycle methods only.
+    sessions: BTreeMap<String, SessionEntry>,
     /// Persistent metadata for all known sessions.
     metadata: BTreeMap<String, SessionMetadata>,
 }
@@ -264,6 +264,38 @@ impl SessionManager {
     /// Never panics.
     pub fn get(&self, id: &str) -> Option<&SessionEntry> {
         self.sessions.get(id)
+    }
+
+    /// Deletes a non-current session and its metadata as one lifecycle operation.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(log S) where S is the number of active sessions. Performs blocking disk write.
+    ///
+    /// # Panic / Safety
+    /// Never panics. Returns Err for active, missing, or non-persistable metadata deletion.
+    pub fn delete_non_current(&mut self, id: &str) -> Result<(), String> {
+        if self.current == id {
+            return Err("Cannot delete the active session".into());
+        }
+
+        let removed_session = match self.sessions.remove(id) {
+            Some(entry) => entry,
+            None => return Err(format!("Session '{id}' not found")),
+        };
+        let removed_metadata = self.metadata.remove(id);
+
+        match Self::save_metadata(&self.metadata) {
+            Ok(()) => Ok(()),
+            Err(err) => {
+                self.sessions.insert(id.to_string(), removed_session);
+                if let Some(metadata) = removed_metadata {
+                    self.metadata.insert(id.to_string(), metadata);
+                }
+                Err(err)
+            }
+        }
     }
 
     /// Takes the LLM chunk receiver from the current session.

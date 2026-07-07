@@ -4,6 +4,7 @@ import { useSettingsStore, getWorkingDir } from '../stores/settingsStore';
 import { readFile } from '../ipc';
 import { open } from '@tauri-apps/plugin-dialog';
 import { FolderIcon, FileIcon, ChevronUpIcon, RefreshIcon, TrashIcon, SaveIcon } from './Icons';
+import { ContextMenuItem } from './ui';
 
 export default function FileExplorer() {
     const { 
@@ -341,25 +342,23 @@ export default function FileExplorer() {
                     }}
                     onClick={(e) => e.stopPropagation()}
                 >
-                    <div 
-                        className="px-4 py-2 text-[13px] text-[var(--text-primary)] cursor-pointer flex items-center gap-[var(--space-2)] transition-colors duration-150 hover:bg-[var(--accent-dim)] hover:text-white" 
+                    <ContextMenuItem
                         onClick={() => startCreation('file', contextMenu.targetPath, contextMenu.isDir)}
                     >
                         New File
-                    </div>
-                    <div 
-                        className="px-4 py-2 text-[13px] text-[var(--text-primary)] cursor-pointer flex items-center gap-[var(--space-2)] transition-colors duration-150 hover:bg-[var(--accent-dim)] hover:text-white" 
+                    </ContextMenuItem>
+                    <ContextMenuItem
                         onClick={() => startCreation('folder', contextMenu.targetPath, contextMenu.isDir)}
                     >
                         New Folder
-                    </div>
+                    </ContextMenuItem>
                     {contextMenu.targetPath && (
-                        <div 
-                            className="px-4 py-2 text-[13px] cursor-pointer flex items-center gap-[var(--space-2)] transition-colors duration-150 text-[#ff5555] hover:bg-[var(--error-bg)] hover:text-[#ff8888]" 
+                        <ContextMenuItem
+                            variant="danger"
                             onClick={() => handleDeleteFromMenu(contextMenu.targetPath!)}
                         >
                             Delete
-                        </div>
+                        </ContextMenuItem>
                     )}
                 </div>
             )}

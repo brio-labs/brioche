@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useSkillsStore } from "../stores/panelStores";
 import PanelOverlay, { SearchBar, CategoryFilter } from "./PanelOverlay";
+import { ActionRow, FormFieldStack } from "./ui";
 import {
 	BookIcon,
 	TagIcon,
@@ -231,7 +232,7 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 							</div>
 						</>
 					) : showCreate ? (
-						<div className="flex flex-col gap-3 p-2 max-w-xl [&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-text-primary [&_h3]:border-b [&_h3]:border-border [&_h3]:pb-2 [&_h3]:mb-1 [&_input]:bg-bg-2 [&_input]:border [&_input]:border-border [&_input]:text-text-primary [&_input]:text-xs [&_input]:px-2.5 [&_input]:py-1.5 [&_input]:rounded [&_input]:outline-none [&_input]:focus:border-accent-dim/60 [&_textarea]:bg-bg-2 [&_textarea]:border [&_textarea]:border-border [&_textarea]:text-text-primary [&_textarea]:text-xs [&_textarea]:px-2.5 [&_textarea]:py-1.5 [&_textarea]:rounded [&_textarea]:outline-none [&_textarea]:focus:border-accent-dim/60 [&_textarea]:font-mono">
+						<FormFieldStack className="gap-3 p-2 max-w-xl [&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-text-primary [&_h3]:border-b [&_h3]:border-border [&_h3]:pb-2 [&_h3]:mb-1 [&_textarea]:font-mono">
 							<h3>New skill</h3>
 							<input
 								type="text"
@@ -257,7 +258,7 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 								value={newContent}
 								onChange={(e) => setNewContent(e.target.value)}
 							/>
-							<div className="flex justify-end gap-2 [&_button]:px-3.5 [&_button]:py-1.5 [&_button]:text-xs [&_button]:font-medium [&_button]:rounded [&_button]:cursor-pointer [&_button:first-child]:bg-accent [&_button:first-child]:hover:bg-accent-hover [&_button:first-child]:text-white [&_button:last-child]:bg-transparent [&_button:last-child]:border [&_button:last-child]:border-border [&_button:last-child]:text-text-secondary [&_button:last-child]:hover:bg-bg-2">
+							<ActionRow className="[&_button]:px-3.5">
 								<button
 									type="button"
 									onClick={handleCreate}
@@ -270,8 +271,8 @@ export default function SkillsPanel({ onClose }: SkillsPanelProps) {
 								>
 									Cancel
 								</button>
-							</div>
-						</div>
+							</ActionRow>
+						</FormFieldStack>
 					) : (
 						<div className="flex flex-col items-center justify-center gap-3 py-24 text-center select-none text-text-muted">
 							<BookIcon className="w-12 h-12 text-text-dim stroke-[1.2]" />
