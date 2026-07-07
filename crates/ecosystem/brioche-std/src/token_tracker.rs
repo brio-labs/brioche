@@ -15,11 +15,36 @@ use brioche_core::{
 
 use crate::Priority;
 
+/// Token role key for deterministic telemetry.
+///
+/// The variants mirror the exhaustive `ChatMessage` roles observed by
+/// `TokenTracker`, avoiding string allocation for every message.
+///
+/// Refs: I-Eco-OrderedCollections
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenRole {
+    /// System prompt or instruction.
+    System,
+    /// User-authored message.
+    User,
+    /// Assistant-authored response.
+    Assistant,
+    /// Assistant tool invocation request.
+    ToolRequest,
+    /// Tool execution result.
+    ToolResult,
+    /// Future `ChatMessage` variant not known to this crate.
+    Unknown,
+}
+
 /// Token tracking state.
 ///
 /// ## Snapshot strategy
-/// COW: full clone (~32 bytes). Three scalar fields plus one `BTreeMap`
-/// (typically < 10 entries).
+/// COW: full clone (~32 bytes). Three scalar fields plus one
+/// `BTreeMap<TokenRole, u64>` (at most six entries).
 ///
 /// Refs: I-Eco-OrderedCollections
 #[derive(
@@ -33,7 +58,7 @@ pub struct TokenTrackerState {
     /// Number of prediction cycles observed.
     pub prediction_cycles: u64,
     /// Per-message-type token counts for telemetry.
-    pub tokens_by_role: BTreeMap<String, u64>,
+    pub tokens_by_role: BTreeMap<TokenRole, u64>,
     /// Output tokens estimated during the current cycle (buffered).
     pub buffered_output_tokens: u64,
 }
@@ -63,18 +88,20 @@ impl TokenTracker {
     }
 
     /// Estimate tokens for a `ChatMessage`.
-    fn estimate_message_tokens(msg: &ChatMessage) -> (u64, &'static str) {
+    fn estimate_message_tokens(msg: &ChatMessage) -> (u64, TokenRole) {
         match msg {
-            ChatMessage::System { content } => (Self::estimate_tokens(content), "system"),
-            ChatMessage::User { content } => (Self::estimate_tokens(content), "user"),
-            ChatMessage::Assistant { content, .. } => (Self::estimate_tokens(content), "assistant"),
+            ChatMessage::System { content } => (Self::estimate_tokens(content), TokenRole::System),
+            ChatMessage::User { content } => (Self::estimate_tokens(content), TokenRole::User),
+            ChatMessage::Assistant { content, .. } => {
+                (Self::estimate_tokens(content), TokenRole::Assistant)
+            }
             ChatMessage::ToolRequest { arguments, .. } => {
-                (Self::estimate_tokens(arguments), "tool_request")
+                (Self::estimate_tokens(arguments), TokenRole::ToolRequest)
             }
             ChatMessage::ToolResult { content, .. } => {
-                (Self::estimate_tokens(content), "tool_result")
+                (Self::estimate_tokens(content), TokenRole::ToolResult)
             }
-            _ => (0, "unknown"),
+            _ => (0, TokenRole::Unknown),
         }
     }
 }
@@ -102,7 +129,8 @@ impl BeforePrediction for TokenTracker {
     /// Computes input token estimates from history before prediction.
     ///
     /// # Complexity
-    /// O(h · log r) where h = history length, r = number of roles.
+    /// O(h · log r) where h = history length, r = tracked role count bounded
+    /// by `TokenRole` variants. Does not allocate per message for role keys.
     ///
     /// # Panics
     /// Never panics. No indexing; all access is via safe `BTreeMap` APIs.
@@ -120,7 +148,7 @@ impl BeforePrediction for TokenTracker {
 
         for msg in history {
             let (tokens, role) = Self::estimate_message_tokens(msg);
-            *state.tokens_by_role.entry(role.to_string()).or_insert(0) += tokens;
+            *state.tokens_by_role.entry(role).or_insert(0) += tokens;
 
             match msg {
                 ChatMessage::Assistant { .. } | ChatMessage::ToolRequest { .. } => {
