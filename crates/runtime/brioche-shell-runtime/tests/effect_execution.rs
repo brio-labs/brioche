@@ -14,11 +14,10 @@ use brioche_shell_runtime::{
     BriocheShell, DefaultEffectExecutor, EchoToolExecutor, MockLlmClient, NoopPersistence,
     Persistence, ShellConfig, ShellError, ToolExecutor,
 };
-use tokio::sync::{Notify, oneshot};
-
 use common::{
     build_minimal_engine, is_executing_tools, is_predicting, recorded_views, session_recorder,
 };
+use tokio::sync::{Notify, oneshot};
 
 struct SaveSessionOnInput;
 
