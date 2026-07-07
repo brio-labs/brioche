@@ -29,6 +29,10 @@ const DEFAULT_MAX_TOKENS: u32 = 4096;
 /// Refs: I-Shell-Runtime-OnlyIO
 const DEFAULT_TIMEOUT_MS: u64 = 120_000;
 
+fn allow_local_llm_endpoint() -> bool {
+    std::env::var("BRIOCHE_ALLOW_LOCAL_LLM").is_ok_and(|value| value == "1")
+}
+
 /// Assembles an [`OpenAiConfig`] from optional CLI values plus environment
 /// variable fallbacks.
 ///
@@ -38,6 +42,7 @@ const DEFAULT_TIMEOUT_MS: u64 = 120_000;
 /// - `BRIOCHE_BASE_URL` — endpoint (default: `https://api.openai.com/v1`)
 /// - `BRIOCHE_MAX_TOKENS` — max tokens (default: `4096`)
 /// - `BRIOCHE_REASONING_EFFORT` — optional reasoning effort
+/// - `BRIOCHE_ALLOW_LOCAL_LLM=1` — allow loopback/private provider endpoints
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
 ///
@@ -72,6 +77,7 @@ pub fn assemble_openai_config_from_env(
         base_url,
         max_tokens,
         timeout_ms: DEFAULT_TIMEOUT_MS,
+        allow_loopback: allow_local_llm_endpoint(),
         reasoning_effort,
     }
 }
@@ -117,6 +123,7 @@ pub fn assemble_openai_config_from_settings(settings: &Settings) -> OpenAiConfig
         base_url,
         max_tokens,
         timeout_ms: DEFAULT_TIMEOUT_MS,
+        allow_loopback: allow_local_llm_endpoint(),
         reasoning_effort,
     }
 }
