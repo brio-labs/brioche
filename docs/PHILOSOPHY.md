@@ -353,12 +353,12 @@ See `.github/workflows/ci.yml` for the `philosophy-check` job which enforces:
 - No `unwrap`/`expect`/`panic!` in `brioche-core`
 - Hot path functions document complexity/budget (via `scripts/philosophy-check.py`)
 
-### 5.3 Pull Request Bot Checklist
+### 5.3 Pull Request Template Checklist
 
-Auto-posted by a GitHub Action on every PR:
+Every PR must include the Philosophy checklist from `.github/PULL_REQUEST_TEMPLATE.md`:
 
 ```markdown
-## Brioche Philosophy Checklist (Bot)
+## Brioche Philosophy Checklist
 
 - [ ] No `HashMap`/`HashSet` in persisted state (unless explicitly exempted)
 - [ ] All `pub` items have doc comments with `Refs: I-...`
@@ -370,6 +370,8 @@ Auto-posted by a GitHub Action on every PR:
 - [ ] No one-file-per-type fragmentation: related plugins share a module
 - [ ] No trivial `*State` structs that only mirror plugin config
 - [ ] No redundant `O(1)` / `Never panics` docs on obvious accessors
+- [ ] No stale backup/generated artifacts in production source or workflow paths
+
 ```
 
 ### 5.4 Code Review Human Checklist
@@ -650,6 +652,13 @@ When an async provider or tool returns an error, map it to the appropriate crate
 3. **Bare `TODO` / `FIXME`** without attribution is a CI failure.
 4. **Stale TODOs** must be removed or converted to issues within one release cycle.
 
+### Artifact Hygiene
+5. Production source and workflow directories must not contain stale backup,
+   merge-reject, temporary, editor-swap, or generated scratch artifacts. Delete
+   stale artifacts, regenerate them from source, or move intentional samples to
+   an explicit fixture or generated-output directory. This includes suffixes
+   such as `.orig`, `.rej`, `.bak`, `.old`, `.tmp`, `.swp`, and `.swo`.
+
 ---
 
 ## 12. Cross-Crate Error Taxonomy
@@ -693,6 +702,7 @@ Additional rules from §9 through §12 are summarized below alongside the core c
 | **Document data layout.** Memory footprint and snapshot strategy. | Code review + `scripts/philosophy-check.py` |
 | **English-only prose in doc comments.** | Code review + `scripts/philosophy-check.py` |
 | **No bare `TODO`/`FIXME`; none at all in kernel crates.** | Code review + `scripts/philosophy-check.py` |
+| **No stale source/workflow artifacts.** Delete or move backup/generated scratch files. | `scripts/philosophy-check.py` |
 | **`pub async fn` documents cancel safety.** | Code review |
 | **Library code returns errors; apps handle exit.** | Code review |
 | **Tests exist for every crate.** | Code review + CI gate |

@@ -387,7 +387,64 @@ def check_extension_type_docs() -> CheckResult:
 
 
 # ---------------------------------------------------------------------------
-# 4. Determinism guards — forbidden patterns in Core & Governance
+# 4. Artifact hygiene — no stale source/workflow backup files
+# ---------------------------------------------------------------------------
+
+ARTIFACT_SCAN_DIRS = [
+    "crates",
+    "scripts",
+    ".github/workflows",
+    ".github/actions",
+]
+
+APPROVED_ARTIFACT_DIR_PARTS = {
+    "fixture",
+    "fixtures",
+    "generated",
+    "generated-output",
+    "snapshots",
+}
+
+STALE_ARTIFACT_SUFFIXES = (
+    ".orig",
+    ".rej",
+    ".bak",
+    ".old",
+    ".tmp",
+    ".swp",
+    ".swo",
+)
+
+
+def _is_approved_artifact_path(path: Path) -> bool:
+    return any(part in APPROVED_ARTIFACT_DIR_PARTS for part in path.parts)
+
+
+def check_stale_artifacts() -> CheckResult:
+    result = CheckResult("Stale backup/generated artifacts")
+
+    for rel in ARTIFACT_SCAN_DIRS:
+        root = PROJECT_ROOT / rel
+        if not root.exists():
+            continue
+
+        for path in root.rglob("*"):
+            if path.is_dir() or _is_approved_artifact_path(path):
+                continue
+            if path.name.endswith(STALE_ARTIFACT_SUFFIXES):
+                result.add(
+                    path,
+                    1,
+                    "stale backup/generated artifact in production path; delete it, "
+                    "regenerate it from source, or move intentional samples to an "
+                    "approved fixture/generated-output directory (PHILOSOPHY.md §11)",
+                )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 5. Determinism guards — forbidden patterns in Core & Governance
 # ---------------------------------------------------------------------------
 
 DETERMINISM_FORBIDDEN = [
@@ -1651,7 +1708,7 @@ CHECKS = [
     check_hotpath_docs,
     check_panic_safety_docs,
     check_invariant_refs,
-    check_extension_type_docs,
+    check_stale_artifacts,
     check_determinism,
     check_print_macros,
     check_panic_guards,
