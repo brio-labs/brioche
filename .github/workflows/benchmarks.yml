@@ -16,8 +16,6 @@ concurrency:
 
 permissions:
   contents: read
-  pull-requests: write
-  actions: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -60,31 +58,25 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # github-action-benchmark's cargo parser handles Criterion output only.
-          # Divan shards still run, but skip comparison until a parser is available.
           - name: core
             package: brioche-core
             bench: benchmarks
             changed: ${{ needs.changes.outputs.core }}
-            compare: "false"
             args: ""
           - name: governance-default
             package: brioche-governance-default
             bench: benchmarks
             changed: ${{ needs.changes.outputs.governance-default }}
-            compare: "false"
             args: ""
           - name: shell-persistence
             package: brioche-shell-persistence
             bench: benchmarks
             changed: ${{ needs.changes.outputs.shell-persistence }}
-            compare: "false"
             args: ""
           - name: shell-runtime
             package: brioche-shell-runtime
             bench: effect_loop
             changed: ${{ needs.changes.outputs.shell-runtime }}
-            compare: "true"
             args: "-- --sample-size 10 --measurement-time 1 --warm-up-time 1"
     name: bench (${{ matrix.name }})
     steps:
@@ -103,24 +95,3 @@ jobs:
       - name: Run ${{ matrix.name }} benchmarks
         if: matrix.changed == 'true'
         run: cargo bench --package ${{ matrix.package }} --bench ${{ matrix.bench }} --locked ${{ matrix.args }} | tee benchmark-results.txt
-      - name: Check for benchmark results
-        id: check
-        if: matrix.changed == 'true' && matrix.compare == 'true'
-        run: |
-          if grep -Eq "time:" benchmark-results.txt; then
-            echo "has_benchmarks=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_benchmarks=false" >> "$GITHUB_OUTPUT"
-            echo "No benchmark results found — skipping comparison."
-          fi
-      - name: Compare with main
-        if: matrix.changed == 'true' && matrix.compare == 'true' && steps.check.outputs.has_benchmarks == 'true'
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          tool: "cargo"
-          output-file-path: benchmark-results.txt
-          benchmark-data-dir-path: dev/bench/${{ matrix.name }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          alert-threshold: "150%"
-          comment-on-alert: true
-          fail-on-alert: true
