@@ -3,14 +3,8 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
   pull_request:
     branches: [main]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
   workflow_dispatch:
 
 concurrency:
@@ -44,6 +38,7 @@ jobs:
     outputs:
       rust: ${{ steps.filter.outputs.rust || 'true' }}
       frontend: ${{ steps.filter.outputs.frontend || 'true' }}
+      philosophy: ${{ steps.filter.outputs.philosophy || 'true' }}
     steps:
       - uses: actions/checkout@v7.0.0
       - uses: dorny/paths-filter@v4.0.1
@@ -59,7 +54,12 @@ jobs:
               - '.github/actions/**'
             frontend:
               - 'crates/apps/brioche-desktop/frontend/**'
-
+            philosophy:
+              - 'docs/PHILOSOPHY.md'
+              - 'scripts/philosophy-check.py'
+              - '.github/PULL_REQUEST_TEMPLATE.md'
+              - '.github/workflows/**'
+              - '.github/actions/**'
   # -------------------------------------------------------------------------
   # Gate 0 — Fast static checks (run in parallel)
   # -------------------------------------------------------------------------
@@ -224,7 +224,7 @@ jobs:
     permissions:
       contents: read
     needs: [changes]
-    if: needs.changes.outputs.rust == 'true'
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.philosophy == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
       - uses: dtolnay/rust-toolchain@stable
