@@ -5,7 +5,6 @@ mod common;
 use std::time::Duration;
 
 use brioche_core::{AgentState, ChatMessage, EngineInput, SystemSignal};
-
 use common::{build_shell, build_shell_with_recorder, is_idle, is_predicting, recorded_views};
 
 #[tokio::test]
