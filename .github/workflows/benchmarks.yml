@@ -67,21 +67,25 @@ jobs:
             bench: benchmarks
             changed: ${{ needs.changes.outputs.core }}
             compare: "false"
+            args: ""
           - name: governance-default
             package: brioche-governance-default
             bench: benchmarks
             changed: ${{ needs.changes.outputs.governance-default }}
             compare: "false"
+            args: ""
           - name: shell-persistence
             package: brioche-shell-persistence
             bench: benchmarks
             changed: ${{ needs.changes.outputs.shell-persistence }}
             compare: "false"
+            args: ""
           - name: shell-runtime
             package: brioche-shell-runtime
             bench: effect_loop
             changed: ${{ needs.changes.outputs.shell-runtime }}
             compare: "true"
+            args: "-- --sample-size 10 --measurement-time 1 --warm-up-time 1"
     name: bench (${{ matrix.name }})
     steps:
       - name: Skip unchanged benchmark shard
@@ -98,7 +102,7 @@ jobs:
 
       - name: Run ${{ matrix.name }} benchmarks
         if: matrix.changed == 'true'
-        run: cargo bench --package ${{ matrix.package }} --bench ${{ matrix.bench }} --locked | tee benchmark-results.txt
+        run: cargo bench --package ${{ matrix.package }} --bench ${{ matrix.bench }} --locked ${{ matrix.args }} | tee benchmark-results.txt
       - name: Check for benchmark results
         id: check
         if: matrix.changed == 'true' && matrix.compare == 'true'
