@@ -139,6 +139,28 @@ Splitting code into more files does not make it cleaner. A module file should gr
 a file below ~60 lines of actual logic, it should probably be merged into a
 sibling module.
 
+#### Rule: Large Files Must Prove Cohesion
+A large file is allowed only when splitting it would hide an invariant, duplicate
+shared setup, or scatter an algorithm that must be reviewed as one unit. Size is
+a review risk, not an automatic design failure.
+
+- Production Rust modules have a **soft review threshold** at ~400 lines of logic
+  and an **automated exemption threshold** at 900 physical lines. Crossing the
+  soft threshold requires a clear cohesive concern; crossing the automated
+  threshold requires an explicit exemption with an architectural reason.
+- Tooling and workflow files have an automated threshold of 1,200 lines because
+  they often encode policy tables and diagnostics. Workflow YAML should still be
+  split into reusable actions when one job family can stand alone.
+- Generated output, golden corpora, snapshots, and protocol fixtures are exempt
+  only when stored under an explicit fixture/generated/snapshot path.
+- Exemption reasons must name the invariant or review property preserved by
+  keeping the file together. “Large file” or “legacy” is not a reason.
+
+When a file exceeds the automated threshold, reviewers must either split it by
+cohesive concern or keep a narrow exemption that explains why reviewability is
+better served by one file.
+
+
 ### 3.4 Control Flow
 
 #### Forbidden Patterns
@@ -604,6 +626,27 @@ Untested code is unreviewable code. Every crate category carries a minimum test 
 
 A crate with zero tests is not ready for `main`.
 
+### 9.1 Test Fixture and Suite Bloat
+
+Tests are production evidence. Large test files are acceptable only when their
+shape makes failures easier to audit than a split would.
+
+- Integration tests should be grouped by observable contract or invariant
+  domain, not by sprint chronology or a single API entrypoint.
+- Test files have an automated exemption threshold of 900 physical lines.
+- Legitimate exemptions are limited to shared fixture factories, golden snapshots,
+  protocol conformance corpora, and table-driven state-machine suites where
+  locality preserves the review trail.
+- Oversized tests must carry or reference a split rationale that names the
+  contract they keep visible. Generated fixtures and golden corpora must live in
+  explicit fixture/generated/snapshot paths.
+- Proptest case-count controls stay adjacent to the property suite they tune.
+
+The checker may skip production cohesion rules for tests, but it must replace
+that skip with a test-fixture bloat rule that reports oversized suites with
+actionable split guidance.
+
+
 ---
 
 ## 10. Async & Shell Code Standards
@@ -708,8 +751,9 @@ Additional rules from §9 through §12 are summarized below alongside the core c
 | **Tests exist for every crate.** | Code review + CI gate |
 | **Provider/tool errors map at shell boundary.** | Code review |
 | **`println!`/`eprintln!` only in app crates.** | Code review + `scripts/philosophy-check.py` |
-| **Module cohesion over file count.** Related types share a file. | Code review + `scripts/philosophy-check.py` |
+| **Module cohesion over file count.** Related types share a file; oversized files need architectural exemptions. | Code review + `scripts/philosophy-check.py` |
 | **State structs earn their keep.** No config-mirror state types. | Code review |
 | **Documentation density.** No ceremony on trivial items. | Code review |
+| **Test fixtures stay reviewable.** Large suites are grouped by invariant and exempted only with split rationale. | Code review + `scripts/philosophy-check.py` |
 
 This philosophy is not a suggestion. It is the **immune system** of the codebase. Violate it, and the architecture rots. Enforce it, and the compiler becomes your strictest, most reliable collaborator.

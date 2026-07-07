@@ -25,6 +25,14 @@ class Violation:
     message: str
 
 
+
+@dataclass(frozen=True)
+class LargeFileLimit:
+    category: str
+    max_lines: int
+    max_logic_lines: int | None
+    guidance: str
+
 class CheckResult:
     def __init__(self, name: str):
         self.name = name
@@ -916,6 +924,29 @@ COHESION_CRATES = [
 COHESION_MIN_LOGIC_LINES = 60
 
 
+def _count_reviewable_logic_lines(lines: list[str]) -> int:
+    logic_lines = 0
+    for line in lines:
+        stripped = line.strip()
+        # Skip blanks, comments, doc comments, attributes, imports,
+        # re-exports, and module declarations.
+        if not stripped:
+            continue
+        if stripped.startswith(("//", "///", "//!", "#![")):
+            continue
+        if stripped.startswith("use "):
+            continue
+        if stripped.startswith("pub use "):
+            continue
+        if stripped.startswith("pub mod "):
+            continue
+        if stripped.startswith("mod "):
+            continue
+        logic_lines += 1
+    return logic_lines
+
+
+
 def check_module_cohesion() -> CheckResult:
     result = CheckResult("Module cohesion (file size)")
 
@@ -934,25 +965,8 @@ def check_module_cohesion() -> CheckResult:
             if name.startswith(("fail_", "pass_")):
                 continue
 
-            lines = path.read_text().split("\n")
-            logic_lines = 0
-            for line in lines:
-                stripped = line.strip()
-                # Skip blanks, comments, doc comments, attributes, imports,
-                # re-exports, and module declarations.
-                if not stripped:
-                    continue
-                if stripped.startswith(("//", "///", "//!", "#![")):
-                    continue
-                if stripped.startswith("use "):
-                    continue
-                if stripped.startswith("pub use "):
-                    continue
-                if stripped.startswith("pub mod "):
-                    continue
-                if stripped.startswith("mod "):
-                    continue
-                logic_lines += 1
+            lines = path.read_text().splitlines()
+            logic_lines = _count_reviewable_logic_lines(lines)
 
             if logic_lines < COHESION_MIN_LOGIC_LINES:
                 result.add(
@@ -961,6 +975,195 @@ def check_module_cohesion() -> CheckResult:
                     f"only {logic_lines} lines of logic (<{COHESION_MIN_LOGIC_LINES}) — "
                     f"merge with a related sibling module (PHILOSOPHY.md §3.3)",
                 )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 9c. Large-file and test-fixture bloat — oversized files need exemptions
+#     PHILOSOPHY.md §3.3 and §9.1: big files are review risks unless a cohesive
+#     invariant, fixture corpus, or tooling contract is easier to audit together.
+# ---------------------------------------------------------------------------
+
+LARGE_FILE_SCAN_DIRS = [
+    "crates",
+    "scripts",
+    ".github/workflows",
+    ".github/actions",
+]
+
+LARGE_FILE_LIMITS = {
+    "production source": LargeFileLimit(
+        category="production source",
+        max_lines=900,
+        max_logic_lines=400,
+        guidance="split by cohesive module concern or add an architectural exemption",
+    ),
+    "test fixture": LargeFileLimit(
+        category="test fixture",
+        max_lines=900,
+        max_logic_lines=None,
+        guidance="split by invariant/contract suite or document the fixture purpose",
+    ),
+    "tooling/workflow": LargeFileLimit(
+        category="tooling/workflow",
+        max_lines=1200,
+        max_logic_lines=None,
+        guidance="split policy tables/jobs or document why one file preserves reviewability",
+    ),
+}
+
+LARGE_FILE_EXEMPTIONS = {
+    "crates/apps/brioche-desktop/src/commands/session.rs": (
+        "Keeps desktop session command routing in one audit surface until issue #280 "
+        "splits commands by command family."
+    ),
+    "crates/apps/brioche-desktop/src/commands/shell.rs": (
+        "Keeps desktop shell command validation and runtime bridge invariants together "
+        "so command effects are audited at one boundary."
+    ),
+    "crates/kernel/brioche-core/src/engine/dispatch.rs": (
+        "Keeps transition dispatch mechanics and effect emission invariants together "
+        "so the hot-path branch contract is audited in one file."
+    ),
+    "crates/kernel/brioche-core/tests/engine_transition.rs": (
+        "Keeps transition invariant regression coverage contiguous until issue #281 "
+        "extracts invariant-domain suites."
+    ),
+    "crates/kernel/brioche-macro/src/lib.rs": (
+        "Keeps derive parser, validation, and generated-token invariants together "
+        "until issue #283 separates derive and attribute macro modules."
+    ),
+    "crates/providers/brioche-provider-openai/src/client.rs": (
+        "Keeps OpenAI request, stream, and diagnostic error mapping together until "
+        "issue #279 splits the provider client by cohesive concern."
+    ),
+    "crates/runtime/brioche-shell-persistence/src/storage.rs": (
+        "Keeps Redb table layout and migration invariants together until issue #278 "
+        "splits persistence storage by concern."
+    ),
+    "crates/runtime/brioche-shell-persistence/src/settings.rs": (
+        "Keeps settings schema migration and persistence boundary invariants together "
+        "until issue #284 makes the settings schema single-source and typed."
+    ),
+    "crates/runtime/brioche-shell-persistence/src/extensions/settings_sections.rs": (
+        "Keeps settings section DTO and validation contracts together until issue #284 "
+        "makes the settings schema single-source and typed."
+    ),
+    "crates/runtime/brioche-shell-persistence/src/extensions/tool_provider.rs": (
+        "Keeps tool and provider schema persistence contracts together until issue #285 "
+        "centralizes schema construction."
+    ),
+    "crates/runtime/brioche-shell-persistence/tests/persistence_tests.rs": (
+        "Keeps persistence DTO, storage, hydration, and determinism contracts together "
+        "until issue #282 extracts contract suites."
+    ),
+    "crates/runtime/brioche-shell-runtime/src/effect_executor.rs": (
+        "Keeps effect execution boundary and shell error-mapping invariants together "
+        "while the executor remains one synchronous audit surface."
+    ),
+    "crates/runtime/brioche-shell-runtime/src/shell.rs": (
+        "Keeps shell dispatch, event bus, and recovery invariants together until issue "
+        "#286 narrows the public mutable API surface."
+    ),
+    "crates/runtime/brioche-shell-runtime/tests/shell_runtime.rs": (
+        "Keeps shell construction, dispatch, backpressure, and recovery contracts "
+        "together until issue #282 extracts contract suites."
+    ),
+    "crates/kernel/brioche-governance-default/src/rollback.rs": (
+        "Keeps rollback COW policy, telemetry, and recovery invariants together so "
+        "I-Gov-Rollback-BestEffort can be audited in one file."
+    ),
+    "crates/tools/brioche-tools-system/src/tools/filesystem.rs": (
+        "Keeps filesystem tool sandboxing and idempotency contracts together so path "
+        "validation and execution effects are reviewed as one boundary."
+    ),
+    "scripts/philosophy-check.py": (
+        "Keeps philosophy rule definitions and diagnostics together so checker updates "
+        "can be reviewed against the same enforcement contract."
+    ),
+}
+
+GENERIC_EXEMPTION_REASONS = {
+    "large file",
+    "legacy",
+    "too large",
+    "old file",
+}
+
+
+def _large_file_category(path: Path) -> str | None:
+    if path.suffix not in {".rs", ".py", ".yml", ".yaml"}:
+        return None
+    if _is_approved_artifact_path(path):
+        return None
+    if path.suffix in {".py", ".yml", ".yaml"}:
+        if "scripts" in path.parts or ".github" in path.parts:
+            return "tooling/workflow"
+        return None
+    if "tests" in path.parts or "benches" in path.parts or path.name.endswith("_test.rs"):
+        return "test fixture"
+    if path.name.startswith(("fail_", "pass_")):
+        return "test fixture"
+    return "production source"
+
+
+def _large_file_exemption_valid(reason: str | None) -> bool:
+    if reason is None:
+        return False
+    normalized = " ".join(reason.strip().lower().split())
+    if normalized in GENERIC_EXEMPTION_REASONS:
+        return False
+    return len(normalized) >= 40
+
+
+def check_large_files() -> CheckResult:
+    result = CheckResult("Large-file and test-fixture bloat")
+
+    for rel in LARGE_FILE_SCAN_DIRS:
+        root = PROJECT_ROOT / rel
+        if not root.exists():
+            continue
+
+        for path in root.rglob("*"):
+            if path.is_dir():
+                continue
+            category = _large_file_category(path)
+            if category is None:
+                continue
+
+            limit = LARGE_FILE_LIMITS[category]
+            lines = path.read_text().splitlines()
+            physical_lines = len(lines)
+            logic_lines = _count_reviewable_logic_lines(lines)
+            exceeds_physical = physical_lines > limit.max_lines
+            exceeds_logic = (
+                limit.max_logic_lines is not None and logic_lines > limit.max_logic_lines
+            )
+            if not exceeds_physical and not exceeds_logic:
+                continue
+
+            rel_path = path.relative_to(PROJECT_ROOT).as_posix()
+            exemption = LARGE_FILE_EXEMPTIONS.get(rel_path)
+            if _large_file_exemption_valid(exemption):
+                continue
+
+            if exemption is None:
+                exemption_message = "missing architectural exemption"
+            else:
+                exemption_message = "exemption reason is generic or too short"
+
+            limit_text = f"{limit.max_lines} physical lines"
+            if limit.max_logic_lines is not None:
+                limit_text = f"{limit_text} / {limit.max_logic_lines} logic lines"
+
+            result.add(
+                path,
+                1,
+                f"{category} has {physical_lines} physical lines and {logic_lines} logic "
+                f"lines (limit: {limit_text}); {exemption_message}; {limit.guidance} "
+                f"(PHILOSOPHY.md §3.3/§9.1)",
+            )
 
     return result
 
@@ -1718,6 +1921,7 @@ CHECKS = [
     check_stringly_typed_enums,
     check_invariant_format,
     check_module_cohesion,
+    check_large_files,
     check_trivial_state_structs,
     check_redundant_trivial_docs,
     check_module_docs,
