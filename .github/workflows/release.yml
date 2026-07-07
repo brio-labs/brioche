@@ -15,7 +15,7 @@ env:
 
 jobs:
   verify:
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.0
       - uses: dtolnay/rust-toolchain@stable
@@ -64,16 +64,16 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: blacksmith-2vcpu-ubuntu-2404
+          - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             profile: headless
-          - os: blacksmith-2vcpu-ubuntu-2404
+          - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             profile: full
-          - os: blacksmith-2vcpu-macos-15
+          - os: macos-15-intel
             target: x86_64-apple-darwin
             profile: desktop
-          - os: blacksmith-2vcpu-macos-15
+          - os: macos-15
             target: aarch64-apple-darwin
             profile: desktop
     steps:
@@ -113,7 +113,7 @@ jobs:
           retention-days: 7
 
   publish:
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     needs: [build]
     permissions:
       contents: write
