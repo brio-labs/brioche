@@ -83,6 +83,30 @@ export interface ExtensionMetadata {
 	enabled: boolean;
 }
 
+export type SettingsListFieldType =
+	| "text"
+	| "number"
+	| "select"
+	| "nullable_boolean";
+
+export type SettingsListRenderer = "record" | "memory_endpoints" | "string";
+
+export interface SettingsListField {
+	key: string;
+	field_type: SettingsListFieldType;
+	placeholder: string | null;
+	options: SettingsOption[];
+	nullable: boolean;
+	default_value: unknown;
+}
+
+export interface SettingsListSchema {
+	groups?: number[];
+	add_label?: string;
+	renderer?: SettingsListRenderer;
+	item_schema: SettingsListField[];
+}
+
 export interface SettingsOption {
 	value: string;
 	label: string;
@@ -105,11 +129,13 @@ export interface SettingsField {
 		| "protected_markdown";
 	description: string | null;
 	placeholder: string | null;
+	list_schema?: SettingsListSchema | null;
 	options: SettingsOption[];
 	default_value: unknown;
 	protected: boolean;
 	keywords: string[];
 }
+
 
 export interface SettingsSection {
 	id: string;

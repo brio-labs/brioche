@@ -41,6 +41,86 @@ pub enum FieldType {
     ProtectedMarkdown,
 }
 
+/// Supported field editor kinds for individual items in list schemas.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SettingsListFieldType {
+    /// Free text input.
+    Text,
+    /// Numeric input.
+    Number,
+    /// Single-select from options.
+    Select,
+    /// Three-state boolean with nullable unknown.
+    NullableBoolean,
+}
+
+/// Rendering styles for list editors.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum SettingsListRenderer {
+    /// Render as a table of object rows.
+    #[default]
+    Record,
+    /// Render each row as a simple string list.
+    String,
+    /// Render as specialized endpoint rows with generated IDs.
+    MemoryEndpoints,
+}
+
+/// A schema for each item inside a settings list field.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SettingsListField {
+    /// Field path key in each list item object.
+    pub key: String,
+    /// Type of editor for this list-item field.
+    pub field_type: SettingsListFieldType,
+    /// Placeholder text.
+    pub placeholder: Option<String>,
+    /// Options for select fields.
+    #[serde(default)]
+    pub options: Vec<SettingsOption>,
+    /// Whether the field accepts an explicit `null`.
+    #[serde(default)]
+    pub nullable: bool,
+    /// Optional default value for new rows.
+    pub default_value: Option<serde_json::Value>,
+}
+
+/// Metadata for list fields to avoid UI hard-coding per key.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SettingsListSchema {
+    /// Layout of rendered fields per row.
+    #[serde(default)]
+    pub groups: Option<Vec<usize>>,
+    /// Label for the add-row button.
+    pub add_label: Option<String>,
+    /// Renderer selection.
+    #[serde(default)]
+    pub renderer: SettingsListRenderer,
+    /// Field descriptors for each item.
+    #[serde(default)]
+    pub item_schema: Vec<SettingsListField>,
+}
+
+impl Default for SettingsListSchema {
+    fn default() -> Self {
+        Self {
+            groups: None,
+            add_label: None,
+            renderer: SettingsListRenderer::Record,
+            item_schema: Vec::new(),
+        }
+    }
+}
+
 /// A single settings field descriptor.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
@@ -61,6 +141,9 @@ pub struct SettingsField {
     pub options: Vec<SettingsOption>,
     /// Default value as JSON.
     pub default_value: Option<serde_json::Value>,
+    /// Optional list metadata when `field_type == List`.
+    #[serde(default)]
+    pub list_schema: Option<SettingsListSchema>,
     /// Whether the field requires confirmation before editing.
     #[serde(default)]
     pub protected: bool,
@@ -113,6 +196,70 @@ pub trait SettingsSectionProvider: Send + Sync {
     fn sections(&self) -> Vec<SettingsSection>;
 }
 
+fn ui_default_working_dir() -> String {
+    match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+        Ok(v) => v,
+        Err(_) => "/tmp".into(),
+    }
+}
+
+/// Built-in UI settings section.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+#[derive(Clone, Debug, Default)]
+pub struct UiSettingsSection;
+
+impl SettingsSectionProvider for UiSettingsSection {
+    fn metadata(&self) -> ExtensionMetadata {
+        ExtensionMetadata {
+            id: "settings-ui".into(),
+            name: "UI settings".into(),
+            version: "0.1.0".into(),
+            default_panel: None,
+            enabled: true,
+        }
+    }
+
+    fn sections(&self) -> Vec<SettingsSection> {
+        vec![SettingsSection {
+            id: "ui".into(),
+            module_id: "ui".into(),
+            title: "User Interface".into(),
+            order: 5,
+            keywords: vec!["ui".into(), "working directory".into(), "stream".into()],
+            fields: vec![
+                SettingsField {
+                    key: "ui.working_dir".into(),
+                    label: "Working directory".into(),
+                    field_type: FieldType::Path,
+                    description: Some("Working directory for shell session file operations".into()),
+                    placeholder: None,
+                    options: vec![],
+                    default_value: Some(serde_json::Value::String(ui_default_working_dir())),
+                    list_schema: None,
+                    protected: false,
+                    keywords: vec!["working_dir".into(), "directory".into()],
+                },
+                SettingsField {
+                    key: "ui.stream".into(),
+                    label: "Stream model output".into(),
+                    field_type: FieldType::Boolean,
+                    description: Some(
+                        "Enable streaming output from the model while the response is generating."
+                            .into(),
+                    ),
+                    placeholder: None,
+                    options: vec![],
+                    default_value: Some(serde_json::Value::Bool(true)),
+                    list_schema: None,
+                    protected: false,
+                    keywords: vec!["stream".into(), "performance".into()],
+                },
+            ],
+        }]
+    }
+}
+
 /// Built-in chat model settings section.
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
@@ -160,6 +307,7 @@ impl SettingsSectionProvider for ChatModelSection {
                         SettingsOption { value: "anthropic".into(), label: "Anthropic".into() },
                     ],
                     default_value: Some(serde_json::Value::String("openrouter".into())),
+                    list_schema: None,
                     protected: false,
                     keywords: vec![],
                 },
@@ -171,6 +319,7 @@ impl SettingsSectionProvider for ChatModelSection {
                     placeholder: Some("qwen/qwen3.7-plus".into()),
                     options: vec![],
                     default_value: Some(serde_json::Value::String("qwen/qwen3.7-plus".into())),
+                    list_schema: None,
                     protected: false,
                     keywords: vec![],
                 },
@@ -182,6 +331,7 @@ impl SettingsSectionProvider for ChatModelSection {
                     placeholder: Some("sk-...".into()),
                     options: vec![],
                     default_value: Some(serde_json::Value::String(String::new())),
+                    list_schema: None,
                     protected: false,
                     keywords: vec!["key".into(), "token".into()],
                 },
@@ -195,6 +345,7 @@ impl SettingsSectionProvider for ChatModelSection {
                     default_value: Some(serde_json::Value::String(
                         "https://openrouter.ai/api/v1".into(),
                     )),
+                    list_schema: None,
                     protected: false,
                     keywords: vec!["endpoint".into(), "url".into()],
                 },
@@ -206,6 +357,7 @@ impl SettingsSectionProvider for ChatModelSection {
                     placeholder: Some("4096".into()),
                     options: vec![],
                     default_value: Some(serde_json::Value::Number(4096.into())),
+                    list_schema: None,
                     protected: false,
                     keywords: vec!["tokens".into(), "length".into()],
                 },
@@ -217,6 +369,7 @@ impl SettingsSectionProvider for ChatModelSection {
                     placeholder: Some("128000".into()),
                     options: vec![],
                     default_value: Some(serde_json::Value::Number(128_000.into())),
+                    list_schema: None,
                     protected: false,
                     keywords: vec!["context".into(), "window".into()],
                 },
@@ -228,6 +381,7 @@ impl SettingsSectionProvider for ChatModelSection {
                     placeholder: None,
                     options: vec![],
                     default_value: Some(serde_json::Value::Bool(false)),
+                    list_schema: None,
                     protected: false,
                     keywords: vec!["thinking".into(), "reason".into()],
                 },
@@ -243,6 +397,7 @@ impl SettingsSectionProvider for ChatModelSection {
                         SettingsOption { value: "high".into(), label: "High".into() },
                     ],
                     default_value: Some(serde_json::Value::String("medium".into())),
+                    list_schema: None,
                     protected: false,
                     keywords: vec![],
                 },
@@ -257,6 +412,76 @@ impl SettingsSectionProvider for ChatModelSection {
                     placeholder: None,
                     options: vec![],
                     default_value: Some(serde_json::Value::Array(vec![])),
+                    list_schema: Some(SettingsListSchema {
+                        groups: Some(vec![2, 2, 3]),
+                        add_label: Some("Add fallback model".into()),
+                        renderer: SettingsListRenderer::Record,
+                        item_schema: vec![
+                            SettingsListField {
+                                key: "provider".into(),
+                                field_type: SettingsListFieldType::Text,
+                                placeholder: Some("provider".into()),
+                                options: vec![],
+                                nullable: false,
+                                default_value: Some(serde_json::Value::String(String::new())),
+                            },
+                            SettingsListField {
+                                key: "model".into(),
+                                field_type: SettingsListFieldType::Text,
+                                placeholder: Some("model".into()),
+                                options: vec![],
+                                nullable: false,
+                                default_value: Some(serde_json::Value::String(String::new())),
+                            },
+                            SettingsListField {
+                                key: "api_key".into(),
+                                field_type: SettingsListFieldType::Text,
+                                placeholder: Some("api key (optional)".into()),
+                                options: vec![],
+                                nullable: true,
+                                default_value: None,
+                            },
+                            SettingsListField {
+                                key: "base_url".into(),
+                                field_type: SettingsListFieldType::Text,
+                                placeholder: Some("base url (optional)".into()),
+                                options: vec![],
+                                nullable: true,
+                                default_value: None,
+                            },
+                            SettingsListField {
+                                key: "context_window".into(),
+                                field_type: SettingsListFieldType::Number,
+                                placeholder: Some("context window".into()),
+                                options: vec![],
+                                nullable: true,
+                                default_value: None,
+                            },
+                            SettingsListField {
+                                key: "reasoning_enabled".into(),
+                                field_type: SettingsListFieldType::NullableBoolean,
+                                placeholder: Some("default reasoning".into()),
+                                options: vec![],
+                                nullable: true,
+                                default_value: None,
+                            },
+                            SettingsListField {
+                                key: "reasoning_effort".into(),
+                                field_type: SettingsListFieldType::Select,
+                                placeholder: Some("reasoning effort".into()),
+                                options: vec![
+                                    SettingsOption { value: "low".into(), label: "low".into() },
+                                    SettingsOption {
+                                        value: "medium".into(),
+                                        label: "medium".into(),
+                                    },
+                                    SettingsOption { value: "high".into(), label: "high".into() },
+                                ],
+                                nullable: true,
+                                default_value: Some(serde_json::Value::String("medium".into())),
+                            },
+                        ],
+                    }),
                     protected: false,
                     keywords: vec!["fallback".into(), "backup".into()],
                 },
@@ -311,6 +536,7 @@ impl SettingsSectionProvider for ModelIdentitySection {
                         SettingsOption { value: "concise".into(), label: "Concise".into() },
                     ],
                     default_value: Some(serde_json::Value::String("helpful".into())),
+                    list_schema: None,
                     protected: false,
                     keywords: vec![],
                 },
@@ -322,6 +548,7 @@ impl SettingsSectionProvider for ModelIdentitySection {
                     placeholder: Some("You are a senior Rust engineer...".into()),
                     options: vec![],
                     default_value: Some(serde_json::Value::String(String::new())),
+                    list_schema: None,
                     protected: false,
                     keywords: vec!["persona".into(), "role".into()],
                 },
@@ -339,6 +566,7 @@ impl SettingsSectionProvider for ModelIdentitySection {
                         "You are a helpful AI coding assistant with access to filesystem tools."
                             .into(),
                     )),
+                    list_schema: None,
                     protected: true,
                     keywords: vec!["prompt".into(), "instructions".into()],
                 },
@@ -385,6 +613,7 @@ impl SettingsSectionProvider for ContextEngineSection {
                     placeholder: None,
                     options: vec![],
                     default_value: Some(serde_json::Value::Bool(true)),
+                    list_schema: None,
                     protected: false,
                     keywords: vec![],
                 },
@@ -399,6 +628,7 @@ impl SettingsSectionProvider for ContextEngineSection {
                     placeholder: Some("75".into()),
                     options: vec![],
                     default_value: Some(serde_json::Value::Number(75.into())),
+                    list_schema: None,
                     protected: false,
                     keywords: vec!["threshold".into()],
                 },
@@ -410,6 +640,7 @@ impl SettingsSectionProvider for ContextEngineSection {
                     placeholder: Some("50".into()),
                     options: vec![],
                     default_value: Some(serde_json::Value::Number(50.into())),
+                    list_schema: None,
                     protected: false,
                     keywords: vec![],
                 },
@@ -421,6 +652,7 @@ impl SettingsSectionProvider for ContextEngineSection {
                     placeholder: Some("6".into()),
                     options: vec![],
                     default_value: Some(serde_json::Value::Number(6.into())),
+                    list_schema: None,
                     protected: false,
                     keywords: vec![],
                 },
@@ -469,6 +701,7 @@ impl SettingsSectionProvider for MemorySettingsSection {
                     default_value: Some(serde_json::Value::Array(vec![serde_json::Value::String(
                         "memory-local".into(),
                     )])),
+                    list_schema: None,
                     protected: false,
                     keywords: vec!["active".into(), "provider".into()],
                 },
@@ -495,6 +728,55 @@ impl SettingsSectionProvider for MemorySettingsSection {
                         .into_iter()
                         .collect(),
                     )])),
+                    list_schema: Some(SettingsListSchema {
+                        groups: Some(vec![2, 2, 1]),
+                        add_label: Some("Add memory endpoint".into()),
+                        renderer: SettingsListRenderer::MemoryEndpoints,
+                        item_schema: vec![
+                            SettingsListField {
+                                key: "id".into(),
+                                field_type: SettingsListFieldType::Text,
+                                placeholder: Some("ID (e.g. memory-amp-1)".into()),
+                                options: vec![],
+                                nullable: false,
+                                default_value: Some(serde_json::Value::String("memory-amp-".into())),
+                            },
+                            SettingsListField {
+                                key: "name".into(),
+                                field_type: SettingsListFieldType::Text,
+                                placeholder: Some("Name".into()),
+                                options: vec![],
+                                nullable: false,
+                                default_value: Some(serde_json::Value::String("Remote memory".into())),
+                            },
+                            SettingsListField {
+                                key: "url".into(),
+                                field_type: SettingsListFieldType::Text,
+                                placeholder: Some("URL (e.g. http://localhost:9471)".into()),
+                                options: vec![],
+                                nullable: false,
+                                default_value: Some(
+                                    serde_json::Value::String("http://localhost:9471".into()),
+                                ),
+                            },
+                            SettingsListField {
+                                key: "api_key".into(),
+                                field_type: SettingsListFieldType::Text,
+                                placeholder: Some("API Key (optional)".into()),
+                                options: vec![],
+                                nullable: true,
+                                default_value: Some(serde_json::Value::Null),
+                            },
+                            SettingsListField {
+                                key: "scope".into(),
+                                field_type: SettingsListFieldType::Text,
+                                placeholder: Some("Scope (optional)".into()),
+                                options: vec![],
+                                nullable: true,
+                                default_value: Some(serde_json::Value::Null),
+                            },
+                        ],
+                    }),
                     protected: false,
                     keywords: vec!["amp".into(), "endpoint".into(), "url".into(), "api key".into()],
                 },
@@ -544,6 +826,7 @@ impl SettingsSectionProvider for ToolSettingsSection {
                     placeholder: None,
                     options: vec![],
                     default_value: Some(serde_json::Value::Bool(false)),
+                    list_schema: None,
                     protected: true,
                     keywords: vec!["user tools".into(), "security".into(), "enable".into()],
                 },
@@ -557,12 +840,25 @@ impl SettingsSectionProvider for ToolSettingsSection {
                     placeholder: Some("[\"rg\", \"pnpm\"]".into()),
                     options: vec![],
                     default_value: Some(serde_json::Value::Array(Vec::new())),
+                    list_schema: Some(SettingsListSchema {
+                        groups: None,
+                        add_label: Some("Add allowed command".into()),
+                        renderer: SettingsListRenderer::String,
+                        item_schema: vec![],
+                    }),
                     protected: false,
                     keywords: vec!["execute_command".into(), "allowlist".into(), "sandbox".into(), "shell".into()],
                 },
             ],
         }]
     }
+}
+
+/// Helper: ui settings section provider.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+pub fn ui_section() -> std::sync::Arc<dyn SettingsSectionProvider> {
+    std::sync::Arc::new(UiSettingsSection)
 }
 
 /// Helper: tool settings section provider.
@@ -598,4 +894,18 @@ pub fn context_engine_section() -> std::sync::Arc<dyn SettingsSectionProvider> {
 /// Refs: I-Shell-Runtime-OnlyIO
 pub fn memory_section() -> std::sync::Arc<dyn SettingsSectionProvider> {
     std::sync::Arc::new(MemorySettingsSection)
+}
+
+/// Returns all built-in settings sections owned by this crate.
+///
+/// Refs: I-Shell-Runtime-OnlyIO
+pub fn all_builtin_sections() -> Vec<SettingsSection> {
+    let mut sections = Vec::new();
+    sections.extend(UiSettingsSection.sections());
+    sections.extend(ChatModelSection.sections());
+    sections.extend(ModelIdentitySection.sections());
+    sections.extend(ContextEngineSection.sections());
+    sections.extend(MemorySettingsSection.sections());
+    sections.extend(ToolSettingsSection.sections());
+    sections
 }

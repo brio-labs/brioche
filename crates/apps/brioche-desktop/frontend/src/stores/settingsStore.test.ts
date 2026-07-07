@@ -7,7 +7,7 @@ vi.mock('../ipc', () => ({
     listSettingsSections: vi.fn(),
 }));
 
-import { useSettingsStore, FALLBACK_SECTIONS, getWorkingDir } from './settingsStore';
+import { useSettingsStore, getWorkingDir } from './settingsStore';
 import { getSettings, setSettings, listSettingsSections } from '../ipc';
 
 const mockedGetSettings = vi.mocked(getSettings);
@@ -147,7 +147,32 @@ describe('settingsStore', () => {
 
     describe('loadSections', () => {
         it('loads sections from IPC', async () => {
-            const sections: SettingsSection[] = FALLBACK_SECTIONS.slice(0, 1);
+            const sections: SettingsSection[] = [
+                {
+                    id: 'chat-model',
+                    module_id: 'chat',
+                    title: 'Model',
+                    order: 10,
+                    keywords: ['model', 'provider', 'api key'],
+                    fields: [
+                        {
+                            key: 'chat.provider',
+                            label: 'Provider',
+                            field_type: 'select',
+                            description: 'LLM provider backend',
+                            placeholder: null,
+                            options: [
+                                { value: 'openai', label: 'OpenAI' },
+                                { value: 'openrouter', label: 'OpenRouter' },
+                                { value: 'anthropic', label: 'Anthropic' },
+                            ],
+                            default_value: 'openrouter',
+                            protected: false,
+                            keywords: [],
+                        },
+                    ],
+                },
+            ];
             mockedListSettingsSections.mockResolvedValue(sections);
 
             await useSettingsStore.getState().loadSections();

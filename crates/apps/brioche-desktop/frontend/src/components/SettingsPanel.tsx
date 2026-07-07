@@ -1,7 +1,21 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSettingsStore, FALLBACK_SECTIONS } from "../stores/settingsStore";
+import { getPathValue } from "../stores/settingsPath";
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useState,
+	type Dispatch,
+	type SetStateAction,
+} from "react";
+import { useSettingsStore } from "../stores/settingsStore";
 import { setSettings } from "../ipc";
-import type { SettingsSection, SettingsField } from "../ipc";
+import type {
+	SettingsSection,
+	SettingsField,
+	SettingsListSchema,
+	SettingsListField,
+	SettingsListRenderer,
+} from "../ipc";
 import PanelOverlay, { SearchBar } from "./PanelOverlay";
 import {
 	Button,
@@ -13,7 +27,6 @@ import {
 	SelectContent,
 	SelectItem,
 	SelectTrigger,
-	SelectValue,
 	MultiSelect,
 	ProtectedSettingsCard,
 } from "./ui";
@@ -22,28 +35,13 @@ interface SettingsPanelProps {
 	onClose: () => void;
 }
 
-function getFieldValue(
-	settings: Record<string, unknown>,
-	key: string,
-): unknown {
-	const parts = key.split(".");
-	let current: unknown = settings;
-	for (const part of parts) {
-		if (current && typeof current === "object" && !Array.isArray(current)) {
-			current = (current as Record<string, unknown>)[part];
-		} else {
-			return undefined;
-		}
-	}
-	return current;
-}
-
 interface RecordListFieldSchema {
 	key: string;
+	type: "text" | "select" | "number" | "nullable_boolean";
 	placeholder: string;
-	type?: "text" | "select" | "number" | "nullable_boolean";
-	options?: { value: string; label: string }[];
-	nullable?: boolean;
+	options: { value: string; label: string }[];
+	nullable: boolean;
+	defaultValue: unknown;
 }
 
 interface RecordListProps {
@@ -54,6 +52,48 @@ interface RecordListProps {
 	addLabel: string;
 	groups?: number[];
 }
+
+function normalizeRecordField(field: SettingsListField): RecordListFieldSchema {
+	return {
+		key: field.key,
+		type: field.field_type,
+		placeholder: field.placeholder || "",
+		options: field.options,
+		nullable: field.nullable,
+		defaultValue: field.default_value,
+	};
+}
+
+function toRecordListFields(schema: SettingsListSchema | null | undefined) {
+	const itemSchema = schema?.item_schema ?? [];
+	return itemSchema.map(normalizeRecordField);
+}
+
+function listItemDefaults(schema: RecordListFieldSchema[]): Record<string, unknown> {
+	return schema.reduce<Record<string, unknown>>((acc, field) => {
+		const fallback: unknown = field.nullable ? null : field.type === "number" ? 0 : "";
+		acc[field.key] = field.defaultValue ?? fallback;
+		return acc;
+	}, {});
+}
+
+function memoryEndpointNextId(items: Record<string, unknown>[]) {
+	const used = new Set(
+		items
+			.map((item) => item.id)
+			.filter((id): id is string => typeof id === "string"),
+	);
+	for (let index = 1; ; index += 1) {
+		const candidate = `memory-amp-${index}`;
+		if (!used.has(candidate)) return candidate;
+	}
+}
+
+function getListRenderer(field: SettingsField): SettingsListRenderer | "record" {
+	const schema = field.list_schema;
+	return schema?.renderer ?? "record";
+}
+
 function RecordList({
 	items,
 	onChange,
@@ -95,7 +135,7 @@ function RecordList({
 		const raw = item[field.key] ?? "";
 		const value = field.nullable && raw === "" ? null : raw;
 		const onChangeField = (v: string | number | boolean | null) => {
-			const next = field.nullable && (v === "" || v === false) ? null : v;
+			const next = field.nullable && v === "" ? null : v;
 			updateItem(index, field.key, next);
 		};
 
@@ -108,7 +148,7 @@ function RecordList({
 				>
 					<SelectTrigger className="flex-1 text-xs px-2.5 py-1.5" />
 					<SelectContent>
-						{(field.options || []).map((opt) => (
+						{field.options.map((opt) => (
 							<SelectItem key={opt.value} value={opt.value}>
 								{opt.label}
 							</SelectItem>
@@ -208,74 +248,86 @@ function RecordList({
 	);
 }
 
-const fallbackModelSchema: RecordListFieldSchema[] = [
-	{ key: "provider", placeholder: "provider" },
-	{ key: "model", placeholder: "model" },
-	{ key: "api_key", placeholder: "api key (optional)", nullable: true },
-	{ key: "base_url", placeholder: "base url (optional)", nullable: true },
-	{
-		key: "context_window",
-		placeholder: "context window",
-		type: "number",
-		nullable: true,
-	},
-	{
-		key: "reasoning_enabled",
-		placeholder: "default reasoning",
-		type: "nullable_boolean",
-	},
-	{ key: "reasoning_effort", placeholder: "reasoning effort", nullable: true },
-];
+interface StringListProps {
+	items: string[];
+	onChange: (value: unknown) => void;
+	addLabel: string;
+}
 
-const FALLBACK_MODEL_DEFAULT: Record<string, unknown> = {
-	provider: "openrouter",
-	model: "",
-	api_key: "",
-	base_url: "",
-	context_window: undefined,
-	reasoning_enabled: null,
-	reasoning_effort: "medium",
-};
+function StringList({ items, onChange, addLabel }: StringListProps) {
+	const addItem = () => onChange([...items, ""]);
+	const removeItem = (index: number) =>
+		onChange(items.filter((_, i) => i !== index));
+	const updateItem = (index: number, value: string) => {
+		const next = items.map((item, i) => (i === index ? value : item));
+		onChange(next);
+	};
 
-const memoryEndpointSchema: RecordListFieldSchema[] = [
-	{ key: "id", placeholder: "ID (e.g. memory-amp-1)" },
-	{ key: "name", placeholder: "Name" },
-	{ key: "url", placeholder: "URL (e.g. http://localhost:9471)" },
-	{ key: "api_key", placeholder: "API Key (optional)", nullable: true },
-	{ key: "scope", placeholder: "Scope (optional)", nullable: true },
-];
+	return (
+		<div className="flex flex-col gap-3 mt-2">
+			{items.map((item, index) => (
+				<div
+					key={index}
+					className="p-3 bg-bg-2/30 border border-border rounded-lg flex items-center gap-2"
+				>
+					<Input
+						type="text"
+						value={item}
+						onChange={(e) => updateItem(index, e.target.value)}
+						className="flex-1 text-xs px-2.5 py-1.5"
+					/>
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon"
+						onClick={() => removeItem(index)}
+						className="text-text-muted hover:text-red-400 shrink-0"
+					>
+						×
+					</Button>
+				</div>
+			))}
+			<Button
+				type="button"
+				variant="secondary"
+				size="sm"
+				onClick={addItem}
+				className="self-start"
+			>
+				{addLabel}
+			</Button>
+		</div>
+	);
+}
+
 function MemoryEndpointList({
 	items,
 	onChange,
+	listSchema,
 }: {
 	items: Record<string, unknown>[];
 	onChange: (value: unknown) => void;
+	listSchema: SettingsListSchema;
 }) {
-	const nextId = useMemo(() => {
-		const used = new Set(
-			items.map((item) => item.id).filter((id): id is string => typeof id === "string"),
-		);
-		let i = 1;
-		while (used.has(`memory-amp-${i}`)) {
-			i += 1;
+	const fields = useMemo(() => toRecordListFields(listSchema), [listSchema]);
+	const defaultItem = useMemo(() => {
+		const defaults = listItemDefaults(fields);
+		const nextId = memoryEndpointNextId(items);
+		if (typeof defaults.id === "string" || typeof defaults.id === "number") {
+			defaults.id = nextId;
 		}
-		return `memory-amp-${i}`;
-	}, [items]);
+		defaults.name = `Memory ${items.length + 1}`;
+		return defaults;
+	}, [fields, items]);
 
 	return (
 		<RecordList
 			items={items}
 			onChange={onChange}
-			schema={memoryEndpointSchema}
-			defaultItem={{
-				id: nextId,
-				name: `Memory ${items.length + 1}`,
-				url: "http://127.0.0.1:9471",
-				api_key: null,
-				scope: null,
-			}}
-			addLabel="Add memory endpoint"
-			groups={[2, 2, 1]}
+			schema={fields}
+			defaultItem={defaultItem}
+			addLabel={listSchema.add_label ?? "Add memory endpoint"}
+			groups={listSchema.groups ?? [2, 2, 1]}
 		/>
 	);
 }
@@ -306,6 +358,7 @@ function NullableBooleanSelect({
 	);
 }
 
+
 export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 	const { settings, loadSettings, updateSetting, sections, loadSections } =
 		useSettingsStore();
@@ -313,7 +366,8 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 		null,
 	);
 	const [search, setSearch] = useState("");
-	const [saveError, setSaveError] = useState<string | null>(null);
+
+	const [editingProtected, setEditingProtected] = useState<Set<string>>(new Set());
 
 
 	useEffect(() => {
@@ -322,13 +376,12 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 	}, [loadSettings, loadSections]);
 
 	const endpoints =
-		(Array.isArray(getFieldValue(settings, "memory.endpoints"))
-			? (getFieldValue(settings, "memory.endpoints") as Record<string, unknown>[])
+		(Array.isArray(getPathValue(settings, "memory.endpoints"))
+			? (getPathValue(settings, "memory.endpoints") as Record<string, unknown>[])
 			: []) ?? [];
 
 	const activeSections = useMemo(() => {
-		const base = sections.length > 0 ? sections : FALLBACK_SECTIONS;
-		return base.map((section) => {
+		return sections.map((section) => {
 			if (section.id !== "memory-providers") return section;
 			return {
 				...section,
@@ -349,7 +402,6 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 			};
 		});
 	}, [sections, endpoints]);
-
 	const filteredSections = useMemo(() => {
 		if (!search.trim()) return activeSections;
 		const q = search.toLowerCase();
@@ -437,7 +489,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 									<FieldEditor
 										key={field.key}
 										field={field}
-										value={getFieldValue(settings, field.key)}
+										value={getPathValue(settings, field.key)}
 										editingProtected={editingProtected}
 										setEditingProtected={setEditingProtected}
 										onChange={(value) => handleFieldChange(field.key, value)}
@@ -477,7 +529,7 @@ interface FieldEditorProps {
 	field: SettingsField;
 	value: unknown;
 	editingProtected: Set<string>;
-	setEditingProtected: React.Dispatch<React.SetStateAction<Set<string>>>;
+	setEditingProtected: Dispatch<SetStateAction<Set<string>>>;
 	onChange: (value: unknown) => void;
 	onReset: () => void;
 }
@@ -567,24 +619,40 @@ function FieldEditor({
 				);
 			case "list": {
 				const items = Array.isArray(currentValue) ? currentValue : [];
-				if (field.key === "memory.endpoints") {
+				const schema = toRecordListFields(field.list_schema);
+				const listRenderer = getListRenderer(field);
+				const addLabel = field.list_schema?.add_label ?? "Add item";
+				if (schema.length === 0 || listRenderer === "string") {
+					const stringValues = items.map((item) =>
+						typeof item === "string" ? item : "",
+					);
+					return (
+						<StringList
+							items={stringValues}
+							onChange={onChange}
+							addLabel={addLabel}
+						/>
+					);
+				}
+				if (listRenderer === "memory_endpoints") {
 					return (
 						<MemoryEndpointList
 							items={items as Record<string, unknown>[]}
 							onChange={onChange}
+							listSchema={field.list_schema as SettingsListSchema}
 						/>
 					);
 				}
-			return (
-				<RecordList
-					items={items as Record<string, unknown>[]}
-					onChange={onChange}
-					schema={fallbackModelSchema}
-					defaultItem={FALLBACK_MODEL_DEFAULT}
-					addLabel="Add fallback model"
-					groups={[2, 2, 3]}
-				/>
-			);
+				return (
+					<RecordList
+						items={items as Record<string, unknown>[]}
+						onChange={onChange}
+						schema={schema}
+						defaultItem={listItemDefaults(schema)}
+						addLabel={addLabel}
+						groups={field.list_schema?.groups}
+					/>
+				);
 			}
 			case "path":
 			default:

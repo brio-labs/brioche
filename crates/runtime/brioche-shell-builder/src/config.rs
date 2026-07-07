@@ -102,17 +102,9 @@ pub fn assemble_openai_config_from_settings(settings: &Settings) -> OpenAiConfig
     let base_url = std::env::var("BRIOCHE_BASE_URL").map_or(settings.base_url(), |v| v);
     let max_tokens = settings.max_tokens();
 
-    let reasoning_enabled = settings
-        .get("chat.reasoning_enabled")
-        .is_some_and(|v| v.as_bool().is_some_and(|b| b));
+    let reasoning_enabled = settings.reasoning_enabled();
     let reasoning_effort = if reasoning_enabled {
-        Some(
-            settings
-                .get("chat.reasoning_effort")
-                .map_or("medium".into(), |v| {
-                    v.as_str().map_or("medium".into(), |s| s.into())
-                }),
-        )
+        Some(settings.reasoning_effort())
     } else {
         std::env::var("BRIOCHE_REASONING_EFFORT").ok()
     };

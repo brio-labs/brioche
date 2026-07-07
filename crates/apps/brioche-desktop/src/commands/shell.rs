@@ -245,23 +245,10 @@ fn build_history_transform(
         // ------------------------------------------------------------------
         // Context engine: compress when the budget is exceeded.
         // ------------------------------------------------------------------
-        let enabled = match settings.get("context.enabled") {
-            Some(serde_json::Value::Bool(b)) => b,
-            _ => true,
-        };
-        if enabled {
-            let trigger = settings
-                .get("context.trigger_percentage")
-                .and_then(|v| v.as_u64())
-                .map_or(75, |v| v as u8);
-            let target = settings
-                .get("context.target_percentage")
-                .and_then(|v| v.as_u64())
-                .map_or(50, |v| v as u8);
-            let preserve = settings
-                .get("context.preserve_recent")
-                .and_then(|v| v.as_u64())
-                .map_or(6, |v| v as usize);
+        if settings.context_enabled() {
+            let trigger = settings.context_trigger_percentage();
+            let target = settings.context_target_percentage();
+            let preserve = settings.context_preserve_recent();
             let engine = CompressorContextEngine::new(trigger, target, preserve);
             let input = ContextEngineInput {
                 history: &working,

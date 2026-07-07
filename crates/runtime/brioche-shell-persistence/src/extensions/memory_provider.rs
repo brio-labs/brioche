@@ -7,6 +7,7 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
+use brioche_shell_runtime::util::system_time_secs;
 use serde::{Deserialize, Serialize};
 
 use super::{ExtensionMetadata, PanelSlot, PersistenceError};
@@ -313,13 +314,6 @@ impl MemoryProvider for LocalMemoryProvider {
             .take(limit)
             .map(|(_, e)| e.clone())
             .collect())
-    }
-}
-
-fn system_time_secs() -> u64 {
-    match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-        Ok(d) => d.as_secs(),
-        Err(_) => 0,
     }
 }
 
