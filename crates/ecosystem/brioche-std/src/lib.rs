@@ -38,7 +38,7 @@ pub use gc_policy::{ContextOptimizer, ContextOptimizerState, GcPolicy, GcPolicyS
 pub use pending_task_manager::{
     PendingTaskInfo, PendingTaskManager, PendingTaskState, PendingTaskStatus,
 };
-pub use token_tracker::{TokenTracker, TokenTrackerState};
+pub use token_tracker::{TokenRole, TokenTracker, TokenTrackerState};
 
 // ---------------------------------------------------------------------------
 // Priority constants

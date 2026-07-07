@@ -13,24 +13,23 @@ use brioche_core::{
 
 use crate::Priority;
 
-/// GC policy state.
+/// GC policy telemetry.
+///
+/// `GcPolicy` constructor fields are runtime policy configuration, not
+/// persisted replay state. This state stores only durable cycle counters.
 ///
 /// ## Snapshot strategy
-/// COW: full clone (~32 bytes). Four scalar fields.
+/// COW: full clone (~16 bytes). Two scalar counters.
 ///
 /// Refs: I-Eco-OrderedCollections
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, BriocheExtensionType,
 )]
 pub struct GcPolicyState {
-    /// Trigger GC every N prediction cycles (0 = disabled).
-    pub cycle_interval: u64,
     /// Cycles since last GC.
     pub cycles_since_gc: u64,
     /// Total number of GCs triggered.
     pub gcs_triggered: u64,
-    /// Whether to trigger GC only when transitioning to Idle.
-    pub only_when_idle: bool,
 }
 
 /// GC policy plugin.
@@ -83,10 +82,10 @@ impl AfterPrediction for GcPolicy {
         Priority::GC_OBSERVER // Late observer — let interceptors run first
     }
 
-    /// Increments the GC cycle counter and stores the current policy config.
+    /// Increments the GC cycle counter without persisting static policy config.
     ///
     /// # Complexity
-    /// O(1). Two ExtensionStorage reads.
+    /// O(1). One ExtensionStorage read/write. No heap allocation.
     ///
     /// # Panics
     /// Never panics. No indexing or conditional allocation.
@@ -94,8 +93,6 @@ impl AfterPrediction for GcPolicy {
     /// Refs: I-Eco-ExtensionOverMod
     fn after_prediction(&self, ext: &mut ExtensionStorage) -> PluginResult<()> {
         let state = ext.get_or_insert_default::<GcPolicyState>();
-        state.cycle_interval = self.cycle_interval;
-        state.only_when_idle = self.only_when_idle;
         state.cycles_since_gc += 1;
         Ok(())
     }
@@ -119,7 +116,8 @@ impl BeforePrediction for GcPolicy {
     /// idle policy is satisfied.
     ///
     /// # Complexity
-    /// O(1). Two ExtensionStorage reads.
+    /// O(1). Reads `SessionSnapshot` and updates `GcPolicyState`. No heap
+    /// allocation; cycle interval and idle gating stay in runtime config.
     ///
     /// # Panics
     /// Never panics. No indexing or conditional allocation.
@@ -145,8 +143,6 @@ impl BeforePrediction for GcPolicy {
         };
 
         let state = ext.get_or_insert_default::<GcPolicyState>();
-        state.cycle_interval = self.cycle_interval;
-        state.only_when_idle = self.only_when_idle;
 
         if state.cycles_since_gc >= self.cycle_interval && (!self.only_when_idle || is_idle) {
             state.cycles_since_gc = 0;
@@ -162,20 +158,19 @@ impl BeforePrediction for GcPolicy {
 // ContextOptimizer (merged from context_optimizer.rs)
 // ---------------------------------------------------------------------------
 
-/// Context optimizer state.
+/// Context optimizer telemetry.
+///
+/// Message threshold fields are runtime policy configuration owned by
+/// `ContextOptimizer`; persisted state stores only summarization observations.
 ///
 /// ## Snapshot strategy
-/// COW: full clone (~24 bytes). Three scalar fields.
+/// COW: full clone (~8 bytes). One scalar counter.
 ///
 /// Refs: I-Eco-OrderedCollections
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, BriocheExtensionType,
 )]
 pub struct ContextOptimizerState {
-    /// Maximum desired messages before summarization.
-    pub max_messages: u64,
-    /// Threshold percentage (0–100) at which to trigger summarization.
-    pub threshold_percent: u8,
     /// Number of times summarization has been triggered.
     pub summarizations_triggered: u64,
 }
@@ -223,17 +218,22 @@ impl BeforePrediction for ContextOptimizer {
         Priority::CONTEXT_OPTIMIZER // After interceptors, before prediction
     }
 
+    /// Applies completed summaries or requests summarization at the runtime threshold.
+    ///
+    /// # Complexity
+    /// O(a + h) where a = buffered async task results and h = history length.
+    /// Allocates only when cloning a completed summary into `HistoryEdit`;
+    /// static threshold config is not copied into persisted state.
+    ///
+    /// # Panics
+    /// Never panics. Watermarks are clamped to history length.
+    ///
+    /// Refs: I-Eco-ExtensionOverMod
     fn before_prediction(
         &self,
         history: &[ChatMessage],
         ext: &mut ExtensionStorage,
     ) -> PluginResult<PolicyDecision> {
-        {
-            let state = ext.get_or_insert_default::<ContextOptimizerState>();
-            state.max_messages = self.max_messages;
-            state.threshold_percent = self.threshold_percent;
-        }
-
         // If a summarization task completed, replace the summarized prefix
         // with the compressed system message before deciding whether further
         // compression is needed.
