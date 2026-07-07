@@ -1,4 +1,4 @@
-//! Replay tests: `TransitionJournal` → post-watchdog recovery — Sprint 18.
+//! Replay tests: `TransitionJournal` → post-watchdog recovery.
 //!
 //! Persists `EngineInput`s in a `TransitionJournal`, simulates a watchdog
 //! restart, and replays unacknowledged entries through a fresh engine.

@@ -364,7 +364,7 @@ pub async fn get_footer_metrics(
     state: State<'_, DesktopState>,
 ) -> Result<Vec<FooterMetric>, String> {
     let settings = Settings::load();
-    let registry = state.extensions.read().await;
+    let registry = state.extensions_snapshot().await;
     let mgr = state.manager.read().await;
     let current_model = settings.chat_model();
 
@@ -379,10 +379,7 @@ pub async fn get_footer_metrics(
         break 'tokens CompressorContextEngine::estimate_tokens(&history);
     };
     let context_remaining = settings.context_window().saturating_sub(estimated_tokens) as i64;
-    let context_note = match state.last_context_note.lock() {
-        Ok(guard) => guard.clone(),
-        Err(_) => None,
-    };
+    let context_note = state.last_context_note();
 
     let ctx = FooterContext {
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -463,10 +460,7 @@ pub async fn add_user_tool(
     state: State<'_, DesktopState>,
     tool: UserToolDefinition,
 ) -> Result<(), String> {
-    let settings = {
-        let factory = state.factory.read().await;
-        factory.settings.clone()
-    };
+    let settings = state.factory_snapshot().await.settings().clone();
     if !settings.user_tools_enabled() {
         return Err(
             "User-defined tools are disabled. Enable them in Settings > Tools first.".into(),

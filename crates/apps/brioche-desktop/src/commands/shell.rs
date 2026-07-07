@@ -107,18 +107,62 @@ impl DesktopConfig {
 /// Never panics.
 #[derive(Clone)]
 pub struct ShellFactory {
-    /// Redb storage for session persistence.
-    pub redb: RedbStorage,
-    /// Session store for in-memory state.
-    pub store: SessionStore,
-    /// CLI configuration (provider, timeouts, etc.).
-    pub config: DesktopConfig,
-    /// Loaded desktop extensions (context engine, memory, tools, skills, ...).
-    pub extensions: ExtensionRegistry,
-    /// User settings snapshot at shell creation time.
-    pub settings: Settings,
-    /// Shared slot for the last context-engine note.
-    pub last_context_note: Arc<Mutex<Option<String>>>,
+    pub(crate) redb: RedbStorage,
+    pub(crate) store: SessionStore,
+    pub(crate) config: DesktopConfig,
+    pub(crate) extensions: ExtensionRegistry,
+    pub(crate) settings: Settings,
+    pub(crate) last_context_note: Arc<Mutex<Option<String>>>,
+}
+
+impl ShellFactory {
+    /// Creates a shell factory from typed dependencies.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(1). Moves Arc-backed services and settings snapshots into the factory.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
+    pub fn new(
+        redb: RedbStorage,
+        store: SessionStore,
+        config: DesktopConfig,
+        extensions: ExtensionRegistry,
+        settings: Settings,
+        last_context_note: Arc<Mutex<Option<String>>>,
+    ) -> Self {
+        Self {
+            redb,
+            store,
+            config,
+            extensions,
+            settings,
+            last_context_note,
+        }
+    }
+
+    /// Returns the current settings snapshot.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn settings(&self) -> &Settings {
+        &self.settings
+    }
+
+    /// Returns the persistent storage handle.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn redb(&self) -> &RedbStorage {
+        &self.redb
+    }
+
+    /// Returns the in-memory session store handle.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    pub fn store(&self) -> &SessionStore {
+        &self.store
+    }
 }
 
 /// Handle to a running shell and its LLM broadcast channel.
@@ -467,14 +511,14 @@ mod tests {
         let redb = RedbStorage::new(&redb_path, brioche_shell_persistence::new_session_store())
             .map_err(|e| format!("Failed to create RedbStorage for test: {e}"))?;
         let store = brioche_shell_persistence::new_session_store();
-        let factory = ShellFactory {
+        let factory = ShellFactory::new(
             redb,
             store,
             config,
-            extensions: ExtensionRegistry::default_set(),
-            settings: Settings::default(),
-            last_context_note: Arc::new(Mutex::new(None)),
-        };
+            ExtensionRegistry::default_set(),
+            Settings::default(),
+            Arc::new(Mutex::new(None)),
+        );
         let handle = build_shell("test-session", &factory)
             .await
             .map_err(|e| e.to_string())?;
@@ -510,14 +554,14 @@ mod tests {
         let redb = RedbStorage::new(&redb_path, brioche_shell_persistence::new_session_store())
             .map_err(|e| format!("Failed to create RedbStorage for test: {e}"))?;
         let store = brioche_shell_persistence::new_session_store();
-        let factory = ShellFactory {
+        let factory = ShellFactory::new(
             redb,
             store,
             config,
-            extensions: ExtensionRegistry::default_set(),
-            settings: Settings::default(),
-            last_context_note: Arc::new(Mutex::new(None)),
-        };
+            ExtensionRegistry::default_set(),
+            Settings::default(),
+            Arc::new(Mutex::new(None)),
+        );
         let handle = build_shell("test-session", &factory)
             .await
             .map_err(|e| e.to_string())?;

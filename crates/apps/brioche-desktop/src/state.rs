@@ -391,17 +391,10 @@ impl SessionManager {
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
 pub struct DesktopState {
-    /// Multi-session manager (current session + all entries).
-    /// `None` until first access triggers lazy initialization.
-    pub manager: RwLock<Option<SessionManager>>,
-    /// CLI-style configuration for the OpenAI provider.
-    pub config: RwLock<DesktopConfig>,
-    /// Factory for creating new shells (shared dependencies).
-    pub factory: RwLock<ShellFactory>,
-    /// Loaded desktop extensions (context engine, memory, tools, skills, ...).
-    pub extensions: RwLock<ExtensionRegistry>,
-    /// Last note emitted by the active context engine (shown in the footer).
-    pub last_context_note: Arc<Mutex<Option<String>>>,
+    pub(crate) manager: RwLock<Option<SessionManager>>,
+    pub(crate) factory: RwLock<ShellFactory>,
+    pub(crate) extensions: RwLock<ExtensionRegistry>,
+    pub(crate) last_context_note: Arc<Mutex<Option<String>>>,
 }
 
 impl DesktopState {
@@ -435,18 +428,17 @@ impl DesktopState {
 
         let extensions = ExtensionRegistry::default_set();
         let last_context_note = Arc::new(Mutex::new(None));
-        let factory = ShellFactory {
-            redb: redb.clone(),
-            store: store.clone(),
-            config: config.clone(),
-            extensions: extensions.clone(),
-            settings: Settings::load(),
-            last_context_note: Arc::clone(&last_context_note),
-        };
+        let factory = ShellFactory::new(
+            redb.clone(),
+            store.clone(),
+            config.clone(),
+            extensions.clone(),
+            Settings::load(),
+            Arc::clone(&last_context_note),
+        );
 
         Ok(Self {
             manager: RwLock::new(None),
-            config: RwLock::new(config),
             factory: RwLock::new(factory),
             extensions: RwLock::new(extensions),
             last_context_note,
@@ -496,6 +488,93 @@ impl DesktopState {
             )?);
         }
         Ok(())
+    }
+
+    /// Returns a clone of the shell factory snapshot.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(1). Clones Arc-backed services and settings snapshots.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
+    pub async fn factory_snapshot(&self) -> ShellFactory {
+        self.factory.read().await.clone()
+    }
+
+    /// Returns a clone of the extension registry snapshot.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(1). Clones Arc-backed provider registry entries.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
+    pub async fn extensions_snapshot(&self) -> ExtensionRegistry {
+        self.extensions.read().await.clone()
+    }
+
+    /// Replaces settings-derived state as one desktop configuration operation.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(1). Replaces Arc-backed registry and settings snapshots.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
+    pub async fn replace_settings_contract(
+        &self,
+        settings: Settings,
+        extensions: ExtensionRegistry,
+    ) {
+        {
+            let mut ext_guard = self.extensions.write().await;
+            *ext_guard = extensions.clone();
+        }
+
+        let mut factory = self.factory.write().await;
+        *factory = ShellFactory::new(
+            factory.redb().clone(),
+            factory.store().clone(),
+            DesktopConfig::from_settings(&settings),
+            extensions,
+            settings,
+            Arc::clone(&self.last_context_note),
+        );
+    }
+
+    /// Returns the active session id if the manager is initialized.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(1). Reads the manager lock.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
+    pub async fn current_session_id_if_ready(&self) -> Option<String> {
+        let manager_guard = self.manager.read().await;
+        let manager = manager_guard.as_ref()?;
+        Some(manager.current_id().to_string())
+    }
+
+    /// Returns the last context note for footer projection.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(1). Locks a small mutex-protected optional string.
+    ///
+    /// # Panic / Safety
+    /// Never panics. Returns `None` if the note mutex is poisoned.
+    pub fn last_context_note(&self) -> Option<String> {
+        match self.last_context_note.lock() {
+            Ok(guard) => guard.clone(),
+            Err(_) => None,
+        }
     }
 
     /// Notifies all registered memory providers of a new session context.
