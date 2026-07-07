@@ -2,6 +2,7 @@
 //!
 //! Refs: I-Shell-Runtime-OnlyIO
 
+use brioche_shell_runtime::{ToolSchemaProperty, ToolSchemaPropertyType, tool_parameters_schema};
 use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 
@@ -18,32 +19,6 @@ fn expand_tilde(path: &str) -> String {
         return format!("{}/{}", home.trim_end_matches('/'), rest);
     }
     path.into()
-}
-
-fn object_schema(required: &[&str], properties: &[(&str, &str)]) -> serde_json::Value {
-    let mut props = serde_json::Map::new();
-    for (name, description) in properties {
-        let mut p = serde_json::Map::new();
-        p.insert("type".into(), serde_json::Value::String("string".into()));
-        p.insert(
-            "description".into(),
-            serde_json::Value::String((*description).into()),
-        );
-        props.insert((*name).into(), serde_json::Value::Object(p));
-    }
-    let mut schema = serde_json::Map::new();
-    schema.insert("type".into(), serde_json::Value::String("object".into()));
-    schema.insert("properties".into(), serde_json::Value::Object(props));
-    schema.insert(
-        "required".into(),
-        serde_json::Value::Array(
-            required
-                .iter()
-                .map(|s| serde_json::Value::String((*s).into()))
-                .collect(),
-        ),
-    );
-    serde_json::Value::Object(schema)
 }
 
 /// Sandbox configuration for filesystem tools.
@@ -193,10 +168,12 @@ impl SystemTool for ReadFileTool {
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
-        object_schema(
-            &["path"],
-            &[("path", "Absolute or relative path to the file")],
-        )
+        tool_parameters_schema(&[ToolSchemaProperty::new(
+            "path",
+            ToolSchemaPropertyType::String,
+            "Absolute or relative path to the file",
+            true,
+        )])
     }
 
     async fn run(
@@ -255,36 +232,26 @@ impl SystemTool for WriteFileTool {
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
-        let mut props = serde_json::Map::new();
-        let mut path_p = serde_json::Map::new();
-        path_p.insert("type".into(), "string".into());
-        path_p.insert(
-            "description".into(),
-            "Absolute or relative path to the file".into(),
-        );
-        props.insert("path".into(), serde_json::Value::Object(path_p));
-
-        let mut content_p = serde_json::Map::new();
-        content_p.insert("type".into(), "string".into());
-        content_p.insert("description".into(), "Text content to write".into());
-        props.insert("content".into(), serde_json::Value::Object(content_p));
-
-        let mut append_p = serde_json::Map::new();
-        append_p.insert("type".into(), "boolean".into());
-        append_p.insert(
-            "description".into(),
-            "If true, append to the file instead of overwriting".into(),
-        );
-        props.insert("append".into(), serde_json::Value::Object(append_p));
-
-        let mut schema = serde_json::Map::new();
-        schema.insert("type".into(), "object".into());
-        schema.insert("properties".into(), serde_json::Value::Object(props));
-        schema.insert(
-            "required".into(),
-            serde_json::Value::Array(vec!["path".into(), "content".into()]),
-        );
-        serde_json::Value::Object(schema)
+        tool_parameters_schema(&[
+            ToolSchemaProperty::new(
+                "path",
+                ToolSchemaPropertyType::String,
+                "Absolute or relative path to the file",
+                true,
+            ),
+            ToolSchemaProperty::new(
+                "content",
+                ToolSchemaPropertyType::String,
+                "Text content to write",
+                true,
+            ),
+            ToolSchemaProperty::new(
+                "append",
+                ToolSchemaPropertyType::Boolean,
+                "If true, append to the file instead of overwriting",
+                false,
+            ),
+        ])
     }
 
     async fn run(
@@ -370,10 +337,12 @@ impl SystemTool for ListDirTool {
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
-        object_schema(
-            &["path"],
-            &[("path", "Absolute or relative path to the directory")],
-        )
+        tool_parameters_schema(&[ToolSchemaProperty::new(
+            "path",
+            ToolSchemaPropertyType::String,
+            "Absolute or relative path to the directory",
+            true,
+        )])
     }
 
     async fn run(
@@ -415,6 +384,19 @@ mod tests {
             props["append"].get("type").unwrap().as_str().unwrap(),
             "boolean"
         );
+    }
+
+    #[test]
+    fn read_file_schema_preserves_owned_shape() {
+        let tool = ReadFileTool::default();
+        let schema = tool.parameters_schema();
+        assert_eq!(schema["type"], "object");
+        assert_eq!(schema["properties"]["path"]["type"], "string");
+        assert_eq!(
+            schema["properties"]["path"]["description"],
+            "Absolute or relative path to the file"
+        );
+        assert_eq!(schema["required"], serde_json::json!(["path"]));
     }
 
     #[tokio::test]

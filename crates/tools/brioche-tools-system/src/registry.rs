@@ -8,7 +8,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use brioche_core::{ActiveToolCall, ToolOutcome, ToolResultDTO};
-use brioche_shell_runtime::ToolExecutor;
+use brioche_shell_runtime::{ToolExecutor, openai_function_tool_schema};
 use tokio_util::sync::CancellationToken;
 
 // ---------------------------------------------------------------------------
@@ -211,18 +211,11 @@ impl SystemToolExecutor {
         self.tools
             .values()
             .map(|tool| {
-                let mut function = serde_json::Map::new();
-                function.insert("name".into(), serde_json::Value::String(tool.name()));
-                function.insert(
-                    "description".into(),
-                    serde_json::Value::String(tool.description()),
-                );
-                function.insert("parameters".into(), tool.parameters_schema());
-
-                let mut obj = serde_json::Map::new();
-                obj.insert("type".into(), serde_json::Value::String("function".into()));
-                obj.insert("function".into(), serde_json::Value::Object(function));
-                serde_json::Value::Object(obj)
+                openai_function_tool_schema(
+                    tool.name(),
+                    tool.description(),
+                    tool.parameters_schema(),
+                )
             })
             .collect()
     }

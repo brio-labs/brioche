@@ -10,6 +10,7 @@
 use std::collections::BTreeMap;
 use std::sync::RwLock;
 
+use brioche_shell_runtime::{ToolSchemaProperty, ToolSchemaPropertyType, tool_parameters_schema};
 use brioche_tools_system::{AllowList, ExecuteCommandTool, SystemTool, ToolError};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
@@ -39,8 +40,62 @@ pub struct ToolDescriptor {
     pub source: String,
 }
 
+impl ToolDescriptor {
+    /// Creates a descriptor for a built-in tool from typed schema metadata.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(P + T) where P is properties and T is tags. Allocates descriptor strings,
+    /// tag strings, and the JSON Schema object once.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
+    pub fn built_in(
+        id: &str,
+        name: &str,
+        description: &str,
+        category: &str,
+        tags: &[&str],
+        properties: &[ToolSchemaProperty],
+    ) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            description: description.into(),
+            parameters: tool_parameters_schema(properties),
+            category: category.into(),
+            tags: tags.iter().map(|tag| (*tag).into()).collect(),
+            enabled: true,
+            source: "built-in".into(),
+        }
+    }
+
+    /// Creates a descriptor for a user-extension tool at the JSON boundary.
+    ///
+    /// Refs: I-Shell-Runtime-OnlyIO
+    ///
+    /// # Complexity
+    /// O(T) where T is tag count. Clones the extension-owned schema because user
+    /// definitions remain the explicit arbitrary JSON extension boundary.
+    ///
+    /// # Panic / Safety
+    /// Never panics.
+    pub fn from_user_definition(user: &UserToolDefinition, enabled: bool) -> Self {
+        Self {
+            id: user.id.clone(),
+            name: user.name.clone(),
+            description: user.description.clone(),
+            parameters: user.parameters.clone(),
+            category: user.category.clone(),
+            tags: user.tags.clone(),
+            enabled,
+            source: "user-json".into(),
+        }
+    }
+}
+
 /// Extension trait for tool providers.
-///
 /// Refs: I-Shell-Runtime-OnlyIO
 pub trait ToolProvider: Send + Sync {
     /// Returns the extension metadata.
@@ -143,35 +198,9 @@ fn tool_schema(
     description: &str,
     category: &str,
     tags: &[&str],
-    required: &[&str],
-    properties: &[(&str, &str, &str)],
+    properties: &[ToolSchemaProperty],
 ) -> ToolDescriptor {
-    let mut props = serde_json::Map::new();
-    for (k, t, d) in properties {
-        let mut prop = serde_json::Map::new();
-        prop.insert("type".into(), serde_json::Value::String((*t).into()));
-        prop.insert("description".into(), serde_json::Value::String((*d).into()));
-        props.insert((*k).into(), serde_json::Value::Object(prop));
-    }
-    let mut parameters = serde_json::Map::new();
-    parameters.insert("type".into(), serde_json::Value::String("object".into()));
-    parameters.insert("properties".into(), serde_json::Value::Object(props));
-    if !required.is_empty() {
-        parameters.insert(
-            "required".into(),
-            serde_json::Value::Array(required.iter().map(|r| (*r).into()).collect()),
-        );
-    }
-    ToolDescriptor {
-        id: id.into(),
-        name: name.into(),
-        description: description.into(),
-        parameters: serde_json::Value::Object(parameters),
-        category: category.into(),
-        tags: tags.iter().map(|t| (*t).into()).collect(),
-        enabled: true,
-        source: "built-in".into(),
-    }
+    ToolDescriptor::built_in(id, name, description, category, tags, properties)
 }
 
 impl ToolRegistry {
@@ -224,8 +253,12 @@ impl ToolRegistry {
                 "Read the contents of a file",
                 "filesystem",
                 &["fs"],
-                &["path"],
-                &[("path", "string", "File path")],
+                &[ToolSchemaProperty::new(
+                    "path",
+                    ToolSchemaPropertyType::String,
+                    "File path",
+                    true,
+                )],
             ),
             tool_schema(
                 "write_file",
@@ -233,11 +266,25 @@ impl ToolRegistry {
                 "Write content to a file",
                 "filesystem",
                 &["fs"],
-                &["path", "content"],
                 &[
-                    ("path", "string", "File path"),
-                    ("content", "string", "File content"),
-                    ("append", "boolean", "Append to existing file"),
+                    ToolSchemaProperty::new(
+                        "path",
+                        ToolSchemaPropertyType::String,
+                        "File path",
+                        true,
+                    ),
+                    ToolSchemaProperty::new(
+                        "content",
+                        ToolSchemaPropertyType::String,
+                        "File content",
+                        true,
+                    ),
+                    ToolSchemaProperty::new(
+                        "append",
+                        ToolSchemaPropertyType::Boolean,
+                        "Append to existing file",
+                        false,
+                    ),
                 ],
             ),
             tool_schema(
@@ -246,8 +293,12 @@ impl ToolRegistry {
                 "List files in a directory",
                 "filesystem",
                 &["fs"],
-                &["path"],
-                &[("path", "string", "Directory path")],
+                &[ToolSchemaProperty::new(
+                    "path",
+                    ToolSchemaPropertyType::String,
+                    "Directory path",
+                    true,
+                )],
             ),
             tool_schema(
                 "execute_command",
@@ -255,10 +306,19 @@ impl ToolRegistry {
                 "Run a shell command",
                 "system",
                 &["shell"],
-                &["command"],
                 &[
-                    ("command", "string", "Shell command"),
-                    ("timeout_ms", "integer", "Timeout in milliseconds"),
+                    ToolSchemaProperty::new(
+                        "command",
+                        ToolSchemaPropertyType::String,
+                        "Shell command",
+                        true,
+                    ),
+                    ToolSchemaProperty::new(
+                        "timeout_ms",
+                        ToolSchemaPropertyType::Integer,
+                        "Timeout in milliseconds",
+                        false,
+                    ),
                 ],
             ),
             tool_schema(
@@ -267,8 +327,12 @@ impl ToolRegistry {
                 "Fetch content from a URL",
                 "web",
                 &["http"],
-                &["url"],
-                &[("url", "string", "URL to fetch")],
+                &[ToolSchemaProperty::new(
+                    "url",
+                    ToolSchemaPropertyType::String,
+                    "URL to fetch",
+                    true,
+                )],
             ),
         ]
     }
@@ -290,16 +354,10 @@ impl ToolProvider for ToolRegistry {
         let disabled = self.disabled.read()?;
         let user_tools = self.user_tools.read()?;
         for user in user_tools.iter() {
-            tools.push(ToolDescriptor {
-                id: user.id.clone(),
-                name: user.name.clone(),
-                description: user.description.clone(),
-                parameters: user.parameters.clone(),
-                category: user.category.clone(),
-                tags: user.tags.clone(),
-                enabled: !disabled.contains(&user.id),
-                source: "user-json".into(),
-            });
+            tools.push(ToolDescriptor::from_user_definition(
+                user,
+                !disabled.contains(&user.id),
+            ));
         }
         for tool in &mut tools {
             if disabled.contains(&tool.id) {
@@ -629,6 +687,54 @@ async fn execute_read_file(path: &str) -> Result<String, ToolError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn built_in_tool_descriptors_use_typed_schema_owner()
+    -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let tools = ToolRegistry::built_in_tools();
+
+        let read_file = tools
+            .iter()
+            .find(|tool| tool.id == "read_file")
+            .ok_or("missing read_file descriptor")?;
+        assert_eq!(read_file.source, "built-in");
+        assert_eq!(
+            read_file.parameters["required"],
+            serde_json::Value::Array(vec![serde_json::Value::String("path".into())])
+        );
+
+        let write_file = tools
+            .iter()
+            .find(|tool| tool.id == "write_file")
+            .ok_or("missing write_file descriptor")?;
+        assert_eq!(
+            write_file.parameters["properties"]["append"]["type"],
+            "boolean"
+        );
+        assert_eq!(
+            write_file.parameters["required"],
+            serde_json::Value::Array(vec![
+                serde_json::Value::String("path".into()),
+                serde_json::Value::String("content".into()),
+            ])
+        );
+
+        let execute_command = tools
+            .iter()
+            .find(|tool| tool.id == "execute_command")
+            .ok_or("missing execute_command descriptor")?;
+        assert_eq!(
+            execute_command.parameters["properties"]["timeout_ms"]["type"],
+            "integer"
+        );
+
+        let fetch_url = tools
+            .iter()
+            .find(|tool| tool.id == "fetch_url")
+            .ok_or("missing fetch_url descriptor")?;
+        assert_eq!(fetch_url.parameters["properties"]["url"]["type"], "string");
+        Ok(())
+    }
 
     #[tokio::test]
     async fn execute_command_benign_succeeds()
