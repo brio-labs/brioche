@@ -19,7 +19,7 @@ use brioche_governance_default::{
 use brioche_std::{
     AuditLogger, AuditLoggerState, CircuitBreaker, CircuitBreakerState, ContextOptimizer,
     ContextOptimizerState, GcPolicy, GcPolicyState, PendingTaskManager, PendingTaskState,
-    TokenTracker, TokenTrackerState, ToolTimeoutPolicy,
+    TokenRole, TokenTracker, TokenTrackerState, ToolTimeoutPolicy,
 };
 
 // ---------------------------------------------------------------------------
@@ -159,6 +159,56 @@ fn token_tracker_estimates_from_history() {
 }
 
 #[test]
+fn token_tracker_uses_typed_role_keys() {
+    let tracker = TokenTracker::new();
+    let mut ext = ExtensionStorage::new();
+    let history = vec![
+        ChatMessage::User {
+            content: "hello world".into(),
+        },
+        ChatMessage::Assistant {
+            content: "hi there".into(),
+            reasoning: None,
+            tool_calls: Vec::new(),
+        },
+    ];
+
+    assert!(
+        tracker.before_prediction(&history, &mut ext).is_ok(),
+        "before_prediction should succeed"
+    );
+
+    let state = ext.get_or_insert_default::<TokenTrackerState>();
+    assert_eq!(state.tokens_by_role.get(&TokenRole::User), Some(&3));
+    assert_eq!(state.tokens_by_role.get(&TokenRole::Assistant), Some(&2));
+}
+
+#[test]
+fn token_tracker_deserializes_legacy_string_role_keys() {
+    let state: TokenTrackerState = match serde_json::from_str(
+        r#"{
+            "total_input_tokens": 3,
+            "total_output_tokens": 2,
+            "prediction_cycles": 1,
+            "tokens_by_role": {
+                "user": 3,
+                "assistant": 2
+            },
+            "buffered_output_tokens": 2
+        }"#,
+    ) {
+        Ok(state) => state,
+        Err(err) => {
+            assert_eq!(1, 0, "deserialize legacy token roles failed: {err}");
+            return;
+        }
+    };
+
+    assert_eq!(state.tokens_by_role.get(&TokenRole::User), Some(&3));
+    assert_eq!(state.tokens_by_role.get(&TokenRole::Assistant), Some(&2));
+}
+
+#[test]
 fn token_tracker_increments_cycles() {
     let tracker = TokenTracker::new();
     let mut ext = ExtensionStorage::new();
@@ -228,6 +278,41 @@ fn context_optimizer_allows_below_threshold() {
         }
     };
     assert!(matches!(decision, PolicyDecision::Allow));
+}
+
+#[test]
+fn context_optimizer_state_serializes_without_static_config() {
+    let state = ContextOptimizerState {
+        summarizations_triggered: 7,
+    };
+    let value = match serde_json::to_value(state) {
+        Ok(value) => value,
+        Err(err) => {
+            assert_eq!(1, 0, "serialize failed: {err}");
+            return;
+        }
+    };
+    assert_eq!(
+        value.get("summarizations_triggered"),
+        Some(&serde_json::Value::from(7))
+    );
+    assert!(value.get("max_messages").is_none());
+    assert!(value.get("threshold_percent").is_none());
+
+    let migrated: ContextOptimizerState = match serde_json::from_str(
+        r#"{
+            "max_messages": 100,
+            "threshold_percent": 85,
+            "summarizations_triggered": 3
+        }"#,
+    ) {
+        Ok(state) => state,
+        Err(err) => {
+            assert_eq!(1, 0, "deserialize old shape failed: {err}");
+            return;
+        }
+    };
+    assert_eq!(migrated.summarizations_triggered, 3);
 }
 
 // ---------------------------------------------------------------------------
@@ -317,6 +402,38 @@ fn tool_result_formatter_passes_small_results() {
 
     let state = ext.get_or_insert_default::<ToolResultFormatterState>();
     assert_eq!(state.formatted_count, 1);
+}
+
+#[test]
+fn tool_result_formatter_state_serializes_without_static_config() {
+    let state = ToolResultFormatterState { formatted_count: 4 };
+    let value = match serde_json::to_value(state) {
+        Ok(value) => value,
+        Err(err) => {
+            assert_eq!(1, 0, "serialize failed: {err}");
+            return;
+        }
+    };
+
+    assert_eq!(
+        value.get("formatted_count"),
+        Some(&serde_json::Value::from(4))
+    );
+    assert!(value.get("max_result_bytes").is_none());
+
+    let migrated: ToolResultFormatterState = match serde_json::from_str(
+        r#"{
+            "max_result_bytes": 65536,
+            "formatted_count": 2
+        }"#,
+    ) {
+        Ok(state) => state,
+        Err(err) => {
+            assert_eq!(1, 0, "deserialize old shape failed: {err}");
+            return;
+        }
+    };
+    assert_eq!(migrated.formatted_count, 2);
 }
 
 // ---------------------------------------------------------------------------
@@ -427,6 +544,79 @@ fn gc_policy_respects_idle_flag() {
     let state = ext.get_or_insert_default::<GcPolicyState>();
     assert_eq!(state.gcs_triggered, 1);
     assert_eq!(state.cycles_since_gc, 0);
+}
+
+#[test]
+fn gc_policy_runtime_config_controls_existing_state() {
+    let mut ext = ExtensionStorage::new();
+    assert!(
+        ext.insert(brioche_core::SessionSnapshot {
+            current_state: brioche_core::AgentStateTag::Idle,
+            state_stack_depth: 0,
+        })
+        .is_ok()
+    );
+    assert!(
+        ext.insert(GcPolicyState {
+            cycles_since_gc: 2,
+            gcs_triggered: 0,
+        })
+        .is_ok()
+    );
+
+    let slow_policy = GcPolicy::with_cycle_interval(3);
+    let slow_decision = slow_policy.before_prediction(&[], &mut ext);
+    assert_eq!(slow_decision, Ok(PolicyDecision::Allow));
+
+    let fast_policy = GcPolicy::with_cycle_interval(2);
+    let fast_decision = fast_policy.before_prediction(&[], &mut ext);
+    assert_eq!(
+        fast_decision,
+        Ok(PolicyDecision::RequestEffect(Effect::TriggerGc))
+    );
+}
+
+#[test]
+fn gc_policy_state_serializes_without_static_config() {
+    let state = GcPolicyState {
+        cycles_since_gc: 5,
+        gcs_triggered: 1,
+    };
+    let value = match serde_json::to_value(state) {
+        Ok(value) => value,
+        Err(err) => {
+            assert_eq!(1, 0, "serialize failed: {err}");
+            return;
+        }
+    };
+
+    assert_eq!(
+        value.get("cycles_since_gc"),
+        Some(&serde_json::Value::from(5))
+    );
+    assert_eq!(
+        value.get("gcs_triggered"),
+        Some(&serde_json::Value::from(1))
+    );
+    assert!(value.get("cycle_interval").is_none());
+    assert!(value.get("only_when_idle").is_none());
+
+    let migrated: GcPolicyState = match serde_json::from_str(
+        r#"{
+            "cycle_interval": 10,
+            "cycles_since_gc": 6,
+            "gcs_triggered": 2,
+            "only_when_idle": true
+        }"#,
+    ) {
+        Ok(state) => state,
+        Err(err) => {
+            assert_eq!(1, 0, "deserialize old shape failed: {err}");
+            return;
+        }
+    };
+    assert_eq!(migrated.cycles_since_gc, 6);
+    assert_eq!(migrated.gcs_triggered, 2);
 }
 
 // ---------------------------------------------------------------------------

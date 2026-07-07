@@ -20,13 +20,17 @@ use crate::Priority;
 // ToolResultFormatter
 // ---------------------------------------------------------------------------
 
-/// Tool result formatting configuration.
+/// Tool result formatting telemetry.
+///
+/// The byte limit is runtime policy configuration owned by `ToolResultFormatter`;
+/// persisted state stores only replay-relevant observations.
 ///
 /// ## Snapshot strategy
-/// COW: full clone (~16 bytes). Two scalars.
+/// COW: full clone (~8 bytes). One scalar counter.
 #[derive(
     Clone,
     Debug,
+    Default,
     PartialEq,
     Eq,
     serde::Serialize,
@@ -34,19 +38,8 @@ use crate::Priority;
     brioche_core::BriocheExtensionType,
 )]
 pub struct ToolResultFormatterState {
-    /// Maximum size of a JSON result in bytes (0 = no limit).
-    pub max_result_bytes: u64,
     /// Total number of formatted results.
     pub formatted_count: u64,
-}
-
-impl Default for ToolResultFormatterState {
-    fn default() -> Self {
-        Self {
-            max_result_bytes: 65536,
-            formatted_count: 0,
-        }
-    }
 }
 
 /// Tool result formatter.
@@ -94,13 +87,23 @@ impl OnToolResult for ToolResultFormatter {
         Priority::TOOL_FORMATTER // Early formatter — apply limits before other plugins inspect
     }
 
+    /// Formats tool results using the runtime byte limit.
+    ///
+    /// # Complexity
+    /// O(r * b) where r = result count and b = result content bytes. Allocates
+    /// only when converting a result to text or replacing oversized output with
+    /// truncation metadata; does not copy static config into persisted state.
+    ///
+    /// # Errors
+    /// Returns `PluginError::Soft` if truncation metadata serialization fails.
+    ///
+    /// Refs: I-Core-ActiveToolCall, I-Eco-ExtensionOverMod
     fn on_tool_result(
         &self,
         results: &mut Vec<ToolResultDTO>,
         ext: &mut ExtensionStorage,
     ) -> PluginResult<()> {
         let state = ext.get_or_insert_default::<ToolResultFormatterState>();
-        state.max_result_bytes = self.max_result_bytes;
 
         for result in results {
             let content = tool_outcome_to_string(&result.outcome);
