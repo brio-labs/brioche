@@ -1034,14 +1034,6 @@ LARGE_FILE_EXEMPTIONS = {
         "Keeps derive parser, validation, and generated-token invariants together "
         "until issue #283 separates derive and attribute macro modules."
     ),
-    "crates/providers/brioche-provider-openai/src/client.rs": (
-        "Keeps OpenAI request, stream, and diagnostic error mapping together until "
-        "issue #279 splits the provider client by cohesive concern."
-    ),
-    "crates/runtime/brioche-shell-persistence/src/storage.rs": (
-        "Keeps Redb table layout and migration invariants together until issue #278 "
-        "splits persistence storage by concern."
-    ),
     "crates/runtime/brioche-shell-persistence/src/settings.rs": (
         "Keeps settings schema migration and persistence boundary invariants together "
         "until issue #284 makes the settings schema single-source and typed."

@@ -3153,6 +3153,28 @@ Treated as a transactional barrier. No following effect from the same batch, no 
 2. Each chunk segmented according to `MAX_INLINE_CHUNK` (4 KB), structured as `StreamEvent` with zero-copy `Bytes`.
 3. Network/SSE failure: `NetworkRecovery` (shell plugin) manages retries/backoff. As a last resort, emit `SystemSignal::NetworkUnavailable` and a terminal `StreamEvent::Done`; the kernel never receives a `NetworkFailure` and never remains in a streaming wait state.
 
+
+**OpenAI provider module layout:**
+
+The `brioche-provider-openai` client keeps operational concerns in separate
+modules under `client/`, while preserving the public `OpenAiLlmClient`
+contract:
+
+1. `client::errors` owns provider-local error taxonomy and maps to
+   `ShellError` only at the runtime boundary.
+2. `client::retry` owns transient HTTP retry policy and bounded error-body
+   reads.
+3. `client::request_flow` owns request payload assembly and the HTTP send loop.
+4. `client::stream` owns SSE accumulation, kernel/UI emission, and
+   assistant-history finalization.
+5. `client::diagnostics` is the only provider-client module that performs
+   filesystem diagnostic writes; request bodies are redacted and size-capped.
+6. `request` remains pure JSON request construction; `sse` remains line-level
+   SSE parsing.
+
+This boundary keeps pure request construction separate from async network I/O,
+terminal stream emission, and diagnostic side effects while preserving
+I-Core-ChunkBudget and I-Shell-Network-Signal.
 <br>
 
 **SaveSession / SavePluginBlob:**
@@ -3472,6 +3494,28 @@ pub struct SessionHeadDTO {
 ```
 
 <br>
+
+### 1.2 Persistence storage module layout
+
+The `brioche-shell-persistence::storage` facade is split by persistence
+protocol concern, not by type name:
+
+1. `schema` owns Redb table definitions shared by save, load, GC, and blob
+   writes.
+2. `error` owns `PersistenceError` and Redb conversions.
+3. `codec` owns deterministic DTO/message serialization, compression, delta
+   extraction, and the in-memory `SessionStore` bridge.
+4. `redb` owns database construction, transaction orchestration, and the
+   `Persistence` trait boundary.
+5. `load` owns full-session loading, lazy hydration, and sub-routine lookup
+   helpers.
+6. `gc` owns cancellation-aware compaction scans.
+7. `cache` owns the L1 visible / L2 LRU sub-routine cache policy.
+
+This layout preserves stable public exports while making each module cohesive
+under `docs/PHILOSOPHY.md` §3.3. It keeps schema, deterministic serialization,
+transaction mechanics, read-side hydration, and cache policy independently
+auditable without one-file-per-type fragmentation.
 
 ---
 
