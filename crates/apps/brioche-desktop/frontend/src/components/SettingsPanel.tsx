@@ -366,6 +366,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 		null,
 	);
 	const [search, setSearch] = useState("");
+	const [saveError, setSaveError] = useState<string | null>(null);
 
 	const [editingProtected, setEditingProtected] = useState<Set<string>>(new Set());
 

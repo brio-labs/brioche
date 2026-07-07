@@ -113,6 +113,16 @@ fn schema_default_modules() -> &'static BTreeMap<String, Value> {
         settings.modules
     })
 }
+
+fn get_from_modules(modules: &BTreeMap<String, Value>, key: &str) -> Option<Value> {
+    let mut parts = key.split('.');
+    let module = parts.next()?;
+    let mut value = modules.get(module)?;
+    for part in parts {
+        value = value.get(part)?;
+    }
+    Some(value.clone())
+}
 #[inline]
 #[allow(clippy::manual_unwrap_or, clippy::manual_unwrap_or_default)]
 fn option_or<T>(value: Option<T>, default: T) -> T {
@@ -202,13 +212,7 @@ impl Settings {
     /// # Panic / Safety
     /// Never panics.
     pub fn get(&self, key: &str) -> Option<Value> {
-        let mut parts = key.split('.');
-        let module = parts.next()?;
-        let mut value = self.modules.get(module)?;
-        for part in parts {
-            value = value.get(part)?;
-        }
-        Some(value.clone())
+        get_from_modules(&self.modules, key)
     }
 
     /// Sets a dotted value such as `chat.model`.
@@ -246,12 +250,12 @@ impl Settings {
         Ok(())
     }
 
-    /// Returns the working directory.
+    /// Returns a dotted value, falling back to the schema-derived default.
     ///
     /// Refs: I-Shell-Runtime-OnlyIO
     fn get_with_schema_default(&self, key: &str) -> Option<Value> {
         self.get(key)
-            .or_else(|| schema_default_modules().get(key).cloned())
+            .or_else(|| get_from_modules(schema_default_modules(), key))
     }
 
     /// Returns the working directory.
@@ -756,6 +760,79 @@ mod tests {
             allowed_command_schema.renderer,
             SettingsListRenderer::String
         );
+    }
+
+    #[test]
+    fn list_renderer_serializes_ipc_snake_case() -> Result<(), serde_json::Error> {
+        assert_eq!(
+            serde_json::to_value(SettingsListRenderer::Record)?,
+            Value::String("record".into())
+        );
+        assert_eq!(
+            serde_json::to_value(SettingsListRenderer::MemoryEndpoints)?,
+            Value::String("memory_endpoints".into())
+        );
+        assert_eq!(
+            serde_json::to_value(SettingsListRenderer::String)?,
+            Value::String("string".into())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn partial_modules_use_schema_defaults_for_missing_fields() -> Result<(), String> {
+        let defaults = Settings::default();
+        let expected_working_dir = defaults
+            .get("ui.working_dir")
+            .and_then(|value| value.as_str().map(ToString::to_string))
+            .ok_or_else(|| "default ui.working_dir missing".to_string())?;
+
+        let mut modules = BTreeMap::new();
+        modules.insert(
+            "ui".into(),
+            Value::Object(
+                [("stream".into(), Value::Bool(false))]
+                    .into_iter()
+                    .collect(),
+            ),
+        );
+        modules.insert(
+            "context".into(),
+            Value::Object(
+                [("enabled".into(), Value::Bool(false))]
+                    .into_iter()
+                    .collect(),
+            ),
+        );
+        modules.insert(
+            "chat".into(),
+            Value::Object(
+                [("provider".into(), Value::String("anthropic".into()))]
+                    .into_iter()
+                    .collect(),
+            ),
+        );
+        let settings = Settings { modules };
+
+        assert_eq!(settings.working_dir(), expected_working_dir);
+        assert!(!settings.context_enabled());
+        assert_eq!(settings.context_trigger_percentage(), 75);
+        assert_eq!(settings.context_target_percentage(), 50);
+        assert_eq!(settings.context_preserve_recent(), 6);
+        assert_eq!(settings.chat_provider(), "anthropic");
+        assert_eq!(settings.chat_model(), "qwen/qwen3.7-plus");
+        let endpoint_ids: Vec<_> = settings
+            .memory_endpoints()
+            .into_iter()
+            .map(|endpoint| endpoint.id)
+            .collect();
+        let default_endpoint_ids: Vec<_> = defaults
+            .memory_endpoints()
+            .into_iter()
+            .map(|endpoint| endpoint.id)
+            .collect();
+        assert_eq!(endpoint_ids, default_endpoint_ids);
+        Ok(())
     }
 
     #[test]

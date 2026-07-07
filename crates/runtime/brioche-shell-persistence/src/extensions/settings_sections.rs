@@ -61,6 +61,7 @@ pub enum SettingsListFieldType {
 ///
 /// Refs: I-Shell-Runtime-OnlyIO
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum SettingsListRenderer {
     /// Render as a table of object rows.
     #[default]
