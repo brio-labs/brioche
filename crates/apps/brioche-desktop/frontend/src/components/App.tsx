@@ -36,6 +36,11 @@ import MemoryPanel from "./MemoryPanel";
 import ProfilesPanel from "./ProfilesPanel";
 import ToolCallMessage from "./ToolCallMessage";
 import { useTauriSync } from "../hooks/useTauriSync";
+import {
+	IconToolbarButton,
+	SidePanel,
+	ToolbarButton,
+} from "./ui";
 
 interface PanelState {
 	left: boolean;
@@ -155,63 +160,57 @@ export default function App() {
 
 	return (
 		<div className="app flex flex-row h-screen w-screen overflow-hidden relative text-text-primary">
-			<div className={`flex flex-col bg-bg-1/85 backdrop-blur-md border-r border-border overflow-hidden transition-all duration-300 ease-out z-[1] max-[900px]:absolute max-[900px]:top-0 max-[900px]:bottom-0 max-[900px]:z-10 max-[900px]:left-0 ${panels.left ? "w-[280px] min-w-[280px] opacity-100" : "w-0 min-w-0 opacity-0 border-r-0 pointer-events-none"}`}>
+			<SidePanel open={panels.left} side="left">
 				<SessionSidebar />
-			</div>
+			</SidePanel>
 
 			<div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-transparent relative z-[1]">
 				<header className="header flex items-center justify-between px-4 h-[52px] bg-bg-1/70 backdrop-blur-md border-b border-border shrink-0 relative">
 					<div className="flex items-center gap-2">
-						<button
+						<IconToolbarButton
 							type="button"
-							className="w-8 h-8 flex items-center justify-center rounded bg-transparent text-text-muted hover:text-text-secondary hover:bg-bg-3 active:bg-bg-4 transition-all duration-200 cursor-pointer"
 							onClick={() => setPanels((p) => ({ ...p, left: !p.left }))}
 							title="Toggle left panel"
 						>
 							<MenuIcon className="w-4 h-4" />
-						</button>
+						</IconToolbarButton>
 						<span className="text-sm font-semibold text-text-secondary tracking-wider">Brioche</span>
 					</div>
 					<div className="flex items-center gap-2">
-						<button
+						<ToolbarButton
 							type="button"
-							className="flex items-center gap-2 px-3 py-2 bg-transparent hover:bg-bg-3 text-text-muted hover:text-text-secondary rounded text-[11px] font-medium tracking-wider transition-all duration-200 cursor-pointer"
 							onClick={() => setShowMemory(true)}
 							title="Memory"
 						>
 							<BrainIcon className="w-4 h-4" />
 							<span className="hidden lg:inline">Memory</span>
-						</button>
-						<button
+						</ToolbarButton>
+						<ToolbarButton
 							type="button"
-							className="flex items-center gap-2 px-3 py-2 bg-transparent hover:bg-bg-3 text-text-muted hover:text-text-secondary rounded text-[11px] font-medium tracking-wider transition-all duration-200 cursor-pointer"
 							onClick={() => setShowSkills(true)}
 							title="Skills"
 						>
 							<BookIcon className="w-4 h-4" />
 							<span className="hidden lg:inline">Skills</span>
-						</button>
-						<button
+						</ToolbarButton>
+						<ToolbarButton
 							type="button"
-							className="flex items-center gap-2 px-3 py-2 bg-transparent hover:bg-bg-3 text-text-muted hover:text-text-secondary rounded text-[11px] font-medium tracking-wider transition-all duration-200 cursor-pointer"
 							onClick={() => setShowProfiles(true)}
 							title="Profiles"
 						>
 							<UserIcon className="w-4 h-4" />
 							<span className="hidden lg:inline">Profiles</span>
-						</button>
-						<button
+						</ToolbarButton>
+						<ToolbarButton
 							type="button"
-							className="flex items-center gap-2 px-3 py-2 bg-transparent hover:bg-bg-3 text-text-muted hover:text-text-secondary rounded text-[11px] font-medium tracking-wider transition-all duration-200 cursor-pointer"
 							onClick={() => setShowTools(true)}
 							title="Toggle tools"
 						>
 							<WrenchIcon className="w-4 h-4" />
 							<span className="hidden lg:inline">Tools</span>
-						</button>
-						<button
+						</ToolbarButton>
+						<ToolbarButton
 							type="button"
-							className="flex items-center gap-2 px-3 py-2 bg-transparent hover:bg-bg-3 text-text-muted hover:text-text-secondary rounded text-[11px] font-medium tracking-wider transition-all duration-200 cursor-pointer"
 							onClick={() => {
 								clearMessages();
 								void sendMessage("/clear");
@@ -220,24 +219,22 @@ export default function App() {
 						>
 							<ClearIcon className="w-4 h-4" />
 							<span className="hidden lg:inline">Clear</span>
-						</button>
-						<button
+						</ToolbarButton>
+						<ToolbarButton
 							type="button"
-							className="flex items-center gap-2 px-3 py-2 bg-transparent hover:bg-bg-3 text-text-muted hover:text-text-secondary rounded text-[11px] font-medium tracking-wider transition-all duration-200 cursor-pointer"
 							onClick={() => setShowSettings(true)}
 							title="Settings"
 						>
 							<SettingsIcon className="w-4 h-4" />
 							<span className="hidden lg:inline">Settings</span>
-						</button>
-						<button
+						</ToolbarButton>
+						<IconToolbarButton
 							type="button"
-							className="w-8 h-8 flex items-center justify-center rounded bg-transparent text-text-muted hover:text-text-secondary hover:bg-bg-3 active:bg-bg-4 transition-all duration-200 cursor-pointer"
 							onClick={() => setPanels((p) => ({ ...p, right: !p.right }))}
 							title="Toggle right panel"
 						>
 							<MenuIcon className="w-4 h-4" />
-						</button>
+						</IconToolbarButton>
 					</div>
 				</header>
 
@@ -297,22 +294,20 @@ export default function App() {
 
 				<form className="input-bar flex gap-3 px-4 py-3 bg-bg-1/80 backdrop-blur-md border-t border-border shrink-0 relative" onSubmit={handleSubmit}>
 					<div className="flex items-center gap-2">
-						<button
+						<IconToolbarButton
 							type="button"
-							className="w-8 h-8 flex items-center justify-center rounded bg-transparent text-text-muted hover:text-text-secondary hover:bg-bg-3 active:bg-bg-4 transition-all duration-200 cursor-pointer"
 							onClick={handleAttach}
 							title="Attach file/folder"
 						>
 							<PaperclipIcon className="w-4 h-4" />
-						</button>
-						<button
+						</IconToolbarButton>
+						<IconToolbarButton
 							type="button"
-							className="w-8 h-8 flex items-center justify-center rounded bg-transparent text-text-muted hover:text-text-secondary hover:bg-bg-3 active:bg-bg-4 transition-all duration-200 cursor-pointer"
 							onClick={handleImage}
 							title="Send image"
 						>
 							<ImageIcon className="w-4 h-4" />
-						</button>
+						</IconToolbarButton>
 					</div>
 					<textarea
 						value={input}
@@ -336,9 +331,9 @@ export default function App() {
 				<Footer />
 			</div>
 
-			<div className={`flex flex-col bg-bg-1/85 backdrop-blur-md border-l border-border overflow-hidden transition-all duration-300 ease-out z-[1] max-[900px]:absolute max-[900px]:top-0 max-[900px]:bottom-0 max-[900px]:z-10 max-[900px]:right-0 ${panels.right ? "w-[280px] min-w-[280px] opacity-100" : "w-0 min-w-0 opacity-0 border-l-0 pointer-events-none"}`}>
+			<SidePanel open={panels.right} side="right">
 				<FileExplorer />
-			</div>
+			</SidePanel>
 
 			{showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
 			{showSkills && <SkillsPanel onClose={() => setShowSkills(false)} />}

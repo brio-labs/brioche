@@ -17,13 +17,13 @@ fn run_app(state: DesktopState) {
         .plugin(tauri_plugin_opener::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
-            commands::send_message,
-            commands::get_messages,
-            commands::clear_messages,
-            commands::list_sessions,
-            commands::switch_session,
-            commands::delete_session,
-            commands::new_session,
+            commands::session::send_message,
+            commands::session::get_messages,
+            commands::session::clear_messages,
+            commands::session::list_sessions,
+            commands::session::switch_session,
+            commands::session::delete_session,
+            commands::session::new_session,
             commands::get_settings,
             commands::set_settings,
             commands::read_directory,
@@ -63,8 +63,8 @@ fn run_app(state: DesktopState) {
             commands::add_user_tool,
             commands::remove_user_tool,
             // Attachment commands
-            commands::attach_reference,
-            commands::send_image,
+            commands::session::attach_reference,
+            commands::session::send_image,
         ])
         .build(tauri::generate_context!())
     {

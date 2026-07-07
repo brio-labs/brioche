@@ -15,6 +15,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 	MultiSelect,
+	ProtectedSettingsCard,
 } from "./ui";
 
 interface SettingsPanelProps {
@@ -599,11 +600,7 @@ function FieldEditor({
 	})();
 
 	return (
-		<div
-			className={`flex flex-col gap-2 ${
-				field.protected ? "p-3.5 bg-bg-2/20 border border-border/50 rounded-lg" : ""
-			}`}
-		>
+		<ProtectedSettingsCard protected={field.protected}>
 			{field.field_type !== "boolean" && (
 				<Label htmlFor={field.key}>{field.label}</Label>
 			)}
@@ -643,6 +640,6 @@ function FieldEditor({
 					{field.description}
 				</span>
 			)}
-		</div>
+		</ProtectedSettingsCard>
 	);
 }

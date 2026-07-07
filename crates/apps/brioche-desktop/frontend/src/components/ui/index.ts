@@ -7,12 +7,19 @@
 
 export { cn } from "./lib";
 export {
+	ActionRow,
 	Button,
 	Checkbox,
+	ContextMenuItem,
+	FormFieldStack,
+	IconToolbarButton,
 	Input,
 	Label,
+	ProtectedSettingsCard,
 	Separator,
+	SidePanel,
 	Textarea,
+	ToolbarButton,
 	type ButtonProps,
 	type InputProps,
 	type TextareaProps,
