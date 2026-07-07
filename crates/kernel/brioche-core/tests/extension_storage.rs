@@ -1,6 +1,6 @@
-//! Integration tests for `ExtensionStorage` and `BriocheExtensionType`.
+//! Integration tests for extension storage, rollback, and serialization contracts.
 //!
-//! Refs: I-Core-ExtensionType
+//! Refs: I-Core-ExtensionType, I-Core-Pure
 
 use std::any::{Any, TypeId};
 use std::collections::{BTreeMap, BTreeSet};
@@ -10,6 +10,8 @@ use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use brioche_core::{BriocheExtensionType, CycleRollbackPolicy, ExtVTable, ExtensionStorage};
 use proptest::prelude::*;
 use serde::{Deserialize, Serialize};
+
+// Extension type fixtures
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, BriocheExtensionType)]
 /// Test extension state for storage roundtrips.
@@ -36,6 +38,8 @@ pub struct TransientState {
     /// In-memory counter only.
     pub counter: u64,
 }
+
+// Hot/cold extension storage contract
 
 #[test]
 fn insert_and_get_mut_roundtrip() {
@@ -406,6 +410,8 @@ fn attach_rollback_policy_clears_tracking_when_replacing_policy() {
     assert_eq!(counter_b.load(AtomicOrdering::SeqCst), 1);
 }
 
+// Extension storage property contracts
+
 proptest! {
     #[test]
     fn prop_insert_get_mut_roundtrip(counter: u64, key: String, val: u64) {
@@ -433,6 +439,8 @@ proptest! {
         prop_assert_eq!(retrieved.counter, counter);
     }
 }
+
+// Deterministic serialization property contracts
 
 proptest! {
     #[test]

@@ -1,4 +1,4 @@
-//! Property tests for `transition()` — Sprint 18.
+//! Property tests for `transition()` invariants.
 //!
 //! Invariants verified:
 //! - `transition()` never panics for arbitrary valid inputs.
@@ -8,51 +8,17 @@
 //! Refs: I-Core-NoPanic, I-Core-Pure
 
 use brioche_core::{
-    AfterPrediction, AgentState, BeforePrediction, BriocheEngineBuilder, ChatMessage,
-    DecisionAggregator, Effect, EngineInput, ExecutionPath, ExtensionStorage,
-    MAX_STATE_STACK_DEPTH, OnInput, OnStreamEvent, OnToolCalls, OnToolResult, PluginResult,
-    PolicyDecision, Session, StreamAction, StreamEvent, SubRoutineHandle, SubRoutineLifecycleGuard,
-    ToolCallDescriptor, ToolResultDTO,
+    AfterPrediction, AgentState, BeforePrediction, BriocheEngineBuilder, ChatMessage, Effect,
+    EngineInput, ExecutionPath, ExtensionStorage, MAX_STATE_STACK_DEPTH, OnInput, OnStreamEvent,
+    OnToolCalls, OnToolResult, PluginResult, PolicyDecision, Session, StreamAction, StreamEvent,
+    SubRoutineHandle, ToolCallDescriptor, ToolResultDTO,
 };
 use proptest::prelude::*;
 
-// ---------------------------------------------------------------------------
-// Mock governance traits
-// ---------------------------------------------------------------------------
+mod common;
+use common::{MockDecisionAggregator, MockSubRoutineLifecycleGuard};
 
-struct MockDecisionAggregator;
-impl DecisionAggregator for MockDecisionAggregator {
-    type ExtensionStorage = ExtensionStorage;
-    type PluginError = brioche_core::PluginError;
-    type PolicyDecision = PolicyDecision;
-
-    fn aggregate_decisions(
-        &self,
-        _decisions: Vec<PolicyDecision>,
-        _ext: &mut ExtensionStorage,
-    ) -> PluginResult<PolicyDecision> {
-        Ok(PolicyDecision::Allow)
-    }
-}
-
-struct MockSubRoutineLifecycleGuard;
-impl SubRoutineLifecycleGuard for MockSubRoutineLifecycleGuard {
-    type Effect = Effect;
-    type PluginError = brioche_core::PluginError;
-    type Session = Session;
-    type SessionRegistry = brioche_core::SessionRegistry;
-    type SubRoutineHandle = SubRoutineHandle;
-
-    fn on_exit(
-        &self,
-        _handle: brioche_core::SubRoutineHandle,
-        _parent: &mut Session,
-        _registry: &mut brioche_core::SessionRegistry,
-    ) -> PluginResult<Vec<Effect>> {
-        Ok(vec![])
-    }
-}
-
+// Engine builders
 fn build_engine() -> brioche_core::BriocheEngine {
     BriocheEngineBuilder::new()
         .with_decision_aggregator(Box::new(MockDecisionAggregator))

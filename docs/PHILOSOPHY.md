@@ -139,6 +139,21 @@ Splitting code into more files does not make it cleaner. A module file should gr
 a file below ~60 lines of actual logic, it should probably be merged into a
 sibling module.
 
+#### Rule: Proc-Macro Entrypoints Are Not Implementation Boundaries
+Proc-macro crates must keep `#[proc_macro]`, `#[proc_macro_derive]`, and
+`#[proc_macro_attribute]` entrypoints in `lib.rs` because Rust requires those
+exports at the crate root. That requirement does **not** make `lib.rs` a
+catch-all implementation module.
+
+- Keep crate-level docs and proc-macro entrypoint functions in `lib.rs`.
+- Move parsing, validation, and code generation into cohesive modules by macro
+  family, such as derive implementation, plugin authoring macros, and offload
+  task macros.
+- Shared helpers belong near the macro family that owns the invariant they
+  enforce. Extract cross-family helpers only when at least two families use
+  the same logic and the helper name preserves the invariant context.
+
+
 #### Rule: Large Files Must Prove Cohesion
 A large file is allowed only when splitting it would hide an invariant, duplicate
 shared setup, or scatter an algorithm that must be reviewed as one unit. Size is
@@ -645,6 +660,26 @@ shape makes failures easier to audit than a split would.
 The checker may skip production cohesion rules for tests, but it must replace
 that skip with a test-fixture bloat rule that reports oversized suites with
 actionable split guidance.
+
+### 9.2 Test Suite Cohesion
+
+Integration tests must be grouped by observable contract or invariant domain,
+not by sprint chronology, implementation era, or a single broad API entrypoint.
+A failing test file should identify the broken invariant owner before the reader
+opens the file.
+
+- Core transition tests should separate state-machine basics, routing and plugin
+  order, governance interception, subroutine lifecycle, history edits, rollback
+  and COW behavior, production profile wiring, extension storage, and property
+  suites when those domains grow independently.
+- Shell runtime and persistence tests should separate construction/dispatch,
+  effect-loop behavior, backpressure, signal/event bus, watchdog and telemetry,
+  persistence modes, recovery paths, DTO conversion, storage protocol,
+  hydration, and determinism suites.
+- Shared test support modules are allowed only when at least two suites reuse the
+  same builder, mock, or fixture and the helper keeps invariant setup visible.
+- Sprint-number headings are stale process metadata; replace them with
+  contract-oriented headings before adding new cases.
 
 
 ---

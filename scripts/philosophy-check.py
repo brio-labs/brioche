@@ -1030,9 +1030,9 @@ LARGE_FILE_EXEMPTIONS = {
         "Keeps transition invariant regression coverage contiguous until issue #281 "
         "extracts invariant-domain suites."
     ),
-    "crates/kernel/brioche-macro/src/lib.rs": (
-        "Keeps derive parser, validation, and generated-token invariants together "
-        "until issue #283 separates derive and attribute macro modules."
+    "crates/kernel/brioche-macro/src/extension_type.rs": (
+        "Keeps derive attribute parsing, type scanning, and token generation "
+        "together so I-Core-ExtensionType validation spans are audited together."
     ),
     "crates/runtime/brioche-shell-persistence/src/settings.rs": (
         "Keeps settings schema migration and persistence boundary invariants together "
