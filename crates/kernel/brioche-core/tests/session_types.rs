@@ -1,5 +1,6 @@
-//! Book I — Sprint 3 integration tests: Session, AgentState, SessionRegistry,
-//! SessionSnapshot, `seal()`, and `HistoryEdit`.
+//! Integration tests for session type and history-edit contracts.
+//!
+//! Covers Session, AgentState, SessionRegistry, SessionSnapshot, `seal()`, and `HistoryEdit`.
 //!
 //! Invariants verified:
 //! - I-Core-Pure: deterministic construction and transitions.
@@ -15,7 +16,7 @@ use brioche_core::{
 };
 
 // ---------------------------------------------------------------------------
-// Session construction
+// Session construction contract
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -37,7 +38,7 @@ fn session_default_is_idle() {
 }
 
 // ---------------------------------------------------------------------------
-// State stack
+// AgentState stack contract
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -91,7 +92,7 @@ fn pop_empty_stack_is_rejected() {
 }
 
 // ---------------------------------------------------------------------------
-// SessionRegistry
+// Session registry contract
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -135,7 +136,7 @@ fn registry_handles_iterates_keys() {
 }
 
 // ---------------------------------------------------------------------------
-// seal()
+// Tool-call sealing contract
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -173,7 +174,7 @@ fn seal_empty_vec() {
 }
 
 // ---------------------------------------------------------------------------
-// SessionSnapshot
+// Session snapshot determinism contract
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -246,7 +247,7 @@ fn deterministic_state_machine_sequence() {
 }
 
 // ---------------------------------------------------------------------------
-// History edits
+// History edit validation contract
 // ---------------------------------------------------------------------------
 
 #[test]
