@@ -150,7 +150,7 @@ describe("FileExplorer", () => {
 
 		render(<FileExplorer />);
 
-		const empty = await screen.findByText("Empty");
+		const empty = await screen.findByText("Folder is empty");
 		fireEvent.contextMenu(empty);
 
 		await waitFor(() => {

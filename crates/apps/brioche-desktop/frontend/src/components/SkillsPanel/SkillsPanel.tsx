@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { useSkillsStore } from "../../stores/panelStores";
+import { useSkillsStore } from "../../stores/skillsStore";
 import type { Skill } from "../../ipc";
 import { BookOpen, Plus } from "lucide-react";
 import PanelOverlay, { SearchBar, CategoryFilter } from "../PanelOverlay";

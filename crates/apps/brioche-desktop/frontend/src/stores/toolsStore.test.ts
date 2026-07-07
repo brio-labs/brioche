@@ -16,7 +16,7 @@ vi.mock('../ipc', () => ({
     setToolEnabled: vi.fn(),
 }));
 
-import { useToolsStore } from './panelStores';
+import { useToolsStore } from './toolsStore';
 import { listTools, setToolEnabled } from '../ipc';
 
 const mockedListTools = vi.mocked(listTools);

@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { useSkillsStore } from "../../stores/panelStores";
+import { useSkillsStore } from "../../stores/skillsStore";
 
 /// Hook that owns the local state and handlers for the skill creation form.
 ///

@@ -1,13 +1,7 @@
-import { ModalOverlay } from "../PanelOverlay";
-import { MessageSearchInput } from "./MessageSearchInput";
-import { MessageSearchResults } from "./MessageSearchResults";
+import { ModalOverlay, ModalSearchHeader } from "../PanelOverlay";
+import { cn } from "../ui/lib";
 import { useMessageSearch } from "../../hooks/messageSearch";
 
-/**
- * Props for the message search overlay.
- *
- * Refs: I-Ui-OverlayCohesion
- */
 export interface MessageSearchProps {
 	messages: Array<{
 		id: string;
@@ -20,11 +14,81 @@ export interface MessageSearchProps {
 	onClose: () => void;
 }
 
-/**
- * Renders a search overlay for navigating messages by content.
- *
- * Refs: I-Ui-OverlayCohesion
- */
+interface MessageSearchResult {
+	id: string;
+	role: string;
+	preview: string;
+}
+
+function MessageSearchResultItem({
+	result,
+	isSelected,
+	onSelect,
+	onHover,
+}: {
+	result: MessageSearchResult;
+	isSelected: boolean;
+	onSelect: () => void;
+	onHover: () => void;
+}) {
+	return (
+		<div
+			className={cn(
+				"flex cursor-pointer items-start gap-3 rounded-sm px-4 py-4 text-sm text-fg-secondary transition-all hover:bg-accent/10 hover:text-fg-primary",
+				isSelected &&
+					"border-l-2 border-accent bg-accent/10 text-fg-primary",
+			)}
+			onClick={onSelect}
+			onMouseEnter={onHover}
+		>
+			<div className="w-12 shrink-0 pt-0.5">
+				<span className="text-xs font-bold uppercase tracking-wider text-fg-muted">
+					{result.role}
+				</span>
+			</div>
+			<div className="flex-1 leading-snug">{result.preview}</div>
+		</div>
+	);
+}
+
+function MessageSearchResults({
+	results,
+	query,
+	selectedIndex,
+	onSelect,
+	onHover,
+}: {
+	results: MessageSearchResult[];
+	query: string;
+	selectedIndex: number;
+	onSelect: (id: string) => void;
+	onHover: (index: number) => void;
+}) {
+	return (
+		<div className="flex-1 min-h-0 overflow-y-auto p-4">
+			{results.length === 0 && query.trim() && (
+				<div className="p-8 text-center text-sm text-fg-muted">
+					No messages found
+				</div>
+			)}
+			{results.map((result, idx) => (
+				<MessageSearchResultItem
+					key={result.id}
+					result={result}
+					isSelected={idx === selectedIndex}
+					onSelect={() => onSelect(result.id)}
+					onHover={() => onHover(idx)}
+				/>
+			))}
+			{results.length > 0 && (
+				<div className="mt-2 border-t border-border px-4 py-2 text-xs text-fg-muted">
+					{results.length} result{results.length !== 1 ? "s" : ""}
+				</div>
+			)}
+		</div>
+	);
+}
+
 export default function MessageSearch({
 	messages,
 	onJumpTo,
@@ -43,7 +107,7 @@ export default function MessageSearch({
 
 	return (
 		<ModalOverlay isOpen={isOpen} onClose={onClose}>
-			<MessageSearchInput
+			<ModalSearchHeader
 				query={query}
 				onChange={setQuery}
 				onKeyDown={handleKeyDown}

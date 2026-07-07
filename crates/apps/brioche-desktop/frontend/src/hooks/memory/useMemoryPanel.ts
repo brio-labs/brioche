@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { useMemoryStore } from "../../stores/panelStores";
+import { useMemoryStore } from "../../stores/memoryStore";
 
 /// Hook that owns the local form state and handlers for the memory creation panel.
 ///

@@ -1,24 +1,46 @@
 import { useEffect } from "react";
-import { useToolsStore, isUserTool } from "../../stores/panelStores";
+import { useToolsStore, isUserTool } from "../../stores/toolsStore";
 import type { ToolDescriptor } from "../../ipc";
 import PanelOverlay from "../PanelOverlay";
 import { Wrench, AlertTriangle, Terminal } from "lucide-react";
-import ToolListItem from "./ToolListItem";
 import { EmptyState } from "../ui";
 
-/// Props for the tools management panel.
-///
-/// Refs: I-Shell-Runtime-OnlyIO
 interface ToolsPanelProps {
 	onClose?: () => void;
 }
 
-/// Renders the tools panel with category grouping and enablement toggles.
-///
-/// Loads the available tool descriptors and lets users toggle which tools are
-/// active. Displays warnings when user-defined tools are disabled or enabled.
-///
-/// Refs: I-Shell-Runtime-OnlyIO
+function ToolListItem({
+	tool,
+	onToggle,
+}: {
+	tool: ToolDescriptor;
+	onToggle: (enabled: boolean) => void;
+}) {
+	return (
+		<div className="flex items-center justify-between gap-4 rounded-none border border-border bg-bg-elevated p-3 transition-all hover:border-border-hover">
+			<div className="flex min-w-0 flex-col gap-0.5">
+				<span className="font-mono text-xs font-semibold text-fg-primary">
+					{tool.name}
+				</span>
+				<span
+					className="truncate text-xs text-fg-secondary"
+					title={tool.description}
+				>
+					{tool.description}
+				</span>
+			</div>
+			<label className="flex shrink-0 items-center gap-2 py-1 text-xs text-fg-secondary select-none cursor-pointer [&_input]:rounded-sm [&_input]:border-border [&_input]:bg-bg-elevated [&_input]:text-accent [&_input]:cursor-pointer [&_input]:focus:ring-accent-glow">
+				<input
+					type="checkbox"
+					checked={tool.enabled}
+					onChange={(e) => onToggle(e.target.checked)}
+				/>
+				<span>{tool.enabled ? "On" : "Off"}</span>
+			</label>
+		</div>
+	);
+}
+
 export default function ToolsPanel({ onClose = () => {} }: ToolsPanelProps) {
 	const {
 		tools,

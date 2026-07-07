@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSettingsStore } from "../../stores/settingsStore";
 import {
   APPEARANCE_SETTINGS_SECTION,
   FALLBACK_SECTIONS,
-  useSettingsStore,
-} from "../../stores/settingsStore";
+} from "../../stores/settingsSections";
 import { setSettings, isTauri } from "../../ipc";
 import type { SettingsField, SettingsSection } from "../../ipc";
 import { getFieldValue } from "../../components/SettingsPanel/settingsUtils";
