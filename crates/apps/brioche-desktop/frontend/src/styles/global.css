@@ -248,7 +248,7 @@
     }
 
     body {
-        @apply bg-bg-base text-fg-primary h-screen overflow-hidden antialiased;
+        @apply bg-bg-base text-fg-primary h-screen overflow-hidden antialiased select-none;
         font-family: var(--font-ui);
     }
 }
