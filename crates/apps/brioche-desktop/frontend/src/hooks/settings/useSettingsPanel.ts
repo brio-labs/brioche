@@ -148,6 +148,15 @@ export function useSettingsPanel(
         setThemePreference(value);
         setThemeState(value);
       }
+      if (key === "chat.provider") {
+        if (value === "openai") {
+          updateSetting("chat.base_url", "https://api.openai.com/v1");
+        } else if (value === "openrouter") {
+          updateSetting("chat.base_url", "https://openrouter.ai/api/v1");
+        } else if (value === "anthropic") {
+          updateSetting("chat.base_url", "https://api.anthropic.com/v1");
+        }
+      }
     },
     [updateSetting, saveError],
   );

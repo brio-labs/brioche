@@ -54,14 +54,18 @@ export function SessionItem({ session, switchToSession, deleteSession }: Session
 							: "text-fg-secondary group-hover:text-fg-primary",
 					)}
 				>
-					{session.created_at
-						? new Date(session.created_at * 1000).toLocaleString(undefined, {
-								month: "short",
-								day: "numeric",
-								hour: "2-digit",
-								minute: "2-digit",
-							})
-						: session.id}
+					{session.title 
+						? session.title 
+						: (session.id === "draft" 
+							? "New Conversation"
+							: (session.created_at
+								? new Date(session.created_at * 1000).toLocaleString(undefined, {
+										month: "short",
+										day: "numeric",
+										hour: "2-digit",
+										minute: "2-digit",
+									})
+								: session.id))}
 				</div>
 			</div>
 

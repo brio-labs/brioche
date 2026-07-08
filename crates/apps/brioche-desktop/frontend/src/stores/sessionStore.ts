@@ -7,6 +7,7 @@ import type { SessionSort } from "../ipc";
 /// Refs: I-Ui-Session
 export interface Session {
 	id: string;
+	title?: string;
 	active: boolean;
 	created_at?: number;
 	updated_at?: number;
@@ -41,6 +42,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 	loadSessions: async () => {
 		try {
 			const sessions = await listSessions(get().sortMode);
+			// Keep draft if active
+			const currentId = get().currentSessionId;
+			if (currentId === "draft") {
+				const hasDraft = sessions.some((s) => s.id === "draft");
+				if (!hasDraft) {
+					sessions.unshift({ id: "draft", title: "New Conversation", active: true });
+				}
+				set({ sessions, currentSessionId: "draft" });
+				return;
+			}
 			const current = sessions.find((s) => s.active);
 			set({ sessions, currentSessionId: current?.id ?? null });
 		} catch (err: unknown) {
@@ -55,7 +66,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
 	switchToSession: async (id: string) => {
 		try {
-			await switchSession(id);
+			if (id !== "draft") {
+				await switchSession(id);
+			}
 			set((state) => ({
 				sessions: state.sessions.map((s) => ({
 					...s,
@@ -70,7 +83,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
 	deleteSession: async (id: string) => {
 		try {
-			await deleteSession(id);
+			if (id !== "draft") {
+				await deleteSession(id);
+			}
 			set((state) => ({
 				sessions: state.sessions.filter((s) => s.id !== id),
 			}));
@@ -81,22 +96,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
 	createSession: async () => {
 		try {
-			const id = await newSession();
-
-			// The backend may need a moment to persist the session before it
-			// appears in listSessions. Retry up to 3 times with a short delay.
-			let sessions: Awaited<ReturnType<typeof listSessions>> = [];
-			for (let attempt = 0; attempt < 3; attempt++) {
-				sessions = await listSessions(get().sortMode);
-				if (sessions.some((s) => s.id === id)) break;
-				await new Promise((r) => setTimeout(r, 150));
-			}
-
-			const current = sessions.find((s) => s.active);
-			set({ sessions, currentSessionId: current?.id ?? null });
-			return id;
+			const currentSessions = get().sessions.map(s => ({ ...s, active: false })).filter(s => s.id !== "draft");
+			currentSessions.unshift({
+				id: "draft",
+				title: "New Conversation",
+				active: true,
+			});
+			set({ sessions: currentSessions, currentSessionId: "draft" });
+			return "draft";
 		} catch (err: unknown) {
-			console.error("Failed to create session:", err);
+			console.error("Failed to set draft session:", err);
 			return null;
 		}
 	},

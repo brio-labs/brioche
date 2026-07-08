@@ -1308,6 +1308,8 @@ impl LlmClient for OpenAiLlmClient {
     async fn call_llm(&self, shell: &BriocheShell) -> Result<(), ShellError> {
         if let Err(err) = self.config.validate() {
             let _ = self.ui_tx.send(LlmChunk::Error(err.to_string()));
+            shell.send_input(EngineInput::LlmStream(StreamEvent::Done)).await?;
+            let _ = self.ui_tx.send(LlmChunk::Done);
             return Err(ShellError::EffectExecution(err.to_string()));
         }
 

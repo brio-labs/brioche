@@ -8,7 +8,7 @@ import ToolsPanel from "../ToolsPanel";
 import SettingsPanel from "../SettingsPanel";
 import SkillsPanel from "../SkillsPanel";
 import MemoryPanel from "../MemoryPanel";
-import ProfilesPanel from "../ProfilesPanel";
+
 import CommandPalette from "../CommandPalette";
 import MessageSearch from "../MessageSearch";
 import { TitleBar } from "../TitleBar";
@@ -24,7 +24,7 @@ export default function App() {
     showChat,
     showSettings,
     showSkills,
-    showProfiles,
+
     showMemory,
     showTools,
     showPalette,
@@ -41,7 +41,7 @@ export default function App() {
     toggleRightPanel,
     setShowSettings,
     setShowSkills,
-    setShowProfiles,
+
     setShowMemory,
     setShowTools,
     setShowPalette,
@@ -92,12 +92,7 @@ export default function App() {
       active: showSkills,
       onClick: () => setShowSkills(true),
     },
-    {
-      label: "Profiles",
-      icon: User,
-      active: showProfiles,
-      onClick: () => setShowProfiles(true),
-    },
+
     {
       label: "Tools",
       icon: Wrench,
@@ -187,12 +182,7 @@ export default function App() {
         {showSkills && (
           <SkillsPanel key="skills" onClose={() => setShowSkills(false)} />
         )}
-        {showProfiles && (
-          <ProfilesPanel
-            key="profiles"
-            onClose={() => setShowProfiles(false)}
-          />
-        )}
+
         {showMemory && (
           <MemoryPanel key="memory" onClose={() => setShowMemory(false)} />
         )}

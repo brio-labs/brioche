@@ -18,6 +18,8 @@ pub enum ChatRole {
     /// System-level instructions.
     #[default]
     System,
+    /// Error messages.
+    Error,
     /// Human user input.
     User,
     /// LLM-generated response.
@@ -166,8 +168,27 @@ async fn send_message_impl(
     let shell = manager.current_shell().ok_or("No active session")?.clone();
     let llm = manager.current_llm().ok_or("No active session")?.clone();
     let current_id = manager.current_id().to_string();
-    let rx = manager.take_llm_rx();
+    let rx = llm.subscribe();
+    
+    // Auto-generate title on first message
+    let mut updated_meta = false;
+    if let Some(mut meta) = manager.metadata(&current_id) {
+        if meta.title.is_none() {
+            let sanitized = trimmed.replace('\n', " ").replace('\r', "");
+            let mut title = sanitized.chars().take(40).collect::<String>();
+            if sanitized.chars().count() > 40 {
+                title.push_str("...");
+            }
+            meta.title = Some(title);
+            let _ = manager.insert_metadata(meta);
+            updated_meta = true;
+        }
+    }
+    
     drop(mgr);
+    if updated_meta {
+        let _ = app.emit("sessions-updated", ());
+    }
 
     // Push to LLM history
     llm.push_message(ChatMessage::User {
@@ -181,18 +202,9 @@ async fn send_message_impl(
         .map_err(|e| format!("Send error: {e}"))?;
 
     // Stream the assistant response to the frontend and auto-save when done.
-    if let Some(rx) = rx {
-        let app_clone = app.clone();
-        forward_llm_chunks(app_clone, rx).await;
-        persist_session(state).await?;
-    }
-
-    let _ = app.emit(
-        "chat-message",
-        ChatMessagePayload::from(ChatMessage::System {
-            content: format!("Sent to {}: {}", current_id, trimmed),
-        }),
-    );
+    let app_clone = app.clone();
+    forward_llm_chunks(app_clone, rx).await;
+    persist_session(state).await?;
 
     Ok(())
 }
@@ -243,9 +255,9 @@ async fn forward_llm_chunks(
                 tool_output: Some(output),
                 ..ChatMessagePayload::default()
             },
-            brioche_shell_runtime::LlmChunk::Done => continue,
+            brioche_shell_runtime::LlmChunk::Done => break,
             brioche_shell_runtime::LlmChunk::Error(err) => ChatMessagePayload {
-                role: ChatRole::System,
+                role: ChatRole::Error,
                 content: err,
                 ..ChatMessagePayload::default()
             },
@@ -434,6 +446,8 @@ fn print_help() -> String {
 pub struct SessionInfo {
     /// Session identifier.
     pub id: String,
+    /// Optional session title.
+    pub title: Option<String>,
     /// Whether this is the currently active session.
     pub active: bool,
     /// Creation timestamp in seconds since the UNIX epoch.
@@ -494,12 +508,14 @@ pub async fn list_sessions(
                 Some(meta) => meta,
                 None => SessionMetadata {
                     id: id.clone(),
+                    title: None,
                     created_at: 0,
                     workspace: String::new(),
                 },
             };
             SessionInfo {
                 id: id.clone(),
+                title: meta.title.clone(),
                 active: id == &current,
                 created_at: meta.created_at,
                 workspace: meta.workspace.clone(),
@@ -651,14 +667,16 @@ async fn load_session(app: &AppHandle, state: &DesktopState, id: &str) -> Result
 async fn load_session_impl(state: &DesktopState, id: &str) -> Result<Vec<ChatMessage>, String> {
     state.ensure_manager().await?;
     let factory = state.factory.read().await.clone();
-    match factory.redb.load_session(id).await {
-        Ok(None) => return Err(format!("Session '{}' not found.", id)),
+    let messages: Vec<ChatMessage> = match factory.redb.load_session(id).await {
+        Ok(None) => {
+            tracing::info!("Session '{id}' not found in redb, treating as empty session.");
+            Vec::new()
+        }
         Err(err) => return Err(format!("Load error: {err}")),
-        Ok(Some(_)) => {}
-    }
-    let messages: Vec<ChatMessage> = match factory.redb.load_messages_for_session(id).await {
-        Ok(msgs) => msgs.into_iter().map(|(_, m)| m).collect(),
-        Err(err) => return Err(format!("Load messages error: {err}")),
+        Ok(Some(_)) => match factory.redb.load_messages_for_session(id).await {
+            Ok(msgs) => msgs.into_iter().map(|(_, m)| m).collect(),
+            Err(err) => return Err(format!("Load messages error: {err}")),
+        },
     };
     let workspace = factory.settings.working_dir();
     let handle = crate::commands::shell::build_shell(id, &factory)

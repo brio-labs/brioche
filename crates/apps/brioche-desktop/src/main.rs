@@ -37,13 +37,7 @@ fn run_app(state: DesktopState) {
             commands::set_memory,
             commands::delete_memory,
             commands::search_memories,
-            // Profile commands
-            commands::list_profiles,
-            commands::get_profile,
-            commands::create_profile,
-            commands::switch_profile,
-            commands::delete_profile,
-            commands::update_profile,
+            // Profile commands removed
             // Skills commands
             commands::list_skills,
             commands::get_skill_content,

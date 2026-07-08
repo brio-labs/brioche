@@ -155,13 +155,26 @@ impl SettingsSectionProvider for ChatModelSection {
                     description: Some("LLM provider backend".into()),
                     placeholder: None,
                     options: vec![
-                        SettingsOption { value: "openai".into(), label: "OpenAI".into() },
+                        SettingsOption { value: "openai".into(), label: "OpenAI (or OpenAI-compatible)".into() },
                         SettingsOption { value: "openrouter".into(), label: "OpenRouter".into() },
-                        SettingsOption { value: "anthropic".into(), label: "Anthropic".into() },
+                        SettingsOption { value: "anthropic".into(), label: "Anthropic (or Anthropic-compatible)".into() },
                     ],
                     default_value: Some(serde_json::Value::String("openrouter".into())),
                     protected: false,
                     keywords: vec![],
+                },
+                SettingsField {
+                    key: "chat.base_url".into(),
+                    label: "Base URL".into(),
+                    field_type: FieldType::String,
+                    description: Some("API endpoint (required for custom providers)".into()),
+                    placeholder: Some("https://openrouter.ai/api/v1".into()),
+                    options: vec![],
+                    default_value: Some(serde_json::Value::String(
+                        "https://openrouter.ai/api/v1".into(),
+                    )),
+                    protected: false,
+                    keywords: vec!["endpoint".into(), "url".into()],
                 },
                 SettingsField {
                     key: "chat.model".into(),
@@ -184,19 +197,6 @@ impl SettingsSectionProvider for ChatModelSection {
                     default_value: Some(serde_json::Value::String(String::new())),
                     protected: false,
                     keywords: vec!["key".into(), "token".into()],
-                },
-                SettingsField {
-                    key: "chat.base_url".into(),
-                    label: "Base URL".into(),
-                    field_type: FieldType::String,
-                    description: Some("Custom API endpoint".into()),
-                    placeholder: Some("https://openrouter.ai/api/v1".into()),
-                    options: vec![],
-                    default_value: Some(serde_json::Value::String(
-                        "https://openrouter.ai/api/v1".into(),
-                    )),
-                    protected: false,
-                    keywords: vec!["endpoint".into(), "url".into()],
                 },
                 SettingsField {
                     key: "chat.max_tokens".into(),

@@ -17,7 +17,7 @@ export interface AppState {
   showChat: boolean;
   showSettings: boolean;
   showSkills: boolean;
-  showProfiles: boolean;
+
   showMemory: boolean;
   showTools: boolean;
   showPalette: boolean;
@@ -35,7 +35,7 @@ export interface AppState {
   toggleRightPanel: () => void;
   setShowSettings: (value: boolean) => void;
   setShowSkills: (value: boolean) => void;
-  setShowProfiles: (value: boolean) => void;
+
   setShowMemory: (value: boolean) => void;
   setShowTools: (value: boolean) => void;
   setShowPalette: (value: boolean) => void;
@@ -49,7 +49,7 @@ export function useAppState(): AppState {
 
   const [showSettings, setShowSettings] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
-  const [showProfiles, setShowProfiles] = useState(false);
+
   const [showMemory, setShowMemory] = useState(false);
   const [showTools, setShowTools] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
@@ -172,7 +172,7 @@ export function useAppState(): AppState {
     showChat,
     showSettings,
     showSkills,
-    showProfiles,
+
     showMemory,
     showTools,
     showPalette,
@@ -190,7 +190,7 @@ export function useAppState(): AppState {
     toggleRightPanel,
     setShowSettings,
     setShowSkills,
-    setShowProfiles,
+
     setShowMemory,
     setShowTools,
     setShowPalette,

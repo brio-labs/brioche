@@ -57,6 +57,8 @@ pub struct SessionEntry {
 pub struct SessionMetadata {
     /// Session identifier.
     pub id: String,
+    /// Optional conversation title.
+    pub title: Option<String>,
     /// Creation timestamp in seconds since the UNIX epoch.
     pub created_at: u64,
     /// Workspace / working directory associated with the session.
@@ -76,6 +78,7 @@ impl SessionMetadata {
     pub fn new(id: impl Into<String>, workspace: impl Into<String>) -> Self {
         Self {
             id: id.into(),
+            title: None,
             created_at: system_time_secs(),
             workspace: workspace.into(),
         }
@@ -522,11 +525,9 @@ pub async fn persist_session(state: &DesktopState) -> Result<(), String> {
     };
 
     // Flush head + message delta via the shared session store.
-    factory
-        .redb
-        .save_session(&session_id)
-        .await
-        .map_err(|e| format!("Failed to persist session {session_id}: {e}"))?;
+    if let Err(e) = factory.redb.save_session(&session_id).await {
+        tracing::debug!("Failed to persist session {session_id} to redb: {e}");
+    }
 
     // Refresh metadata so the session remains discoverable after a crash.
     let mut manager_guard = state.manager.write().await;

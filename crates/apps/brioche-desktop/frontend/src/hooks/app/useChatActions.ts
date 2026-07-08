@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useChatStore, type ChatMessage } from "../../store";
+import { useSessionStore } from "../../stores/sessionStore";
 import { open } from "@tauri-apps/plugin-dialog";
 import { sendMessage, attachReference, sendImage } from "../../ipc";
 
@@ -100,6 +101,13 @@ export function useChatActions(): ChatActions {
         addMessage("user", finalContent.trim());
 
         if (!abortRef.current) {
+          const { currentSessionId, loadSessions } = useSessionStore.getState();
+          let targetSession = currentSessionId;
+          if (targetSession === "draft") {
+            const { newSession } = await import("../../ipc");
+            targetSession = await newSession();
+            await loadSessions(); // This will pull the new session in
+          }
           await sendMessage(finalContent.trim());
         }
       } catch (err) {

@@ -56,22 +56,7 @@ export interface MemoryEndpoint {
 	scope: string | null;
 }
 
-/// A chat model profile.
-///
-/// Refs: I-Ui-Profile
-export interface Profile {
-	name: string;
-	display_name: string;
-	description: string | null;
-	provider: string;
-	model: string;
-	api_key: string;
-	system_prompt: string | null;
-	temperature: number | null;
-	max_tokens: number | null;
-	created_at: number;
-	is_default: boolean;
-}
+
 
 /// A reusable skill definition.
 ///
@@ -361,59 +346,7 @@ export async function searchMemories(query: string): Promise<MemoryEntry[]> {
 	return invoke("search_memories", { query });
 }
 
-/// Lists all configured chat profiles.
-///
-/// Refs: I-Ui-Ipc-ListProfiles
-export async function listProfiles(): Promise<Profile[]> {
-	return invoke("list_profiles");
-}
 
-/// Fetches a profile by name, or the default profile when omitted.
-///
-/// Refs: I-Ui-Ipc-GetProfile
-export async function getProfile(name?: string): Promise<Profile | null> {
-	return invoke("get_profile", { name: name || null });
-}
-
-/// Creates a new chat profile.
-///
-/// Refs: I-Ui-Ipc-CreateProfile
-export async function createProfile(
-	name: string,
-	displayName: string,
-	provider: string,
-	model: string,
-	apiKey: string,
-): Promise<void> {
-	return invoke("create_profile", {
-		name,
-		displayName,
-		provider,
-		model,
-		apiKey,
-	});
-}
-
-/// Switches the active chat profile.
-///
-/// Refs: I-Ui-Ipc-SwitchProfile
-export async function switchProfile(name: string): Promise<void> {
-	return invoke("switch_profile", { name });
-}
-
-/// Deletes the chat profile with the given name.
-///
-/// Refs: I-Ui-Ipc-DeleteProfile
-export async function deleteProfile(name: string): Promise<void> {
-	return invoke("delete_profile", { name });
-}
-
-/// Updates an existing chat profile.
-///
-/// Refs: I-Ui-Ipc-UpdateProfile
-export async function updateProfile(profile: Profile): Promise<void> {
-	return invoke("update_profile", { profile });
-}
 
 /// Lists all available skills.
 ///
